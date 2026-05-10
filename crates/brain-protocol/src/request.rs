@@ -17,12 +17,11 @@
 //!
 //! [rkyv]: https://docs.rs/rkyv/0.7
 
-use rkyv::ser::serializers::AllocSerializer;
-use rkyv::ser::Serializer as _;
-use rkyv::{Archive, Deserialize, Infallible, Serialize};
+use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::error::ProtocolError;
 use crate::opcode::Opcode;
+use crate::rkyv_codec::{from_rkyv_bytes, to_rkyv_bytes};
 
 // ---------------------------------------------------------------------------
 // Helper aliases for spec-domain primitive types as carried on the wire.
@@ -608,48 +607,6 @@ impl RequestBody {
             other => return Err(ProtocolError::UnknownOpcode(other.as_u8())),
         })
     }
-}
-
-// ---------------------------------------------------------------------------
-// rkyv plumbing.
-// ---------------------------------------------------------------------------
-
-/// Initial scratch-buffer size for the rkyv `AllocSerializer`. This is
-/// just the *starting* allocation; rkyv grows the buffer as needed, so
-/// 256 covers the typical small request without forcing reallocation
-/// while staying small for ping-sized payloads.
-const RKYV_SCRATCH: usize = 256;
-
-/// Serialize a single rkyv-archivable value into a freshly allocated byte
-/// vector. Encoding never fails for our request types (no IO, just memory
-/// allocation), so we panic on the unreachable error path.
-fn to_rkyv_bytes<T>(value: &T) -> Vec<u8>
-where
-    T: Serialize<AllocSerializer<RKYV_SCRATCH>>,
-{
-    let mut serializer = AllocSerializer::<RKYV_SCRATCH>::default();
-    serializer
-        .serialize_value(value)
-        .expect("invariant: rkyv allocator is infallible for our request types");
-    serializer.into_serializer().into_inner().to_vec()
-}
-
-/// Validate `bytes` as an archived `T` and deserialize an owned copy.
-/// Both validation and deserialization failures are surfaced as
-/// [`ProtocolError::MalformedPayload`].
-fn from_rkyv_bytes<T>(bytes: &[u8]) -> Result<T, ProtocolError>
-where
-    T: Archive,
-    T::Archived: for<'a> rkyv::CheckBytes<rkyv::validation::validators::DefaultValidator<'a>>
-        + Deserialize<T, Infallible>,
-{
-    let archived = rkyv::check_archived_root::<T>(bytes)
-        .map_err(|e| ProtocolError::MalformedPayload(format!("rkyv check failed: {e}")))?;
-    archived
-        .deserialize(&mut Infallible)
-        .map_err(|_: core::convert::Infallible| {
-            ProtocolError::MalformedPayload("rkyv deserialize failed".into())
-        })
 }
 
 // ---------------------------------------------------------------------------

@@ -276,8 +276,8 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 - Streaming sequence: encode `[Next, Next, Complete]`, decode, verify ordering preserved.
 
 **Done when:**
-- [ ] All response opcodes have variants and codecs.
-- [ ] Streaming protocol tested (at least encoding/decoding shape; multi-frame transport is Phase 9).
+- [x] All response opcodes have variants and codecs.
+- [x] Streaming protocol tested (at least encoding/decoding shape; multi-frame transport is Phase 9).
 
 **Pitfalls:**
 - A `Complete` response can carry a final payload (per §09). Don't assume it's empty.

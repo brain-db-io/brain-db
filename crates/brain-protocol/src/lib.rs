@@ -19,12 +19,15 @@ pub mod frame;
 pub mod header;
 pub mod opcode;
 pub mod request;
+pub mod response;
+mod rkyv_codec;
 
 pub use error::{ErrorCategory, ErrorCode, ProtocolError};
 pub use frame::Frame;
 pub use header::{Header, VERSION};
 pub use opcode::Opcode;
 pub use request::RequestBody;
+pub use response::ResponseBody;
 
 /// Frame magic bytes. Identifies a Brain frame on the wire.
 pub const MAGIC: [u8; 4] = *b"BRN0";
