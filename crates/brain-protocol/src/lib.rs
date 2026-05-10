@@ -4,8 +4,7 @@
 //! TLS). Frames have a fixed 32-byte header, a magic of `b"BRN0"`, header
 //! and payload CRC32C, and a 24-bit payload length cap (16 MiB).
 //!
-//! See `spec/03_wire_protocol/` for the authoritative format. The stub below
-//! pins constants and the `Opcode` enum; full encode/decode lands in Phase 1.
+//! See `spec/03_wire_protocol/` for the authoritative format.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -14,17 +13,25 @@
 )]
 #![forbid(unsafe_code)]
 
+pub mod error;
+pub mod header;
+
+pub use error::ProtocolError;
+pub use header::{Header, VERSION};
+
 /// Frame magic bytes. Identifies a Brain frame on the wire.
 pub const MAGIC: [u8; 4] = *b"BRN0";
 
 /// Fixed frame header size in bytes.
 pub const HEADER_SIZE: usize = 32;
 
-/// Maximum payload size (16 MiB), enforced by the 24-bit length field.
+/// Maximum payload size (16 MiB - 1), enforced by the 24-bit length field.
 pub const MAX_PAYLOAD_BYTES: usize = (1 << 24) - 1;
 
 /// Wire-protocol opcodes. Numeric values are stable per
 /// `spec/03_wire_protocol/05_opcodes.md`. Do NOT renumber.
+///
+/// Note: this is a partial set; Task 1.3 replaces it with the full table.
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 #[repr(u8)]
 pub enum Opcode {

@@ -73,13 +73,13 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 - `magic_bytes_match`: `assert_eq!(&MAGIC, b"BRN0")`.
 
 **Done when:**
-- [ ] Module compiles and tests pass.
-- [ ] `bytemuck::Pod` derive works (no padding holes — verify by reading `mem::size_of` vs sum of fields).
-- [ ] `Header::new` computes a CRC that `validate` accepts.
+- [x] Module compiles and tests pass.
+- [x] `bytemuck::Pod` derive works (no padding holes — verify by reading `mem::size_of` vs sum of fields).
+- [x] `Header::new` computes a CRC that `validate` accepts.
 
 **Pitfalls:**
 - `repr(C, packed)` makes field access on references unsafe. Always copy out of the struct or use `addr_of!`.
-- Endianness: the spec uses **little-endian** for multi-byte fields (per §03). Use `u16::to_le_bytes` etc. when serializing.
+- Endianness: the spec uses **big-endian** for multi-byte fields (spec §03/03 §1, §8). Use `u16::to_be_bytes` etc. when serializing. *(Earlier draft of this doc said "little-endian"; corrected against spec.)*
 - Don't fold the payload CRC into the header CRC — they're separate per spec.
 
 ---
