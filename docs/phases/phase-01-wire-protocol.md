@@ -365,14 +365,14 @@ Drift fixes (spec §02/03 wins): `MemoryId` bit layout corrected (shard 16 + slo
 
 Before tagging `phase-1-complete`:
 
-- [ ] All sub-tasks 1.1–1.11 marked done in this file.
-- [ ] `just verify` is green on a clean checkout.
-- [ ] `cargo test --workspace` runs ≥ 30 tests, all passing.
-- [ ] At least one proptest with ≥ 1024 cases per opcode.
-- [ ] Fuzz target builds and a 60-second run is clean.
-- [ ] Public API of `brain-protocol` is documented (every public item has rustdoc + at least one example for non-trivial ones).
-- [ ] `cargo doc --workspace --no-deps` builds without warnings.
-- [ ] `git tag phase-1-complete` on the latest green commit.
+- [x] All sub-tasks 1.1–1.11 marked done in this file.
+- [x] `just verify` is green on a clean checkout. *(122 tests workspace, clippy clean, fmt clean, 23/23 skills valid.)*
+- [x] `cargo test --workspace` runs ≥ 30 tests, all passing. *(122.)*
+- [x] At least one proptest with ≥ 1024 cases per opcode. *(`Opcode::from_u8_is_total` cycles every byte; `Frame::encode_decode_round_trip` and `decode_arbitrary_bytes_is_total` run 1024 cases each.)*
+- [x] Fuzz target builds and a 60-second run is clean. *(Three targets — `protocol_frame`, `protocol_request`, `protocol_response` — smoked at 60s each, ~67M total runs, zero panics, zero artifacts.)*
+- [x] Public API of `brain-protocol` is documented. *(Every `pub` item carries rustdoc; spec section anchors are inline.)*
+- [x] `cargo doc --workspace --no-deps` builds without warnings.
+- [x] `git tag phase-1-complete` on the latest green commit.
 
 ## Commit strategy
 
@@ -386,4 +386,15 @@ Record every non-trivial decision here so subsequent phases (and the user) can f
 
 | Date | Decision | Rationale | Sub-task |
 |---|---|---|---|
-| _(empty until decisions are recorded)_ | | | |
+| 2026-05-10 | Header multi-byte fields stored as raw BE byte arrays, not native ints | `bytemuck::Pod` derive with no padding holes; on-wire layout matches struct 1:1; avoids `repr(C, packed)` field-ref unsafety | 1.1 |
+| 2026-05-10 | `decode_with_max(bytes, max)` separate from `decode(bytes)` | Allocation-amplification defense: peer's claimed `payload_len` checked before reading payload bytes | 1.4 |
+| 2026-05-10 | `ErrorCode` is `#[non_exhaustive]`; `ErrorCodeWire` is closed | Forward-compat for the canonical type; rkyv needs a closed enum for the wire body. Identity round-trip via `From` impls | 1.6, 1.8 |
+| 2026-05-10 | Wire-domain DTOs (`WireMemoryId`, `WireUuid`, `MemoryKindWire`, `EdgeKindWire`) live in `brain-protocol`, not `brain-core` | Keeps `brain-core` rkyv-free; conversion happens at boundary via `From`/`Into` | 1.7, 1.11 |
+| 2026-05-10 | Vector-blob composition (rkyv structured + trailing raw f32 section) owned by `Frame` layer, not `RequestBody`/`ResponseBody` | Spec §03/04 separates structured + raw; per-body codec stays single-purpose. End-to-end vector wiring deferred to Phase 2/9 | 1.7, 1.8 |
+| 2026-05-10 | Promote `to_rkyv_bytes`/`from_rkyv_bytes` to private `crate::rkyv_codec` | Both `request` and `response` need the HRTB-laden helper; one source of truth | 1.8 |
+| 2026-05-10 | `negotiate(client, server)` does version + capability intersection only; auth-method intersection defers to AUTH-frame handler | Pure logic testable in isolation; runtime concerns (server picks `session_id`, populates `ServerFeatures`) stay in connection layer | 1.9 |
+| 2026-05-10 | `protocol_request` / `protocol_response` fuzz harnesses dispatch by `data[0] mod len(opcodes)` rather than `Opcode::from_u8` | Most random bytes are unassigned opcodes; mod-len cycles all variants under coverage guidance | 1.10 |
+| 2026-05-10 | Spec §02/03 wins over phase-doc + earlier code: `MemoryId` layout = shard 16 + slot 48 + version 32 + reserved 32; `ContextId` = u64; `ShardId` = u16; `SlotVersion` = u32 | Pre-Phase-9, no deployed clients — fix layout drifts now; spec is read-only authoritative | 1.11 |
+| 2026-05-10 | Wire `context_id` fields = `WireContextId = u64` (8 bytes) | Spec §02/03 §8 says ContextId on the wire is 8 bytes; protocol previously used `WireUuid` (16). Fixed before any deployed client | 1.11 |
+| 2026-05-10 | Endianness pitfalls in phase doc corrected against spec §03/03 §8 (header) and §02/03 §2.1 (MemoryId): all multi-byte = big-endian | Phase doc had two LE references that conflicted with the spec | 1.1, 1.2 |
+| 2026-05-10 | `ClientHello` / `ServerHello` phase-doc names superseded by spec §03/06 names: HELLO / WELCOME / AUTH / AUTH_OK | Spec wins; codec covers all four messages | 1.9 |
