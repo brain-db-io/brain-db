@@ -115,7 +115,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 **Pitfalls:**
 - `unsafe` is required here. Each block needs a `// SAFETY:` comment.
-- mmap remap on Linux: prefer `mremap(2)` if the platform allows; otherwise unmap + remap. Spec may pin one.
+- mmap remap: use `mremap(2)` with `MAY_MOVE` (Linux-only; spec §05/03 pins this). On remap failure, halt the shard with `Corruption` (invariant #7).
 - Don't store `&mut Slot` borrows across calls that might grow the arena — they'd dangle.
 
 ---
