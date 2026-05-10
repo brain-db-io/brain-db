@@ -38,11 +38,11 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ## Sub-tasks
 
-### Task 2.1 — `Lsn` newtype and `WalRecord` framing
+### Task 2.1 — `Lsn` newtype and `WalRecord` framing ✅
 
 **Reads:** `spec/05_storage_arena_wal/05_wal_records.md`
 
-**Writes:** `crates/brain-storage/src/wal/record.rs`
+**Writes:** `crates/brain-storage/src/wal/record.rs`, `crates/brain-storage/src/wal/kinds.rs`
 
 **What to build:**
 - `pub struct Lsn(u64)` with `next()`, ordering, `Display`.
@@ -50,8 +50,8 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 - Encode/decode for the on-disk layout (length prefix, kind byte, payload, CRC) per spec.
 
 **Done when:**
-- [ ] Round-trip tests for every `WalRecordKind`.
-- [ ] Truncated-record detection: a partial record at end-of-stream returns `Truncated`, not a parse error.
+- [x] Round-trip tests for every `WalRecordKind`.
+- [x] Truncated-record detection: a partial record at end-of-stream returns `Truncated`, not a parse error.
 
 **Pitfalls:** torn writes — the decoder must distinguish "ran out of bytes mid-record" (truncated, normal at tail) from "bytes looked complete but CRC failed" (corruption).
 
