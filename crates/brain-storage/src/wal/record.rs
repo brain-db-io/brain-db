@@ -202,6 +202,35 @@ impl WalRecord {
             consumed: total,
         })
     }
+
+    /// Build a `WalRecord` from a typed payload.
+    ///
+    /// Convenience for writers: take a `WalPayload`, encode its bytes, set
+    /// the matching `kind` discriminator. The framing layer handles CRC.
+    #[must_use]
+    pub fn from_typed(
+        lsn: Lsn,
+        flags: u8,
+        timestamp_ns: u64,
+        agent_id_lo64: u64,
+        payload: &crate::wal::payload::WalPayload,
+    ) -> Self {
+        Self {
+            lsn,
+            kind: payload.kind(),
+            flags,
+            timestamp_ns,
+            agent_id_lo64,
+            payload: payload.encode_to_bytes(),
+        }
+    }
+
+    /// Decode the typed payload from this record's bytes.
+    pub fn typed_payload(
+        &self,
+    ) -> Result<crate::wal::payload::WalPayload, crate::wal::payload::WalPayloadError> {
+        crate::wal::payload::WalPayload::decode(self.kind, &self.payload)
+    }
 }
 
 /// Result of [`WalRecord::decode_one`].
@@ -462,5 +491,30 @@ mod tests {
     fn header_size_constant_matches_spec() {
         assert_eq!(HEADER_LEN, 32);
         assert_eq!(FOOTER_LEN, 8);
+    }
+
+    #[test]
+    fn typed_payload_round_trips_through_framing() {
+        // End-to-end: WalPayload → WalRecord::from_typed → encode → decode
+        // → WalRecord::typed_payload → original. This is the bridge writers
+        // and readers will actually use; the per-layer tests above prove
+        // each piece, this proves they compose.
+        use crate::wal::payload::{ReclaimPayload, WalPayload};
+
+        let payload = WalPayload::Reclaim(ReclaimPayload {
+            slot_id: 0xCAFE,
+            old_version: 7,
+            new_version: 8,
+        });
+        let record = WalRecord::from_typed(Lsn(1), 0, 1234, 0xAA, &payload);
+        assert_eq!(record.kind, WalRecordKind::Reclaim);
+
+        let buf = record.encode();
+        let DecodeOutcome::Record { record: back, .. } = WalRecord::decode_one(&buf).unwrap()
+        else {
+            panic!("expected Record");
+        };
+        assert_eq!(back, record);
+        assert_eq!(back.typed_payload().unwrap(), payload);
     }
 }

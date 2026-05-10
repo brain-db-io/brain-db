@@ -6,9 +6,17 @@
 //! subsequent sub-tasks (2.6–2.10).
 
 pub mod kinds;
+pub mod payload;
 pub mod record;
 
 pub use kinds::{WalRecordKind, ALL_KINDS};
+pub use payload::{
+    CheckpointBeginPayload, CheckpointEndPayload, ConsolidatePayload, EdgePayload,
+    EmbeddingModelFp, EncodePayload, ForgetMode, ForgetPayload, ForgetReason, LinkPayload,
+    MigrateEmbeddingPayload, ReclaimPayload, SalienceReason, SalienceUpdate, TxnAbortPayload,
+    TxnBeginPayload, TxnCommitPayload, UnlinkPayload, UpdateContextPayload, UpdateKindPayload,
+    UpdateSaliencePayload, WalPayload, WalPayloadError, VECTOR_DIMS_MAX,
+};
 pub use record::{
     DecodeOutcome, Lsn, WalRecord, WalRecordError, FOOTER_LEN, HEADER_LEN, MAX_PAYLOAD,
 };

@@ -57,19 +57,17 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ---
 
-### Task 2.2 — `WalRecordKind` enum
+### Task 2.2 — Typed `WalPayload` per spec §05/05 ✅
 
 **Reads:** `spec/05_storage_arena_wal/05_wal_records.md`
 
-**Writes:** `crates/brain-storage/src/wal/kinds.rs`
+**Writes:** `crates/brain-storage/src/wal/payload.rs` (and small bridge in `record.rs`)
 
-**What to build:**
-- One variant per record type per spec: `EncodeMemory`, `Tombstone`, `LinkEdge`, `UnlinkEdge`, `Checkpoint`, `SlotReclaim`, etc.
-- Each carries the spec's payload schema (rkyv-serialized).
+**Design note:** rather than retrofit data variants onto the discriminator-only `WalRecordKind` enum from 2.1 (which would conflate the wire byte with the typed meaning and invalidate the framing tests), the typed layer lives in a parallel `WalPayload` enum. `WalPayload::kind() -> WalRecordKind` and `WalRecord::from_typed` / `WalRecord::typed_payload` bridge the two layers. Spec §05/05's "rkyv-serialized" prescription is replaced with hand-encoded LE byte layouts that match the spec's §§5–16 byte tables exactly; rkyv's generated layouts wouldn't match the spec's prescribed field order.
 
 **Done when:**
-- [ ] Every spec'd kind has a variant.
-- [ ] Per-variant payload round-trip tested.
+- [x] Every spec'd kind has a variant (15 of 15).
+- [x] Per-variant payload round-trip tested.
 
 ---
 
