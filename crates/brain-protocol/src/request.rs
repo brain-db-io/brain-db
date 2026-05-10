@@ -91,10 +91,12 @@ pub enum PlanStrategy {
     AttractorRollout = 3,
 }
 
-/// Spec §07/4 — plan endpoint specification.
+/// Spec §07/4 — plan endpoint specification. Variant names mirror the
+/// spec's `ByMemoryId` / `ByText` / `ByVector` discriminator naming.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
+#[allow(clippy::enum_variant_names)]
 pub enum PlanState {
     ByMemoryId(WireMemoryId),
     ByText(String),
