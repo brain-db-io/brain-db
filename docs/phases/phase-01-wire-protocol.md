@@ -165,9 +165,9 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 - `decode_rejects_oversize_payload`.
 
 **Done when:**
-- [ ] All seven test cases pass.
-- [ ] `encode` and `decode` are inverses for valid frames.
-- [ ] Errors match the variants in spec §10.
+- [x] All seven test cases pass.
+- [x] `encode` and `decode` are inverses for valid frames.
+- [x] Errors match the variants in spec §10.
 
 **Pitfalls:**
 - Empty payload is valid. Header still has its CRC; payload CRC is over empty bytes (well-defined CRC of empty input).

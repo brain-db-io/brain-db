@@ -18,6 +18,10 @@ use crate::{MAGIC, MAX_PAYLOAD_BYTES};
 pub const VERSION: u8 = 1;
 
 /// 32-byte frame header. Layout matches spec §03/03 §1 exactly.
+///
+/// `Eq`/`PartialEq` are implemented by hand below — deriving them on a
+/// `repr(C, packed)` struct fails because the derive macro takes field
+/// references, which packed layout disallows.
 #[repr(C, packed)]
 #[derive(Clone, Copy, Debug, Pod, Zeroable)]
 pub struct Header {
@@ -50,6 +54,16 @@ const _: () = {
     assert!(core::mem::align_of::<Header>() == 1);
 };
 
+impl PartialEq for Header {
+    fn eq(&self, other: &Self) -> bool {
+        let a: &[u8; 32] = bytemuck::cast_ref(self);
+        let b: &[u8; 32] = bytemuck::cast_ref(other);
+        a == b
+    }
+}
+
+impl Eq for Header {}
+
 impl Header {
     /// Build a new header for the given opcode/flags/stream/payload, computing
     /// and storing the header CRC32C.
@@ -77,8 +91,17 @@ impl Header {
             payload_crc32c: [0; 4],
             reserved_b: [0; 8],
         };
-        h.header_crc32c = compute_header_crc(&h).to_be_bytes();
+        h.seal();
         h
+    }
+
+    /// Recompute the header CRC32C and store it in `header_crc32c`.
+    /// Call this after mutating any header field other than `header_crc32c`
+    /// itself — e.g. after the frame encoder writes `payload_len` and
+    /// `payload_crc32c`.
+    pub fn seal(&mut self) {
+        self.header_crc32c = [0; 4];
+        self.header_crc32c = compute_header_crc(self).to_be_bytes();
     }
 
     /// Validate per spec §03/03 §4.1: magic, version, reserved zeroness,

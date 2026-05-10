@@ -27,4 +27,11 @@ pub enum ProtocolError {
     /// An opcode byte didn't match any known opcode.
     #[error("unknown opcode: 0x{0:02X}")]
     UnknownOpcode(u8),
+    /// Stored payload CRC32C doesn't match the recomputed value.
+    #[error("bad payload crc32c")]
+    BadPayloadCrc,
+    /// Input ran out before a full frame could be decoded
+    /// (need more bytes for the header or for the declared payload).
+    #[error("truncated frame: have {have} bytes, need {need}")]
+    Truncated { have: usize, need: usize },
 }

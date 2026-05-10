@@ -15,10 +15,12 @@
 
 pub mod crc;
 pub mod error;
+pub mod frame;
 pub mod header;
 pub mod opcode;
 
 pub use error::ProtocolError;
+pub use frame::Frame;
 pub use header::{Header, VERSION};
 pub use opcode::Opcode;
 
