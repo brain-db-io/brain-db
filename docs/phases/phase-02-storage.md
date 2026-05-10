@@ -168,19 +168,21 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ---
 
-### Task 2.7 — `WalReader` over a directory of segments
+### Task 2.7 — `WalReader` over a directory of segments ✅
 
-**Reads:** `spec/05_storage_arena_wal/05_wal_records.md`, `spec/05_storage_arena_wal/08_recovery.md`
+**Reads:** `spec/05_storage_arena_wal/05_wal_records.md` §§1, 17; `08_recovery.md` §§4, 10.
 
-**Writes:** `crates/brain-storage/src/wal/reader.rs`
+**Writes:** `crates/brain-storage/src/wal/reader.rs` (and `wal/mod.rs` re-exports)
 
-**What to build:**
-- `pub struct WalReader { ... }` — opens all segments in a directory, sorts by ID.
-- `impl Iterator for WalReader { type Item = Result<WalRecord> }` — streams records in LSN order.
-- Handles truncated tail: if the last record is partial, the iterator ends cleanly (not as an error).
+**What was built:**
+- `WalReader::open(dir, shard_uuid)` — lists `*.wal` files, parses `segment_seq` from filenames (strict 10-digit zero-padded), validates each header (magic `"BWAL"` / format_version / CRC `[0..48]` / shard_uuid / filename-vs-header `segment_seq` cross-check), sorts by `segment_seq`, validates the seq sequence is contiguous (spec §05/08 §10.1).
+- `impl Iterator<Item = Result<WalRecord, WalReadError>>` — lazy-loads each segment into a `Vec<u8>` and decodes via `WalRecord::decode_one`. Strict LSN ordering checked at every record + at every segment boundary (spec §05/08 §4).
+- Tail-vs-mid-segment rule (the load-bearing distinction): `Truncated` or `CrcMismatch` at the end of the **last** segment ⇒ clean iterator end (`None`, with a `tracing::info!` log); same outcomes on any earlier segment ⇒ `MidSegmentCorruption` error (spec §10.3). `UnknownRecordType` / `NonZeroReserved` / `PayloadTooLarge` always error.
+- `FusedIterator` impl so callers can rely on `next` returning `None` after the first `None`/`Err`.
+- `last_decoded_lsn()` / `next_expected_lsn()` accessors for the recovery driver to pick up.
 
 **Done when:**
-- [ ] Round-trip: write 1000 records, read them back, all match.
+- [x] Round-trip: write 1000 records, read them back, all match (`write_1000_records_and_read_back` — the load-bearing test). Plus 14 other tests covering open failures, multi-segment streaming, tail truncation, mid-segment corruption (both truncation and CRC), and LSN ordering across segments.
 - [ ] Truncate file mid-record; reader stops at the last good record.
 
 ---

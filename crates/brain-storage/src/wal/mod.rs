@@ -7,6 +7,7 @@
 
 pub mod kinds;
 pub mod payload;
+pub mod reader;
 pub mod record;
 pub mod segment;
 
@@ -18,6 +19,7 @@ pub use payload::{
     TxnBeginPayload, TxnCommitPayload, UnlinkPayload, UpdateContextPayload, UpdateKindPayload,
     UpdateSaliencePayload, WalPayload, WalPayloadError, VECTOR_DIMS_MAX,
 };
+pub use reader::{SegmentInfo, WalReadError, WalReader};
 pub use record::{
     DecodeOutcome, Lsn, WalRecord, WalRecordError, FOOTER_LEN, HEADER_LEN, MAX_PAYLOAD,
 };
