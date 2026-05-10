@@ -45,6 +45,7 @@ compile_error!(
 );
 
 pub mod arena;
+pub mod recovery;
 pub mod wal;
 
 /// Slot size in bytes, per `spec/05_storage_arena_wal/02_arena_layout.md`.

@@ -232,25 +232,32 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ---
 
-### Task 2.10 — Recovery driver
+### Task 2.10 — Recovery driver ✅
 
-**Reads:** `spec/05_storage_arena_wal/08_recovery.md`, `spec/15_failure_recovery/02_crash_recovery.md`
+**Reads:** `spec/05_storage_arena_wal/08_recovery.md`, `09_checkpointing.md` §§2–3, `spec/15_failure_recovery/02_crash_recovery.md` §§4–6.
 
-**Writes:** `crates/brain-storage/src/recovery.rs`
+**Writes:** `crates/brain-storage/src/recovery.rs` (and `lib.rs` for the `pub mod`).
 
-**What to build:**
-- `pub fn recover(arena_path, wal_dir, metadata_sink: &mut impl MetadataSink) -> Result<RecoveryReport>`
-- Algorithm per spec:
-  1. Open arena and metadata-sink.
-  2. Read last checkpoint marker → `durable_lsn`.
-  3. Replay WAL records with `lsn > durable_lsn`; for each, apply to metadata-sink (idempotent) and update arena slots.
-  4. Stop on torn-tail (acceptable) or CRC failure (halt with `Corruption`).
-- `MetadataSink` is a trait; real impl in Phase 3, fake impl here for testing.
+**What was built:**
+- `MetadataSink` trait — single `apply(lsn, payload)` method plus `durable_lsn()`. Idempotency is the sink's responsibility. `brain-metadata` will plug in the redb impl in Phase 3.
+- `InMemoryMetadataSink` — in-process test sink (records every applied `(lsn, payload)` in a `BTreeMap`, deduped by LSN).
+- `RecoveryReport { records_replayed, records_skipped, records_discarded, next_lsn }`.
+- `recover(arena, wal_dir, shard_uuid, sink) -> Result<(RecoveryReport, SlotAllocator)>` — opens a `WalReader`, iterates in strict LSN order, skips records ≤ `durable_lsn`, maintains a TXN buffer per spec §05/08 §6, writes the arena (vector + slot metadata), calls `sink.apply`, rebuilds the slot allocator at the end.
+- Arena application for `Encode` / `Forget` / `Reclaim` / `Consolidate` / `MigrateEmbedding`. Other kinds are metadata-only.
+- Vector dimension check (rejects records whose `vector.len() != 384` and non-empty).
+- TXN state machine: `TxnBegin` enters in-txn mode, records buffer until `TxnCommit` (apply all) or `TxnAbort` (discard); partial transaction at end-of-WAL is discarded.
+
+**Key design calls** (rationale in `.claude/plans/phase-02-task-10.md`):
+- One `apply` method on `MetadataSink`, not one per kind. Smaller trait surface.
+- Arena writes happen inside `recover`, not behind a second sink trait.
+- `SlotAllocator` rebuilt at the end via `rebuild_from_arena`.
+- Full `WalRecord` threaded through `apply` so slot timestamps come from the record's `timestamp_ns` — makes recovery deterministic across re-runs.
 
 **Done when:**
-- [ ] Recovery on a clean shutdown is a no-op (no records past durable_lsn).
-- [ ] Recovery after a kill replays the WAL and matches the pre-kill state.
-- [ ] Recovery is idempotent (running twice produces the same state).
+- [x] Recovery on a clean shutdown is a no-op (empty WAL → 0 replayed) — `empty_wal_recovery_is_noop` + `all_records_below_durable_lsn_are_skipped`.
+- [x] Recovery after writes replays the WAL — `replay_after_write_matches_writer_state` (20 records via `Wal::append`, all 20 visible after `recover`, allocator state matches).
+- [x] Recovery is idempotent — `recovery_is_idempotent` (two recover() runs on the same WAL produce identical reports + sink state).
+- [x] Plus: torn-tail tolerance, ENCODE/FORGET/RECLAIM arena effects, complete + partial TXN, vector-dim and out-of-range error paths.
 
 ---
 

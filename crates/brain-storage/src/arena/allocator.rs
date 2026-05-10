@@ -38,6 +38,7 @@ use crate::arena::slot::flags;
 use brain_core::SlotVersion;
 
 /// Per-shard slot allocator.
+#[derive(Debug)]
 pub struct SlotAllocator {
     /// Slots that were used and freed. LIFO for cache locality and to match
     /// spec §05/07 §1 ("pop the head").
