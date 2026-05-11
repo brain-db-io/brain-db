@@ -259,6 +259,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
+ "criterion",
  "lru",
  "parking_lot",
  "serde",
