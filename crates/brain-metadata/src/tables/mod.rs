@@ -5,6 +5,7 @@
 //! [`crate::schema`]).
 
 pub mod agent;
+pub mod checkpoint;
 pub mod context;
 pub mod edge;
 pub mod idempotency;

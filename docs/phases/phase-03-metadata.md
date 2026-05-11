@@ -150,10 +150,26 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 **Mid-flight observation.** `ReadableTable` import is needed for `.get()` on `&mut Table` (write txns, e.g. inside `unit_key_round_trips`) but **not** on `ReadOnlyTable` from read txns (inherent method in redb v4). Updated next_lsn.rs's test imports accordingly; model_fingerprint.rs's tests only read via ReadOnlyTable and don't need it. Clippy caught the unused import.
 
-### Task 3.9 — Checkpoint table
-**Reads:** `spec/07_metadata_graph/02_table_layout.md`, `spec/05_storage_arena_wal/09_checkpointing.md`
-**Writes:** `crates/brain-metadata/src/tables/checkpoint.rs`
-**Done when:** `durable_lsn` persists across reopens.
+### Task 3.9 — `checkpoints` table ✅
+**Reads:** `spec/05_storage_arena_wal/09_checkpointing.md` §2 (full struct + table shape); `spec/07_metadata_graph/02_table_layout.md` §1 row 11.
+**Writes:** `crates/brain-metadata/src/tables/checkpoint.rs` (new), `crates/brain-metadata/src/tables/mod.rs` (add `pub mod checkpoint;`).
+
+**What was built (the 13th and final spec'd table — 13 of 13):**
+- `CHECKPOINTS_TABLE: TableDefinition<u64, CheckpointMeta>` — keyed by `checkpoint_id` (monotonic per spec §2).
+- `CheckpointMeta` — rkyv-derived row with the six u64 fields spec §05/09 §2 prescribes: `checkpoint_id`, `durable_lsn`, `arena_capacity_at_checkpoint`, `metadata_version_at_checkpoint`, `started_at_unix_nanos`, `completed_at_unix_nanos`. Time fields suffixed `_unix_nanos` per the established 3.x convention. `CheckpointMeta::new` constructor.
+- `latest(&ReadOnlyTable) -> Result<Option<CheckpointMeta>, StorageError>` — returns the row with the highest `checkpoint_id` (the recovery target per spec §2) in O(log N) via `iter().next_back()`. Returns `None` on empty.
+- Name choice: `CheckpointMeta` rather than `Checkpoint` (collides with brain-storage's WAL `Checkpoint` opcode) or the spec catalog's `CheckpointInfo` (inconsistent with this crate's row-naming pattern).
+
+**Out of scope (composition):**
+- `From<&CheckpointReport>` conversion from brain-storage's 2.12 type → 3.11 (`MetadataSink::apply(CheckpointEnd)`) where the schema-version source is in scope.
+- Retention sweep (delete checkpoints older than the recovery target) — Phase 8 worker per spec §05/09 §6.
+- Recovery handshake (read `latest()`, replay WAL after `durable_lsn`) — 3.11.
+
+**Mid-flight observation.** Clippy's `doc-lazy-continuation` lint fired on a wrapped paragraph in the module docstring. Restructured the spec references as an explicit bullet list — readable in rustdoc and lint-clean.
+
+**Done when:** [x] 9 tests: CRUD, all-fields-spot-check round-trip (catches silent field reorder), update-overwrites, missing-key, multiple-checkpoints-coexist, **`latest_returns_max_id`** with out-of-order inserts (the recovery-target + u64-ordering pin), `latest_returns_none_on_empty`, `latest_after_update`, type_name v1 marker. Total in brain-metadata: 82 tests.
+
+**🎯 Phase 3 spec-catalog tables: 13 of 13.** Remaining sub-tasks (3.10–3.12) are pure composition.
 
 ### Task 3.10 — `MetadataDb` public type
 **Reads:** `spec/07_metadata_graph/08_transactions.md`
