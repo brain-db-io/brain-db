@@ -21,8 +21,8 @@ use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_planner::{
     execute, plan_encode, plan_forget, plan_path, plan_reason, plan_recall, EncodeAck, EncodeOp,
-    ExecError, ExecutionResult, ExecutorContext, ForgetAck, ForgetOp, ForgetOutcome,
-    PlannerContext, SharedMetadataDb, WriterError, WriterHandle,
+    ExecutionResult, ExecutorContext, ForgetAck, ForgetOp, ForgetOutcome, PlannerContext,
+    SharedMetadataDb, WriterError, WriterHandle,
 };
 use brain_protocol::request::{
     EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, ObservationInput, PlanBudget,
@@ -211,6 +211,22 @@ impl WriterHandle for FakeWriterHandle {
             state.forget_seen.insert(op.request_id, ack);
             Ok(ack)
         })
+    }
+
+    fn submit_link<'a>(
+        &'a self,
+        _: brain_planner::LinkOp,
+    ) -> Pin<Box<dyn Future<Output = Result<brain_planner::LinkAck, WriterError>> + Send + 'a>>
+    {
+        Box::pin(async move { Err(WriterError::Internal("fake writer: link unused".into())) })
+    }
+
+    fn submit_unlink<'a>(
+        &'a self,
+        _: brain_planner::UnlinkOp,
+    ) -> Pin<Box<dyn Future<Output = Result<brain_planner::UnlinkAck, WriterError>> + Send + 'a>>
+    {
+        Box::pin(async move { Err(WriterError::Internal("fake writer: unlink unused".into())) })
     }
 }
 

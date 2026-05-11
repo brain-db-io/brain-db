@@ -1,23 +1,27 @@
-//! Integration tests for `handle_plan` (sub-task 7.5).
+//! Integration tests for `handle_plan` (sub-task 7.5; refactored in
+//! 7.8 to insert edges through the wire LINK path).
 //!
 //! Drives the full pipeline:
 //!   dispatcher → handle_plan → plan_path_inner → execute_path
 //!   → wire PlanResponseFrame
 //!
-//! Tests insert edges directly via `brain-metadata::tables::edge::link`
-//! since the LINK handler ships in sub-task 7.8.
+//! Memory rows are inserted directly via `MemoryMetadata::new_active`
+//! so we can pin specific MemoryIds for the test scenarios; edges are
+//! then created through `dispatch(RequestBody::Link(...))` so we
+//! exercise the real LINK code path end-to-end.
 
 use std::sync::Arc;
 
 use brain_core::{AgentId, ContextId, EdgeKind, MemoryId, MemoryKind};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
-use brain_metadata::tables::edge::{link, EdgeData, EDGES_IN_TABLE, EDGES_OUT_TABLE};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
-use brain_protocol::request::{PlanBudget, PlanRequest, PlanState, RequestBody};
+use brain_protocol::request::{
+    EdgeKindWire, LinkRequest, PlanBudget, PlanRequest, PlanState, RequestBody,
+};
 use brain_protocol::response::{
     PlanResponseFrame, PlanStatus as WirePlanStatus, ResponseBody, TransitionKind,
 };
@@ -60,7 +64,7 @@ fn make_id(i: u64) -> MemoryId {
     MemoryId::from_be_bytes(b)
 }
 
-fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixture {
+async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
     let mut metadata = MetadataDb::open(&db_path).unwrap();
@@ -68,6 +72,7 @@ fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixtu
     let agent = AgentId(Uuid::nil());
     let mut ids = Vec::with_capacity(n_memories);
 
+    // Insert memory rows directly so we can pin specific MemoryIds.
     let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
@@ -89,14 +94,6 @@ fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixtu
             table.insert(id.to_be_bytes(), meta).unwrap();
         }
     }
-    {
-        let mut out = wtxn.open_table(EDGES_OUT_TABLE).unwrap();
-        let mut inn = wtxn.open_table(EDGES_IN_TABLE).unwrap();
-        for (src, kind, tgt) in edges {
-            let data = EdgeData::new(1.0, 0, 0, 1_700_000_000_000_000_000);
-            link(&mut out, &mut inn, ids[*src], *kind, ids[*tgt], &data).unwrap();
-        }
-    }
     wtxn.commit().unwrap();
 
     let (shared, hnsw_writer) = SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
@@ -108,9 +105,27 @@ fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixtu
         metadata,
         writer as Arc<dyn WriterHandle>,
     );
+    let ctx = OpsContext::new(executor);
+
+    // Create edges via the wire LINK path so we exercise the real
+    // code (idempotency + count maintenance + redb writes).
+    for (i, (src, kind, tgt)) in edges.iter().enumerate() {
+        let mut request_id = [0u8; 16];
+        request_id[..2].copy_from_slice(&(i as u16).to_be_bytes());
+        request_id[2] = 0xEE;
+        let req = LinkRequest {
+            source: ids[*src].raw(),
+            target: ids[*tgt].raw(),
+            kind: EdgeKindWire::from(*kind),
+            weight: 1.0,
+            request_id,
+            txn_id: None,
+        };
+        let _ = dispatch(RequestBody::Link(req), &ctx).await.unwrap();
+    }
 
     Fixture {
-        ctx: OpsContext::new(executor),
+        ctx,
         ids,
         _tempdir: tempdir,
     }
@@ -144,7 +159,7 @@ fn unwrap_plan_resp(body: ResponseBody) -> PlanResponseFrame {
 
 #[tokio::test]
 async fn plan_full_pipeline_returns_path() {
-    let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1), (1, EdgeKind::FollowedBy, 2)]);
+    let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1), (1, EdgeKind::FollowedBy, 2)]).await;
     let req = plan_request(fix.ids[0], fix.ids[2], 4);
     let frame = unwrap_plan_resp(dispatch(RequestBody::Plan(req), &fix.ctx).await.unwrap());
 
@@ -165,7 +180,7 @@ async fn plan_full_pipeline_returns_path() {
 
 #[tokio::test]
 async fn plan_no_path_returns_no_path_status() {
-    let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1)]);
+    let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1)]).await;
     let req = plan_request(fix.ids[0], fix.ids[2], 4);
     let frame = unwrap_plan_resp(dispatch(RequestBody::Plan(req), &fix.ctx).await.unwrap());
     assert!(frame.steps.is_empty());
@@ -178,7 +193,7 @@ async fn plan_no_path_returns_no_path_status() {
 
 #[tokio::test]
 async fn plan_step_transitions_map_correctly() {
-    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]);
+    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]).await;
     let req = plan_request(fix.ids[0], fix.ids[1], 2);
     let frame = unwrap_plan_resp(dispatch(RequestBody::Plan(req), &fix.ctx).await.unwrap());
     assert_eq!(frame.steps[0].transition_kind, TransitionKind::Initial);
@@ -191,7 +206,7 @@ async fn plan_step_transitions_map_correctly() {
 
 #[tokio::test]
 async fn plan_invalid_budget_returns_plan_error() {
-    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]);
+    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]).await;
     let mut req = plan_request(fix.ids[0], fix.ids[1], 0);
     req.budget.max_steps = 0;
     let err = dispatch(RequestBody::Plan(req), &fix.ctx)
@@ -210,7 +225,7 @@ async fn plan_invalid_budget_returns_plan_error() {
 
 #[tokio::test]
 async fn plan_by_memory_id_skips_recall() {
-    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]);
+    let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]).await;
     // Plan with ByMemoryId on both endpoints; even though the
     // dispatcher is a no-op, the executor should not need to embed.
     let req = plan_request(fix.ids[0], fix.ids[1], 2);

@@ -46,6 +46,17 @@ pub async fn dispatch(req: RequestBody, ctx: &OpsContext) -> Result<ResponseBody
             .map(ResponseBody::Forget),
 
         // -----------------------------------------------------------
+        // LINK / UNLINK — 7.8.
+        // -----------------------------------------------------------
+        RequestBody::Link(r) => crate::link::handle_link(r, ctx)
+            .await
+            .map(ResponseBody::Link),
+
+        RequestBody::Unlink(r) => crate::link::handle_unlink(r, ctx)
+            .await
+            .map(ResponseBody::Unlink),
+
+        // -----------------------------------------------------------
         // Streaming — 7.10. First-event shape only; subsequent
         // events ride a broadcast channel.
         // -----------------------------------------------------------

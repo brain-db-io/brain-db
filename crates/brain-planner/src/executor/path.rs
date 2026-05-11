@@ -119,17 +119,19 @@ fn resolve_endpoint(
 // ---------------------------------------------------------------------------
 
 /// Parent-pointer entry. `parent = None` for the seed (frontier
-/// origin); otherwise `(prev_node, edge_into_this_node)`.
+/// origin); otherwise `(prev_node, edge_into_this_node, weight)`.
 #[derive(Clone, Copy, Debug)]
 struct Crumb {
     parent: Option<MemoryId>,
     edge: Option<EdgeKind>,
+    edge_weight: f32,
     depth: usize,
 }
 
 struct BfsRaw {
-    /// Each path is a `(nodes, edges)` chain from a start to a goal.
-    paths: Vec<(Vec<MemoryId>, Vec<EdgeKind>)>,
+    /// Each path is a `(nodes, edges, edge_weights)` chain from a
+    /// start to a goal.
+    paths: Vec<(Vec<MemoryId>, Vec<EdgeKind>, Vec<f32>)>,
     status: PlanStatus,
 }
 
@@ -150,7 +152,7 @@ fn run_bidirectional_bfs(
         return Ok(BfsRaw {
             paths: trivial
                 .into_iter()
-                .map(|id| (vec![id], Vec::new()))
+                .map(|id| (vec![id], Vec::new(), Vec::new()))
                 .collect(),
             status: PlanStatus::GoalReached,
         });
@@ -172,6 +174,7 @@ fn run_bidirectional_bfs(
             Crumb {
                 parent: None,
                 edge: None,
+                edge_weight: 1.0,
                 depth: 0,
             },
         );
@@ -184,6 +187,7 @@ fn run_bidirectional_bfs(
             Crumb {
                 parent: None,
                 edge: None,
+                edge_weight: 1.0,
                 depth: 0,
             },
         );
@@ -239,23 +243,23 @@ fn run_bidirectional_bfs(
             }
 
             // Fetch neighbours along this direction.
-            let neighbours: Vec<(EdgeKind, MemoryId)> = if is_forward {
+            let neighbours: Vec<(EdgeKind, MemoryId, f32)> = if is_forward {
                 list_edges_from(&edges_out, node, None)
                     .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?
                     .into_iter()
                     .filter(|(k, _, _)| edge_kinds.contains(k))
-                    .map(|(k, t, _)| (k, t))
+                    .map(|(k, t, data)| (k, t, data.weight))
                     .collect()
             } else {
                 list_edges_to(&edges_in, node, None)
                     .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?
                     .into_iter()
                     .filter(|(k, _, _)| edge_kinds.contains(k))
-                    .map(|(k, s, _)| (k, s))
+                    .map(|(k, s, data)| (k, s, data.weight))
                     .collect()
             };
 
-            for (kind, next) in neighbours {
+            for (kind, next, weight) in neighbours {
                 if visited.contains_key(&next) {
                     continue; // already seen on this side → skip
                 }
@@ -264,6 +268,7 @@ fn run_bidirectional_bfs(
                     Crumb {
                         parent: Some(node),
                         edge: Some(kind),
+                        edge_weight: weight,
                         depth: crumb.depth + 1,
                     },
                 );
@@ -303,17 +308,18 @@ fn run_bidirectional_bfs(
 }
 
 /// Walk parent pointers from a meeting node out to the seeds on
-/// both sides; stitch them into a forward-oriented `(nodes, edges)`
-/// chain. Self-loops are impossible because visited maps reject
-/// re-entry; we assert it anyway.
+/// both sides; stitch them into a forward-oriented
+/// `(nodes, edges, edge_weights)` chain. Self-loops are impossible
+/// because visited maps reject re-entry; we assert it anyway.
 fn reconstruct(
     meet: MemoryId,
     fwd: &HashMap<MemoryId, Crumb>,
     bwd: &HashMap<MemoryId, Crumb>,
-) -> Option<(Vec<MemoryId>, Vec<EdgeKind>)> {
+) -> Option<(Vec<MemoryId>, Vec<EdgeKind>, Vec<f32>)> {
     // Forward side: walk from meet → seed via fwd parents.
     let mut fwd_nodes = vec![meet];
     let mut fwd_edges: Vec<EdgeKind> = Vec::new();
+    let mut fwd_weights: Vec<f32> = Vec::new();
     let mut cur = meet;
     while let Some(c) = fwd.get(&cur) {
         match c.parent {
@@ -321,12 +327,14 @@ fn reconstruct(
             Some(p) => {
                 fwd_nodes.push(p);
                 fwd_edges.push(c.edge?);
+                fwd_weights.push(c.edge_weight);
                 cur = p;
             }
         }
     }
     fwd_nodes.reverse();
     fwd_edges.reverse();
+    fwd_weights.reverse();
 
     // Backward side: walk from meet → goal seed via bwd parents.
     // `c.edge` on the bwd map is the edge `(c.parent → cur)` running
@@ -334,6 +342,7 @@ fn reconstruct(
     // `(cur → c.parent)` with the same `EdgeKind`.
     let mut bwd_nodes: Vec<MemoryId> = Vec::new();
     let mut bwd_edges: Vec<EdgeKind> = Vec::new();
+    let mut bwd_weights: Vec<f32> = Vec::new();
     let mut cur = meet;
     while let Some(c) = bwd.get(&cur) {
         match c.parent {
@@ -341,6 +350,7 @@ fn reconstruct(
             Some(p) => {
                 bwd_nodes.push(p);
                 bwd_edges.push(c.edge?);
+                bwd_weights.push(c.edge_weight);
                 cur = p;
             }
         }
@@ -351,6 +361,8 @@ fn reconstruct(
     nodes.extend(bwd_nodes);
     let mut edges = fwd_edges;
     edges.extend(bwd_edges);
+    let mut weights = fwd_weights;
+    weights.extend(bwd_weights);
 
     // Self-loop guard (§16). Visited maps make this redundant on each
     // side, but the meet-point can theoretically appear twice if the
@@ -362,7 +374,7 @@ fn reconstruct(
         }
     }
 
-    Some((nodes, edges))
+    Some((nodes, edges, weights))
 }
 
 // ---------------------------------------------------------------------------
@@ -370,7 +382,7 @@ fn reconstruct(
 // ---------------------------------------------------------------------------
 
 fn hydrate_paths(
-    raw: Vec<(Vec<MemoryId>, Vec<EdgeKind>)>,
+    raw: Vec<(Vec<MemoryId>, Vec<EdgeKind>, Vec<f32>)>,
     ctx: &ExecutorContext,
 ) -> Result<Vec<Path>, ExecError> {
     let metadata_guard = ctx.metadata.lock();
@@ -382,7 +394,7 @@ fn hydrate_paths(
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
 
     let mut out = Vec::with_capacity(raw.len());
-    for (nodes, edges) in raw {
+    for (nodes, edges, edge_weights) in raw {
         let mut sal = Vec::with_capacity(nodes.len());
         let text = vec![String::new(); nodes.len()];
         for &id in &nodes {
@@ -395,6 +407,7 @@ fn hydrate_paths(
         out.push(Path {
             nodes,
             edges,
+            edge_weights,
             score: 0.0,
             node_salience: sal,
             node_text: text,
@@ -430,12 +443,17 @@ fn score_path(p: &Path, scoring: &crate::plan::path::ScoringStep) -> f32 {
     } else {
         1.0
     };
-    // Edge-weight: we don't carry the raw weights through; in v1 the
-    // factor is a fixed 1.0 regardless of the flag (LINK's default
-    // weight). When a future sub-task plumbs per-edge weights through
-    // `Path`, this returns to a flag-gated geomean.
-    let edge_score = 1.0_f32;
-    let _ = scoring.include_edge_weight_score;
+    // Edge-weight: geometric mean of the per-edge weights along the
+    // path (spec §09/04 §10). For symmetric kinds like SimilarTo and
+    // for Contradicts (which can be negative), we take absolute value
+    // so the geomean stays well-defined; the magnitude is what
+    // contributes to confidence.
+    let edge_score = if scoring.include_edge_weight_score && !p.edge_weights.is_empty() {
+        let abs: Vec<f32> = p.edge_weights.iter().map(|w| w.abs()).collect();
+        geomean(&abs)
+    } else {
+        1.0
+    };
     let salience_score = if scoring.include_salience_score {
         geomean(&p.node_salience)
     } else {

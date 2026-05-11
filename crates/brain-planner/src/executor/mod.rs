@@ -28,6 +28,6 @@ pub use result::{
     ReasonStatus, RecallHit, RecallResult,
 };
 pub use writer::{
-    EdgeOutcome, EncodeAck, EncodeOp, EncodeOpEdge, ForgetAck, ForgetOp, ForgetOutcome,
-    WriterError, WriterHandle,
+    EdgeOutcome, EncodeAck, EncodeOp, EncodeOpEdge, ForgetAck, ForgetOp, ForgetOutcome, LinkAck,
+    LinkOp, UnlinkAck, UnlinkOp, WriterError, WriterHandle,
 };

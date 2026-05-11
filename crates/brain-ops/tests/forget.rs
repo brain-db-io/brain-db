@@ -191,11 +191,7 @@ async fn forget_idempotent_replay_returns_cached_response() {
     let memory_id = encode(&fix, [30; 16], "replay").await;
 
     let req = forget_req(memory_id, [31; 16]);
-    let first = unwrap_forget_resp(
-        dispatch(RequestBody::Forget(req.clone()), &fix.ctx)
-            .await
-            .unwrap(),
-    );
+    let first = unwrap_forget_resp(dispatch(RequestBody::Forget(req), &fix.ctx).await.unwrap());
     let second = unwrap_forget_resp(dispatch(RequestBody::Forget(req), &fix.ctx).await.unwrap());
 
     // Replay returns the cached outcome: same was_already_forgotten,

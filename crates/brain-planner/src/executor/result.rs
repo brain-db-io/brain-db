@@ -52,11 +52,15 @@ pub struct PathResult {
 }
 
 /// One node-and-edge chain from a start memory to a goal memory.
-/// `edges[i]` is the edge that connects `nodes[i]` → `nodes[i + 1]`.
+/// `edges[i]` is the edge that connects `nodes[i]` → `nodes[i + 1]`;
+/// `edge_weights[i]` is its weight (LINK default 1.0; arbitrary if
+/// the link was created with a different weight). Spec §09/04 §10
+/// uses these in the path score.
 #[derive(Debug, Clone)]
 pub struct Path {
     pub nodes: Vec<MemoryId>,
     pub edges: Vec<EdgeKind>,
+    pub edge_weights: Vec<f32>,
     pub score: f32,
     pub node_salience: Vec<f32>,
     pub node_text: Vec<String>,
@@ -89,11 +93,14 @@ pub struct ReasonResult {
 #[derive(Debug, Clone)]
 pub struct EvidenceItem {
     pub memory_id: MemoryId,
-    /// `base_similarity × decay(distance)`; in `[0, 1]`.
+    /// `base_similarity × decay(distance) × ∏ edge.weight`; in
+    /// `[0, 1]`. Spec §09/05 §17.
     pub score: f32,
     /// Edges traversed from the base set to this item; empty for
     /// direct-similarity (distance = 0) evidence.
     pub edge_path: Vec<EdgeKind>,
+    /// Edge weights matching `edge_path[i]` index-by-index.
+    pub edge_weights: Vec<f32>,
     /// Hops from the base set; `0` for direct-similarity items.
     pub distance: usize,
 }

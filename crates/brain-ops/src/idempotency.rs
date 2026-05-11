@@ -14,12 +14,14 @@
 //! changes).
 
 use brain_core::MemoryId;
-use brain_planner::{EdgeOutcome, EncodeOp, ForgetOp, ForgetOutcome};
+use brain_planner::{EdgeOutcome, EncodeOp, ForgetOp, ForgetOutcome, LinkOp, UnlinkOp};
 use brain_protocol::request::ForgetMode;
 
 /// Spec §07/06 §2 `response_kind` discriminants.
 pub(crate) const RESPONSE_KIND_ENCODE: u8 = 1;
 pub(crate) const RESPONSE_KIND_FORGET: u8 = 2;
+pub(crate) const RESPONSE_KIND_LINK: u8 = 3;
+pub(crate) const RESPONSE_KIND_UNLINK: u8 = 4;
 
 const PAYLOAD_VERSION_V1: u8 = 1;
 
@@ -72,6 +74,32 @@ pub fn hash_forget_request(op: &ForgetOp) -> [u8; 32] {
     h.update(&op.memory_id.to_be_bytes());
     h.update(b"\0");
     h.update(&[forget_mode_byte(op.mode)]);
+    *h.finalize().as_bytes()
+}
+
+#[must_use]
+pub fn hash_link_request(op: &LinkOp) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"link:");
+    h.update(&op.source.to_be_bytes());
+    h.update(b"\0");
+    h.update(&op.target.to_be_bytes());
+    h.update(b"\0");
+    h.update(&[edge_kind_byte(op.kind)]);
+    h.update(b"\0");
+    h.update(&op.weight.to_le_bytes());
+    *h.finalize().as_bytes()
+}
+
+#[must_use]
+pub fn hash_unlink_request(op: &UnlinkOp) -> [u8; 32] {
+    let mut h = blake3::Hasher::new();
+    h.update(b"unlink:");
+    h.update(&op.source.to_be_bytes());
+    h.update(b"\0");
+    h.update(&op.target.to_be_bytes());
+    h.update(b"\0");
+    h.update(&[edge_kind_byte(op.kind)]);
     *h.finalize().as_bytes()
 }
 
@@ -179,6 +207,67 @@ pub fn encode_forget_payload(memory_id: MemoryId, outcome: ForgetOutcome) -> Vec
         ForgetOutcome::MemoryNotFound => FORGET_OUTCOME_NOT_FOUND,
     });
     out
+}
+
+/// LINK payload. Spec §09/07 §3.
+///
+/// Layout (24 bytes):
+/// - bytes 0..4   — version (= 1) + 3 reserved
+/// - bytes 4..12  — `created_at_unix_nanos` (u64 little-endian)
+/// - bytes 12..16 — `weight` (f32 little-endian)
+/// - byte 16      — `already_existed` (0 / 1)
+/// - bytes 17..24 — reserved
+#[must_use]
+pub fn encode_link_payload(
+    weight: f32,
+    created_at_unix_nanos: u64,
+    already_existed: bool,
+) -> Vec<u8> {
+    let mut out = vec![0u8; 24];
+    out[0] = PAYLOAD_VERSION_V1;
+    out[4..12].copy_from_slice(&created_at_unix_nanos.to_le_bytes());
+    out[12..16].copy_from_slice(&weight.to_le_bytes());
+    out[16] = u8::from(already_existed);
+    out
+}
+
+pub fn decode_link_payload(bytes: &[u8]) -> Result<(f32, u64, bool), DecodeError> {
+    if bytes.len() != 24 {
+        return Err(DecodeError::Malformed("link payload wrong length"));
+    }
+    if bytes[0] != PAYLOAD_VERSION_V1 {
+        return Err(DecodeError::Malformed("link payload unknown version"));
+    }
+    let created_at = u64::from_le_bytes(
+        bytes[4..12]
+            .try_into()
+            .map_err(|_| DecodeError::Malformed("link created_at"))?,
+    );
+    let weight = f32::from_le_bytes(
+        bytes[12..16]
+            .try_into()
+            .map_err(|_| DecodeError::Malformed("link weight"))?,
+    );
+    let already_existed = bytes[16] != 0;
+    Ok((weight, created_at, already_existed))
+}
+
+/// UNLINK payload (2 bytes):
+/// - byte 0 — version (= 1)
+/// - byte 1 — `removed` (0 / 1)
+#[must_use]
+pub fn encode_unlink_payload(removed: bool) -> Vec<u8> {
+    vec![PAYLOAD_VERSION_V1, u8::from(removed)]
+}
+
+pub fn decode_unlink_payload(bytes: &[u8]) -> Result<bool, DecodeError> {
+    if bytes.len() != 2 {
+        return Err(DecodeError::Malformed("unlink payload wrong length"));
+    }
+    if bytes[0] != PAYLOAD_VERSION_V1 {
+        return Err(DecodeError::Malformed("unlink payload unknown version"));
+    }
+    Ok(bytes[1] != 0)
 }
 
 pub fn decode_forget_payload(bytes: &[u8]) -> Result<(MemoryId, ForgetOutcome), DecodeError> {

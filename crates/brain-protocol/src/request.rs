@@ -125,6 +125,33 @@ pub enum ObservationInput {
     ByText(String),
 }
 
+/// Spec §07/6 — `LINK_REQ` body. Creates an edge between two memories.
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct LinkRequest {
+    pub source: WireMemoryId,
+    pub target: WireMemoryId,
+    pub kind: EdgeKindWire,
+    /// `[0, 1]` for most kinds; `[-1, 1]` for `Contradicts` (spec §09/07 §2).
+    pub weight: f32,
+    pub request_id: WireUuid,
+    pub txn_id: Option<WireUuid>,
+}
+
+/// Spec §07/6 — `UNLINK_REQ` body. Removes an edge identified by the
+/// `(source, kind, target)` triple.
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct UnlinkRequest {
+    pub source: WireMemoryId,
+    pub target: WireMemoryId,
+    pub kind: EdgeKindWire,
+    pub request_id: WireUuid,
+    pub txn_id: Option<WireUuid>,
+}
+
 /// Spec §07/6 — soft tombstone vs. hard erase.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
@@ -503,6 +530,8 @@ pub enum RequestBody {
     Plan(PlanRequest),
     Reason(ReasonRequest),
     Forget(ForgetRequest),
+    Link(LinkRequest),
+    Unlink(UnlinkRequest),
     Subscribe(SubscribeRequest),
     Unsubscribe(UnsubscribeRequest),
     TxnBegin(TxnBeginRequest),
@@ -537,6 +566,8 @@ impl RequestBody {
             Self::Plan(_) => Opcode::PlanReq,
             Self::Reason(_) => Opcode::ReasonReq,
             Self::Forget(_) => Opcode::ForgetReq,
+            Self::Link(_) => Opcode::LinkReq,
+            Self::Unlink(_) => Opcode::UnlinkReq,
             Self::Subscribe(_) => Opcode::SubscribeReq,
             Self::Unsubscribe(_) => Opcode::UnsubscribeReq,
             Self::TxnBegin(_) => Opcode::TxnBegin,
@@ -573,6 +604,8 @@ impl RequestBody {
             Self::Plan(r) => to_rkyv_bytes(r),
             Self::Reason(r) => to_rkyv_bytes(r),
             Self::Forget(r) => to_rkyv_bytes(r),
+            Self::Link(r) => to_rkyv_bytes(r),
+            Self::Unlink(r) => to_rkyv_bytes(r),
             Self::Subscribe(r) => to_rkyv_bytes(r),
             Self::Unsubscribe(r) => to_rkyv_bytes(r),
             Self::TxnBegin(r) => to_rkyv_bytes(r),
@@ -608,6 +641,8 @@ impl RequestBody {
             Opcode::PlanReq => Self::Plan(from_rkyv_bytes(bytes)?),
             Opcode::ReasonReq => Self::Reason(from_rkyv_bytes(bytes)?),
             Opcode::ForgetReq => Self::Forget(from_rkyv_bytes(bytes)?),
+            Opcode::LinkReq => Self::Link(from_rkyv_bytes(bytes)?),
+            Opcode::UnlinkReq => Self::Unlink(from_rkyv_bytes(bytes)?),
             Opcode::SubscribeReq => Self::Subscribe(from_rkyv_bytes(bytes)?),
             Opcode::UnsubscribeReq => Self::Unsubscribe(from_rkyv_bytes(bytes)?),
             Opcode::TxnBegin => Self::TxnBegin(from_rkyv_bytes(bytes)?),

@@ -84,6 +84,7 @@ pub async fn execute_reason(
             memory_id: id,
             score: sim,
             edge_path: Vec::new(),
+            edge_weights: Vec::new(),
             distance: 0,
         });
     }
@@ -177,6 +178,7 @@ fn resolve_base(
 struct Crumb {
     parent: Option<MemoryId>,
     edge: Option<EdgeKind>,
+    edge_weight: f32,
     depth: usize,
     base_similarity: f32,
 }
@@ -212,6 +214,7 @@ fn walk_outward(
             Crumb {
                 parent: None,
                 edge: None,
+                edge_weight: 1.0,
                 depth: 0,
                 base_similarity: sim,
             },
@@ -233,14 +236,14 @@ fn walk_outward(
             continue;
         }
 
-        let neighbours: Vec<(EdgeKind, MemoryId)> = list_edges_from(&edges_out, node, None)
+        let neighbours: Vec<(EdgeKind, MemoryId, f32)> = list_edges_from(&edges_out, node, None)
             .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?
             .into_iter()
             .filter(|(k, _, _)| edge_kinds.contains(k))
-            .map(|(k, t, _)| (k, t))
+            .map(|(k, t, data)| (k, t, data.weight))
             .collect();
 
-        for (kind, next) in neighbours {
+        for (kind, next, weight) in neighbours {
             if visited.contains_key(&next) {
                 continue;
             }
@@ -250,6 +253,7 @@ fn walk_outward(
                 Crumb {
                     parent: Some(node),
                     edge: Some(kind),
+                    edge_weight: weight,
                     depth: new_depth,
                     base_similarity: crumb.base_similarity,
                 },
@@ -258,14 +262,26 @@ fn walk_outward(
 
             // Build the EvidenceItem now (parent chain is complete
             // through `visited`).
-            let edge_path = reconstruct_path(next, &visited);
+            let (edge_path, edge_weights) = reconstruct_path(next, &visited);
             #[allow(clippy::cast_precision_loss)]
             let decay = 1.0_f32 / (1.0 + new_depth as f32);
-            let score = crumb.base_similarity * decay;
+            // Spec §09/05 §17: evidence_strength =
+            // base_similarity × ∏ edge.weight × decay(distance).
+            // We take abs() on weights so Contradicts paths with
+            // negative weights still produce well-defined positive
+            // scores; the sign is captured by classification (supports
+            // vs contradicts) at a higher level.
+            let weight_product: f32 = edge_weights
+                .iter()
+                .map(|w| w.abs())
+                .product::<f32>()
+                .max(0.0);
+            let score = crumb.base_similarity * decay * weight_product;
             evidence.push(EvidenceItem {
                 memory_id: next,
                 score,
                 edge_path,
+                edge_weights,
                 distance: new_depth,
             });
 
@@ -278,20 +294,26 @@ fn walk_outward(
     Ok(evidence)
 }
 
-fn reconstruct_path(end: MemoryId, visited: &HashMap<MemoryId, Crumb>) -> Vec<EdgeKind> {
+fn reconstruct_path(
+    end: MemoryId,
+    visited: &HashMap<MemoryId, Crumb>,
+) -> (Vec<EdgeKind>, Vec<f32>) {
     let mut path: Vec<EdgeKind> = Vec::new();
+    let mut weights: Vec<f32> = Vec::new();
     let mut cur = end;
     while let Some(c) = visited.get(&cur) {
         match (c.edge, c.parent) {
             (Some(e), Some(p)) => {
                 path.push(e);
+                weights.push(c.edge_weight);
                 cur = p;
             }
             _ => break,
         }
     }
     path.reverse();
-    path
+    weights.reverse();
+    (path, weights)
 }
 
 fn filter_and_trim(items: Vec<EvidenceItem>, floor: f32, max: usize) -> Vec<EvidenceItem> {

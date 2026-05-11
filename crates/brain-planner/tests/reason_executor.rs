@@ -59,6 +59,30 @@ impl WriterHandle for NoopWriter {
     > {
         Box::pin(async move { Err(WriterError::Internal("noop".into())) })
     }
+    fn submit_link<'a>(
+        &'a self,
+        _: brain_planner::LinkOp,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<brain_planner::LinkAck, WriterError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move { Err(WriterError::Internal("noop".into())) })
+    }
+    fn submit_unlink<'a>(
+        &'a self,
+        _: brain_planner::UnlinkOp,
+    ) -> std::pin::Pin<
+        Box<
+            dyn std::future::Future<Output = Result<brain_planner::UnlinkAck, WriterError>>
+                + Send
+                + 'a,
+        >,
+    > {
+        Box::pin(async move { Err(WriterError::Internal("noop".into())) })
+    }
 }
 
 // ---------------------------------------------------------------------------

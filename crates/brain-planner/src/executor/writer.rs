@@ -29,6 +29,16 @@ pub trait WriterHandle: Send + Sync {
         &'a self,
         op: ForgetOp,
     ) -> Pin<Box<dyn Future<Output = Result<ForgetAck, WriterError>> + Send + 'a>>;
+
+    fn submit_link<'a>(
+        &'a self,
+        op: LinkOp,
+    ) -> Pin<Box<dyn Future<Output = Result<LinkAck, WriterError>> + Send + 'a>>;
+
+    fn submit_unlink<'a>(
+        &'a self,
+        op: UnlinkOp,
+    ) -> Pin<Box<dyn Future<Output = Result<UnlinkAck, WriterError>> + Send + 'a>>;
 }
 
 /// Encode operation payload submitted to the writer. Carries
@@ -122,5 +132,51 @@ pub struct ForgetAck {
     pub memory_id: MemoryId,
     pub outcome: ForgetOutcome,
     /// `true` iff this ack came from a replayed idempotency entry.
+    pub replayed: bool,
+}
+
+/// LINK operation payload. Spec §09/07.
+#[derive(Debug, Clone, Copy)]
+pub struct LinkOp {
+    pub request_id: RequestId,
+    pub source: MemoryId,
+    pub target: MemoryId,
+    pub kind: EdgeKind,
+    /// `[0, 1]` for most kinds; `[-1, 1]` for `Contradicts`.
+    pub weight: f32,
+}
+
+/// Writer's ack for a LINK. Spec §09/07 §3.
+#[derive(Debug, Clone, Copy)]
+pub struct LinkAck {
+    pub source: MemoryId,
+    pub target: MemoryId,
+    pub kind: EdgeKind,
+    pub weight: f32,
+    pub created_at_unix_nanos: u64,
+    /// `true` when the edge already existed (LINK is overwriting weight);
+    /// `false` for a brand-new edge.
+    pub already_existed: bool,
+    /// `true` iff this ack came from a replayed idempotency entry.
+    pub replayed: bool,
+}
+
+/// UNLINK operation payload. Spec §09/07 §4-§5.
+#[derive(Debug, Clone, Copy)]
+pub struct UnlinkOp {
+    pub request_id: RequestId,
+    pub source: MemoryId,
+    pub target: MemoryId,
+    pub kind: EdgeKind,
+}
+
+/// Writer's ack for an UNLINK. Spec §09/07 §5: non-existent edge →
+/// `removed: false`, no error (idempotent).
+#[derive(Debug, Clone, Copy)]
+pub struct UnlinkAck {
+    pub source: MemoryId,
+    pub target: MemoryId,
+    pub kind: EdgeKind,
+    pub removed: bool,
     pub replayed: bool,
 }

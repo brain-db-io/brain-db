@@ -1,23 +1,18 @@
-//! Integration tests for `handle_reason` (sub-task 7.6).
-//!
-//! Drives:
-//!   dispatcher → handle_reason → plan_reason_inner → execute_reason
-//!   → wire ReasonResponseFrame
-//!
-//! Edges are inserted via brain-metadata::tables::edge::link directly
-//! (LINK handler ships in sub-task 7.8).
+//! Integration tests for `handle_reason` (sub-task 7.6; refactored
+//! in 7.8 to insert edges via wire LINK).
 
 use std::sync::Arc;
 
 use brain_core::{AgentId, ContextId, EdgeKind, MemoryId, MemoryKind};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
-use brain_metadata::tables::edge::{link, EdgeData, EDGES_IN_TABLE, EDGES_OUT_TABLE};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
-use brain_protocol::request::{ObservationInput, ReasonRequest, RequestBody};
+use brain_protocol::request::{
+    EdgeKindWire, LinkRequest, ObservationInput, ReasonRequest, RequestBody,
+};
 use brain_protocol::response::{
     InferenceKind, ReasonResponseFrame, ReasonStatus as WireReasonStatus, ResponseBody,
 };
@@ -58,7 +53,7 @@ fn make_id(i: u64) -> MemoryId {
     MemoryId::from_be_bytes(b)
 }
 
-fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixture {
+async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
     let mut metadata = MetadataDb::open(&db_path).unwrap();
@@ -87,14 +82,6 @@ fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixtu
             table.insert(id.to_be_bytes(), meta).unwrap();
         }
     }
-    {
-        let mut out = wtxn.open_table(EDGES_OUT_TABLE).unwrap();
-        let mut inn = wtxn.open_table(EDGES_IN_TABLE).unwrap();
-        for (src, kind, tgt) in edges {
-            let data = EdgeData::new(1.0, 0, 0, 1_700_000_000_000_000_000);
-            link(&mut out, &mut inn, ids[*src], *kind, ids[*tgt], &data).unwrap();
-        }
-    }
     wtxn.commit().unwrap();
 
     let (shared, hnsw_writer) = SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
@@ -106,9 +93,25 @@ fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixtu
         metadata,
         writer as Arc<dyn WriterHandle>,
     );
+    let ctx = OpsContext::new(executor);
+
+    for (i, (src, kind, tgt)) in edges.iter().enumerate() {
+        let mut request_id = [0u8; 16];
+        request_id[..2].copy_from_slice(&(i as u16).to_be_bytes());
+        request_id[2] = 0xEE;
+        let req = LinkRequest {
+            source: ids[*src].raw(),
+            target: ids[*tgt].raw(),
+            kind: EdgeKindWire::from(*kind),
+            weight: 1.0,
+            request_id,
+            txn_id: None,
+        };
+        let _ = dispatch(RequestBody::Link(req), &ctx).await.unwrap();
+    }
 
     Fixture {
-        ctx: OpsContext::new(executor),
+        ctx,
         ids,
         _tempdir: tempdir,
     }
@@ -146,7 +149,8 @@ async fn reason_full_pipeline_emits_one_inference() {
             (0, EdgeKind::Supports, 2),
             (0, EdgeKind::Contradicts, 3),
         ],
-    );
+    )
+    .await;
     let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
     let frame = unwrap_reason(dispatch(RequestBody::Reason(req), &fix.ctx).await.unwrap());
 
@@ -170,7 +174,7 @@ async fn reason_full_pipeline_emits_one_inference() {
 
 #[tokio::test]
 async fn reason_isolated_base_returns_only_self() {
-    let fix = build_fixture(1, &[]);
+    let fix = build_fixture(1, &[]).await;
     let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
     let frame = unwrap_reason(dispatch(RequestBody::Reason(req), &fix.ctx).await.unwrap());
     let inf = &frame.inferences[0];
@@ -187,7 +191,7 @@ async fn reason_isolated_base_returns_only_self() {
 
 #[tokio::test]
 async fn reason_invalid_depth_returns_plan_error() {
-    let fix = build_fixture(1, &[]);
+    let fix = build_fixture(1, &[]).await;
     let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 0, 5);
     let err = dispatch(RequestBody::Reason(req), &fix.ctx)
         .await
@@ -205,7 +209,7 @@ async fn reason_invalid_depth_returns_plan_error() {
 
 #[tokio::test]
 async fn reason_kind_categorisation_uses_evidence_accumulation() {
-    let fix = build_fixture(2, &[(0, EdgeKind::Supports, 1)]);
+    let fix = build_fixture(2, &[(0, EdgeKind::Supports, 1)]).await;
     let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
     let frame = unwrap_reason(dispatch(RequestBody::Reason(req), &fix.ctx).await.unwrap());
     assert_eq!(
@@ -220,7 +224,7 @@ async fn reason_kind_categorisation_uses_evidence_accumulation() {
 
 #[tokio::test]
 async fn reason_by_text_preserves_claim() {
-    let fix = build_fixture(1, &[]);
+    let fix = build_fixture(1, &[]).await;
     let req = reason_req(ObservationInput::ByText("is the sky blue?".into()), 2, 5);
     let frame = unwrap_reason(dispatch(RequestBody::Reason(req), &fix.ctx).await.unwrap());
     let inf = &frame.inferences[0];

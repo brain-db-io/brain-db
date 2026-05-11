@@ -193,6 +193,36 @@ mod tests {
                     async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
                 )
             }
+            fn submit_link<'a>(
+                &'a self,
+                _: brain_planner::LinkOp,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<brain_planner::LinkAck, PlannerWriterError>,
+                        > + Send
+                        + 'a,
+                >,
+            > {
+                Box::pin(
+                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
+                )
+            }
+            fn submit_unlink<'a>(
+                &'a self,
+                _: brain_planner::UnlinkOp,
+            ) -> std::pin::Pin<
+                Box<
+                    dyn std::future::Future<
+                            Output = Result<brain_planner::UnlinkAck, PlannerWriterError>,
+                        > + Send
+                        + 'a,
+                >,
+            > {
+                Box::pin(
+                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
+                )
+            }
         }
 
         let tempdir = tempfile::tempdir().unwrap();
