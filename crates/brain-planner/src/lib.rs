@@ -32,6 +32,7 @@ pub mod cost;
 pub mod encode;
 pub mod error;
 pub mod executor;
+pub mod explain;
 pub mod forget;
 pub mod path;
 pub mod plan;
@@ -49,6 +50,7 @@ pub use executor::{
     ForgetOutcome, ForgetResult, RecallHit, RecallResult, SharedMetadataDb, WriterError,
     WriterHandle,
 };
+pub use explain::explain;
 pub use forget::{plan_forget, plan_forget_inner};
 pub use path::{plan_path, plan_path_inner};
 pub use plan::{
