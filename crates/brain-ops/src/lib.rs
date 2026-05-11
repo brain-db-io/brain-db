@@ -28,6 +28,8 @@
 pub mod context;
 pub mod dispatch;
 pub mod error;
+pub mod idempotency;
+pub mod writer;
 
 // Per-op handler modules. 7.1 ships stubs; 7.3-7.10 replace each.
 pub mod encode;
@@ -42,6 +44,7 @@ pub mod txn;
 pub use context::OpsContext;
 pub use dispatch::dispatch;
 pub use error::{ErrorCode, OpError};
+pub use writer::RealWriterHandle;
 
 #[cfg(test)]
 mod tests {

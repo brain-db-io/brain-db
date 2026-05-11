@@ -85,6 +85,11 @@ pub enum WriterError {
     /// Spec §08/08 §14: queue over its max length → reject + retry.
     #[error("writer queue overloaded")]
     Overloaded,
+    /// Spec §07/06 §5 — duplicate `request_id` with a different
+    /// `request_hash`. Client retries should carry the same params;
+    /// a hash mismatch indicates a client bug or RequestId reuse.
+    #[error("idempotency conflict: {0}")]
+    Conflict(String),
     #[error("writer internal error: {0}")]
     Internal(String),
 }

@@ -17,8 +17,10 @@ brain-metadata = { path = "../brain-metadata" }
 thiserror.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
+blake3.workspace = true
+uuid.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
 uuid.workspace = true
-tokio = { version = "1", features = ["macros", "rt"] }
+tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread"] }

@@ -111,6 +111,7 @@ impl OpError {
                 | ExecError::Internal(_) => ErrorCode::InternalError,
                 ExecError::MemoryNotFound { .. } => ErrorCode::NotFound,
                 ExecError::WriterFailed(WriterError::Overloaded) => ErrorCode::Overloaded,
+                ExecError::WriterFailed(WriterError::Conflict(_)) => ErrorCode::Conflict,
                 ExecError::WriterFailed(WriterError::Internal(_)) => ErrorCode::InternalError,
             },
         }
