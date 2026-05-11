@@ -41,6 +41,7 @@ pub mod recall;
 pub mod subscribe;
 pub mod txn;
 
+pub use brain_planner::PlannerContext;
 pub use context::OpsContext;
 pub use dispatch::dispatch;
 pub use error::{ErrorCode, OpError};
@@ -228,12 +229,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn dispatch_encode_stub_returns_not_yet_implemented() {
+    async fn dispatch_encode_routes_to_handler() {
+        // 7.3 wired the real ENCODE handler. The `NopWriter` returns
+        // `WriterError::Internal`, so the handler propagates an
+        // `ExecError::WriterFailed` — which is enough to prove the
+        // dispatcher reaches `handle_encode` rather than the stub.
         let ctx = fake_context();
         let req = brain_protocol::request::RequestBody::Encode(encode_req());
         match dispatch(req, &ctx).await {
-            Err(OpError::NotYetImplemented(msg)) => assert!(msg.contains("ENCODE")),
-            other => panic!("expected NotYetImplemented, got {other:?}"),
+            Err(OpError::ExecError(_)) => {}
+            other => panic!("expected ExecError from NopWriter, got {other:?}"),
         }
     }
 
