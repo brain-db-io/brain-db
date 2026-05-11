@@ -39,10 +39,25 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 - Tests gated `#[cfg(all(test, not(miri)))]` for consistency with Phase 2 (redb uses mmap internally).
 **Done when:** [x] `__schema_meta` records `schema_version=1` and refuses to open mismatched versions — `future_version_refuses_to_open` covers the rejection path; `fresh_db_initializes_at_v1`, `reopen_reads_existing_version`, `idempotent_reinit_returns_same_version`, `table_present_but_row_missing_initializes_to_v1` cover the rest. 5 tests.
 
-### Task 3.2 — Memory metadata table
+### Task 3.2 — Memory metadata table ✅
 **Reads:** `spec/07_metadata_graph/03_memory_table.md`
-**Writes:** `crates/brain-metadata/src/tables/memory.rs`
-**Done when:** Insert + get + scan-by-(agent, context) + delete pass round-trip tests.
+**Writes:** `crates/brain-metadata/src/tables/memory.rs` (and `tables/mod.rs` + `lib.rs` `pub mod tables;`).
+
+**What was built:**
+- `MemoryMetadata` — 20-field struct (~140 B/row) per spec §07/03 §1. Stores brain-core types as byte representations (`[u8; 16]` for `MemoryId`/`AgentId`, `u64` for `ContextId`, `u8` for `MemoryKind`); typed getters convert at the API boundary.
+- `MEMORIES_TABLE: TableDefinition<[u8; 16], MemoryMetadata>` keyed by `MemoryId::to_be_bytes()`.
+- `redb::Value` impl backed by rkyv 0.7 with `#[archive(check_bytes)]` validation. Deserialize-on-read (owned `MemoryMetadata`); zero-copy view deferred to a profiling-driven follow-up.
+- `flags` module — `ACTIVE`, `HARD_FORGOTTEN`, `PINNED`, `STALE`, `RESERVED_MASK` per §07/03 §2.7.
+- `MemoryKind` ↔ `u8` mapping duplicated locally from `brain_storage::wal::payload`; note to promote to brain-core if a third caller appears.
+- `MemoryMetadata::new_active(...)` constructor; `is_active`/`is_pinned`/etc. flag accessors; `set_flag(mask, on)`.
+
+**Patterns set for the rest of Phase 3:**
+- Byte-array key encoding (`[u8; 16]` for ID types).
+- rkyv-backed `redb::Value` via deserialize-on-read with `expect`-on-corrupt.
+- `type_name` includes `::v1` for type-confused mismatch detection.
+- Module per table under `tables/`.
+
+**Done when:** [x] Insert/get/scan-by-(agent, context)/delete round-trip tests pass. Plus update, missing-key, Option round-trip, flag manipulation, brain-core type round-trip, encoding stability. **9 tests.**
 
 ### Task 3.3 — Agents and contexts tables
 **Reads:** `spec/07_metadata_graph/05_context_table.md`

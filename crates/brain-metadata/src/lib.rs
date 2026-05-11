@@ -15,3 +15,4 @@
 #![forbid(unsafe_code)]
 
 pub mod schema;
+pub mod tables;
