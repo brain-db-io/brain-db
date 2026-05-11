@@ -215,6 +215,7 @@ dependencies = [
  "blake3",
  "brain-core",
  "crc32c",
+ "criterion",
  "hnsw_rs",
  "tempfile",
  "thiserror 1.0.69",
