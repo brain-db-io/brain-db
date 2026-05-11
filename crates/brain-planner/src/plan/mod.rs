@@ -12,14 +12,18 @@ pub mod path;
 pub mod reason;
 pub mod recall;
 
-pub use common::{EdgeSpec, FilterRule, FilterStage, ShardId, SortKey};
+pub use common::{EdgeSpec, FilterRule, FilterStage, RecallSubStep, ShardId, SortKey};
 pub use encode::{
     ApplyStep, ContextResolutionStep, EdgeStep, EncodePlan, EncodeResponseStep,
     IdempotencyCheckStep, SlotAllocationStep, WalAppendStep,
 };
 pub use forget::ForgetPlan;
-pub use path::PathPlan;
-pub use reason::ReasonPlan;
+pub use path::{
+    default_plan_edge_kinds, EvidenceResponseStep, PathPlan, ScoringStep, TraversalStep,
+};
+pub use reason::{
+    default_contradicts_edge_kinds, default_supports_edge_kinds, AggregationStep, ReasonPlan,
+};
 pub use recall::{
     AnnSearchStep, EmbeddingStep, FilterStep, MergeStep, MetadataLookupStep, RecallPlan,
     ResponseStep, ShardSearchStep, TextFetchStep,

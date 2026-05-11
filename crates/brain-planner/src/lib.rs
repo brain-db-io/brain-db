@@ -32,7 +32,9 @@ pub mod cost;
 pub mod encode;
 pub mod error;
 pub mod executor;
+pub mod path;
 pub mod plan;
+pub mod reason;
 pub mod recall;
 pub mod stats;
 
@@ -45,13 +47,16 @@ pub use executor::{
     ExecError, ExecutorContext, RecallHit, RecallResult, SharedMetadataDb, WriterError,
     WriterHandle,
 };
+pub use path::{plan_path, plan_path_inner};
 pub use plan::{
-    AnnSearchStep, ApplyStep, ContextResolutionStep, EdgeSpec, EdgeStep, EmbeddingStep, EncodePlan,
-    EncodeResponseStep, ExecutionPlan, FilterRule, FilterStage, FilterStep, ForgetPlan,
-    IdempotencyCheckStep, MergeStep, MetadataLookupStep, PathPlan, ReasonPlan, RecallPlan,
-    ResponseStep, ShardId, ShardSearchStep, SlotAllocationStep, SortKey, TextFetchStep,
-    WalAppendStep,
+    default_contradicts_edge_kinds, default_plan_edge_kinds, default_supports_edge_kinds,
+    AggregationStep, AnnSearchStep, ApplyStep, ContextResolutionStep, EdgeSpec, EdgeStep,
+    EmbeddingStep, EncodePlan, EncodeResponseStep, EvidenceResponseStep, ExecutionPlan, FilterRule,
+    FilterStage, FilterStep, ForgetPlan, IdempotencyCheckStep, MergeStep, MetadataLookupStep,
+    PathPlan, ReasonPlan, RecallPlan, RecallSubStep, ResponseStep, ScoringStep, ShardId,
+    ShardSearchStep, SlotAllocationStep, SortKey, TextFetchStep, TraversalStep, WalAppendStep,
 };
+pub use reason::{plan_reason, plan_reason_inner};
 pub use recall::{plan_recall, plan_recall_inner};
 pub use stats::ShardStats;
 

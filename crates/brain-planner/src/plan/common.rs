@@ -46,3 +46,17 @@ pub struct EdgeSpec {
     pub kind: EdgeKind,
     pub weight: f32,
 }
+
+/// A sub-RECALL embedded inside a higher-level plan (PLAN, REASON).
+/// Spec §08/05 §3 calls this a `RecallStep`. We name it `RecallSubStep`
+/// to keep it distinct from the top-level `RecallPlan` (which is the
+/// shape returned by `plan_recall`).
+///
+/// Mirrors the recall plan's shape but flattened to one shard (the
+/// only shape v1 needs; cross-shard fan-out arrives in Phase 12).
+#[derive(Debug, Clone)]
+pub struct RecallSubStep {
+    pub embedding: super::recall::EmbeddingStep,
+    pub shard: super::recall::ShardSearchStep,
+    pub merge: super::recall::MergeStep,
+}

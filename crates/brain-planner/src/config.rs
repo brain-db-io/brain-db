@@ -19,6 +19,10 @@ pub struct PlannerConfig {
     pub cost_budget_ms: f32,
     pub max_k: usize,
     pub max_edges_per_encode: usize,
+    /// Spec §08/05 §14 — PLAN / REASON traversal hard cap.
+    pub max_traversal_depth: usize,
+    /// Spec §08/05 §13 — PLAN / REASON result cap.
+    pub max_plan_results: usize,
 }
 
 impl Default for PlannerConfig {
@@ -30,6 +34,8 @@ impl Default for PlannerConfig {
             cost_budget_ms: 1000.0,
             max_k: 1000,
             max_edges_per_encode: 64,
+            max_traversal_depth: 10,
+            max_plan_results: 100,
         }
     }
 }

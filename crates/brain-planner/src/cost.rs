@@ -295,16 +295,26 @@ pub fn cost_forget(hard: bool) -> f32 {
     ms
 }
 
-/// Placeholder; sub-task 6.5 fills in the BFS traversal cost.
+/// PLAN cost: two embeddings + two RECALLs + bidirectional traversal.
+/// Spec §08/05 §11 cites 30-100 ms for typical inputs (max_depth=4).
 #[must_use]
-pub fn cost_path_placeholder() -> f32 {
-    50.0
+pub fn cost_path(max_depth: usize, max_branches: usize, ctx: &PlannerContext) -> f32 {
+    let embed = 2.0 * embedding_cost(false);
+    let recall = 2.0 * cost_recall(10, 1.0, /* cache_hit */ false, ctx);
+    #[allow(clippy::cast_precision_loss)]
+    let traversal = (max_depth as f32) * (max_branches as f32) * METADATA_POINT_LOOKUP_MS * 4.0; // edge-table lookups are heavier than a flat point fetch
+    embed + recall + traversal
 }
 
-/// Placeholder; sub-task 6.5 fills in the reason traversal cost.
+/// REASON cost: one embedding + base RECALL + two parallel traversals
+/// (supports + contradicts). Spec §08/05 §11 cites 30-50 ms.
 #[must_use]
-pub fn cost_reason_placeholder() -> f32 {
-    50.0
+pub fn cost_reason(depth: usize, max_inferences: usize, ctx: &PlannerContext) -> f32 {
+    let embed = embedding_cost(false);
+    let recall = cost_recall(20, 1.0, /* cache_hit */ false, ctx);
+    #[allow(clippy::cast_precision_loss)]
+    let traversal = 2.0 * (depth as f32) * (max_inferences as f32) * METADATA_POINT_LOOKUP_MS * 4.0;
+    embed + recall + traversal
 }
 
 // ---------------------------------------------------------------------------
@@ -601,5 +611,31 @@ mod tests {
     fn cross_shard_overhead_grows_with_shards() {
         assert!(cross_shard_overhead(2) > cross_shard_overhead(1));
         assert!(cross_shard_overhead(10) > cross_shard_overhead(5));
+    }
+
+    #[test]
+    fn cost_path_monotone_in_depth() {
+        let c = ctx_default();
+        let shallow = cost_path(2, 64, &c);
+        let deep = cost_path(8, 64, &c);
+        assert!(deep > shallow, "{deep} should exceed {shallow}");
+    }
+
+    #[test]
+    fn cost_path_monotone_in_branches() {
+        let c = ctx_default();
+        let narrow = cost_path(4, 16, &c);
+        let wide = cost_path(4, 256, &c);
+        assert!(wide > narrow);
+    }
+
+    #[test]
+    fn cost_reason_monotone_in_depth_and_inferences() {
+        let c = ctx_default();
+        let a = cost_reason(2, 5, &c);
+        let b = cost_reason(4, 5, &c);
+        let cc = cost_reason(4, 20, &c);
+        assert!(b > a);
+        assert!(cc > b);
     }
 }
