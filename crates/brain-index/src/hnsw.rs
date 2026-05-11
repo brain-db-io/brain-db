@@ -4,33 +4,36 @@
 //! - `spec/06_ann_index/02_parameters.md` — defaults and ranges.
 //! - `spec/06_ann_index/01_hnsw_primer.md` §7 — distance metric: cosine on
 //!   L2-normalised vectors (BGE-small output, so cosine = dot product).
-//! - `spec/06_ann_index/03_insertion.md` §29 — confirmed type alias
-//!   `Hnsw<f32, DistCosine>`.
+//! - `spec/06_ann_index/03_insertion.md` §1–2, §10 — id_map pattern;
+//!   duplicate-MemoryId is a bug we detect rather than letting hnsw_rs
+//!   silently overwrite.
 //! - `spec/06_ann_index/04_search.md` §1 — search returns sorted ascending
 //!   by distance.
 //!
-//! ## Surface (sub-task 4.1 scope)
+//! ## Current surface (through sub-task 4.2)
 //!
 //! - [`HnswIndex::new`] — construct with [`crate::params::IndexParams`].
-//! - [`HnswIndex::insert`] — `&mut self` + raw `usize` id + `&[f32; D]`.
+//! - [`HnswIndex::insert`] — `&mut self` + [`MemoryId`] + `&[f32; D]`.
+//!   Returns [`HnswError::DuplicateMemoryId`] on re-insert.
 //! - [`HnswIndex::search`] — `&self` + `&[f32; D]` + `k` + optional ef
 //!   override (clamped to `[k, params.ef_search_max]`).
-//! - [`HnswIndex::len`] / [`HnswIndex::is_empty`].
+//!   Returns `Vec<(MemoryId, f32)>` sorted ascending by distance.
+//! - [`HnswIndex::contains`], [`HnswIndex::len`], [`HnswIndex::is_empty`].
 //!
 //! ## What's NOT here yet
 //!
-//! - **MemoryId mapping** — sub-task 4.2 adds the adapter that lets
-//!   callers use `brain_core::MemoryId` instead of `usize`.
-//! - **Tombstone filtering** — sub-task 4.3 + 4.4.
-//! - **Persistence** — sub-task 4.5.
-//! - **Rebuild** — sub-task 4.6.
+//! - **Tombstone bitmap** — sub-task 4.3.
+//! - **Search post-filter / tombstone awareness** — sub-task 4.4.
+//! - **Persistence** — sub-task 4.5 (writes both the hnsw_rs graph and
+//!   the [`crate::idmap::IdMap`] contents).
+//! - **Rebuild from external iterator** — sub-task 4.6.
 //! - **Concurrency wrapper** (`ArcSwap` + pending buffer) — sub-task 4.8.
-//!   Today, `&mut self` on insert encodes the single-writer discipline
-//!   directly at the type level.
 
+use brain_core::MemoryId;
 use hnsw_rs::prelude::{DistCosine, Hnsw, Neighbour};
 use thiserror::Error;
 
+use crate::idmap::{IdMap, IdMapError};
 use crate::params::{IndexParams, IndexParamsError, DEFAULT_CAPACITY_HINT, MAX_LAYER};
 
 /// HNSW index parameterised by vector dimension `D`. Wraps
@@ -43,20 +46,40 @@ use crate::params::{IndexParams, IndexParamsError, DEFAULT_CAPACITY_HINT, MAX_LA
 pub struct HnswIndex<const D: usize> {
     inner: Hnsw<'static, f32, DistCosine>,
     params: IndexParams,
-    /// Local count, since `hnsw_rs::Hnsw::get_nb_point()` exists but we
-    /// keep our own counter for `len()` to avoid touching hnsw_rs's
-    /// internal locks on a hot path.
-    len: usize,
+    id_map: IdMap,
 }
 
 /// Errors from [`HnswIndex`] construction and operations.
 ///
-/// Sub-task 4.1 only surfaces parameter-validation failures. Persistence
-/// (4.5) and rebuild (4.6) will extend this enum with I/O variants.
+/// Persistence (4.5) and rebuild (4.6) will extend this enum with I/O
+/// variants.
 #[derive(Debug, Error)]
 pub enum HnswError {
     #[error("invalid params: {0}")]
     InvalidParams(#[from] IndexParamsError),
+
+    /// `memory_id` was already inserted. Per spec §06/03 §10 re-inserting
+    /// an existing MemoryId is a caller bug; we detect rather than let
+    /// hnsw_rs silently overwrite.
+    #[error("duplicate memory_id: {memory_id_bytes:?}")]
+    DuplicateMemoryId { memory_id_bytes: [u8; 16] },
+
+    /// The internal `u32` id_map allocator hit `u32::MAX`. Spec's
+    /// per-shard ceiling is ~10M memories — this is unreachable in
+    /// practice; the check is defensive.
+    #[error("id_map exhausted: u32::MAX internal ids allocated")]
+    IdMapExhausted,
+}
+
+impl From<IdMapError> for HnswError {
+    fn from(e: IdMapError) -> Self {
+        match e {
+            IdMapError::AlreadyInserted { memory_id_bytes } => {
+                HnswError::DuplicateMemoryId { memory_id_bytes }
+            }
+            IdMapError::Exhausted => HnswError::IdMapExhausted,
+        }
+    }
 }
 
 impl<const D: usize> HnswIndex<D> {
@@ -77,50 +100,75 @@ impl<const D: usize> HnswIndex<D> {
         Ok(Self {
             inner,
             params,
-            len: 0,
+            id_map: IdMap::new(),
         })
     }
 
-    /// Insert a vector under the supplied internal id. Single-writer per
-    /// shard — encoded via `&mut self`.
+    /// Insert `vector` under `memory_id`. Single-writer per shard —
+    /// encoded via `&mut self`.
     ///
-    /// `id` is the raw `usize` hnsw_rs uses internally. Sub-task 4.2
-    /// adds the `MemoryId` adapter layer.
-    pub fn insert(&mut self, id: usize, vector: &[f32; D]) {
+    /// Returns [`HnswError::DuplicateMemoryId`] if `memory_id` was
+    /// already inserted; the index is unchanged on the duplicate path
+    /// (no internal id burned). Spec §06/03 §10.
+    pub fn insert(&mut self, memory_id: MemoryId, vector: &[f32; D]) -> Result<(), HnswError> {
+        let internal_id = self.id_map.insert(memory_id)?;
         // `Hnsw::insert_slice` takes a `(&[T], usize)` tuple.
-        self.inner.insert_slice((vector.as_slice(), id));
-        self.len += 1;
+        self.inner
+            .insert_slice((vector.as_slice(), internal_id as usize));
+        Ok(())
     }
 
-    /// Search for the `k` nearest neighbours of `query`.
+    /// Search for the `k` nearest neighbours of `query`. Returns
+    /// `(MemoryId, distance)` tuples sorted ascending by distance
+    /// (best match first).
     ///
     /// `ef` overrides the per-query search width:
     /// - `None` → uses `params.ef_search`.
     /// - `Some(v)` → clamped to `[k, params.ef_search_max]` per
-    ///   `spec/06_ann_index/02_parameters.md` §5 (the `ef = max(K, default)`
-    ///   rule) and §8 (the `ef_search_max` cap).
+    ///   `spec/06_ann_index/02_parameters.md` §5 (`ef = max(K, default)`)
+    ///   and §8 (the `ef_search_max` cap).
     ///
-    /// Results are sorted ascending by distance (best match first), matching
-    /// `hnsw_rs`'s contract.
+    /// If hnsw_rs returns an internal id not present in this index's
+    /// id_map (defensive — should never happen in practice), the
+    /// corresponding result is dropped with a `tracing::warn!`.
     #[must_use]
-    pub fn search(&self, query: &[f32; D], k: usize, ef: Option<usize>) -> Vec<(usize, f32)> {
+    pub fn search(&self, query: &[f32; D], k: usize, ef: Option<usize>) -> Vec<(MemoryId, f32)> {
         let ef = self.resolve_ef(k, ef);
         let neighbours: Vec<Neighbour> = self.inner.search(query.as_slice(), k, ef);
         neighbours
             .into_iter()
-            .map(|n| (n.d_id, n.distance))
+            .filter_map(|n| {
+                let internal_id = u32::try_from(n.d_id).ok()?;
+                match self.id_map.lookup_reverse(internal_id) {
+                    Some(memory_id) => Some((memory_id, n.distance)),
+                    None => {
+                        tracing::warn!(
+                            internal_id,
+                            "hnsw_rs returned an internal id with no MemoryId mapping; \
+                             dropping result"
+                        );
+                        None
+                    }
+                }
+            })
             .collect()
     }
 
-    /// Number of vectors inserted. Cheap; does not touch hnsw_rs's locks.
+    /// Does this index hold a vector for `memory_id`?
+    #[must_use]
+    pub fn contains(&self, memory_id: MemoryId) -> bool {
+        self.id_map.contains(memory_id)
+    }
+
+    /// Number of vectors inserted. Cheap.
     #[must_use]
     pub fn len(&self) -> usize {
-        self.len
+        self.id_map.len()
     }
 
     #[must_use]
     pub fn is_empty(&self) -> bool {
-        self.len == 0
+        self.id_map.is_empty()
     }
 
     /// The parameters this index was built with. Useful when sub-task 4.5
@@ -150,9 +198,11 @@ mod tests {
         [a / n, b / n, c / n, d / n]
     }
 
+    fn mid(slot: u64) -> MemoryId {
+        MemoryId::pack(1, slot, 1)
+    }
+
     fn params_d4() -> IndexParams {
-        // Use spec defaults but with ef_search at the spec's minimum so
-        // we exercise the per-query override path comfortably.
         IndexParams::default_v1()
     }
 
@@ -178,23 +228,24 @@ mod tests {
     }
 
     #[test]
-    fn insert_increments_len() {
+    fn insert_with_memory_id_increments_len() {
         let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
-        idx.insert(1, &vec4(1.0, 0.0, 0.0, 0.0));
-        idx.insert(2, &vec4(0.0, 1.0, 0.0, 0.0));
-        idx.insert(3, &vec4(0.0, 0.0, 1.0, 0.0));
+        idx.insert(mid(1), &vec4(1.0, 0.0, 0.0, 0.0)).unwrap();
+        idx.insert(mid(2), &vec4(0.0, 1.0, 0.0, 0.0)).unwrap();
+        idx.insert(mid(3), &vec4(0.0, 0.0, 1.0, 0.0)).unwrap();
         assert_eq!(idx.len(), 3);
         assert!(!idx.is_empty());
     }
 
     #[test]
-    fn identical_vector_self_match_returns_distance_near_zero() {
+    fn identical_vector_self_match_returns_memory_id() {
         let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
         let v = vec4(0.5, 0.5, 0.5, 0.5);
-        idx.insert(42, &v);
+        let id = mid(42);
+        idx.insert(id, &v).unwrap();
         let results = idx.search(&v, 1, None);
         assert_eq!(results.len(), 1);
-        assert_eq!(results[0].0, 42);
+        assert_eq!(results[0].0, id);
         assert!(
             results[0].1.abs() < 1e-5,
             "expected ~0 distance, got {}",
@@ -207,7 +258,8 @@ mod tests {
         let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
         for i in 1..=5u8 {
             let f = f32::from(i);
-            idx.insert(i as usize, &vec4(f, f * 2.0, f * 3.0, f * 4.0));
+            idx.insert(mid(u64::from(i)), &vec4(f, f * 2.0, f * 3.0, f * 4.0))
+                .unwrap();
         }
         let q = vec4(1.0, 2.0, 3.0, 4.0);
         let results = idx.search(&q, 3, None);
@@ -217,15 +269,13 @@ mod tests {
     #[test]
     fn search_results_are_sorted_ascending() {
         let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
-        // Five distinct unit vectors pointing in different directions.
-        idx.insert(1, &vec4(1.0, 0.1, 0.0, 0.0));
-        idx.insert(2, &vec4(0.9, 0.5, 0.0, 0.0));
-        idx.insert(3, &vec4(0.5, 0.9, 0.0, 0.0));
-        idx.insert(4, &vec4(0.1, 1.0, 0.0, 0.0));
-        idx.insert(5, &vec4(0.0, 0.0, 1.0, 1.0));
+        idx.insert(mid(1), &vec4(1.0, 0.1, 0.0, 0.0)).unwrap();
+        idx.insert(mid(2), &vec4(0.9, 0.5, 0.0, 0.0)).unwrap();
+        idx.insert(mid(3), &vec4(0.5, 0.9, 0.0, 0.0)).unwrap();
+        idx.insert(mid(4), &vec4(0.1, 1.0, 0.0, 0.0)).unwrap();
+        idx.insert(mid(5), &vec4(0.0, 0.0, 1.0, 1.0)).unwrap();
         let q = vec4(1.0, 0.0, 0.0, 0.0);
         let results = idx.search(&q, 5, None);
-        // Distances should be non-decreasing.
         for w in results.windows(2) {
             assert!(
                 w[0].1 <= w[1].1 + 1e-6,
@@ -238,20 +288,15 @@ mod tests {
 
     #[test]
     fn ef_search_max_caps_per_query_override() {
-        // Spec §02 §8: ef_search_max=500 by default; per-query overrides
-        // exceeding it must be clamped. We don't have a way to peek at
-        // the ef hnsw_rs actually used, so we exercise the boundary via
-        // the public surface: an enormous override must not panic, must
-        // honour k.
         let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
-        idx.insert(1, &vec4(1.0, 0.0, 0.0, 0.0));
-        idx.insert(2, &vec4(0.0, 1.0, 0.0, 0.0));
+        idx.insert(mid(1), &vec4(1.0, 0.0, 0.0, 0.0)).unwrap();
+        idx.insert(mid(2), &vec4(0.0, 1.0, 0.0, 0.0)).unwrap();
         let q = vec4(1.0, 0.0, 0.0, 0.0);
         // 9999 well above ef_search_max=500; clamps inside resolve_ef.
         let results = idx.search(&q, 2, Some(9999));
         assert!(results.len() <= 2);
-        // Top hit is id=1 (closer).
-        assert_eq!(results[0].0, 1);
+        // Top hit is mid(1) (closer to the query).
+        assert_eq!(results[0].0, mid(1));
     }
 
     #[test]
@@ -264,7 +309,6 @@ mod tests {
 
     #[test]
     fn resolve_ef_clamps_to_k_and_ef_search_max() {
-        // Direct unit test of the clamp helper via the public path.
         let idx = HnswIndex::<4>::new(IndexParams::default_v1()).unwrap();
         // None → ef_search (64), bumped to k=128 → still ≤ ef_search_max (500).
         assert_eq!(idx.resolve_ef(128, None), 128);
@@ -274,5 +318,50 @@ mod tests {
         assert_eq!(idx.resolve_ef(10, Some(9999)), 500);
         // Override below k → bumped to k.
         assert_eq!(idx.resolve_ef(100, Some(50)), 100);
+    }
+
+    // ----- 4.2-specific tests --------------------------------------------
+
+    #[test]
+    fn duplicate_memory_id_returns_error() {
+        let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
+        idx.insert(mid(1), &vec4(1.0, 0.0, 0.0, 0.0)).unwrap();
+        // Second insert of the same MemoryId rejects.
+        match idx.insert(mid(1), &vec4(0.0, 1.0, 0.0, 0.0)) {
+            Err(HnswError::DuplicateMemoryId { memory_id_bytes }) => {
+                assert_eq!(memory_id_bytes, mid(1).to_be_bytes());
+            }
+            Err(e) => panic!("wrong error: {e}"),
+            Ok(()) => panic!("expected DuplicateMemoryId"),
+        }
+        assert_eq!(idx.len(), 1, "duplicate insert must not advance len");
+    }
+
+    #[test]
+    fn search_results_carry_memory_ids() {
+        let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
+        idx.insert(mid(100), &vec4(1.0, 0.0, 0.0, 0.0)).unwrap();
+        idx.insert(mid(200), &vec4(0.0, 1.0, 0.0, 0.0)).unwrap();
+        let results = idx.search(&vec4(1.0, 0.1, 0.0, 0.0), 2, None);
+        let ids: Vec<MemoryId> = results.iter().map(|(id, _)| *id).collect();
+        assert!(
+            ids.contains(&mid(100)),
+            "expected mid(100) in {:?}",
+            results
+        );
+        assert!(
+            ids.contains(&mid(200)),
+            "expected mid(200) in {:?}",
+            results
+        );
+    }
+
+    #[test]
+    fn contains_after_insert() {
+        let mut idx = HnswIndex::<4>::new(params_d4()).unwrap();
+        assert!(!idx.contains(mid(7)));
+        idx.insert(mid(7), &vec4(1.0, 0.0, 0.0, 0.0)).unwrap();
+        assert!(idx.contains(mid(7)));
+        assert!(!idx.contains(mid(8)));
     }
 }
