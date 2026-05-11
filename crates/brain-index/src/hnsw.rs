@@ -376,6 +376,29 @@ impl<const D: usize> HnswIndex<D> {
         self.params
     }
 
+    /// Build a fresh index from an iterator of `(MemoryId, vector)`
+    /// pairs. The caller filters out tombstoned and corrupted memories
+    /// upstream (spec §06/06 §3, §07 §12); `rebuild` simply iterates
+    /// and inserts.
+    ///
+    /// Returns the new index plus a [`crate::rebuild::RebuildReport`]
+    /// with insert count and wall-clock duration. The new index starts
+    /// with no tombstones — spec §06/06 §3's "compaction" property.
+    ///
+    /// This is the **Build** phase only (spec §07 §5 step 1).
+    /// Catch-up, atomic swap with the existing index, and old-index
+    /// cleanup are the caller's responsibility (Phase 8 maintenance
+    /// worker, composing with 4.8's `ArcSwap` wrapper).
+    pub fn rebuild<I>(
+        params: IndexParams,
+        source: I,
+    ) -> Result<(Self, crate::rebuild::RebuildReport), HnswError>
+    where
+        I: IntoIterator<Item = (MemoryId, [f32; D])>,
+    {
+        crate::rebuild::rebuild_impl(params, source)
+    }
+
     /// Compute the effective `ef` for a search per spec §02 §5 + §8:
     ///
     /// - Floor at `k` (hnsw_rs requires `ef >= k` for k results).
@@ -1115,5 +1138,63 @@ mod tests {
             Err(e) => panic!("expected SnapshotUnsupportedVersion(99), got error {e}"),
             Ok(_) => panic!("expected SnapshotUnsupportedVersion(99), got Ok"),
         }
+    }
+
+    // ----- 4.6-specific tests --------------------------------------------
+
+    #[test]
+    fn rebuild_search_returns_correct_results() {
+        let source = vec![
+            (mid(1), vec4(1.0, 0.0, 0.0, 0.0)),
+            (mid(2), vec4(0.0, 1.0, 0.0, 0.0)),
+            (mid(3), vec4(0.0, 0.0, 1.0, 0.0)),
+        ];
+        let (idx, _) = HnswIndex::<4>::rebuild(IndexParams::default_v1(), source).unwrap();
+        let results = idx.search_active(&vec4(1.0, 0.0, 0.0, 0.0), 1, None);
+        assert_eq!(results.len(), 1);
+        assert_eq!(results[0].0, mid(1));
+        assert!(results[0].1 > 1.0 - 1e-5);
+    }
+
+    #[test]
+    fn rebuild_report_records_duration() {
+        let source = (1..=10u64)
+            .map(|i| (mid(i), vec4(i as f32, 0.5, 0.0, 0.0)))
+            .collect::<Vec<_>>();
+        let (_, report) = HnswIndex::<4>::rebuild(IndexParams::default_v1(), source).unwrap();
+        // Duration is populated and non-zero on a real rebuild. We
+        // don't assert a numeric bound (CI variance); just that it's
+        // not the default value.
+        assert_eq!(report.memories_inserted, 10);
+        assert!(
+            report.duration > std::time::Duration::ZERO,
+            "duration should be non-zero, got {:?}",
+            report.duration
+        );
+    }
+
+    #[test]
+    fn rebuild_then_save_then_load() {
+        // End-to-end: rebuild from iter → save_snapshot → load_snapshot
+        // → search returns the same MemoryIds. Pins that 4.5 and 4.6
+        // compose correctly.
+        let dir = tempfile::tempdir().unwrap();
+        let source = vec![
+            (mid(10), vec4(1.0, 0.0, 0.0, 0.0)),
+            (mid(20), vec4(0.0, 1.0, 0.0, 0.0)),
+            (mid(30), vec4(0.0, 0.0, 1.0, 0.0)),
+        ];
+        let (idx, _) = HnswIndex::<4>::rebuild(IndexParams::default_v1(), source).unwrap();
+        let q = vec4(1.0, 0.0, 0.0, 0.0);
+        let pre = idx.search_active(&q, 3, None);
+
+        idx.save_snapshot(dir.path(), "rb", 7, TEST_UUID).unwrap();
+        let (loaded, lsn) = HnswIndex::<4>::load_snapshot(dir.path(), "rb", TEST_UUID).unwrap();
+        assert_eq!(lsn, 7);
+        assert_eq!(loaded.len(), 3);
+        let post = loaded.search_active(&q, 3, None);
+        let pre_ids: Vec<MemoryId> = pre.iter().map(|(id, _)| *id).collect();
+        let post_ids: Vec<MemoryId> = post.iter().map(|(id, _)| *id).collect();
+        assert_eq!(pre_ids, post_ids, "save+load order must match pre-snapshot");
     }
 }
