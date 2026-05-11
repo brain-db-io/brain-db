@@ -32,8 +32,10 @@ pub mod config;
 pub mod error;
 pub mod fingerprint;
 pub mod model;
+pub mod tokenize;
 
 pub use config::EmbedderConfig;
 pub use error::EmbedError;
 pub use fingerprint::{blake3_hash_file, compute_fingerprint};
 pub use model::ModelHandle;
+pub use tokenize::{encode_batch, encode_single, Tokenized, MAX_TOKEN_LENGTH};

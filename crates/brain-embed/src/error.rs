@@ -49,4 +49,14 @@ pub enum EmbedError {
 
     #[error("warm-up inference failed: {0}")]
     WarmupFailed(String),
+
+    /// Tokeniser failed to encode (vocab missing, internal error, etc.).
+    #[error("tokenisation failed: {0}")]
+    TokenizationFailed(String),
+
+    /// Building one of the BERT input tensors from token ids failed.
+    /// Distinct from `WarmupFailed` because the failure is at tensor
+    /// construction time, not during the forward pass.
+    #[error("tensor build failed: {0}")]
+    TensorBuild(String),
 }
