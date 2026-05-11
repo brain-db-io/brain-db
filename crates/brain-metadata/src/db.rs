@@ -34,20 +34,33 @@
 //! - **Write-transaction timeout** (spec §07/08 §16) — writer-task
 //!   concern; `MetadataDb` doesn't auto-abort.
 
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 use redb::{Database, ReadTransaction, ReadableDatabase, TransactionError, WriteTransaction};
 
 use crate::schema::{open_or_init_schema, SchemaError};
+use crate::tables::checkpoint::{latest as latest_checkpoint, CHECKPOINTS_TABLE};
 
 /// Public type wrapping the redb metadata file. Single ownership per
 /// shard; the borrow checker enforces single-writer via `&mut self` on
 /// [`MetadataDb::write_txn`].
 #[derive(Debug)]
 pub struct MetadataDb {
-    db: Database,
+    pub(crate) db: Database,
     schema_version: u32,
     path: PathBuf,
+
+    /// Cached recovery target. Loaded at [`MetadataDb::open`] from the
+    /// `checkpoints` table's most-recent row; advanced by
+    /// [`crate::sink::MetadataSink::apply`] on `CheckpointEnd`.
+    pub(crate) durable_lsn: u64,
+
+    /// In-flight checkpoints seen but not yet `CheckpointEnd`-paired.
+    /// Maps `checkpoint_id → started_at_unix_nanos`. Transient: any
+    /// entry surviving across a restart is implicitly discarded
+    /// (spec §05/09 §12.1: incomplete checkpoint is ignored).
+    pub(crate) pending_checkpoints: HashMap<u64, u64>,
 }
 
 /// Errors returned by [`MetadataDb::open`].
@@ -79,10 +92,28 @@ impl MetadataDb {
         let path = path.as_ref().to_path_buf();
         let db = Database::create(&path)?;
         let schema_version = open_or_init_schema(&db)?;
+
+        // Seed `durable_lsn` from the latest checkpoint, if any. Missing
+        // or empty checkpoints table → 0 (fresh shard or no checkpoint
+        // has completed yet). Spec §05/09 §2: "the substrate keeps the
+        // most recent one as the recovery target."
+        let durable_lsn = {
+            let rtxn = db.begin_read()?;
+            match rtxn.open_table(CHECKPOINTS_TABLE) {
+                Ok(t) => latest_checkpoint(&t)
+                    .map_err(|e| MetadataDbError::Schema(SchemaError::Storage(e)))?
+                    .map_or(0, |c| c.durable_lsn),
+                Err(redb::TableError::TableDoesNotExist(_)) => 0,
+                Err(e) => return Err(MetadataDbError::Schema(SchemaError::from(e))),
+            }
+        };
+
         Ok(Self {
             db,
             schema_version,
             path,
+            durable_lsn,
+            pending_checkpoints: HashMap::new(),
         })
     }
 

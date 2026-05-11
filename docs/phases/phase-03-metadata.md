@@ -196,10 +196,33 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 **Done when:** [x] 9 tests: open-fresh, reopen, **too-new-schema refuses**, write-read round trip end-to-end through the wrapper, **MVCC isolation pin** (uncommitted writes are invisible), post-commit visibility, concurrent read txns coexist, schema_version accessor, path accessor. Total in brain-metadata: 91 tests.
 
-### Task 3.11 — `MetadataSink` impl for recovery
-**Reads:** `spec/05_storage_arena_wal/08_recovery.md`
-**Writes:** `crates/brain-metadata/src/sink.rs`
-**Done when:** `impl MetadataSink for MetadataDb` consumes WAL records and updates tables idempotently. End-to-end recovery test (storage + metadata) passes.
+### Task 3.11 — `MetadataSink` impl for recovery ✅
+**Reads:** `spec/05_storage_arena_wal/08_recovery.md` (recovery contract); `spec/07_metadata_graph/08_transactions.md` §11; each payload's originating spec section (§09/02 ENCODE, §09/06 FORGET, §07/06 idempotency, §05/09 checkpoints, §04/07 model fingerprints).
+**Writes:** `crates/brain-storage/src/recovery.rs` (trait extension), `crates/brain-metadata/src/sink.rs` (new), `crates/brain-metadata/src/db.rs` (state fields), `crates/brain-metadata/src/lib.rs` (export), `crates/brain-metadata/src/tables/memory.rs` (expose `memory_kind_to_u8` to crate), `docs/spec-deviations.md` (SD-3.11-1, SD-3.11-2).
+
+**What was built:**
+
+*Trait extension (brain-storage):*
+- `MetadataSink::apply` gained a `timestamp_ns: u64` parameter (SD-3.11-1). `InMemoryMetadataSink` and the recovery dispatch in `recovery::apply` updated accordingly. brain-storage tests remain green (155+95+4).
+
+*Real sink (brain-metadata):*
+- `impl MetadataSink for MetadataDb` covering all 15 `WalPayload` variants. Each `apply_*` helper opens a single redb write transaction, performs all the table writes for that variant, and commits (spec §07/08 §11 multi-table atomicity).
+- `MetadataDb` gained `pub(crate) durable_lsn: u64` (cached at `open()` from `checkpoints.latest()`) and `pub(crate) pending_checkpoints: HashMap<u64, u64>` (transient CheckpointBegin → CheckpointEnd pairing). `db: Database` promoted to `pub(crate)` so `sink.rs` can call `begin_write` inside helpers.
+- **Encode** writes 8 tables in one txn: memories, texts, idempotency, model_fingerprints (insert-if-absent), edges_out + edges_in (via 3.4's `link()` helper, with symmetric mirroring), slot_versions (direct insert at the WAL-recorded version, **not** the 3.7 `increment` helper — recovery replays the version verbatim), next_lsn.
+- **CheckpointBegin** is in-memory only (`pending_checkpoints[id] = started_at`). **CheckpointEnd** pairs with the pending entry, writes a `CheckpointMeta` row (using the threaded `timestamp_ns` for `completed_at_unix_nanos`), advances `self.durable_lsn`. Unpaired End uses `started_at = 0` (sentinel for crashes between BEGIN/END).
+- **TxnBegin/TxnCommit/TxnAbort** are no-ops in apply — recovery (`brain_storage::recovery::recover`) already buffers and applies bracketed records atomically; the sink sees only committed records.
+- **Reclaim** scans `memories` to find the row matching `(slot_id, old_version)`, deletes the row + its text, advances `slot_versions[slot_id] = new_version`. O(N) per reclaim — logged as SD-3.11-2 with the future fix (extend `ReclaimPayload` with `MemoryId`).
+- `bump_next_lsn_in_txn` helper updates `next_lsn[()] = max(current, lsn + 1)` inside the caller's transaction.
+
+*Deliberate placeholders:* `IdempotencyEntry.request_hash = [0; 32]` (canonical-request hash is wire-layer concern), `ModelInfo.model_name = ""` (payload carries fingerprint only), `MemoryMetadata.edges_out_count` / `edges_in_count` not maintained on Link/Unlink (Phase 8 worker reconciles).
+
+**Mid-flight fixes:**
+- redb's `AccessGuard` holds an immutable borrow across blocks; `let mut mem = access.value(); drop(access); t.insert(...)` doesn't work because the temporary `Option` keeps the guard alive. Rewrote read-modify-write as `let existing = t.get(&key)?.map(|a| a.value()); if let Some(mut mem) = existing { ... t.insert(...); }` — six occurrences across the sink.
+- `RequestId` doesn't have `to_be_bytes()`; uses `From<RequestId> for [u8; 16]`. Three call sites converted to `<[u8; 16]>::from(p.request_id)`.
+- `TxnId::from(u64)` doesn't exist; tests construct via `[u8; 16]`.
+- Made `db: Database` and the two state fields `pub(crate)` so the sink can use them inside this crate while keeping them private to consumers.
+
+**Done when:** [x] All 15 `WalPayload` variants implemented; durable_lsn persists across reopens; Encode round-trips through 8 tables in one transaction; idempotent on re-apply; SD-3.11-1 + SD-3.11-2 logged; brain-storage tests green (no regression from trait change); brain-metadata total: **109 tests** (91 prior + 18 new sink tests covering durable_lsn round-trip, Encode 8-table write, Encode idempotency, Encode with multiple edges including symmetric mirroring, Forget tombstoning, Link/Unlink, UpdateSalience, Reclaim cascade, Consolidate, UpdateKind, UpdateContext, MigrateEmbedding, CheckpointEnd-paired-with-Begin, CheckpointEnd-without-Begin sentinel, Txn no-op, and out-of-order next_lsn tracking).
 
 ### Task 3.12 — Cross-crate integration test
 **Reads:** all of phases 2–3.

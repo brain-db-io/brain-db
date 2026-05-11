@@ -56,7 +56,7 @@ pub mod flags {
 // Duplicates `brain_storage::wal::payload::memory_kind_to_u8` (kept
 // private there). If a third caller appears, promote to brain-core.
 
-fn memory_kind_to_u8(k: MemoryKind) -> u8 {
+pub(crate) fn memory_kind_to_u8(k: MemoryKind) -> u8 {
     match k {
         MemoryKind::Episodic => 0,
         MemoryKind::Semantic => 1,
@@ -64,7 +64,8 @@ fn memory_kind_to_u8(k: MemoryKind) -> u8 {
     }
 }
 
-fn memory_kind_from_u8(b: u8) -> Result<MemoryKind, BadMemoryKind> {
+#[allow(dead_code)] // used by `crate::sink` and tests
+pub(crate) fn memory_kind_from_u8(b: u8) -> Result<MemoryKind, BadMemoryKind> {
     Ok(match b {
         0 => MemoryKind::Episodic,
         1 => MemoryKind::Semantic,

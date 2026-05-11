@@ -16,6 +16,7 @@
 
 pub mod db;
 pub mod schema;
+pub mod sink;
 pub mod tables;
 
 pub use db::{MetadataDb, MetadataDbError};
