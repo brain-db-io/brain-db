@@ -313,7 +313,9 @@ name = "brain-planner"
 version = "0.1.0"
 dependencies = [
  "brain-core",
+ "brain-protocol",
  "thiserror 1.0.69",
+ "uuid",
 ]
 
 [[package]]

@@ -9,4 +9,8 @@ description = "Query planner and executor for Brain."
 
 [dependencies]
 brain-core = { path = "../brain-core" }
+brain-protocol = { path = "../brain-protocol" }
 thiserror.workspace = true
+
+[dev-dependencies]
+uuid.workspace = true
