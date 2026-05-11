@@ -8,6 +8,8 @@
 use brain_embed::EmbedError;
 use thiserror::Error;
 
+use super::writer::WriterError;
+
 #[derive(Debug, Error)]
 pub enum ExecError {
     /// The embedder failed (model load, forward pass, tokenisation,
@@ -43,4 +45,9 @@ pub enum ExecError {
     /// dedicated variant yet.
     #[error("internal executor error: {0}")]
     Internal(String),
+
+    /// Writer rejected or failed (overloaded queue, internal error).
+    /// Spec §08/08 §14's backpressure surfaces here.
+    #[error("writer rejected: {0}")]
+    WriterFailed(#[from] WriterError),
 }

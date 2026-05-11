@@ -4,6 +4,8 @@
 
 use brain_core::{ContextId, MemoryId, MemoryKind};
 
+use super::writer::EdgeOutcome;
+
 #[derive(Debug, Clone)]
 pub struct RecallResult {
     pub hits: Vec<RecallHit>,
@@ -22,4 +24,13 @@ pub struct RecallHit {
     /// `None` until a wire-level `include_text` flag lands and the
     /// planner builds a `TextFetchStep`.
     pub text: Option<String>,
+}
+
+#[derive(Debug, Clone)]
+pub struct EncodeResult {
+    pub memory_id: MemoryId,
+    pub edge_results: Vec<EdgeOutcome>,
+    /// `true` when the writer replayed a cached idempotency entry;
+    /// `false` for a fresh write. Spec §08/04 §4.
+    pub replayed: bool,
 }

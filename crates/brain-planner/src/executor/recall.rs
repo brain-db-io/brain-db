@@ -47,30 +47,31 @@ pub async fn execute_recall(
             .search_active(&cue_vector, ann.candidates_to_request, Some(ann.ef));
 
     // 3. Metadata lookup for each candidate (single read txn).
-    let txn = ctx
-        .metadata
-        .read_txn()
-        .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-    let table = txn
-        .open_table(MEMORIES_TABLE)
-        .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-
     let mut enriched: Vec<(RecallHit, f32)> = Vec::with_capacity(raw_hits.len());
-    for (memory_id, score) in raw_hits {
-        let row = table
-            .get(memory_id.to_be_bytes())
+    {
+        let metadata_guard = ctx.metadata.lock();
+        let txn = metadata_guard
+            .read_txn()
             .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-        let Some(access) = row else {
-            // HNSW returned an id the metadata doesn't know about —
-            // spec §08/10 says surface, don't swallow.
-            return Err(ExecError::MemoryNotFound { memory_id });
-        };
-        let meta = access.value();
-        let hit = build_hit(memory_id, score, &meta)?;
-        enriched.push((hit, score));
+        let table = txn
+            .open_table(MEMORIES_TABLE)
+            .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
+
+        for (memory_id, score) in raw_hits {
+            let row = table
+                .get(memory_id.to_be_bytes())
+                .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
+            let Some(access) = row else {
+                // HNSW returned an id the metadata doesn't know about —
+                // spec §08/10 says surface, don't swallow.
+                return Err(ExecError::MemoryNotFound { memory_id });
+            };
+            let meta = access.value();
+            let hit = build_hit(memory_id, score, &meta)?;
+            enriched.push((hit, score));
+        }
+        // table + txn + guard drop here, releasing the mutex.
     }
-    drop(table);
-    drop(txn);
 
     // 4. Apply post-filter rules.
     if shard.filter_apply.stage == FilterStage::PostFilter && !shard.filter_apply.rules.is_empty() {

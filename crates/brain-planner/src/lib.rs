@@ -29,6 +29,7 @@
 pub mod config;
 pub mod context;
 pub mod cost;
+pub mod encode;
 pub mod error;
 pub mod executor;
 pub mod plan;
@@ -37,8 +38,13 @@ pub mod stats;
 
 pub use config::PlannerConfig;
 pub use context::PlannerContext;
+pub use encode::{plan_encode, plan_encode_inner, MAX_TEXT_BYTES};
 pub use error::PlanError;
-pub use executor::{execute_recall, ExecError, ExecutorContext, RecallHit, RecallResult};
+pub use executor::{
+    execute_encode, execute_recall, EdgeOutcome, EncodeAck, EncodeOp, EncodeOpEdge, EncodeResult,
+    ExecError, ExecutorContext, RecallHit, RecallResult, SharedMetadataDb, WriterError,
+    WriterHandle,
+};
 pub use plan::{
     AnnSearchStep, ApplyStep, ContextResolutionStep, EdgeSpec, EdgeStep, EmbeddingStep, EncodePlan,
     EncodeResponseStep, ExecutionPlan, FilterRule, FilterStage, FilterStep, ForgetPlan,

@@ -23,7 +23,8 @@ use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_planner::{
-    execute_recall, plan_recall, plan_recall_inner, ExecutionPlan, ExecutorContext, PlannerContext,
+    execute_recall, plan_recall, plan_recall_inner, EncodeAck, EncodeOp, ExecutionPlan,
+    ExecutorContext, PlannerContext, SharedMetadataDb, WriterError, WriterHandle,
 };
 use brain_protocol::request::{MemoryKindWire, RecallRequest};
 use uuid::Uuid;
@@ -78,6 +79,27 @@ impl Dispatcher for MockDispatcher {
     }
     fn fingerprint(&self) -> [u8; 16] {
         self.fp
+    }
+}
+
+// ---------------------------------------------------------------------------
+// No-op writer for read-path tests.
+// ---------------------------------------------------------------------------
+
+struct NoopWriter;
+
+impl WriterHandle for NoopWriter {
+    fn submit_encode<'a>(
+        &'a self,
+        _op: EncodeOp,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<EncodeAck, WriterError>> + Send + 'a>,
+    > {
+        Box::pin(async move {
+            Err(WriterError::Internal(
+                "noop writer used in recall test".into(),
+            ))
+        })
     }
 }
 
@@ -148,10 +170,12 @@ fn build_fixture(memories: &[(MemoryKind, f32, [f32; VECTOR_DIM])]) -> Fixture {
     }
 
     let mock = Arc::new(MockDispatcher::new([0x11; 16]));
+    let metadata: SharedMetadataDb = Arc::new(parking_lot::Mutex::new(metadata));
     let ctx = ExecutorContext::new(
         mock.clone() as Arc<dyn Dispatcher>,
         shared,
-        Arc::new(metadata),
+        metadata,
+        Arc::new(NoopWriter) as Arc<dyn WriterHandle>,
     );
     Fixture {
         ctx,
@@ -365,7 +389,13 @@ async fn recall_with_real_embedder_end_to_end() {
         wtxn.commit().unwrap();
     }
 
-    let ctx = ExecutorContext::new(dispatcher, shared, Arc::new(metadata));
+    let metadata: SharedMetadataDb = Arc::new(parking_lot::Mutex::new(metadata));
+    let ctx = ExecutorContext::new(
+        dispatcher,
+        shared,
+        metadata,
+        Arc::new(NoopWriter) as Arc<dyn WriterHandle>,
+    );
     // Cue is texts[0] — should rank itself top.
     let plan = plan_recall(&base_request(texts[0], 3), &PlannerContext::default()).unwrap();
     let result = execute_recall(unwrap_recall(plan), &ctx).await.unwrap();
