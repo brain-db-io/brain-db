@@ -13,6 +13,16 @@
 //!
 //! This crate is the only place in the workspace allowed to use `unsafe`,
 //! and only for memory-mapping operations.
+//!
+//! # Platform
+//!
+//! This crate targets Linux exclusively. The runtime relies on
+//! `mmap`/`mremap`, `O_DIRECT`, `pwritev2(RWF_DSYNC)`, and `io_uring` —
+//! none of which have a sane cross-platform substitute. Building on
+//! macOS, Windows, or BSD intentionally fails at compile time so the
+//! breakage is loud, not a silent fallback.
+//!
+//! See `README.md` → "Development environment" for the dev container.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -20,6 +30,23 @@
     clippy::missing_panics_doc
 )]
 // `unsafe` allowed only here — needed for mmap. Keep its blast radius minimal.
+
+#[cfg(not(target_os = "linux"))]
+compile_error!(
+    "brain-storage requires Linux (mmap/mremap, O_DIRECT, pwritev2(RWF_DSYNC), io_uring). \
+     Build inside the dev container — see README.md \"Development environment\"."
+);
+
+#[cfg(not(target_endian = "little"))]
+compile_error!(
+    "brain-storage requires a little-endian target. Storage on disk is LE \
+     (spec §05/02 §2); we rely on native-order memory access through \
+     bytemuck::Pod, which would silently produce wrong files on a BE host."
+);
+
+pub mod arena;
+pub mod recovery;
+pub mod wal;
 
 /// Slot size in bytes, per `spec/05_storage_arena_wal/02_arena_layout.md`.
 pub const SLOT_SIZE_BYTES: usize = 1600;
