@@ -44,9 +44,10 @@ pub use context::PlannerContext;
 pub use encode::{plan_encode, plan_encode_inner, MAX_TEXT_BYTES};
 pub use error::PlanError;
 pub use executor::{
-    execute_encode, execute_forget, execute_recall, EdgeOutcome, EncodeAck, EncodeOp, EncodeOpEdge,
-    EncodeResult, ExecError, ExecutorContext, ForgetAck, ForgetOp, ForgetOutcome, ForgetResult,
-    RecallHit, RecallResult, SharedMetadataDb, WriterError, WriterHandle,
+    execute, execute_encode, execute_forget, execute_recall, EdgeOutcome, EncodeAck, EncodeOp,
+    EncodeOpEdge, EncodeResult, ExecError, ExecutionResult, ExecutorContext, ForgetAck, ForgetOp,
+    ForgetOutcome, ForgetResult, RecallHit, RecallResult, SharedMetadataDb, WriterError,
+    WriterHandle,
 };
 pub use forget::{plan_forget, plan_forget_inner};
 pub use path::{plan_path, plan_path_inner};

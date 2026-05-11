@@ -5,6 +5,7 @@
 //! `execute_*` method orchestrates the steps in the plan."
 
 pub mod context;
+pub mod dispatch;
 pub mod encode;
 pub mod error;
 pub mod forget;
@@ -13,6 +14,7 @@ pub mod result;
 pub mod writer;
 
 pub use context::{ExecutorContext, SharedMetadataDb};
+pub use dispatch::{execute, ExecutionResult};
 pub use encode::execute_encode;
 pub use error::ExecError;
 pub use forget::execute_forget;
