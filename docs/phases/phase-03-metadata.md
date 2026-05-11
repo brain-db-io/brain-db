@@ -224,15 +224,35 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 **Done when:** [x] All 15 `WalPayload` variants implemented; durable_lsn persists across reopens; Encode round-trips through 8 tables in one transaction; idempotent on re-apply; SD-3.11-1 + SD-3.11-2 logged; brain-storage tests green (no regression from trait change); brain-metadata total: **109 tests** (91 prior + 18 new sink tests covering durable_lsn round-trip, Encode 8-table write, Encode idempotency, Encode with multiple edges including symmetric mirroring, Forget tombstoning, Link/Unlink, UpdateSalience, Reclaim cascade, Consolidate, UpdateKind, UpdateContext, MigrateEmbedding, CheckpointEnd-paired-with-Begin, CheckpointEnd-without-Begin sentinel, Txn no-op, and out-of-order next_lsn tracking).
 
-### Task 3.12 — Cross-crate integration test
-**Reads:** all of phases 2–3.
-**Writes:** `crates/brain-metadata/tests/recovery_integration.rs`
-**Done when:** Test that drives `Wal::append → MetadataDb` then crashes and recovers. Final state matches expected.
+### Task 3.12 — Cross-crate integration test ✅
+**Reads:** `spec/05_storage_arena_wal/08_recovery.md`; `spec/07_metadata_graph/08_transactions.md`.
+**Writes:** `crates/brain-metadata/tests/recovery_integration.rs` (new).
+
+**What was built (no product code — pure end-to-end proof):**
+
+The test file lives in `tests/` so it sees only `brain-metadata`'s **public** API — validates the public surface is sufficient for the integration. Each scenario constructs an `Env` (temp dir + arena/wal/metadata subpaths), drives `Wal::append(WalRecord::from_typed(...))` to produce real WAL records on disk, drops the WAL ("crash"), reopens arena + `MetadataDb` fresh, and calls `recover(&mut arena, wal_dir, SHARD_UUID, &mut metadata_db)`.
+
+7 scenarios:
+
+- **A — basic write-and-recover.** 2 Encodes + 1 Link → recover → all 8 tables (memories, texts, edges_out, idempotency, model_fingerprints, slot_versions, next_lsn) carry the expected rows. `records_replayed == 3`, `next_lsn == 4`.
+- **B — checkpoint shortens replay.** WAL contains LSNs 1–6 with CheckpointEnd at LSN 4 (`durable_lsn=4`). First recover: 6 records replayed, `MetadataDb.durable_lsn()` → 4. Close + reopen `MetadataDb`; `durable_lsn()` persists across reopen via the `checkpoints` table. Second recover with the seeded `durable_lsn`: 4 records skipped, 2 replayed.
+- **C — TxnCommit vs TxnAbort.** Committed bracket's records survive in the metadata; aborted bracket's records do not. `records_replayed == 5`, `records_discarded == 2`.
+- **D — orphan TxnBegin at WAL tail.** Crash mid-transaction (no commit / abort). Recovery discards the orphaned `[TxnBegin, Encode]` buffer per spec §05/08 §6.
+- **E — recover() is idempotent.** Running `recover` twice on the same env produces the same row count.
+- **F — durable_lsn survives MetadataDb close + reopen.** CheckpointEnd writes `durable_lsn=17` to the `checkpoints` table; reopening the `MetadataDb` reads it back. `latest_checkpoint(&t)` returns the row with `started_at_unix_nanos` from the paired Begin and `completed_at_unix_nanos` from the End record's threaded `timestamp_ns` (validates the SD-3.11-1 trait extension's payoff).
+- **G — 100-iteration seeded loop.** Inline `Xs` xorshift64* PRNG (avoids adding `rand` for a single test). Each seed generates 5–20 random records (60% Encode, 20% Link, 10% Forget, 10% Checkpoint pair) → write through `Wal::append` → drop → recover → check three invariants: every encoded memory's row exists, `next_lsn > 0`, and re-recovery doesn't change the row count.
+
+**Mid-flight fixes:**
+- `MetadataSink` trait import needed in scope for `meta.durable_lsn()` calls (the trait method is the only way to access the private field from outside the crate).
+- Clippy's `unnecessary_cast` on `rng.range(16) as u64` (range already returns `u64`).
+- One unused import (`EDGES_IN_TABLE`) trimmed.
+
+**Done when:** [x] All 7 scenarios pass in the Linux container. brain-metadata totals: **116 tests** (109 unit + 7 integration). The 100-iteration loop satisfies the phase exit checklist's random-seed criterion.
 
 ## Phase exit checklist
 
-- [ ] All sub-tasks complete.
-- [ ] `just verify` green.
-- [ ] Recovery integration test passes 100 random-seed iterations.
-- [ ] All 13 spec'd tables present (count `tables/*.rs`).
-- [ ] Tag `phase-3-complete`.
+- [x] All sub-tasks complete.
+- [x] `just verify` equivalent green in the Linux container (workspace-wide: brain-storage 155+95+4, brain-metadata 109+7 integration, all small crates).
+- [x] Recovery integration test passes 100 random-seed iterations (Scenario G).
+- [x] All 13 spec'd tables present in `crates/brain-metadata/src/tables/`: agent, checkpoint, context, edge, idempotency, memory, model_fingerprint, next_lsn, slot_version, text — 10 files containing the 13 tables (`context.rs` bundles `contexts`, `context_names`, `agent_contexts`; `edge.rs` bundles `edges_out`, `edges_in`).
+- [x] Tag `phase-3-complete`.
