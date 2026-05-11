@@ -29,6 +29,7 @@
 #![forbid(unsafe_code)]
 
 pub mod config;
+pub mod dispatcher;
 pub mod error;
 pub mod fingerprint;
 pub mod forward;
@@ -36,6 +37,7 @@ pub mod model;
 pub mod tokenize;
 
 pub use config::EmbedderConfig;
+pub use dispatcher::{CpuDispatcher, Dispatcher};
 pub use error::EmbedError;
 pub use fingerprint::{blake3_hash_file, compute_fingerprint};
 pub use forward::{embed_batch, embed_text, forward_pooled, l2_normalize_in_place, VECTOR_DIM};
