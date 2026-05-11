@@ -171,10 +171,30 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 **🎯 Phase 3 spec-catalog tables: 13 of 13.** Remaining sub-tasks (3.10–3.12) are pure composition.
 
-### Task 3.10 — `MetadataDb` public type
-**Reads:** `spec/07_metadata_graph/08_transactions.md`
-**Writes:** `crates/brain-metadata/src/db.rs`
-**Done when:** All tables accessible via `MetadataDb`. Read txns and write txns wrap redb's primitives. Single-writer-per-shard discipline enforced via `&mut self` on writes.
+### Task 3.10 — `MetadataDb` public type ✅
+**Reads:** `spec/07_metadata_graph/08_transactions.md` (full).
+**Writes:** `crates/brain-metadata/src/db.rs` (new), `crates/brain-metadata/src/lib.rs` (`pub mod db;` + re-exports).
+
+**What was built (first composition piece over the 13 tables):**
+- `MetadataDb` struct owning a `redb::Database` + cached `schema_version: u32` + `path: PathBuf`.
+- `MetadataDb::open(path)` — `Database::create(path)` then `open_or_init_schema` from 3.1; refuses too-new schemas, initialises fresh DBs at `CURRENT_SCHEMA_VERSION`.
+- `read_txn(&self)` and `write_txn(&mut self)` — pass-through to redb. `&mut self` on writes encodes CLAUDE.md §5 invariant 2 (single-writer-per-shard) at compile time: two writer tasks can't both hold `&mut MetadataDb`, so the borrow checker enforces the discipline rather than relying on convention. Consistent with `Wal::append(&mut self, …)` from 2.9.
+- `schema_version()`, `path()` accessors. `db()` escape hatch for backup/compact/stats; documented warning not to use it to start a write txn.
+- `MetadataDbError` — unifies `redb::DatabaseError` + `redb::TransactionError` + `SchemaError` for the open path. After open, callers handle txn errors natively (no wrapping cascade).
+
+**Deliberate non-implementations:**
+- No typed convenience methods (`db.get_memory(&id)`). Spec §07/08 §5 demonstrates multi-table batching inside one write txn; wrapping each row type would duplicate redb's API and break batching. Callers `use brain_metadata::tables::memory::MEMORIES_TABLE;` directly.
+- No cached table handles (spec §07/08 §14). Profile-driven; v1 doesn't need it.
+- No write-transaction timeout (spec §07/08 §16). Writer-task concern; `MetadataDb` doesn't auto-abort.
+- `impl MetadataSink for MetadataDb` — 3.11.
+
+**Mid-flight fixes:**
+- `#[derive(Debug)]` needed for `expect_err` in the too-new-schema test.
+- `ReadableDatabase` trait import for `db.begin_read()`.
+- Clippy's `useless_conversion` on `Result::map_err(Into::into)` — removed since the error types already match.
+- MVCC isolation test originally tried opening two `MetadataDb` on the same path; redb takes an exclusive file lock so that fails. Restructured to use one `MetadataDb`: `write_txn(&mut self)` borrows briefly (the returned `WriteTransaction` doesn't carry a lifetime tied to `db`), so calling `read_txn(&self)` afterwards is legal — and the uncommitted write is invisible to the read.
+
+**Done when:** [x] 9 tests: open-fresh, reopen, **too-new-schema refuses**, write-read round trip end-to-end through the wrapper, **MVCC isolation pin** (uncommitted writes are invisible), post-commit visibility, concurrent read txns coexist, schema_version accessor, path accessor. Total in brain-metadata: 91 tests.
 
 ### Task 3.11 — `MetadataSink` impl for recovery
 **Reads:** `spec/05_storage_arena_wal/08_recovery.md`

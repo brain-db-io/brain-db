@@ -14,5 +14,8 @@
 )]
 #![forbid(unsafe_code)]
 
+pub mod db;
 pub mod schema;
 pub mod tables;
+
+pub use db::{MetadataDb, MetadataDbError};
