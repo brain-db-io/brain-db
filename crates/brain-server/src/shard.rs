@@ -44,6 +44,8 @@ use brain_core::{ShardId, SlotVersion};
 use brain_storage::arena::{
     AllocError, ArenaFile, ArenaOpenError, SlotAllocator, DEFAULT_INITIAL_CAPACITY_SLOTS,
 };
+use brain_storage::recovery::{recover, InMemoryMetadataSink, RecoveryError};
+use brain_storage::wal::{Wal, WalConfig, WalError, WalRecord};
 use flume::{Receiver, Sender};
 use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
 use tracing::{info, warn};
@@ -58,6 +60,13 @@ pub(crate) enum ShardRequest {
     /// Allocate a fresh slot. Returns `(slot_idx, slot_version)`.
     AllocSlot {
         reply_tx: Sender<Result<(u64, SlotVersion), ShardOpError>>,
+    },
+    /// Append a pre-built record to the WAL. Returns the durable LSN.
+    /// Stub op for 9.6 — 9.7's `RealWriterHandle` wraps the real
+    /// encode/forget/link payload construction inside a higher-level op.
+    AppendWalRecord {
+        record: WalRecord,
+        reply_tx: Sender<Result<u64, ShardOpError>>,
     },
 }
 
@@ -74,6 +83,8 @@ pub struct ShardSpawnConfig {
     /// Initial arena capacity in slots. The arena grows on demand via
     /// `ArenaFile::grow_to` (wired in a later sub-task).
     pub arena_initial_capacity_slots: u64,
+    /// WAL configuration (group commit window, segment size limit, ...).
+    pub wal_config: WalConfig,
 }
 
 impl ShardSpawnConfig {
@@ -85,6 +96,7 @@ impl ShardSpawnConfig {
             pin_cpu: None,
             data_dir: data_dir.into(),
             arena_initial_capacity_slots: DEFAULT_INITIAL_CAPACITY_SLOTS,
+            wal_config: WalConfig::default(),
         }
     }
 }
@@ -122,6 +134,12 @@ pub enum ShardError {
         #[source]
         source: std::io::Error,
     },
+
+    #[error("WAL recovery failed: {0}")]
+    Recovery(#[from] RecoveryError),
+
+    #[error("WAL init failed: {0}")]
+    WalInit(#[from] WalError),
 }
 
 impl ShardError {
@@ -135,11 +153,13 @@ impl ShardError {
 
 /// In-shard, op-time errors. Sent back through `reply_tx` for per-request
 /// failures (vs. `ShardError` which is spawn-time). Future variants:
-/// `WalAppend`, `MetadataConflict`, ...
+/// `MetadataConflict`, ...
 #[derive(Debug, thiserror::Error)]
 pub enum ShardOpError {
     #[error("arena allocation failed: {0}")]
     ArenaFull(#[from] AllocError),
+    #[error("WAL append failed: {0}")]
+    Wal(#[from] WalError),
 }
 
 // ---------------------------------------------------------------------------
@@ -190,12 +210,36 @@ impl ShardHandle {
             .map_err(|_| AllocSlotError::ShardDisconnected)?
             .map_err(AllocSlotError::Op)
     }
+
+    /// Append a pre-built `WalRecord` to the shard's WAL. Returns the
+    /// record's durable LSN once the kernel has acknowledged the fsync.
+    pub async fn append_wal_record(&self, record: WalRecord) -> Result<u64, AppendWalError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::AppendWalRecord { record, reply_tx })
+            .await
+            .map_err(|_| AppendWalError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| AppendWalError::ShardDisconnected)?
+            .map_err(AppendWalError::Op)
+    }
 }
 
 /// Caller-facing error for [`ShardHandle::alloc_slot`]. Either the shard
 /// is gone (lifecycle) or the allocator declined the request (op-time).
 #[derive(Debug, thiserror::Error)]
 pub enum AllocSlotError {
+    #[error("shard has shut down or is unreachable")]
+    ShardDisconnected,
+    #[error(transparent)]
+    Op(#[from] ShardOpError),
+}
+
+/// Caller-facing error for [`ShardHandle::append_wal_record`].
+#[derive(Debug, thiserror::Error)]
+pub enum AppendWalError {
     #[error("shard has shut down or is unreachable")]
     ShardDisconnected,
     #[error(transparent)]
@@ -246,6 +290,10 @@ struct Shard {
     shard_id: ShardId,
     arena: ArenaFile,
     allocator: SlotAllocator,
+    /// Wrapped in `Option` so the main-loop shutdown path can `.take()`
+    /// before awaiting `shutdown_in_place` — the borrow checker would
+    /// otherwise prevent calling `&mut self`-incompatible async methods.
+    wal: Option<Wal>,
 }
 
 // ---------------------------------------------------------------------------
@@ -268,30 +316,83 @@ pub fn spawn_shard(
 
     // ---- 3. Arena open / create -------------------------------------------
     let arena_path = dir.join("arena.bin");
-    let arena = ArenaFile::open(&arena_path, shard_uuid, cfg.arena_initial_capacity_slots)?;
-    let allocator = SlotAllocator::rebuild_from_arena(&arena);
+    let mut arena = ArenaFile::open(&arena_path, shard_uuid, cfg.arena_initial_capacity_slots)?;
     info!(
         shard_id,
         path = %arena_path.display(),
         capacity = arena.capacity_slots(),
-        used = allocator.used_count(),
         "arena opened"
     );
 
-    // ---- 4. Spawn the Glommio executor ------------------------------------
+    // ---- 4. WAL directory + recovery (sync; sub-task 9.6) ------------------
+    //
+    // Per the audit, `recover()` is sync (mmap-based, reads only — io_uring
+    // brings nothing). The metadata sink is a throw-away `InMemoryMetadataSink`
+    // here; 9.7 swaps in the redb-backed `MetadataDb` and reuses this same
+    // recovery path. After 9.6 we only consume `report.next_lsn`.
+    let wal_dir = dir.join("wal");
+    std::fs::create_dir_all(&wal_dir).map_err(|e| ShardError::dir_create(wal_dir.clone(), e))?;
+    let segments_present = wal_dir
+        .read_dir()
+        .map_err(|e| ShardError::dir_create(wal_dir.clone(), e))?
+        .any(|entry| {
+            entry
+                .as_ref()
+                .ok()
+                .and_then(|e| e.path().extension().map(|s| s.to_owned()))
+                .map(|ext| ext == "wal")
+                .unwrap_or(false)
+        });
+    let next_lsn_after_recovery: u64;
+    let allocator = if segments_present {
+        let mut sink = InMemoryMetadataSink::new();
+        let (report, alloc) = recover(&mut arena, &wal_dir, shard_uuid, &mut sink)?;
+        info!(
+            shard_id,
+            records_replayed = report.records_replayed,
+            records_skipped = report.records_skipped,
+            records_discarded = report.records_discarded,
+            next_lsn = report.next_lsn,
+            "WAL recovery complete"
+        );
+        next_lsn_after_recovery = report.next_lsn;
+        alloc
+    } else {
+        next_lsn_after_recovery = 1;
+        SlotAllocator::rebuild_from_arena(&arena)
+    };
+
+    // ---- 5. Spawn the Glommio executor + create-or-open the WAL inside it -
     let (tx, rx) = flume::bounded::<ShardRequest>(cfg.channel_capacity);
     let placement = match cfg.pin_cpu {
         Some(cpu) => Placement::Fixed(cpu),
         None => Placement::Unbound,
     };
-    let shard = Shard {
-        shard_id,
-        arena,
-        allocator,
-    };
+    let wal_config = cfg.wal_config;
+    let wal_dir_for_executor = wal_dir;
     let join_handle = LocalExecutorBuilder::new(placement)
         .name(&format!("brain-shard-{shard_id}"))
         .spawn(move || async move {
+            let wal = if segments_present {
+                Wal::open_existing(
+                    &wal_dir_for_executor,
+                    shard_uuid,
+                    next_lsn_after_recovery,
+                    wal_config,
+                )
+                .await
+                .expect("Wal::open_existing (post-recovery)")
+            } else {
+                Wal::create_with_config(&wal_dir_for_executor, shard_uuid, wal_config)
+                    .await
+                    .expect("Wal::create_with_config")
+            };
+            let shard = Shard {
+                shard_id,
+                arena,
+                allocator,
+                wal: Some(wal),
+            };
             shard_main_loop(shard, rx).await;
         })
         .map_err(|e| ShardError::Spawn(e.to_string()))?;
@@ -334,6 +435,35 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     );
                 }
             }
+            ShardRequest::AppendWalRecord { record, reply_tx } => {
+                let out = match shard.wal.as_ref() {
+                    Some(wal) => wal
+                        .append(record)
+                        .await
+                        .map(|lsn| lsn.raw())
+                        .map_err(ShardOpError::from),
+                    None => Err(ShardOpError::Wal(WalError::DirectoryNotEmpty {
+                        dir: std::path::PathBuf::new(),
+                    })),
+                };
+                if reply_tx.send_async(out).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "AppendWalRecord reply dropped (caller gone)"
+                    );
+                }
+            }
+        }
+    }
+    // Clean shutdown: drain WAL committer (sends pending fsync acks) then
+    // close, then msync the arena.
+    if let Some(wal) = shard.wal.take() {
+        if let Err(e) = wal.shutdown().await {
+            warn!(
+                shard_id = shard.shard_id,
+                error = %e,
+                "wal shutdown failed"
+            );
         }
     }
     if let Err(e) = shard.arena.msync_all() {

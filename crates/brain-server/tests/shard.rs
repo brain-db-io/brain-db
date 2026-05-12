@@ -14,7 +14,10 @@ use tempfile::TempDir;
 #[path = "../src/shard.rs"]
 mod shard;
 
-use shard::{spawn_shard, AllocSlotError, ShardError, ShardHandle, ShardOpError, ShardSpawnConfig};
+use shard::{
+    spawn_shard, AllocSlotError, AppendWalError, ShardError, ShardHandle, ShardOpError,
+    ShardSpawnConfig,
+};
 
 // ---------------------------------------------------------------------------
 // 9.4 — Ping + lifecycle
@@ -78,6 +81,7 @@ async fn pin_to_invalid_cpu_errors() {
         pin_cpu: Some(usize::MAX),
         data_dir: dir.path().to_owned(),
         arena_initial_capacity_slots: 1024,
+        wal_config: Default::default(),
     };
     match spawn_shard(4, cfg) {
         Ok(_) => panic!("spawn should fail for invalid CPU id usize::MAX"),
@@ -255,15 +259,152 @@ async fn data_dir_under_nested_path() {
 }
 
 // ---------------------------------------------------------------------------
+// 9.6 — Real WAL hookup
+// ---------------------------------------------------------------------------
+
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, RequestId};
+use brain_storage::wal::payload::{EncodePayload, WalPayload};
+use brain_storage::wal::reader::WalReader;
+use brain_storage::wal::record::{Lsn, WalRecord};
+
+fn encode_record(slot: u64, byte: u8) -> WalRecord {
+    let p = EncodePayload {
+        memory_id: MemoryId::pack(1, slot, 1),
+        request_id: RequestId::from([byte; 16]),
+        agent_id: AgentId::from([byte; 16]),
+        context_id: ContextId(0),
+        kind: MemoryKind::Episodic,
+        salience_initial: 0.5,
+        embedding_model_fp: [byte; 16],
+        text: format!("memory {slot}"),
+        vector: vec![0.0; 384],
+        edges: vec![],
+    };
+    WalRecord::from_typed(
+        Lsn(0),
+        0,
+        1_700_000_000_000_000_000,
+        u64::from(byte),
+        &WalPayload::Encode(p),
+    )
+}
+
+/// Read the shard's UUID file. Used by tests that need to construct a
+/// `WalReader` matching the shard's identity.
+fn read_shard_uuid(shard_dir: &std::path::Path) -> [u8; 16] {
+    let bytes = std::fs::read(shard_dir.join("shard.uuid")).expect("read shard.uuid");
+    let mut out = [0u8; 16];
+    out.copy_from_slice(&bytes);
+    out
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wal_first_spawn_creates_segment_zero() {
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+
+    let wal_dir = dir.path().join("0").join("wal");
+    assert!(wal_dir.is_dir(), "wal dir present");
+    assert!(
+        wal_dir.join("0000000000.wal").is_file(),
+        "segment 0 file present"
+    );
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn append_wal_record_returns_lsn() {
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
+    let lsn1 = handle.append_wal_record(encode_record(0, 1)).await.unwrap();
+    let lsn2 = handle.append_wal_record(encode_record(1, 2)).await.unwrap();
+    let lsn3 = handle.append_wal_record(encode_record(2, 3)).await.unwrap();
+    assert_eq!(lsn1, 1);
+    assert_eq!(lsn2, 2);
+    assert_eq!(lsn3, 3);
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wal_records_visible_to_reader_after_shutdown() {
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
+    for slot in 0..3u64 {
+        handle
+            .append_wal_record(encode_record(slot, slot as u8))
+            .await
+            .unwrap();
+    }
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+
+    let shard_dir = dir.path().join("0");
+    let uuid = read_shard_uuid(&shard_dir);
+    let reader = WalReader::open(shard_dir.join("wal"), uuid).unwrap();
+    let lsns: Vec<u64> = reader.map(|r| r.unwrap().lsn.raw()).collect();
+    assert_eq!(lsns, vec![1, 2, 3]);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn wal_persists_across_restart() {
+    let dir = TempDir::new().unwrap();
+    let data_path = dir.path().to_owned();
+
+    // Run 1: write 2 records, clean shutdown.
+    {
+        let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(&data_path)).expect("spawn 1");
+        handle.append_wal_record(encode_record(0, 1)).await.unwrap();
+        handle.append_wal_record(encode_record(1, 2)).await.unwrap();
+        drop(handle);
+        tokio::task::spawn_blocking(move || joiner.join())
+            .await
+            .expect("blocking 1")
+            .expect("join 1");
+    }
+    // Run 2: re-spawn; recovery seeds next_lsn at 3; next append returns 3.
+    {
+        let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(&data_path)).expect("spawn 2");
+        let lsn = handle.append_wal_record(encode_record(2, 3)).await.unwrap();
+        assert_eq!(lsn, 3, "LSN continues across restart");
+        drop(handle);
+        tokio::task::spawn_blocking(move || joiner.join())
+            .await
+            .expect("blocking 2")
+            .expect("join 2");
+    }
+    // WAL now has 3 records (LSNs 1, 2, 3).
+    let shard_dir = data_path.join("0");
+    let uuid = read_shard_uuid(&shard_dir);
+    let reader = WalReader::open(shard_dir.join("wal"), uuid).unwrap();
+    let lsns: Vec<u64> = reader.map(|r| r.unwrap().lsn.raw()).collect();
+    assert_eq!(lsns, vec![1, 2, 3]);
+}
+
+// ---------------------------------------------------------------------------
 // Error-type plumbing sanity
 // ---------------------------------------------------------------------------
 
 #[test]
 fn alloc_slot_error_carries_op_variant() {
-    // Compile-time check that the From impl exists; AllocError is the
-    // brain-storage error type and is only constructible via the actual
-    // allocator, so we don't synthesise one here.
     fn _accepts(e: ShardOpError) -> AllocSlotError {
+        e.into()
+    }
+}
+
+#[test]
+fn append_wal_error_carries_op_variant() {
+    fn _accepts(e: ShardOpError) -> AppendWalError {
         e.into()
     }
 }

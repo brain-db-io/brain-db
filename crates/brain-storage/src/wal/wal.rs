@@ -73,6 +73,9 @@ pub enum WalError {
     #[error("directory {dir:?} already contains *.wal files; use the recovery driver to reopen")]
     DirectoryNotEmpty { dir: PathBuf },
 
+    #[error("directory {dir:?} contains no *.wal segment files; cannot open_existing")]
+    NoSegmentsFound { dir: PathBuf },
+
     #[error("record encoded size ({record_bytes}) exceeds max_segment_bytes ({segment_max})")]
     RecordExceedsSegmentLimit {
         record_bytes: usize,
@@ -157,6 +160,70 @@ impl Wal {
     #[must_use]
     pub fn dir(&self) -> PathBuf {
         self.inner.borrow().dir.clone()
+    }
+
+    /// Open an existing WAL for append, resuming at `next_lsn`.
+    ///
+    /// Caller must have already run [`crate::recovery::recover`] to determine
+    /// `next_lsn` — supplying a wrong value risks LSN reuse, which the WAL
+    /// reader will then reject as corruption on the next recovery.
+    ///
+    /// Selects the highest-`segment_seq` segment as the active one and
+    /// re-opens it for append at the end of its existing on-disk bytes.
+    /// Subsequent appends extend that segment (or roll over to a new one
+    /// per the usual capacity rule).
+    pub async fn open_existing(
+        dir: impl AsRef<Path>,
+        shard_uuid: [u8; 16],
+        next_lsn: u64,
+        config: WalConfig,
+    ) -> Result<Self, WalError> {
+        let dir_path = dir.as_ref().to_path_buf();
+
+        // Enumerate segments via WalReader (it validates every segment's
+        // 4 KB header against shard_uuid + format version + CRC). Pull out
+        // only what we need, then drop the reader before opening the
+        // segment for async append.
+        let (active_segment_seq, active_starting_lsn, bytes_on_disk_pre) = {
+            let reader = WalReader::open(&dir_path, shard_uuid)?;
+            let last = reader
+                .segments()
+                .last()
+                .ok_or_else(|| WalError::NoSegmentsFound {
+                    dir: dir_path.clone(),
+                })?;
+            let seq = last.segment_seq;
+            let starting_lsn = last.starting_lsn;
+            let bytes = (last.file_size as usize).saturating_sub(WAL_SEGMENT_HEADER_LEN);
+            (seq, starting_lsn, bytes)
+        };
+        let active_path = segment_path(&dir_path, active_segment_seq);
+
+        // Re-open the active segment for append. Header was already
+        // validated by WalReader above; here we just establish the
+        // async BufferedFile handle for io_uring writes.
+        let segment = WalSegment::open_for_append(
+            &active_path,
+            shard_uuid,
+            active_segment_seq,
+            active_starting_lsn,
+            bytes_on_disk_pre,
+        )
+        .await?;
+
+        let committer = GroupCommitter::start(segment, config.group_commit);
+
+        Ok(Self {
+            inner: RefCell::new(WalInner {
+                dir: dir_path,
+                shard_uuid,
+                next_lsn,
+                active_segment_seq,
+                bytes_in_active_segment: bytes_on_disk_pre,
+                committer: Some(committer),
+                config,
+            }),
+        })
     }
 }
 
@@ -297,6 +364,17 @@ impl Wal {
 
 impl Wal {
     pub async fn shutdown(self) -> Result<(), WalError> {
+        self.shutdown_in_place().await
+    }
+
+    /// Drain the committer + close the active segment, leaving `self` in a
+    /// post-shutdown state. Idempotent — calling twice is a no-op on the
+    /// second call.
+    ///
+    /// Exists alongside `shutdown(self)` for callers that hold `&mut self`
+    /// or `&self` and can't move out. Brain-server's shard main loop uses
+    /// this on the cleanup path because the Shard owns the Wal by value.
+    pub async fn shutdown_in_place(&self) -> Result<(), WalError> {
         let committer = {
             let mut inner = self.inner.borrow_mut();
             inner.committer.take()
@@ -621,6 +699,74 @@ mod tests {
         let reader = WalReader::open(&path, uuid(7)).unwrap();
         let lsns: Vec<u64> = reader.map(|r| r.unwrap().lsn.raw()).collect();
         assert_eq!(lsns, vec![1, 2, 3]);
+    }
+
+    // ----- open_existing ------------------------------------------------
+
+    #[test]
+    fn open_existing_resumes_after_clean_shutdown() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_owned();
+        let p1 = path.clone();
+        glommio_run(move || async move {
+            let wal = Wal::create(&p1, uuid(20)).await.unwrap();
+            for _ in 0..3 {
+                wal.append(record(0)).await.unwrap();
+            }
+            wal.shutdown().await.unwrap();
+        });
+        // Reopen, append more, verify LSN sequence continues.
+        let p2 = path.clone();
+        glommio_run(move || async move {
+            let wal = Wal::open_existing(&p2, uuid(20), 4, WalConfig::default())
+                .await
+                .expect("open existing");
+            assert_eq!(wal.next_lsn(), 4);
+            assert_eq!(wal.active_segment_seq(), 0);
+            let lsn = wal.append(record(0)).await.unwrap();
+            assert_eq!(lsn, Lsn(4));
+            wal.shutdown().await.unwrap();
+        });
+        // The WAL now has records 1..=4.
+        let reader = WalReader::open(&path, uuid(20)).unwrap();
+        let lsns: Vec<u64> = reader.map(|r| r.unwrap().lsn.raw()).collect();
+        assert_eq!(lsns, vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn open_existing_on_empty_dir_errors() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_owned();
+        glommio_run(move || async move {
+            let err = Wal::open_existing(&path, uuid(21), 1, WalConfig::default())
+                .await
+                .expect_err("must fail on empty dir");
+            assert!(
+                matches!(err, WalError::NoSegmentsFound { .. } | WalError::Read(_)),
+                "got {err:?}"
+            );
+        });
+    }
+
+    #[test]
+    fn open_existing_rejects_wrong_shard_uuid() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().to_owned();
+        let p1 = path.clone();
+        glommio_run(move || async move {
+            let wal = Wal::create(&p1, uuid(22)).await.unwrap();
+            wal.append(record(0)).await.unwrap();
+            wal.shutdown().await.unwrap();
+        });
+        let p2 = path.clone();
+        glommio_run(move || async move {
+            let err = Wal::open_existing(&p2, uuid(99), 2, WalConfig::default())
+                .await
+                .expect_err("uuid mismatch must fail");
+            // WalReader catches the uuid mismatch before we get to
+            // open_for_append, so the error surfaces as Read(_).
+            assert!(matches!(err, WalError::Read(_)), "got {err:?}");
+        });
     }
 
     // ----- Executor responsiveness during commit bursts -----------------

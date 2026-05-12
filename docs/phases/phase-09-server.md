@@ -63,6 +63,11 @@ macOS still compiles brain-server (shard module cfg-gated).
 
 > **Scaffold only.** Real arena/WAL/metadata/HNSW/workers land in 9.5–9.7.
 
+### Task 9.6 — Real WAL hookup  [x]
+**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md` §1, §11; `spec/05_storage_arena_wal/08_recovery.md` §§1–7; `spec/12_sharding_clustering/01_shard_model.md` §1–§5.
+**Writes:** `crates/brain-storage/src/wal/{segment,wal}.rs` (new `open_for_append` + `open_existing`); `crates/brain-server/src/shard.rs` (Wal field, recovery on spawn, `AppendWalRecord` handler); `crates/brain-server/tests/shard.rs` (4 new integration tests).
+**Done when:** Each shard owns a real `Wal` on disk under `<data_dir>/<shard_id>/wal/`; recovers on respawn via `brain_storage::recovery::recover` (with `InMemoryMetadataSink` stand-in — 9.7 swaps in `MetadataDb`); `AppendWalRecord` exercises `Wal::append` end-to-end.
+
 ### Task 9.6a — WAL io_uring port  [x]
 **Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`, `docs/spec-deviations.md` SD-2.8-2/SD-2.9-1.
 **Writes:** `crates/brain-storage/src/wal/{segment,group_commit,wal,checkpoint,reader,recovery}.rs`, `crates/brain-storage/tests/random_kill.rs`, `crates/brain-metadata/tests/recovery_integration.rs`.

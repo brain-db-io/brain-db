@@ -27,7 +27,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use glommio::io::BufferedFile;
+use glommio::io::{BufferedFile, OpenOptions};
 
 use crate::wal::record::WalRecord;
 
@@ -305,6 +305,45 @@ impl WalSegment {
     pub async fn close(self) -> Result<(), WalSegmentError> {
         self.file.close().await?;
         Ok(())
+    }
+
+    /// Open an existing segment file for append. The caller is responsible
+    /// for header validation — typically by calling `WalReader::open` first
+    /// (which validates every segment's header on the caller thread).
+    ///
+    /// `bytes_on_disk` is derived from the file's on-disk size at open
+    /// time (`file_size - HEADER_LEN`). The caller is responsible for
+    /// ensuring the file's contents up to that point are CRC-valid records
+    /// (typically by running [`crate::recovery::recover`] first).
+    ///
+    /// Used by [`crate::wal::wal::Wal::open_existing`] when resuming a
+    /// shard after a clean shutdown or crash.
+    pub async fn open_for_append(
+        path: impl AsRef<Path>,
+        shard_uuid: [u8; 16],
+        segment_seq: u64,
+        starting_lsn: u64,
+        bytes_on_disk: usize,
+    ) -> Result<Self, WalSegmentError> {
+        let path = path.as_ref().to_path_buf();
+        // BufferedFile::open is read-only (`OpenOptions::new().read(true)`).
+        // We need read+write to append durably, so go through OpenOptions
+        // directly. This matches BufferedFile::create's mode but without
+        // O_CREAT/O_TRUNC.
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .buffered_open(&path)
+            .await?;
+        Ok(Self {
+            file,
+            path,
+            segment_seq,
+            starting_lsn,
+            shard_uuid,
+            write_buf: Vec::new(),
+            bytes_on_disk,
+        })
     }
 }
 
