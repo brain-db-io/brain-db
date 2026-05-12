@@ -32,6 +32,7 @@ pub mod hnsw_maint;
 pub mod idempotency_cleanup;
 pub mod metrics;
 pub mod scheduler;
+pub mod slot_reclaim;
 pub mod summarizer;
 pub mod worker;
 
@@ -55,5 +56,6 @@ pub use hnsw_maint::{
 pub use idempotency_cleanup::{IdempotencyCleanupWorker, DEFAULT_IDEMPOTENCY_TTL};
 pub use metrics::{Snapshot as MetricsSnapshot, WorkerMetrics};
 pub use scheduler::{WorkerHandle, WorkerScheduler};
+pub use slot_reclaim::{SlotReclamationWorker, DEFAULT_FORGET_GRACE};
 pub use summarizer::{DisabledSummarizer, Summarizer, SummarizerError};
 pub use worker::{drive_batch, Worker};
