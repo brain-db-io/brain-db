@@ -24,15 +24,22 @@
 
 pub mod access_boost;
 pub mod config;
+pub mod consolidation;
 pub mod context;
 pub mod decay;
 pub mod error;
 pub mod metrics;
 pub mod scheduler;
+pub mod summarizer;
 pub mod worker;
 
 pub use access_boost::{boosted_salience, AccessBoostWorker, DEFAULT_BOOST_FACTOR, MAX_SALIENCE};
 pub use config::{WorkerConfig, WorkerKind};
+pub use consolidation::{
+    cluster_by_similarity, cosine, deterministic_request_id, ClusterCandidate, ConsolidationWorker,
+    DEFAULT_INITIAL_SALIENCE, DEFAULT_MIN_CLUSTER_SIZE, DEFAULT_RECENCY_WINDOW,
+    DEFAULT_SIMILARITY_THRESHOLD,
+};
 pub use context::WorkerContext;
 pub use decay::{
     decayed_salience, half_life_days, DecayWorker, CONSOLIDATED_HALF_LIFE_DAYS,
@@ -41,4 +48,5 @@ pub use decay::{
 pub use error::WorkerError;
 pub use metrics::{Snapshot as MetricsSnapshot, WorkerMetrics};
 pub use scheduler::{WorkerHandle, WorkerScheduler};
+pub use summarizer::{DisabledSummarizer, Summarizer, SummarizerError};
 pub use worker::{drive_batch, Worker};
