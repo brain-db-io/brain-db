@@ -20,19 +20,46 @@ Plus the brain-server wiring: replace `InMemoryMetadataSink` (9.6's stand-in) wi
 
 ---
 
-## 2. Proposed split
+## 2. Proposed split — **REVISED: split is not viable**
 
-This is **too big for one commit**. Recommended split:
+The split attempted in `.claude/plans/phase-09-task-07a.md` (now deleted)
+was: 9.7a = WriterHandle Send-drop only; 9.7b = scheduler port + Arc→Rc;
+9.7c = brain-server wire-up.
 
-| Sub-task | Title | Scope | LOC |
-| -------- | ----- | ----- | --- |
-| **9.7a** | `WriterHandle` cascade — Send drop + OpsContext `!Send` | brain-planner trait + brain-ops impls + assertion cleanup + tests | ~1500 |
-| **9.7b** | `WorkerScheduler` Glommio port | brain-workers scheduler + every worker's `yield_now` site + tests | ~1200 |
-| **9.7c** | Per-shard OpsContext wired into Shard | brain-server: construct OpsContext inside the executor, wire RealWriterHandle to the Wal, swap recovery sink to redb | ~800 |
+**The split doesn't compile.** Dropping `Send + Sync` from `WriterHandle`
+makes `Arc<dyn WriterHandle>` non-Send, which transitively breaks:
 
-Total: ~3500 LOC across three commits. Each is independently testable; the chain locks in at 9.7c.
+- `ExecutorContext` (brain-planner) — also asserted `Send + Sync`.
+- `brain-workers::Worker` trait — declares `Send + Sync + 'static` and
+  `+ Send` on `run_cycle`'s return; the impls reference `WorkerContext`
+  which holds `Arc<OpsContext>` which contains the now-!Send writer.
+- `tokio::spawn(worker_loop(...))` in the scheduler — needs Send futures.
 
-**Recommendation: do the split.** Each sub-plan gets its own `.claude/plans/phase-09-task-07{a,b,c}.md`. Land 9.7a first (no observable behavior change beyond Send bound removal), then 9.7b (workers run on glommio), then 9.7c (shard owns the full stack).
+Once `WriterHandle` loses Send+Sync, the *entire* worker stack has to
+port to Glommio at the same time, or the build is broken. The audit §10
+warned about this ("9.7 is the cascade hotspot, budget ~2× other
+sub-tasks") — the split into 7a/7b/7c was wishful thinking.
+
+### Revised plan: 9.7 as one atomic commit
+
+| Phase | Files | LOC |
+| ----- | ----- | --: |
+| brain-planner | WriterHandle trait + ExecutorContext assertion | ~30 |
+| brain-ops | RealWriterHandle + NopWriter + 5 assertion sites + OpsContext Arc→Rc | ~150 |
+| brain-workers | Worker trait + WorkerScheduler tokio→glommio + 14 worker yield sites + WorkerContext shutdown port + tests migrated | ~1500 |
+| brain-server | per-shard OpsContext construction; real MetadataDb sink replaces InMemoryMetadataSink in recovery; register every Phase-8 worker against per-shard scheduler | ~600 |
+
+**Total: ~2300 LOC. One commit.** Subject:
+`feat(brain-server): per-shard OpsContext + worker scheduler (sub-task 9.7)`.
+
+Risk profile: bigger commit means more to revert if something goes
+wrong mid-port. Mitigation: stage carefully (each crate's edits done +
+verified with `cargo check -p ...` before moving to the next), full
+docker-verify before commit.
+
+Estimated effort: 3–6 hours of focused work, plus container build/test
+time. The session has accumulated context drift — recommend starting
+9.7 in a fresh session with the revised plan as the seed.
 
 If you'd rather do it as one commit: I can collapse the three plans into one. Higher merge risk if the verify gate finds something halfway through.
 

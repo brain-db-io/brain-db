@@ -29,8 +29,8 @@ tracing.workspace = true
 tracing-subscriber.workspace = true
 uuid.workspace = true
 
-# Glommio + brain-storage are Linux-only (io_uring, mmap, pwritev2). The
-# shard module is cfg-gated so this crate still compiles on macOS / Windows
+# Glommio + brain-storage are Linux-only (io_uring, mmap). The shard
+# module is cfg-gated so this crate still compiles on macOS / Windows
 # for non-shard work (config, routing).
 [target.'cfg(target_os = "linux")'.dependencies]
 glommio.workspace = true
