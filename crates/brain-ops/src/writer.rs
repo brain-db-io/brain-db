@@ -534,6 +534,28 @@ fn record_and_return_forget(
                 .insert(request_id_bytes, entry)
                 .map_err(|e| WriterError::Internal(format!("forget idempotency insert: {e:?}")))?;
         }
+        // Sub-task 8.7: stamp tombstoned_at on the MEMORIES row so the
+        // slot-reclamation worker (and any tombstone-aware filter)
+        // can discover age. Set-once — replays don't bump the stamp.
+        if matches!(outcome, ForgetOutcome::Tombstoned) {
+            let mut memories_t = wtxn
+                .open_table(MEMORIES_TABLE)
+                .map_err(|e| WriterError::Internal(format!("forget open MEMORIES: {e:?}")))?;
+            let prior = memories_t
+                .get(op.memory_id.to_be_bytes())
+                .map_err(|e| WriterError::Internal(format!("forget memories get: {e:?}")))?
+                .map(|access| access.value());
+            if let Some(mut row) = prior {
+                if row.tombstoned_at_unix_nanos.is_none() {
+                    row.tombstoned_at_unix_nanos = Some(created_at);
+                    memories_t
+                        .insert(op.memory_id.to_be_bytes(), row)
+                        .map_err(|e| {
+                            WriterError::Internal(format!("forget memories stamp: {e:?}"))
+                        })?;
+                }
+            }
+        }
         wtxn.commit()
             .map_err(|e| WriterError::Internal(format!("forget commit: {e:?}")))?;
     }

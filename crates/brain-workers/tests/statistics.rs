@@ -1,0 +1,295 @@
+//! Statistics update worker tests (sub-task 8.11). Spec §11/08 §3.
+
+use std::sync::Arc;
+use std::time::{Duration, SystemTime, UNIX_EPOCH};
+
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
+use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
+use brain_index::{IndexParams, SharedHnsw};
+use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+use brain_metadata::MetadataDb;
+use brain_ops::{OpsContext, RealWriterHandle};
+use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
+use brain_workers::{
+    StatisticsUpdateWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
+};
+use parking_lot::Mutex;
+use uuid::Uuid;
+
+// ---------------------------------------------------------------------------
+// Fixture.
+// ---------------------------------------------------------------------------
+
+struct NopDispatcher;
+impl Dispatcher for NopDispatcher {
+    fn embed(&self, _: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+        Ok([0.0; VECTOR_DIM])
+    }
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+        Ok(vec![[0.0; VECTOR_DIM]; texts.len()])
+    }
+    fn fingerprint(&self) -> [u8; 16] {
+        [0; 16]
+    }
+}
+
+struct Fixture {
+    ctx: Arc<OpsContext>,
+    metadata: SharedMetadataDb,
+    index: SharedHnsw<VECTOR_DIM>,
+    _tempdir: tempfile::TempDir,
+}
+
+fn build_fixture() -> Fixture {
+    let tempdir = tempfile::tempdir().unwrap();
+    let db_path = tempdir.path().join("metadata.redb");
+    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let (shared, hnsw_writer) = SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
+    let index = shared.clone();
+    let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
+    let executor = ExecutorContext::new(
+        Arc::new(NopDispatcher) as Arc<dyn Dispatcher>,
+        shared,
+        metadata.clone(),
+        writer as Arc<dyn WriterHandle>,
+    );
+    Fixture {
+        ctx: Arc::new(OpsContext::new(executor)),
+        metadata,
+        index,
+        _tempdir: tempdir,
+    }
+}
+
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap()
+        .as_nanos() as u64
+}
+
+fn make_id(slot: u64) -> MemoryId {
+    let mut b = [0u8; 16];
+    b[8..16].copy_from_slice(&slot.to_be_bytes());
+    MemoryId::from_be_bytes(b)
+}
+
+fn seed_memory(metadata: &SharedMetadataDb, slot: u64, created_at: u64) -> MemoryId {
+    let id = make_id(slot);
+    let mut db = metadata.lock();
+    let wtxn = db.write_txn().unwrap();
+    {
+        let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
+        let meta = MemoryMetadata::new_active(
+            id,
+            AgentId(Uuid::nil()),
+            ContextId(1),
+            slot,
+            1,
+            MemoryKind::Episodic,
+            [0; 16],
+            0.5,
+            16,
+            created_at,
+        );
+        table.insert(id.to_be_bytes(), meta).unwrap();
+    }
+    wtxn.commit().unwrap();
+    id
+}
+
+async fn run_one(
+    worker: &StatisticsUpdateWorker,
+    ops: Arc<OpsContext>,
+) -> Result<usize, brain_workers::WorkerError> {
+    let (_tx, rx) = tokio::sync::watch::channel(false);
+    let wctx = WorkerContext { ops, shutdown: rx };
+    worker.run_cycle(&wctx).await
+}
+
+// ===========================================================================
+// Cycle (6).
+// ===========================================================================
+
+#[tokio::test]
+async fn empty_fixture_returns_zero_counts() {
+    let fix = build_fixture();
+    let worker = StatisticsUpdateWorker::new();
+    let processed = run_one(&worker, fix.ctx).await.unwrap();
+    assert_eq!(processed, 1);
+    let s = worker.snapshot();
+    assert_eq!(s.memory_count, 0);
+    assert_eq!(s.tombstone_count, 0);
+    assert_eq!(s.tombstone_ratio, 0.0);
+    assert_eq!(s.oldest_memory_age_nanos, None);
+    assert_eq!(s.newest_memory_age_nanos, None);
+}
+
+#[tokio::test]
+async fn seeded_memories_reflected_in_count() {
+    let fix = build_fixture();
+    let now = now_unix_nanos();
+    for slot in 1..=5u64 {
+        seed_memory(&fix.metadata, slot, now);
+    }
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx).await.unwrap();
+    let s = worker.snapshot();
+    assert_eq!(s.memory_count, 5);
+}
+
+#[tokio::test]
+async fn tombstone_count_reflects_hnsw_state() {
+    let fix = build_fixture();
+    // Insert 4 vectors via SharedHnsw (writer is owned by
+    // RealWriterHandle — reach through with a fresh writer pair
+    // and swap).
+    let (replacement_reader, mut replacement_writer) =
+        SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
+    let _ = replacement_reader;
+    for slot in 1..=4u64 {
+        let mut v = [0.0f32; VECTOR_DIM];
+        v[(slot as usize) % VECTOR_DIM] = 1.0;
+        replacement_writer.insert(make_id(slot), &v).unwrap();
+    }
+    replacement_writer.mark_tombstoned(make_id(1)).unwrap();
+    replacement_writer.mark_tombstoned(make_id(2)).unwrap();
+    // Build a fresh HnswIndex with the same content and swap it
+    // into the fixture's live index.
+    let source: Vec<_> = (1..=4u64)
+        .map(|slot| {
+            let mut v = [0.0f32; VECTOR_DIM];
+            v[(slot as usize) % VECTOR_DIM] = 1.0;
+            (make_id(slot), v)
+        })
+        .collect();
+    let (mut new_idx, _r) =
+        brain_index::HnswIndex::<VECTOR_DIM>::rebuild(fix.index.params(), source).unwrap();
+    new_idx.mark_tombstoned(make_id(1)).unwrap();
+    new_idx.mark_tombstoned(make_id(2)).unwrap();
+    fix.index.swap(new_idx);
+
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx).await.unwrap();
+    let s = worker.snapshot();
+    assert_eq!(s.tombstone_count, 2);
+    assert!(
+        (s.tombstone_ratio - 0.5).abs() < 1e-5,
+        "expected 0.5, got {}",
+        s.tombstone_ratio
+    );
+}
+
+#[tokio::test]
+async fn age_fields_track_min_max_created_at() {
+    let fix = build_fixture();
+    let now = now_unix_nanos();
+    let old = now.saturating_sub(1_000_000_000_000); // ~1000s ago
+    let young = now.saturating_sub(1_000_000_000); // ~1s ago
+    seed_memory(&fix.metadata, 1, old);
+    seed_memory(&fix.metadata, 2, young);
+
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx).await.unwrap();
+    let s = worker.snapshot();
+    let oldest = s.oldest_memory_age_nanos.unwrap();
+    let newest = s.newest_memory_age_nanos.unwrap();
+    assert!(
+        oldest > newest,
+        "oldest age {oldest} must exceed newest {newest}"
+    );
+    assert!(oldest >= 999_000_000_000);
+    assert!(newest >= 999_000_000);
+}
+
+#[tokio::test]
+async fn cache_updates_across_cycles() {
+    let fix = build_fixture();
+    let now = now_unix_nanos();
+    seed_memory(&fix.metadata, 1, now);
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx.clone()).await.unwrap();
+    assert_eq!(worker.snapshot().memory_count, 1);
+
+    seed_memory(&fix.metadata, 2, now);
+    seed_memory(&fix.metadata, 3, now);
+    run_one(&worker, fix.ctx).await.unwrap();
+    assert_eq!(worker.snapshot().memory_count, 3);
+}
+
+#[tokio::test]
+async fn phase_9_fields_stay_none() {
+    let fix = build_fixture();
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx).await.unwrap();
+    let s = worker.snapshot();
+    assert!(s.arena_used_bytes.is_none());
+    assert!(s.arena_capacity_bytes.is_none());
+    assert!(s.wal_size_bytes.is_none());
+    assert!(s.metadata_size_bytes.is_none());
+}
+
+// ===========================================================================
+// Worker integration (3).
+// ===========================================================================
+
+#[tokio::test]
+async fn worker_registers_with_correct_kind_and_default_cadence() {
+    let fix = build_fixture();
+    let mut sched = WorkerScheduler::new();
+    sched
+        .register(Arc::new(StatisticsUpdateWorker::new()), fix.ctx)
+        .unwrap();
+    let cfg = sched.config(WorkerKind::Statistics.name()).unwrap();
+    assert_eq!(cfg.interval, Duration::from_secs(300));
+    sched.shutdown().await.unwrap();
+}
+
+#[tokio::test]
+async fn disabled_worker_via_config_does_not_update_cache() {
+    let fix = build_fixture();
+    seed_memory(&fix.metadata, 1, now_unix_nanos());
+    let worker = StatisticsUpdateWorker::new().with_config(WorkerConfig {
+        enabled: false,
+        interval: Duration::from_millis(20),
+        batch_size: 1,
+        max_runtime: Duration::from_secs(1),
+    });
+    let handle = worker.cache_handle();
+    let mut sched = WorkerScheduler::new();
+    sched.register(Arc::new(worker), fix.ctx).unwrap();
+    tokio::time::sleep(Duration::from_millis(150)).await;
+    sched.shutdown().await.unwrap();
+    // The default (never-updated) snapshot has memory_count=0.
+    assert_eq!(handle.read().memory_count, 0);
+}
+
+#[tokio::test]
+async fn cache_handle_observes_same_data_as_snapshot() {
+    let fix = build_fixture();
+    seed_memory(&fix.metadata, 1, now_unix_nanos());
+    seed_memory(&fix.metadata, 2, now_unix_nanos());
+    let worker = StatisticsUpdateWorker::new();
+    let handle = worker.cache_handle();
+    run_one(&worker, fix.ctx).await.unwrap();
+    let via_snapshot = worker.snapshot();
+    let via_handle = handle.read().clone();
+    assert_eq!(via_snapshot, via_handle);
+    assert_eq!(via_handle.memory_count, 2);
+}
+
+// ===========================================================================
+// Edge case (1).
+// ===========================================================================
+
+#[tokio::test]
+async fn computed_at_unix_nanos_advances() {
+    let fix = build_fixture();
+    let worker = StatisticsUpdateWorker::new();
+    run_one(&worker, fix.ctx.clone()).await.unwrap();
+    let t1 = worker.snapshot().computed_at_unix_nanos;
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    run_one(&worker, fix.ctx).await.unwrap();
+    let t2 = worker.snapshot().computed_at_unix_nanos;
+    assert!(t2 >= t1, "computed_at must be monotonic, got {t1} → {t2}");
+}
