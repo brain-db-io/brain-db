@@ -363,12 +363,15 @@ name = "brain-server"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "blake3",
+ "brain-core",
  "serde",
  "tempfile",
  "thiserror 1.0.69",
  "toml",
  "tracing",
  "tracing-subscriber",
+ "uuid",
 ]
 
 [[package]]

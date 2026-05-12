@@ -74,7 +74,10 @@ surfaced.
 **Writes:** `crates/brain-server/src/dispatch.rs`
 **Done when:** Frame → opcode → shard (via routing) → handler → response. Errors mapped to wire error frames.
 
-### Task 9.5 — Cross-shard routing
+### Task 9.5 — Cross-shard routing  [x]
+> Landed early as **sub-task 9.3** per the orientation's renumbering.
+> See `crates/brain-server/src/routing.rs`.
+
 **Reads:** `spec/12_sharding_clustering/02_routing.md`
 **Writes:** `crates/brain-server/src/routing.rs`
 **What to build:**

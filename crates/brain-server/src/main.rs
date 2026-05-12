@@ -8,6 +8,8 @@
 #![allow(clippy::missing_errors_doc)]
 
 mod config;
+#[allow(dead_code)] // consumed by the frame dispatcher in sub-task 9.10.
+mod routing;
 
 use std::env;
 use std::path::PathBuf;

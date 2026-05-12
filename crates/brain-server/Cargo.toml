@@ -13,11 +13,13 @@ path = "src/main.rs"
 
 [dependencies]
 # Brain crate dependencies are added in later Phase 9 sub-tasks as each one
-# is wired in (e.g. 9.3 routing → brain-protocol; 9.4 shards → brain-storage;
-# 9.5 metadata → brain-metadata, ...). Keeping the import set minimal here so
-# this crate compiles on non-Linux hosts during 9.1 (config-only work).
+# is wired in (e.g. 9.4 shards → brain-storage; 9.5 metadata → brain-metadata,
+# ...). Keeping the import set minimal so this crate compiles on non-Linux
+# hosts during the pure-rust sub-tasks.
+brain-core = { path = "../brain-core" }
 
 anyhow.workspace = true
+blake3.workspace = true
 serde.workspace = true
 thiserror.workspace = true
 toml.workspace = true
@@ -26,3 +28,4 @@ tracing-subscriber.workspace = true
 
 [dev-dependencies]
 tempfile.workspace = true
+uuid.workspace = true
