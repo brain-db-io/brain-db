@@ -401,6 +401,7 @@ dependencies = [
  "anyhow",
  "blake3",
  "brain-core",
+ "brain-storage",
  "flume 0.11.1",
  "glommio",
  "parking_lot",

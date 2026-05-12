@@ -63,6 +63,13 @@ macOS still compiles brain-server (shard module cfg-gated).
 
 > **Scaffold only.** Real arena/WAL/metadata/HNSW/workers land in 9.5–9.7.
 
+### Task 9.5 — Real arena hookup  [x]
+**Reads:** `spec/05_storage_arena_wal/02_arena_layout.md`, `spec/12_sharding_clustering/01_shard_model.md` §1–§5.
+**Writes:** `crates/brain-server/src/shard.rs`, `crates/brain-server/tests/shard.rs`.
+**Done when:** Each shard owns a real `ArenaFile` + `SlotAllocator` on disk
+under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
+`AllocSlot` op returns sequential `(idx, version)` pairs from the executor.
+
 ### Task 9.3 — Connection layer (Tokio)
 **Reads:** `spec/01_system_architecture/04_layers.md`
 **Writes:** `crates/brain-server/src/connection.rs`

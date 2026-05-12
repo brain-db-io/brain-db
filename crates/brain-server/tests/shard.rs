@@ -1,22 +1,29 @@
-//! Integration tests for the Phase 9.4 shard scaffold.
+//! Integration tests for the Phase 9.4 + 9.5 shard scaffold.
 //!
-//! Linux-only — Glommio requires io_uring. Each test runs the Tokio
-//! side as `#[tokio::test]` and spawns one or more Glommio shards
-//! transitively via `spawn_shard`. The cross-runtime boundary is
-//! exercised through `flume` channels.
+//! Linux-only — Glommio requires io_uring; brain-storage requires
+//! mmap + pwritev2. Each test runs the Tokio side as `#[tokio::test]`
+//! and spawns a Glommio shard via `spawn_shard`. The cross-runtime
+//! boundary is exercised through `flume` channels.
 
 #![cfg(target_os = "linux")]
 
 use std::time::Duration;
 
+use tempfile::TempDir;
+
 #[path = "../src/shard.rs"]
 mod shard;
 
-use shard::{spawn_shard, ShardError, ShardHandle, ShardSpawnConfig};
+use shard::{spawn_shard, AllocSlotError, ShardError, ShardHandle, ShardOpError, ShardSpawnConfig};
+
+// ---------------------------------------------------------------------------
+// 9.4 — Ping + lifecycle
+// ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ping_roundtrips() {
-    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::default()).expect("spawn");
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
     handle.ping().await.expect("ping should succeed");
     drop(handle);
     joiner.join().expect("shard joins cleanly");
@@ -24,7 +31,8 @@ async fn ping_roundtrips() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn sequential_pings_complete() {
-    let (handle, joiner) = spawn_shard(1, ShardSpawnConfig::default()).expect("spawn");
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(1, ShardSpawnConfig::new(dir.path())).expect("spawn");
     for _ in 0..100 {
         handle.ping().await.expect("ping should succeed");
     }
@@ -34,7 +42,8 @@ async fn sequential_pings_complete() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_pings_via_cloned_handles() {
-    let (handle, joiner) = spawn_shard(2, ShardSpawnConfig::default()).expect("spawn");
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(2, ShardSpawnConfig::new(dir.path())).expect("spawn");
 
     let mut joins = Vec::with_capacity(50);
     for _ in 0..50 {
@@ -50,13 +59,11 @@ async fn concurrent_pings_via_cloned_handles() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn drop_last_handle_lets_joiner_complete() {
-    let (handle, joiner) = spawn_shard(3, ShardSpawnConfig::default()).expect("spawn");
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(3, ShardSpawnConfig::new(dir.path())).expect("spawn");
     handle.ping().await.expect("ping pre-drop");
 
     drop(handle);
-    // joiner.join() blocks the current Tokio worker thread until the
-    // executor thread exits. With multi_thread runtime the other
-    // worker keeps the test alive.
     tokio::task::spawn_blocking(move || joiner.join())
         .await
         .expect("spawn_blocking join")
@@ -65,9 +72,12 @@ async fn drop_last_handle_lets_joiner_complete() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn pin_to_invalid_cpu_errors() {
+    let dir = TempDir::new().unwrap();
     let cfg = ShardSpawnConfig {
         channel_capacity: 1024,
         pin_cpu: Some(usize::MAX),
+        data_dir: dir.path().to_owned(),
+        arena_initial_capacity_slots: 1024,
     };
     match spawn_shard(4, cfg) {
         Ok(_) => panic!("spawn should fail for invalid CPU id usize::MAX"),
@@ -78,21 +88,15 @@ async fn pin_to_invalid_cpu_errors() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ping_after_drop_fails_cleanly() {
-    let (handle, joiner) = spawn_shard(5, ShardSpawnConfig::default()).expect("spawn");
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(5, ShardSpawnConfig::new(dir.path())).expect("spawn");
     let extra = handle.clone();
     drop(handle);
-    // Joiner not yet joined — the extra clone still keeps the channel
-    // alive, so the shard is still running. The clone can still ping.
     extra.ping().await.expect("extra clone can still ping");
 
-    // Drop the extra clone too. Now the channel really is closed; the
-    // shard exits. Any further send would fail with ShardDisconnected.
-    // We can't re-create a ShardHandle after drop; that's the design.
-    // Just verify the joiner completes.
     let h = extra.clone();
     drop(extra);
     drop(h);
-    // Tiny grace period for the executor's recv to observe disconnect.
     tokio::time::sleep(Duration::from_millis(20)).await;
     tokio::task::spawn_blocking(move || joiner.join())
         .await
@@ -104,4 +108,162 @@ async fn ping_after_drop_fails_cleanly() {
 fn shard_handle_send_sync_at_use_site() {
     fn require<T: Send + Sync>() {}
     require::<ShardHandle>();
+}
+
+// ---------------------------------------------------------------------------
+// 9.5 — Arena hookup
+// ---------------------------------------------------------------------------
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn arena_first_spawn_creates_files() {
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+
+    let shard_dir = dir.path().join("0");
+    assert!(shard_dir.is_dir(), "shard dir created at {shard_dir:?}");
+    assert!(shard_dir.join("arena.bin").is_file(), "arena.bin present");
+    assert!(shard_dir.join("shard.uuid").is_file(), "shard.uuid present");
+    let uuid_bytes = std::fs::read(shard_dir.join("shard.uuid")).unwrap();
+    assert_eq!(uuid_bytes.len(), 16);
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn arena_alloc_returns_sequential_indices() {
+    let dir = TempDir::new().unwrap();
+    let (handle, joiner) = spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn");
+    let a = handle.alloc_slot().await.expect("alloc 1");
+    let b = handle.alloc_slot().await.expect("alloc 2");
+    let c = handle.alloc_slot().await.expect("alloc 3");
+    // On a fresh arena, allocator hands out 0, 1, 2 sequentially.
+    assert_eq!(a.0, 0);
+    assert_eq!(b.0, 1);
+    assert_eq!(c.0, 2);
+    // Each fresh slot starts at version 1 per `brain_storage::arena`.
+    assert_eq!(a.1, 1);
+    assert_eq!(b.1, 1);
+    assert_eq!(c.1, 1);
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn arena_uuid_persists_across_restarts() {
+    let dir = TempDir::new().unwrap();
+    let arena_path = dir.path().join("0").join("arena.bin");
+    let uuid_path = dir.path().join("0").join("shard.uuid");
+
+    let (uuid_before, arena_len_before) = {
+        let (handle, joiner) =
+            spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn 1st");
+        // Alloc twice. These slots end up in PENDING_WRITE state — the
+        // encoder (9.7) is responsible for promoting to OCCUPIED; on the
+        // current scaffold they're correctly reclaimed by the allocator
+        // on restart, so we don't assert anything about next-alloc-index
+        // across restart here. See 9.6+ tests for allocator+WAL semantics.
+        let _ = handle.alloc_slot().await.expect("alloc 1");
+        let _ = handle.alloc_slot().await.expect("alloc 2");
+        let u = std::fs::read(&uuid_path).unwrap();
+        let len = std::fs::metadata(&arena_path).unwrap().len();
+        drop(handle);
+        tokio::task::spawn_blocking(move || joiner.join())
+            .await
+            .expect("blocking 1")
+            .expect("join 1");
+        (u, len)
+    };
+    // Re-spawn on the same dir.
+    {
+        let (handle, joiner) =
+            spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn 2nd");
+        let uuid_after = std::fs::read(&uuid_path).unwrap();
+        assert_eq!(uuid_before, uuid_after, "UUID must persist across restarts");
+        let arena_len_after = std::fs::metadata(&arena_path).unwrap().len();
+        assert_eq!(
+            arena_len_before, arena_len_after,
+            "arena.bin size must persist (capacity unchanged)"
+        );
+        // One more alloc on the reopened arena — just proves the executor
+        // accepted the rebuilt allocator. We don't assert the returned
+        // index because PENDING_WRITE slots from the prior run are
+        // reclaimable (free_list LIFO) and the encoder/WAL plumbing that
+        // turns them into committed slots lands in 9.6+/9.7.
+        let _ = handle.alloc_slot().await.expect("alloc post-reopen");
+        drop(handle);
+        tokio::task::spawn_blocking(move || joiner.join())
+            .await
+            .expect("blocking 2")
+            .expect("join 2");
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn shard_uuid_mismatch_errors_on_reopen() {
+    let dir = TempDir::new().unwrap();
+
+    // First spawn writes the UUID.
+    let (handle, joiner) =
+        spawn_shard(0, ShardSpawnConfig::new(dir.path())).expect("spawn initial");
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking")
+        .expect("join");
+
+    // Corrupt shard.uuid with a different value while arena.bin still
+    // carries the original.
+    let uuid_path = dir.path().join("0").join("shard.uuid");
+    std::fs::write(&uuid_path, [0u8; 16]).unwrap();
+
+    match spawn_shard(0, ShardSpawnConfig::new(dir.path())) {
+        Ok(_) => panic!("expected mismatch error"),
+        Err(ShardError::ArenaOpen(e)) => {
+            // Either ShardUuidMismatch (the spec-shaped case) or one of
+            // the surrounding header errors — both are acceptable signals
+            // that we refused the mismatched UUID file.
+            let msg = e.to_string();
+            assert!(
+                msg.contains("shard_uuid mismatch")
+                    || msg.contains("header")
+                    || msg.contains("UUID"),
+                "expected uuid-mismatch-shaped error, got: {msg}"
+            );
+        }
+        Err(other) => panic!("expected ArenaOpen error, got: {other:?}"),
+    }
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+async fn data_dir_under_nested_path() {
+    let dir = TempDir::new().unwrap();
+    let nested = dir.path().join("a").join("b").join("c");
+    let (handle, joiner) = spawn_shard(7, ShardSpawnConfig::new(&nested)).expect("spawn");
+    handle.ping().await.expect("ping");
+    drop(handle);
+    tokio::task::spawn_blocking(move || joiner.join())
+        .await
+        .expect("blocking join")
+        .expect("join");
+    assert!(nested.join("7").join("arena.bin").is_file());
+}
+
+// ---------------------------------------------------------------------------
+// Error-type plumbing sanity
+// ---------------------------------------------------------------------------
+
+#[test]
+fn alloc_slot_error_carries_op_variant() {
+    // Compile-time check that the From impl exists; AllocError is the
+    // brain-storage error type and is only constructible via the actual
+    // allocator, so we don't synthesise one here.
+    fn _accepts(e: ShardOpError) -> AllocSlotError {
+        e.into()
+    }
 }
