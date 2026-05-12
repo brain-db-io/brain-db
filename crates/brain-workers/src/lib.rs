@@ -35,6 +35,7 @@ pub mod idempotency_cleanup;
 pub mod metrics;
 pub mod scheduler;
 pub mod slot_reclaim;
+pub mod statistics;
 pub mod summarizer;
 pub mod wal_retention;
 pub mod worker;
@@ -62,6 +63,7 @@ pub use idempotency_cleanup::{IdempotencyCleanupWorker, DEFAULT_IDEMPOTENCY_TTL}
 pub use metrics::{Snapshot as MetricsSnapshot, WorkerMetrics};
 pub use scheduler::{WorkerHandle, WorkerScheduler};
 pub use slot_reclaim::{SlotReclamationWorker, DEFAULT_FORGET_GRACE};
+pub use statistics::{StatisticsUpdateWorker, Stats};
 pub use summarizer::{DisabledSummarizer, Summarizer, SummarizerError};
 pub use wal_retention::{
     decide_deletions, CheckpointDesc, DisabledWalRetentionSource, SegmentDesc, WalRetentionSource,
