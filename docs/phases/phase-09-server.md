@@ -40,7 +40,20 @@ A runnable substrate. TCP connection layer (Tokio) accepts clients; per-shard Gl
 **Writes:** `crates/brain-server/src/config.rs`
 **Done when:** Config struct deserializes from TOML; env var overrides supported; missing required fields produce clear errors.
 
-### Task 9.2 — Shard executor (Glommio)
+### Task 9.2 — Tokio/Glommio port audit  [x]
+**Reads:** every shard-bound crate's `src/`; spec §01/04, §10/02.
+**Writes:** `docs/phases/phase-09-glommio-port.md`
+**Done when:** Every `tokio::*` use-site in shard-bound code has a
+disposition (STAY-CONN / STAY-TEST / PORT-GLOMMIO / PORT-LOCAL / MOVE /
+DELETE / QUESTION). Cross-cutting decisions locked. Open questions
+surfaced.
+
+> The original phase doc listed "Shard executor (Glommio)" as 9.2; the
+> Phase 9 orientation (`.claude/plans/phase-09.md`) renumbered. The
+> shard executor scaffold is now **9.4**. See the orientation for the
+> updated 18-sub-task projection.
+
+### Task 9.2′ (was 9.2 in doc; now part of 9.4) — Shard executor (Glommio)
 **Reads:** `spec/01_system_architecture/05_hardware.md`
 **Writes:** `crates/brain-server/src/shard.rs`
 **What to build:**
