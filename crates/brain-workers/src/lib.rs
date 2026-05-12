@@ -27,6 +27,7 @@ pub mod config;
 pub mod consolidation;
 pub mod context;
 pub mod decay;
+pub mod edge_scrub;
 pub mod error;
 pub mod hnsw_maint;
 pub mod idempotency_cleanup;
@@ -49,6 +50,7 @@ pub use decay::{
     decayed_salience, half_life_days, DecayWorker, CONSOLIDATED_HALF_LIFE_DAYS,
     EPISODIC_HALF_LIFE_DAYS, MIN_DELTA_FOR_WRITE, SEMANTIC_HALF_LIFE_DAYS,
 };
+pub use edge_scrub::EdgeScrubWorker;
 pub use error::WorkerError;
 pub use hnsw_maint::{
     decide_action, Action, DisabledRebuildSource, HnswMaintenanceWorker, IndexStats, RebuildSource,
