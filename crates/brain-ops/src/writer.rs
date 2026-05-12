@@ -33,9 +33,10 @@ use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::{AgentId, EdgeKind, MemoryId};
+use brain_core::{AgentId, ContextId, EdgeKind, MemoryId, MemoryKind};
 use brain_index::Writer as HnswWriter;
 use brain_metadata::tables::edge::{
     self, derived_by, origin, EdgeData, EDGES_IN_TABLE, EDGES_OUT_TABLE,
@@ -46,6 +47,7 @@ use brain_planner::{
     EdgeOutcome, EncodeAck, EncodeOp, ForgetAck, ForgetOp, ForgetOutcome, LinkAck, LinkOp,
     SharedMetadataDb, TxnBatch, TxnBatchAck, UnlinkAck, UnlinkOp, WriterError, WriterHandle,
 };
+use brain_protocol::response::EventType;
 use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
@@ -56,6 +58,7 @@ use crate::idempotency::{
     hash_encode_request, hash_forget_request, hash_link_request, hash_unlink_request,
     RESPONSE_KIND_ENCODE, RESPONSE_KIND_FORGET, RESPONSE_KIND_LINK, RESPONSE_KIND_UNLINK,
 };
+use crate::subscribe::{EventBus, EventEnvelope};
 
 /// Real per-shard writer backed by `MetadataDb` + `HnswWriter`. No
 /// WAL — Phase 8 / 9 swap this for a WAL-backed implementation
@@ -76,6 +79,11 @@ pub struct RealWriterHandle {
     /// nil. Carried as a field so tests + the future server can pin
     /// it without re-creating the writer.
     agent_id: AgentId,
+    /// Change-feed publisher (sub-task 7.10). Single-op encode/forget
+    /// commits and TXN_COMMIT batches publish here *after* the redb
+    /// commit() succeeds. Optional so existing callers don't break
+    /// (defaults to no publication — events are dropped on the floor).
+    events: Option<Arc<EventBus>>,
 }
 
 impl RealWriterHandle {
@@ -103,6 +111,7 @@ impl RealWriterHandle {
             next_slot: AtomicU64::new(1),
             tombstoned: Mutex::new(HashSet::new()),
             agent_id: AgentId(Uuid::nil()),
+            events: None,
         }
     }
 
@@ -110,6 +119,20 @@ impl RealWriterHandle {
     pub fn with_agent_id(mut self, agent_id: AgentId) -> Self {
         self.agent_id = agent_id;
         self
+    }
+
+    /// Wire the change-feed bus. After this call every successful
+    /// commit publishes an [`EventEnvelope`] onto the bus.
+    #[must_use]
+    pub fn with_event_bus(mut self, bus: Arc<EventBus>) -> Self {
+        self.events = Some(bus);
+        self
+    }
+
+    fn publish(&self, env: EventEnvelope) {
+        if let Some(bus) = &self.events {
+            bus.publish(env);
+        }
     }
 }
 
@@ -361,6 +384,18 @@ fn do_encode(writer: &RealWriterHandle, op: EncodeOp) -> Result<EncodeAck, Write
         .insert(memory_id, &op.vector)
         .map_err(|e| WriterError::Internal(format!("hnsw insert: {e:?}")))?;
 
+    // ── Change-feed (sub-task 7.10). ─────────────────────────────
+    writer.publish(EventEnvelope {
+        lsn: 0, // stamped by bus
+        event_type: EventType::Encoded,
+        memory_id,
+        context_id: op.context_id,
+        kind: op.kind,
+        salience: op.salience_initial,
+        timestamp_unix_nanos: created_at,
+        text: Some(op.text.clone()),
+    });
+
     Ok(EncodeAck {
         memory_id,
         edge_results: edge_outcomes,
@@ -420,11 +455,13 @@ fn do_forget(writer: &RealWriterHandle, op: ForgetOp) -> Result<ForgetAck, Write
             &op,
             request_hash,
             ForgetOutcome::AlreadyTombstoned,
+            None,
         );
     }
 
-    // ── Does the memory exist? ───────────────────────────────────
-    let exists = {
+    // ── Look up the memory row (existence + context/kind/salience
+    //    for the change-feed event). ─────────────────────────────
+    let meta_snapshot: Option<MemoryMetadata> = {
         let db = writer.metadata.lock();
         let rtxn = db
             .read_txn()
@@ -436,11 +473,17 @@ fn do_forget(writer: &RealWriterHandle, op: ForgetOp) -> Result<ForgetAck, Write
             .get(op.memory_id.to_be_bytes())
             .ok()
             .flatten()
-            .is_some()
+            .map(|access| access.value())
     };
-    if !exists {
-        return record_and_return_forget(writer, &op, request_hash, ForgetOutcome::MemoryNotFound);
-    }
+    let Some(meta) = meta_snapshot else {
+        return record_and_return_forget(
+            writer,
+            &op,
+            request_hash,
+            ForgetOutcome::MemoryNotFound,
+            None,
+        );
+    };
 
     // ── Tombstone in HNSW (durable in the sense it survives this
     //    process's lifetime; Phase 8/9 wires the WAL-recoverable
@@ -452,7 +495,13 @@ fn do_forget(writer: &RealWriterHandle, op: ForgetOp) -> Result<ForgetAck, Write
         .map_err(|e| WriterError::Internal(format!("mark_tombstoned: {e:?}")))?;
     writer.tombstoned.lock().insert(op.memory_id);
 
-    record_and_return_forget(writer, &op, request_hash, ForgetOutcome::Tombstoned)
+    record_and_return_forget(
+        writer,
+        &op,
+        request_hash,
+        ForgetOutcome::Tombstoned,
+        Some(meta),
+    )
 }
 
 fn record_and_return_forget(
@@ -460,6 +509,7 @@ fn record_and_return_forget(
     op: &ForgetOp,
     request_hash: [u8; 32],
     outcome: ForgetOutcome,
+    meta: Option<MemoryMetadata>,
 ) -> Result<ForgetAck, WriterError> {
     let request_id_bytes: [u8; 16] = op.request_id.into();
     let created_at = now_unix_nanos();
@@ -487,6 +537,30 @@ fn record_and_return_forget(
         wtxn.commit()
             .map_err(|e| WriterError::Internal(format!("forget commit: {e:?}")))?;
     }
+
+    // ── Change-feed (sub-task 7.10): only Tombstoned transitions
+    //    emit. MemoryNotFound / AlreadyTombstoned aren't state
+    //    changes, so per spec §10/4 we don't publish them. ──────
+    if matches!(outcome, ForgetOutcome::Tombstoned) {
+        if let Some(m) = meta {
+            // `kind()` returns `Err(BadMemoryKind)` only if the stored
+            // byte is corrupt (out-of-band write). Fall back to
+            // Episodic in that pathological case — the change-feed
+            // event is best-effort, not load-bearing.
+            let kind = m.kind().unwrap_or(MemoryKind::Episodic);
+            writer.publish(EventEnvelope {
+                lsn: 0,
+                event_type: EventType::Forgotten,
+                memory_id: op.memory_id,
+                context_id: m.context(),
+                kind,
+                salience: m.salience,
+                timestamp_unix_nanos: created_at,
+                text: None,
+            });
+        }
+    }
+
     Ok(ForgetAck {
         memory_id: op.memory_id,
         outcome,
@@ -831,6 +905,22 @@ fn do_submit_batch(writer: &RealWriterHandle, batch: TxnBatch) -> Result<TxnBatc
     let mut hnsw_inserts: Vec<(MemoryId, [f32; brain_embed::VECTOR_DIM])> = Vec::new();
     let mut hnsw_tombstones: Vec<MemoryId> = Vec::new();
 
+    // ── Change-feed envelopes for sub-task 7.10. Built during the
+    //    write txn (so we capture pre-tombstone metadata snapshots);
+    //    published after commit() succeeds — never on rollback. The
+    //    order matches the batch's natural order: encodes first,
+    //    then forgets (links/unlinks don't emit events in v1). ────
+    struct PendingEvent {
+        event_type: EventType,
+        memory_id: MemoryId,
+        context_id: ContextId,
+        kind: MemoryKind,
+        salience: f32,
+        timestamp_unix_nanos: u64,
+        text: Option<String>,
+    }
+    let mut pending_events: Vec<PendingEvent> = Vec::new();
+
     // Track in-batch creations so subsequent operations within the
     // same batch can see them (e.g., LINK targeting a memory ENCODEd
     // earlier in the same txn).
@@ -948,6 +1038,15 @@ fn do_submit_batch(writer: &RealWriterHandle, batch: TxnBatch) -> Result<TxnBatc
                     replayed: false,
                 });
                 hnsw_inserts.push((enc.memory_id, enc.vector));
+                pending_events.push(PendingEvent {
+                    event_type: EventType::Encoded,
+                    memory_id: enc.memory_id,
+                    context_id: enc.context_id,
+                    kind: enc.kind,
+                    salience: enc.salience_initial,
+                    timestamp_unix_nanos: enc.created_at_unix_nanos,
+                    text: Some(enc.text.clone()),
+                });
 
                 // Bump in-counts for any in-batch edges that target a
                 // memory already inserted in this batch.
@@ -1077,11 +1176,11 @@ fn do_submit_batch(writer: &RealWriterHandle, batch: TxnBatch) -> Result<TxnBatc
 
             // 4. FORGETs.
             for forget in &batch.forgets {
-                let exists = batch_memory_ids.contains(&forget.memory_id)
-                    || memories_t
-                        .get(forget.memory_id.to_be_bytes())
-                        .map_err(|e| WriterError::Internal(format!("batch get forget: {e:?}")))?
-                        .is_some();
+                let meta_row: Option<MemoryMetadata> = memories_t
+                    .get(forget.memory_id.to_be_bytes())
+                    .map_err(|e| WriterError::Internal(format!("batch get forget: {e:?}")))?
+                    .map(|access| access.value());
+                let exists = batch_memory_ids.contains(&forget.memory_id) || meta_row.is_some();
                 let outcome = if !exists {
                     ForgetOutcome::MemoryNotFound
                 } else if writer.tombstoned.lock().contains(&forget.memory_id) {
@@ -1091,6 +1190,42 @@ fn do_submit_batch(writer: &RealWriterHandle, batch: TxnBatch) -> Result<TxnBatc
                 };
                 if matches!(outcome, ForgetOutcome::Tombstoned) {
                     hnsw_tombstones.push(forget.memory_id);
+                    // Build the pending event from the metadata row.
+                    // In-batch encodes don't have a row yet (they're
+                    // inserted above), but a same-batch encode→forget
+                    // ordering is unusual; if no row, fall back to
+                    // searching the batch's pending events.
+                    let event = if let Some(m) = meta_row {
+                        Some(PendingEvent {
+                            event_type: EventType::Forgotten,
+                            memory_id: forget.memory_id,
+                            context_id: m.context(),
+                            kind: m.kind().unwrap_or(MemoryKind::Episodic),
+                            salience: m.salience,
+                            timestamp_unix_nanos: forget.created_at_unix_nanos,
+                            text: None,
+                        })
+                    } else {
+                        pending_events
+                            .iter()
+                            .rev()
+                            .find(|p| {
+                                p.memory_id == forget.memory_id
+                                    && matches!(p.event_type, EventType::Encoded)
+                            })
+                            .map(|p| PendingEvent {
+                                event_type: EventType::Forgotten,
+                                memory_id: forget.memory_id,
+                                context_id: p.context_id,
+                                kind: p.kind,
+                                salience: p.salience,
+                                timestamp_unix_nanos: forget.created_at_unix_nanos,
+                                text: None,
+                            })
+                    };
+                    if let Some(e) = event {
+                        pending_events.push(e);
+                    }
                 }
                 let payload = encode_forget_payload(forget.memory_id, outcome);
                 let entry = IdempotencyEntry::new(
@@ -1134,6 +1269,20 @@ fn do_submit_batch(writer: &RealWriterHandle, batch: TxnBatch) -> Result<TxnBatc
         for id in &hnsw_tombstones {
             tombstoned.insert(*id);
         }
+    }
+
+    // ── Change-feed (sub-task 7.10). Publish in buffer order. ────
+    for ev in pending_events {
+        writer.publish(EventEnvelope {
+            lsn: 0,
+            event_type: ev.event_type,
+            memory_id: ev.memory_id,
+            context_id: ev.context_id,
+            kind: ev.kind,
+            salience: ev.salience,
+            timestamp_unix_nanos: ev.timestamp_unix_nanos,
+            text: ev.text,
+        });
     }
 
     Ok(TxnBatchAck {

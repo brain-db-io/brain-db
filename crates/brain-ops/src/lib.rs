@@ -46,6 +46,10 @@ pub use brain_planner::PlannerContext;
 pub use context::OpsContext;
 pub use dispatch::dispatch;
 pub use error::{ErrorCode, OpError};
+pub use subscribe::{
+    EventBus, EventEnvelope, LsnAllocator, ParsedFilter, SubscriptionHandle, SubscriptionRegistry,
+    DEFAULT_EVENT_CHANNEL_CAPACITY,
+};
 pub use txn::{TxnState, TxnStore};
 pub use writer::RealWriterHandle;
 
