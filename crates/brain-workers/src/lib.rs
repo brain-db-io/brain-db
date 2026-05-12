@@ -23,6 +23,7 @@
 #![forbid(unsafe_code)]
 
 pub mod access_boost;
+pub mod cache_evict;
 pub mod config;
 pub mod consolidation;
 pub mod context;
@@ -41,6 +42,10 @@ pub mod wal_retention;
 pub mod worker;
 
 pub use access_boost::{boosted_salience, AccessBoostWorker, DEFAULT_BOOST_FACTOR, MAX_SALIENCE};
+pub use cache_evict::{
+    CacheEvictionError, CacheEvictionSource, CacheEvictionWorker, DisabledCacheEvictionSource,
+    DEFAULT_CACHE_MAX_AGE,
+};
 pub use config::{WorkerConfig, WorkerKind};
 pub use consolidation::{
     cluster_by_similarity, cosine, deterministic_request_id, ClusterCandidate, ConsolidationWorker,
