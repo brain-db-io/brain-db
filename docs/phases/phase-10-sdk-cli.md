@@ -257,14 +257,22 @@ green.
   `in_memory_state_summary` in `debug-snapshot` — future phases pop
   entries from `deferred[]` as primitives land.
 
-### Task 10.13 — SDK + CLI integration tests
-**Writes:** `tests/cli_e2e.rs` and `tests/sdk_e2e.rs` (workspace-level fixture project)
-**Done when:** Test harness spins up server, drives via SDK + CLI, asserts outputs.
+### Task 10.13 — SDK + CLI integration tests [x]
+**Writes:** `crates/brain-server/tests/support_harness/mod.rs` (shared
+bringup factored out of `e2e.rs`), `crates/brain-server/tests/sdk_e2e.rs`
+(5 SDK tests), `crates/brain-server/tests/cli_e2e.rs` (6 CLI lib-API tests).
+**Done when:** All 11 new tests pass against the in-process harness.
+Library-level integration (not subprocess) — argv parsing already
+covered by brain-cli's own `tests/cli.rs`. `just docker-verify` green.
+**Scope notes:** Workspace-level e2e crate (option A in the plan)
+deferred because brain-server is bin-only; option C (colocate)
+chosen for v1. Subprocess black-box (option B) can layer on later as
+a smoke test.
 
 ## Phase exit checklist
 
-- [ ] All sub-tasks complete.
-- [ ] `just verify` green.
-- [ ] SDK can drive every operation per spec.
-- [ ] CLI covers every command in spec §14/06.
-- [ ] Tag `phase-10-complete`.
+- [x] All sub-tasks complete.
+- [x] `just verify` green.
+- [x] SDK can drive every operation per spec.
+- [x] CLI covers every command in spec §14/06.
+- [ ] Tag `phase-10-complete`. *(awaiting user signal)*
