@@ -1,45 +1,61 @@
 //! # brain-cli
 //!
 //! Admin CLI for the Brain substrate. See
-//! `spec/14_observability_ops/06_admin_ops.md` for the command surface.
-//!
-//! Currently a placeholder; sub-commands are stubbed out and print a
-//! "not yet implemented" notice.
+//! `spec/14_observability_ops/06_admin_ops.md` for the full
+//! command surface. 10.8 implements `health` and `stats`; the
+//! other commands land in 10.9–10.12.
 
 #![allow(clippy::missing_errors_doc)]
 
 use std::env;
 use std::process::ExitCode;
 
+use brain_cli::cli::{parse, Command};
+use brain_cli::commands::{health, stats};
+
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 
 fn main() -> ExitCode {
-    let args: Vec<String> = env::args().skip(1).collect();
-
-    if args.is_empty() || args.iter().any(|a| a == "--help" || a == "-h") {
-        print_help();
-        return ExitCode::SUCCESS;
-    }
-
-    if args.iter().any(|a| a == "--version" || a == "-V") {
-        println!("{NAME} {VERSION}");
-        return ExitCode::SUCCESS;
-    }
-
-    let cmd = args[0].as_str();
-    match cmd {
-        "stats" | "health" | "info" | "snapshot" | "rebuild-ann" | "worker" | "config"
-        | "audit" | "agent" | "shard" | "profile" | "debug-snapshot" => {
-            eprintln!("brain-cli {cmd}: not yet implemented");
-            eprintln!("see spec/14_observability_ops/06_admin_ops.md for the spec'd surface.");
-            ExitCode::from(2)
-        }
-        other => {
-            eprintln!("unknown command: {other}");
+    let argv: Vec<String> = env::args().skip(1).collect();
+    let args = match parse(argv) {
+        Ok(a) => a,
+        Err(e) => {
+            eprintln!("error: {e}");
             print_help();
-            ExitCode::from(2)
+            return ExitCode::from(2);
         }
+    };
+
+    match args.command {
+        Command::Help => {
+            print_help();
+            ExitCode::SUCCESS
+        }
+        Command::Version => {
+            println!("{NAME} {VERSION}");
+            ExitCode::SUCCESS
+        }
+        Command::Health => match health::run(&args.server, args.output) {
+            Ok(out) => {
+                print!("{out}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(2)
+            }
+        },
+        Command::Stats => match stats::run(&args.server, args.output) {
+            Ok(out) => {
+                print!("{out}");
+                ExitCode::SUCCESS
+            }
+            Err(e) => {
+                eprintln!("error: {e}");
+                ExitCode::from(2)
+            }
+        },
     }
 }
 
@@ -49,27 +65,23 @@ fn print_help() {
 Admin CLI for the Brain substrate.
 
 USAGE:
-    brain-cli <COMMAND> [ARGS]
+    brain-cli [OPTIONS] <COMMAND>
 
 COMMANDS:
-    stats           Show substrate statistics
-    health          Health check across shards
-    info            Build and runtime info
-    snapshot        Create / list / restore snapshots
-    rebuild-ann     Trigger an HNSW rebuild
-    worker          Manage background workers
-    config          Get / set / reload configuration
-    audit           Query the audit log
-    agent           List or modify agents
-    shard           List or modify shards
-    profile         Capture a CPU profile
-    debug-snapshot  Capture a runtime debug snapshot
+    health          Probe the admin /healthz endpoint
+    stats           Snapshot /metrics counters
 
 OPTIONS:
-    --version, -V   Print version
-    --help, -h      Print this help
+    --server <host:port>   Admin endpoint (default 127.0.0.1:9091)
+    --output <json|table>  Output format (default table)
+    --token <value>        Admin token (parsed for forward compat; unused in 10.8)
+    --version, -V          Print version
+    --help, -h             Print this help
 
-See spec/14_observability_ops/06_admin_ops.md for full surface.
+10.9–10.12 add: snapshot, rebuild-ann, worker, config, audit,
+agent, shard, profile, debug-snapshot.
+
+See spec/14_observability_ops/06_admin_ops.md for the full surface.
 "
     );
 }

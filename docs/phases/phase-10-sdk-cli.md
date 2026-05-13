@@ -159,10 +159,23 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   `client.debug_snapshot()` (10.12), custom default tags,
   histogram/percentile surfaces.
 
-### Task 10.8 — `brain-cli stats` and `health`
-**Reads:** `spec/14_observability_ops/06_admin_ops.md`
-**Writes:** `crates/brain-cli/src/stats.rs`
-**Done when:** `brain-cli stats` and `health` output JSON or human-readable.
+### Task 10.8 — `brain-cli stats` and `health`  [x]
+**Reads:** `spec/14_observability_ops/06_admin_ops.md` §3.
+  Plan `.claude/plans/phase-10-task-08.md`.
+**Writes:** `crates/brain-cli/src/{cli,commands,output,http}/`
+  (folder-per-concern; only `main.rs` + `lib.rs` at src root).
+  Hand-rolled blocking HTTP/1.1 client (no reqwest dep), tiny
+  arg parser, Prometheus text-format parser, JSON + table
+  renderers.
+**Done when:** `brain-cli health` GETs `/healthz` on the admin
+  port and renders JSON or table. `brain-cli stats` GETs
+  `/metrics`, parses Prometheus text format, renders. Server-side
+  admin endpoints come from 9.13; no wire-protocol admin ops
+  needed here. 22 brain-cli tests pass (17 lib unit + 5
+  integration with mock HTTP server). docker-verify green.
+  Deferred: `info` command, `--token` auth (server's admin is
+  unauth), TLS, YAML/colored output, subprocess CLI test
+  (10.13), all other subcommands (10.9-10.12).
 
 ### Task 10.9 — `brain-cli snapshot` family
 **Writes:** `crates/brain-cli/src/snapshot.rs`

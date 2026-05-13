@@ -317,6 +317,9 @@ dependencies = [
  "anyhow",
  "brain-core",
  "brain-sdk-rust",
+ "serde",
+ "serde_json",
+ "tokio",
 ]
 
 [[package]]
