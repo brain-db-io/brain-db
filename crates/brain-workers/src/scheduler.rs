@@ -104,6 +104,22 @@ impl WorkerScheduler {
         self.handles.get(name).map(|h| h.metrics.clone())
     }
 
+    /// Spec §11/01 §15: snapshot every registered worker's metrics.
+    /// Wraps each handle's atomics into a plain
+    /// [`crate::metrics::Snapshot`] so callers don't have to chase
+    /// `Arc<AtomicU64>` instances. Used by `brain-server`'s admin
+    /// `/metrics` endpoint (sub-task 9.13).
+    ///
+    /// Returned order is HashMap iteration order (not registration
+    /// order). Callers needing stable output should sort.
+    #[must_use]
+    pub fn metrics_snapshot(&self) -> Vec<(&'static str, WorkerKind, crate::metrics::Snapshot)> {
+        self.handles
+            .values()
+            .map(|h| (h.name, h.kind, h.metrics.snapshot()))
+            .collect()
+    }
+
     /// Configuration as registered (post-default-resolution).
     #[must_use]
     pub fn config(&self, name: &str) -> Option<WorkerConfig> {

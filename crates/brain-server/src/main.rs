@@ -9,6 +9,8 @@
 
 #![allow(clippy::missing_errors_doc)]
 
+#[cfg(target_os = "linux")]
+mod admin;
 mod config;
 #[cfg(target_os = "linux")]
 mod connection;
@@ -169,10 +171,36 @@ mod linux_main {
                 Err(rc) => return rc,
             };
 
+            let connection_metrics = Arc::new(crate::connection::ConnectionMetrics::default());
+
+            // Sub-task 9.13: admin HTTP server (/healthz + /metrics).
+            // Shares the shutdown signal so a single ctrl-c brings
+            // both down.
+            let admin_state = Arc::new(crate::admin::AdminState::new(
+                topology.shards.clone(),
+                connection_metrics.clone(),
+            ));
+            let admin = crate::admin::AdminServer::new(
+                cfg.server.metrics_addr,
+                admin_state,
+                signal.clone(),
+            );
+            let admin_handle = match admin.bind() {
+                Ok(bound) => {
+                    tracing::info!(addr = %bound.local_addr(), "admin server listening");
+                    tokio::spawn(async move { bound.serve().await })
+                }
+                Err(e) => {
+                    tracing::error!(error = %e, "failed to bind admin server");
+                    return ExitCode::FAILURE;
+                }
+            };
+
             let listener = ConnectionListener::new(
                 cfg.server.listen_addr,
                 tls,
                 topology,
+                connection_metrics.clone(),
                 ConnectionLimits::default(),
                 signal,
             );
@@ -185,7 +213,7 @@ mod linux_main {
             };
             tracing::info!(addr = %bound.local_addr(), "brain-server listening");
 
-            match bound.serve().await {
+            let serve_rc = match bound.serve().await {
                 Ok(addr) => {
                     tracing::info!(addr = %addr, "connection listener exited cleanly");
                     ExitCode::SUCCESS
@@ -194,7 +222,12 @@ mod linux_main {
                     tracing::error!(error = %e, "connection listener failed");
                     ExitCode::FAILURE
                 }
-            }
+            };
+
+            // Await the admin server's exit too; both observe the
+            // same shutdown signal, so this completes promptly.
+            let _ = admin_handle.await;
+            serve_rc
         });
 
         // Drain shard executors. 9.14 layers a structured shutdown over

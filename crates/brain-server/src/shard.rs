@@ -78,8 +78,8 @@ use brain_workers::wal_retention::WalRetentionSource;
 use brain_workers::{
     AccessBoostWorker, CacheEvictionWorker, ConsolidationWorker, CounterReconcileWorker,
     DecayWorker, DisabledCacheEvictionSource, DisabledSummarizer, EdgeScrubWorker,
-    HnswMaintenanceWorker, IdempotencyCleanupWorker, SlotReclamationWorker, SnapshotWorker,
-    StatisticsUpdateWorker, WalRetentionWorker, WorkerScheduler,
+    HnswMaintenanceWorker, IdempotencyCleanupWorker, MetricsSnapshot, SlotReclamationWorker,
+    SnapshotWorker, StatisticsUpdateWorker, WalRetentionWorker, WorkerKind, WorkerScheduler,
 };
 
 use crate::shard_adapters::{ArenaRebuildSource, ShardSnapshotSource, WalDirRetentionSource};
@@ -112,6 +112,11 @@ pub(crate) enum ShardRequest {
     AppendWalRecord {
         record: WalRecord,
         reply_tx: Sender<Result<u64, ShardOpError>>,
+    },
+    /// Snapshot every per-shard worker's metrics. Used by the admin
+    /// `/metrics` endpoint (sub-task 9.13).
+    SchedulerSnapshot {
+        reply_tx: Sender<Vec<(&'static str, WorkerKind, MetricsSnapshot)>>,
     },
 }
 
@@ -288,6 +293,24 @@ impl ShardHandle {
             .await
             .map_err(|_| AppendWalError::ShardDisconnected)?
             .map_err(AppendWalError::Op)
+    }
+
+    /// Snapshot every per-worker metric record. Returns
+    /// `(name, kind, snapshot)` tuples in HashMap iteration order
+    /// (not registration order). The admin `/metrics` endpoint reads
+    /// this once per scrape.
+    pub async fn scheduler_snapshot(
+        &self,
+    ) -> Result<Vec<(&'static str, WorkerKind, MetricsSnapshot)>, ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::SchedulerSnapshot { reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)
     }
 
     /// Dispatch a fully-decoded wire request through the shard's
@@ -715,6 +738,19 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     warn!(
                         shard_id = shard.shard_id,
                         "AllocSlot reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::SchedulerSnapshot { reply_tx } => {
+                let snap = shard
+                    .scheduler
+                    .as_ref()
+                    .map(|s| s.metrics_snapshot())
+                    .unwrap_or_default();
+                if reply_tx.send_async(snap).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "SchedulerSnapshot reply dropped (caller gone)"
                     );
                 }
             }

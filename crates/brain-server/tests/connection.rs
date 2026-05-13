@@ -90,6 +90,7 @@ async fn start(
         "127.0.0.1:0".parse().unwrap(),
         tls,
         empty_topology(),
+        Arc::new(connection::ConnectionMetrics::default()),
         limits,
         signal,
     );

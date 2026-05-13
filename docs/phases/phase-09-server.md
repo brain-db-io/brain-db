@@ -248,10 +248,34 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
   `crossbeam-epoch` non-use is documented as SD-10.6-1; ArcSwap
   use for HNSW remains deferred via SD-4.8-1.
 
-### Task 9.8 — Health and metrics endpoints
-**Reads:** `spec/14_observability_ops/01_metrics.md`
-**Writes:** `crates/brain-server/src/admin.rs`
-**Done when:** Separate HTTP listener on metrics port serves `/healthz` and `/metrics` (Prometheus format, even if mostly stubs at this stage).
+### Task 9.13 — Health + metrics endpoints  [x]
+> Was numbered 9.8 in the phase doc originally; orientation §11
+> renumbered to 9.13.
+
+**Reads:** plan `phase-09-task-13.md`,
+  `spec/14_observability_ops/01_metrics.md`.
+**Writes:** `crates/brain-server/src/admin.rs` (new — `AdminServer`,
+  `AdminState`, `BuildInfo`, hand-rolled minimal HTTP/1.1,
+  `/healthz` + `/metrics` handlers, Prometheus exposition builder);
+  `crates/brain-server/src/connection.rs` (`ConnectionMetrics` +
+  RAII `ConnectionGuard`; `ConnectionListener::new` gains a
+  `metrics: Arc<ConnectionMetrics>` parameter; accept loop
+  increments `total` + `active`);
+  `crates/brain-server/src/shard.rs`
+  (`ShardRequest::SchedulerSnapshot`,
+  `ShardHandle::scheduler_snapshot`);
+  `crates/brain-workers/src/scheduler.rs`
+  (`WorkerScheduler::metrics_snapshot`);
+  `crates/brain-server/src/main.rs` (spawn admin + connection
+  servers under the same `ShutdownSignal`);
+  `crates/brain-server/tests/admin.rs` (new — 5 integration tests).
+**Done when:** the server binds a separate HTTP listener on
+  `cfg.server.metrics_addr`; `GET /healthz` returns `200 OK\nok`;
+  `GET /metrics` returns Prometheus exposition for the metrics
+  already counted first-party (build_info, up, shards_total,
+  connections active/total, process_uptime, worker counters);
+  hand-rolled HTTP parser rejects non-GET and unknown paths with
+  400; 5 integration tests pass.
 
 ### Task 9.9 — Graceful shutdown
 **Reads:** `spec/01_system_architecture/04_layers.md` (if present)

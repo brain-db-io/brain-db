@@ -32,6 +32,7 @@
 
 use std::io;
 use std::net::SocketAddr;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
@@ -146,6 +147,28 @@ impl Default for ConnectionLimits {
     }
 }
 
+/// Live connection counters surfaced via the admin `/metrics`
+/// endpoint (sub-task 9.13). `active` is incremented on accept and
+/// decremented by an RAII [`ConnectionGuard`] when the per-connection
+/// task returns. `total` is a monotonic accept counter.
+#[derive(Default)]
+pub struct ConnectionMetrics {
+    pub active: AtomicU64,
+    pub total: AtomicU64,
+}
+
+/// Decrement `active` when this guard drops. Survives panic and
+/// early-return paths inside the per-connection task.
+struct ConnectionGuard {
+    metrics: Arc<ConnectionMetrics>,
+}
+
+impl Drop for ConnectionGuard {
+    fn drop(&mut self) {
+        self.metrics.active.fetch_sub(1, Ordering::Relaxed);
+    }
+}
+
 /// Unbound listener config. Call [`ConnectionListener::bind`] to
 /// produce a [`BoundConnectionListener`] (which exposes
 /// [`BoundConnectionListener::local_addr`] before [`Self::serve`]).
@@ -159,6 +182,8 @@ pub struct ConnectionListener {
     /// `broadcast::Sender`. Per-connection `SubscriptionRegistry`s
     /// subscribe to the right shard's broadcast.
     event_hub: ShardEventHub,
+    /// Live counters surfaced by the admin server (sub-task 9.13).
+    metrics: Arc<ConnectionMetrics>,
     limits: ConnectionLimits,
     shutdown: ShutdownSignal,
 }
@@ -171,6 +196,7 @@ pub struct BoundConnectionListener {
     tls: Option<Arc<ServerConfig>>,
     topology: Topology,
     event_hub: ShardEventHub,
+    metrics: Arc<ConnectionMetrics>,
     limits: ConnectionLimits,
     shutdown: ShutdownSignal,
 }
@@ -180,6 +206,7 @@ impl ConnectionListener {
         listen_addr: SocketAddr,
         tls: Option<Arc<ServerConfig>>,
         topology: Topology,
+        metrics: Arc<ConnectionMetrics>,
         limits: ConnectionLimits,
         shutdown: ShutdownSignal,
     ) -> Self {
@@ -193,6 +220,7 @@ impl ConnectionListener {
             tls,
             topology,
             event_hub,
+            metrics,
             limits,
             shutdown,
         }
@@ -215,6 +243,7 @@ impl ConnectionListener {
             tls: self.tls,
             topology: self.topology,
             event_hub: self.event_hub,
+            metrics: self.metrics,
             limits: self.limits,
             shutdown: self.shutdown,
         })
@@ -264,7 +293,16 @@ impl BoundConnectionListener {
                     let limits = self.limits.clone();
                     let topology = self.topology.clone();
                     let event_hub = self.event_hub.clone();
+                    let metrics = self.metrics.clone();
+                    // Counter bookkeeping (sub-task 9.13). `_guard`
+                    // decrements `active` on drop — handles every
+                    // exit path including TLS handshake failure.
+                    metrics.total.fetch_add(1, Ordering::Relaxed);
+                    metrics.active.fetch_add(1, Ordering::Relaxed);
                     tokio::spawn(async move {
+                        let _guard = ConnectionGuard {
+                            metrics: metrics.clone(),
+                        };
                         let result = match acceptor {
                             Some(acceptor) => match acceptor.accept(stream).await {
                                 Ok(tls_stream) => {

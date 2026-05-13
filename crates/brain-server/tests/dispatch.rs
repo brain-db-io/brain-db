@@ -112,6 +112,7 @@ async fn start_with_shards(n_shards: usize, limits: ConnectionLimits) -> Server 
         "127.0.0.1:0".parse().unwrap(),
         None,
         topology,
+        Arc::new(connection::ConnectionMetrics::default()),
         limits,
         signal,
     );
