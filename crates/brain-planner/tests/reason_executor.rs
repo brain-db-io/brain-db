@@ -299,3 +299,71 @@ async fn reason_max_inferences_caps_results() {
         r.supporting.len()
     );
 }
+
+// ---------------------------------------------------------------------------
+// Sub-task 9.16 — spec §16/01 §12 tombstone filter.
+// ---------------------------------------------------------------------------
+
+fn populate_hnsw_and_tombstone(fix: &Fixture, insert: &[MemoryId], tombstone: &[MemoryId]) {
+    // Mirrors the helper in path_executor.rs: build a fresh
+    // HnswIndex, insert the ids, mark some tombstoned, swap into
+    // the shared reader.
+    use brain_index::HnswIndex;
+    let params = fix.ctx.index.params();
+    let mut hnsw = HnswIndex::<VECTOR_DIM>::new(params).expect("HnswIndex::new");
+    let v = [0.1_f32; VECTOR_DIM];
+    for id in insert {
+        hnsw.insert(*id, &v).expect("hnsw insert");
+    }
+    for id in tombstone {
+        hnsw.mark_tombstoned(*id).expect("hnsw tombstone");
+    }
+    fix.ctx.index.swap(hnsw);
+}
+
+/// Seed has three `Supports` neighbours; tombstone one. REASON's
+/// supporting set must exclude the tombstoned neighbour.
+#[tokio::test]
+async fn reason_excludes_tombstoned_seed_neighbour() {
+    let fix = build_fixture(
+        4,
+        &[
+            (0, EdgeKind::Supports, 1), // seed -> n1
+            (0, EdgeKind::Supports, 2), // seed -> n2 (tombstoned)
+            (0, EdgeKind::Supports, 3), // seed -> n3
+        ],
+    );
+    populate_hnsw_and_tombstone(&fix, &fix.ids, &[fix.ids[2]]);
+
+    let r = run(&fix, reason_req(fix.ids[0], 1, 16)).await;
+    // The tombstoned n2 must NOT appear in supporting.
+    let supporting_ids: Vec<MemoryId> = r.supporting.iter().map(|inf| inf.memory_id).collect();
+    assert!(
+        !supporting_ids.contains(&fix.ids[2]),
+        "tombstoned memory n2 leaked into supporting: {:?}",
+        supporting_ids
+    );
+    // n1 and n3 should still appear (BFS reached them via the
+    // remaining supports edges).
+    assert!(
+        supporting_ids.contains(&fix.ids[1]) || supporting_ids.contains(&fix.ids[3]),
+        "expected at least one of n1/n3 in supporting; got {:?}",
+        supporting_ids
+    );
+}
+
+/// A tombstoned seed yields an empty base; REASON returns empty
+/// supporting + contradicting sets.
+#[tokio::test]
+async fn reason_silently_skips_tombstoned_seed() {
+    let fix = build_fixture(2, &[(0, EdgeKind::Supports, 1)]);
+    populate_hnsw_and_tombstone(&fix, &fix.ids, &[fix.ids[0]]);
+
+    let r = run(&fix, reason_req(fix.ids[0], 1, 16)).await;
+    assert!(
+        r.supporting.is_empty() && r.contradicting.is_empty(),
+        "tombstoned seed should yield empty sets; got supporting={} contradicting={}",
+        r.supporting.len(),
+        r.contradicting.len()
+    );
+}

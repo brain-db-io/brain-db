@@ -327,6 +327,22 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
   exercise round-trip + 4xx error mapping against a hand-rolled
   mock HTTP server.
 
+### Task 9.16 — PLAN / REASON tombstone filter  [x]
+**Reads:** plan `phase-09-task-16.md`,
+  `spec/16_benchmarks_acceptance/01_correctness_criteria.md` §12
+  (Tombstone correctness MUST).
+**Writes:** `crates/brain-planner/src/executor/{path,reason}.rs`
+  (per-neighbour `ctx.index.is_tombstoned` retain + tombstoned
+  start/goal/seed → empty-endpoint short-circuit);
+  `crates/brain-planner/tests/{path_executor,reason_executor}.rs`
+  (5 new tests covering chain exclusion + entry short-circuits).
+**Done when:** spec §16/01 §12 acceptance test passes: `FORGET m;
+  PLAN through chain incl. m` returns paths that avoid `m`.
+  Tombstoned start / goal / seed yield empty endpoint sets; the
+  BFS short-circuits to `NoPathFound` / empty supporting+
+  contradicting (matches `search_active`'s silent-filter behavior
+  for ByText endpoints).
+
 ### Task 9.10 — End-to-end smoke test
 **Writes:** `crates/brain-server/tests/e2e.rs`
 **What to build:**
