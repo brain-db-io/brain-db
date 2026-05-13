@@ -41,9 +41,19 @@
 // per-shard Glommio executor is the containment boundary; `Arc<OpsContext>`
 // is used in the shard's main loop without crossing threads.
 #![allow(clippy::arc_with_non_send_sync)]
+// 9.8: `shard.wal` is `Rc<RefCell<Option<Wal>>>`. The main loop's
+// `AppendWalRecord` handler takes an *immutable* `borrow()` on the
+// outer cell across `Wal::append(...).await`. The Phase-8 snapshot
+// adapter also takes immutable borrows. The single-threaded Glommio
+// executor + the discipline that the *only* `borrow_mut()` site is the
+// shutdown path (after the scheduler has drained) guarantee no
+// runtime panic. Without this allow, clippy's `await_holding_refcell_ref`
+// rejects the per-shard refactor en masse.
+#![allow(clippy::await_holding_refcell_ref)]
 
+use std::cell::RefCell;
 use std::path::{Path, PathBuf};
-
+use std::rc::Rc;
 use std::sync::Arc;
 
 use brain_core::{ShardId, SlotVersion};
@@ -57,13 +67,18 @@ use brain_storage::arena::{
 };
 use brain_storage::recovery::{recover, RecoveryError};
 use brain_storage::wal::{Wal, WalConfig, WalError, WalRecord};
+use brain_workers::cache_evict::CacheEvictionSource;
+use brain_workers::hnsw_maint::RebuildSource;
+use brain_workers::snapshot::SnapshotSource;
+use brain_workers::wal_retention::WalRetentionSource;
 use brain_workers::{
     AccessBoostWorker, CacheEvictionWorker, ConsolidationWorker, CounterReconcileWorker,
-    DecayWorker, DisabledCacheEvictionSource, DisabledRebuildSource, DisabledSnapshotSource,
-    DisabledSummarizer, DisabledWalRetentionSource, EdgeScrubWorker, HnswMaintenanceWorker,
-    IdempotencyCleanupWorker, SlotReclamationWorker, SnapshotWorker, StatisticsUpdateWorker,
-    WalRetentionWorker, WorkerScheduler,
+    DecayWorker, DisabledCacheEvictionSource, DisabledSummarizer, EdgeScrubWorker,
+    HnswMaintenanceWorker, IdempotencyCleanupWorker, SlotReclamationWorker, SnapshotWorker,
+    StatisticsUpdateWorker, WalRetentionWorker, WorkerScheduler,
 };
+
+use crate::shard_adapters::{ArenaRebuildSource, ShardSnapshotSource, WalDirRetentionSource};
 use flume::{Receiver, Sender};
 use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
 use parking_lot::Mutex;
@@ -310,12 +325,20 @@ impl Drop for ShardJoiner {
 
 struct Shard {
     shard_id: ShardId,
-    arena: ArenaFile,
+    /// `Rc<RefCell<…>>` so the shard's Phase-8 worker adapters
+    /// (`ArenaRebuildSource`, `ShardSnapshotSource`) can hold an
+    /// independent handle into the same on-disk arena. The main loop's
+    /// `AllocSlot` handler borrows mutably for the duration of one
+    /// `allocator.alloc(&mut arena)` call (no `.await` while held);
+    /// adapters borrow immutably inside their futures. The single-
+    /// threaded Glommio executor guarantees no concurrent borrows.
+    arena: Rc<RefCell<ArenaFile>>,
     allocator: SlotAllocator,
-    /// Wrapped in `Option` so the main-loop shutdown path can `.take()`
-    /// before awaiting `shutdown_in_place` — the borrow checker would
-    /// otherwise prevent calling `&mut self`-incompatible async methods.
-    wal: Option<Wal>,
+    /// `Rc<RefCell<Option<Wal>>>` so `ShardSnapshotSource` can call
+    /// `Wal::append` (via `write_checkpoint`) while the main loop also
+    /// holds a handle. `Option` so the shutdown path can `.take()`
+    /// before awaiting `Wal::shutdown` (which consumes the value).
+    wal: Rc<RefCell<Option<Wal>>>,
     /// Per-shard OpsContext — embedder, index, metadata, writer.
     /// Constructed inside the executor in sub-task 9.7b.
     #[allow(dead_code)] // consumed by the frame dispatcher in sub-task 9.10
@@ -341,13 +364,19 @@ impl Dispatcher for NopDispatcher {
     }
 }
 
-/// Register every Phase-8 worker against `scheduler`. Phase-8 seams
-/// (Summarizer, RebuildSource, CacheEvictionSource, WalRetentionSource,
-/// SnapshotSource) use the `Disabled*` defaults — real adapters land in
-/// 9.8 / 9.15.
+/// Register every Phase-8 worker against `scheduler`. Sub-task 9.8
+/// plugs in real adapters for `RebuildSource`, `WalRetentionSource`,
+/// and `SnapshotSource`. `CacheEvictionSource` stays `Disabled*` until
+/// 9.10 wires a real `CachingDispatcher` per shard. The
+/// [`brain_workers::Summarizer`] seam stays `DisabledSummarizer` until
+/// 9.15 (OpenAI/Ollama adapter).
 fn register_phase8_workers(
     scheduler: &mut WorkerScheduler,
     ops: Arc<OpsContext>,
+    rebuild_source: Arc<dyn RebuildSource<{ VECTOR_DIM }>>,
+    wal_retention_source: Arc<dyn WalRetentionSource>,
+    snapshot_source: Arc<dyn SnapshotSource>,
+    cache_eviction_source: Arc<dyn CacheEvictionSource>,
 ) -> Result<(), brain_workers::WorkerError> {
     scheduler.register(Arc::new(AccessBoostWorker::new()), ops.clone())?;
     scheduler.register(Arc::new(DecayWorker::new()), ops.clone())?;
@@ -356,7 +385,7 @@ fn register_phase8_workers(
         ops.clone(),
     )?;
     scheduler.register(
-        Arc::new(HnswMaintenanceWorker::new(Arc::new(DisabledRebuildSource))),
+        Arc::new(HnswMaintenanceWorker::new(rebuild_source)),
         ops.clone(),
     )?;
     scheduler.register(Arc::new(IdempotencyCleanupWorker::new()), ops.clone())?;
@@ -365,21 +394,14 @@ fn register_phase8_workers(
     scheduler.register(Arc::new(StatisticsUpdateWorker::new()), ops.clone())?;
     scheduler.register(Arc::new(CounterReconcileWorker::new()), ops.clone())?;
     scheduler.register(
-        Arc::new(CacheEvictionWorker::new(Arc::new(
-            DisabledCacheEvictionSource,
-        ))),
+        Arc::new(CacheEvictionWorker::new(cache_eviction_source)),
         ops.clone(),
     )?;
     scheduler.register(
-        Arc::new(WalRetentionWorker::new(Arc::new(
-            DisabledWalRetentionSource,
-        ))),
+        Arc::new(WalRetentionWorker::new(wal_retention_source)),
         ops.clone(),
     )?;
-    scheduler.register(
-        Arc::new(SnapshotWorker::new(Arc::new(DisabledSnapshotSource))),
-        ops,
-    )?;
+    scheduler.register(Arc::new(SnapshotWorker::new(snapshot_source)), ops)?;
     Ok(())
 }
 
@@ -458,7 +480,10 @@ pub fn spawn_shard(
         None => Placement::Unbound,
     };
     let wal_config = cfg.wal_config;
-    let wal_dir_for_executor = wal_dir;
+    let wal_dir_for_executor = wal_dir.clone();
+    let arena_path_for_executor = arena_path.clone();
+    let metadata_path_for_executor = metadata_path.clone();
+    let snapshots_root_for_executor = dir.join("snapshots");
     let join_handle = LocalExecutorBuilder::new(placement)
         .name(&format!("brain-shard-{shard_id}"))
         .spawn(move || async move {
@@ -491,9 +516,47 @@ pub fn spawn_shard(
                     .expect("Wal::create_with_config")
             };
 
+            // Wrap arena + WAL in `Rc<RefCell<…>>` so adapters can share
+            // handles with the main loop. Single-threaded executor →
+            // sound; the discipline is "drop the borrow before .await".
+            let arena_cell = Rc::new(RefCell::new(arena));
+            let wal_cell = Rc::new(RefCell::new(Some(wal)));
+
+            // Build real Phase-8 adapters (sub-task 9.8).
+            let rebuild_source: Arc<dyn RebuildSource<{ VECTOR_DIM }>> = Arc::new(
+                ArenaRebuildSource::<{ VECTOR_DIM }>::new(shard_id, arena_cell.clone()),
+            );
+            let wal_retention_source: Arc<dyn WalRetentionSource> =
+                Arc::new(WalDirRetentionSource::new(
+                    wal_dir_for_executor.clone(),
+                    shard_uuid,
+                    metadata.clone(),
+                ));
+            let snapshot_source: Arc<dyn SnapshotSource> = Arc::new(ShardSnapshotSource::new(
+                shard_uuid,
+                snapshots_root_for_executor,
+                arena_path_for_executor,
+                metadata_path_for_executor,
+                arena_cell.clone(),
+                wal_cell.clone(),
+                metadata.clone(),
+            ));
+            // CacheEvictionSource stays Disabled* until 9.10 wires the
+            // real CachingDispatcher per shard.
+            let cache_eviction_source: Arc<dyn CacheEvictionSource> =
+                Arc::new(DisabledCacheEvictionSource);
+
             // Spawn the per-shard scheduler + register all 12 Phase-8 workers.
             let mut scheduler = WorkerScheduler::new();
-            register_phase8_workers(&mut scheduler, ops.clone()).expect("register Phase-8 workers");
+            register_phase8_workers(
+                &mut scheduler,
+                ops.clone(),
+                rebuild_source,
+                wal_retention_source,
+                snapshot_source,
+                cache_eviction_source,
+            )
+            .expect("register Phase-8 workers");
             info!(
                 shard_id,
                 workers = scheduler.len(),
@@ -502,9 +565,9 @@ pub fn spawn_shard(
 
             let shard = Shard {
                 shard_id,
-                arena,
+                arena: arena_cell,
                 allocator,
-                wal: Some(wal),
+                wal: wal_cell,
                 ops,
                 scheduler: Some(scheduler),
             };
@@ -539,10 +602,16 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 }
             }
             ShardRequest::AllocSlot { reply_tx } => {
-                let out = shard
-                    .allocator
-                    .alloc(&mut shard.arena)
-                    .map_err(ShardOpError::from);
+                // Borrow mutably for the duration of the (synchronous)
+                // allocator call. The borrow is dropped before the
+                // following `.await`, satisfying the RefCell discipline.
+                let out = {
+                    let mut arena = shard.arena.borrow_mut();
+                    shard
+                        .allocator
+                        .alloc(&mut arena)
+                        .map_err(ShardOpError::from)
+                };
                 if reply_tx.send_async(out).await.is_err() {
                     warn!(
                         shard_id = shard.shard_id,
@@ -551,15 +620,35 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 }
             }
             ShardRequest::AppendWalRecord { record, reply_tx } => {
-                let out = match shard.wal.as_ref() {
-                    Some(wal) => wal
-                        .append(record)
-                        .await
-                        .map(|lsn| lsn.raw())
-                        .map_err(ShardOpError::from),
-                    None => Err(ShardOpError::Wal(WalError::DirectoryNotEmpty {
-                        dir: std::path::PathBuf::new(),
-                    })),
+                // `Wal::append` is itself async (group-commit), so we
+                // can't hold the cell borrow across the `.await`. Clone
+                // the inner `Wal` reference is impossible (Wal is !Clone);
+                // instead, we keep `Wal` inside `Rc<RefCell<Option<…>>>`
+                // and take a short borrow to capture an `&Wal` pointer
+                // that's owned by the `Rc`. The borrow stays alive for
+                // the duration of one append, but releases on .await
+                // suspension is unnecessary: a single executor task is
+                // running at a time, so re-borrows can't race.
+                // Implementation: just `borrow()` for the call window.
+                let out = {
+                    let wal_guard = shard.wal.borrow();
+                    match wal_guard.as_ref() {
+                        Some(wal) => {
+                            // `wal.append` borrows `&self` (`Wal` uses
+                            // interior mutability via RefCell<WalInner>),
+                            // so holding the outer RefCell borrow is
+                            // sound for the duration of the future.
+                            // Single-threaded executor means no other
+                            // task on this shard will reborrow.
+                            wal.append(record)
+                                .await
+                                .map(|lsn| lsn.raw())
+                                .map_err(ShardOpError::from)
+                        }
+                        None => Err(ShardOpError::Wal(WalError::DirectoryNotEmpty {
+                            dir: std::path::PathBuf::new(),
+                        })),
+                    }
                 };
                 if reply_tx.send_async(out).await.is_err() {
                     warn!(
@@ -582,7 +671,12 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
             );
         }
     }
-    if let Some(wal) = shard.wal.take() {
+    // Take the WAL out of its cell. The scheduler is already drained
+    // above, so any snapshot/retention adapter holding an `Rc` clone
+    // of `shard.wal` has finished its last future and dropped its
+    // borrow. `take()` is therefore safe.
+    let wal = shard.wal.borrow_mut().take();
+    if let Some(wal) = wal {
         if let Err(e) = wal.shutdown().await {
             warn!(
                 shard_id = shard.shard_id,
@@ -591,7 +685,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
             );
         }
     }
-    if let Err(e) = shard.arena.msync_all() {
+    if let Err(e) = shard.arena.borrow().msync_all() {
         warn!(
             shard_id = shard.shard_id,
             error = %e,

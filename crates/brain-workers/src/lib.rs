@@ -45,7 +45,7 @@ pub mod worker;
 pub use access_boost::{boosted_salience, AccessBoostWorker, DEFAULT_BOOST_FACTOR, MAX_SALIENCE};
 pub use cache_evict::{
     CacheEvictionError, CacheEvictionSource, CacheEvictionWorker, DisabledCacheEvictionSource,
-    DEFAULT_CACHE_MAX_AGE,
+    PruneFuture, DEFAULT_CACHE_MAX_AGE,
 };
 pub use config::{WorkerConfig, WorkerKind};
 pub use consolidation::{
@@ -63,20 +63,22 @@ pub use edge_scrub::EdgeScrubWorker;
 pub use error::WorkerError;
 pub use hnsw_maint::{
     decide_action, Action, DisabledRebuildSource, HnswMaintenanceWorker, IndexStats, RebuildSource,
-    RebuildSourceError, RebuildThresholds,
+    RebuildSourceError, RebuildThresholds, SnapshotFuture as RebuildSnapshotFuture,
 };
 pub use idempotency_cleanup::{IdempotencyCleanupWorker, DEFAULT_IDEMPOTENCY_TTL};
 pub use metrics::{Snapshot as MetricsSnapshot, WorkerMetrics};
 pub use scheduler::{WorkerHandle, WorkerScheduler};
 pub use slot_reclaim::{SlotReclamationWorker, DEFAULT_FORGET_GRACE};
 pub use snapshot::{
-    decide_retention, DisabledSnapshotSource, RetentionPolicy, SnapshotDesc, SnapshotId,
-    SnapshotSource, SnapshotSourceError, SnapshotWorker,
+    decide_retention, DeleteFuture as SnapshotDeleteFuture, DisabledSnapshotSource,
+    ListFuture as SnapshotListFuture, RetentionPolicy, SnapshotDesc, SnapshotId, SnapshotSource,
+    SnapshotSourceError, SnapshotWorker, TakeFuture as SnapshotTakeFuture,
 };
 pub use statistics::{StatisticsUpdateWorker, Stats};
 pub use summarizer::{DisabledSummarizer, Summarizer, SummarizerError};
 pub use wal_retention::{
-    decide_deletions, CheckpointDesc, DisabledWalRetentionSource, SegmentDesc, WalRetentionSource,
+    decide_deletions, CheckpointDesc, CheckpointFuture, DeleteFuture as WalDeleteFuture,
+    DisabledWalRetentionSource, SegmentDesc, SegmentListFuture, WalRetentionSource,
     WalRetentionSourceError, WalRetentionWorker,
 };
 pub use worker::{drive_batch, Worker};

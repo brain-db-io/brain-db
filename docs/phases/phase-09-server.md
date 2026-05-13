@@ -63,6 +63,29 @@ macOS still compiles brain-server (shard module cfg-gated).
 
 > **Scaffold only.** Real arena/WAL/metadata/HNSW/workers land in 9.5–9.7.
 
+### Task 9.8 — Wire Phase-8 seams to real impls  [x]
+**Reads:** plan `phase-09-task-08.md`, audit §4 + §8.5,
+  spec §05/09 §3 (checkpoint sequence), §05/10 (retention), §11/04 §7
+  (rebuild source), §11/07 / §11/08 §6 (worker seams).
+**Writes:** `crates/brain-workers/src/{hnsw_maint,wal_retention,snapshot,cache_evict}.rs`
+  (drop `Send + Sync` from the 4 source traits, drop `+ Send` from
+  future-return aliases); `crates/brain-workers/src/lib.rs` (re-export
+  the source future types so adapters can name them);
+  `crates/brain-server/src/shard_adapters.rs` (new — 3 real adapters +
+  5 unit tests); `crates/brain-server/src/shard.rs` (Shard.arena +
+  Shard.wal switched to `Rc<RefCell<…>>`; `register_phase8_workers`
+  takes 4 `Arc<dyn …>` parameters; spawn flow builds adapters inside
+  the Glommio closure); `crates/brain-server/tests/shard.rs` (mirror
+  the shard_adapters module path).
+**Done when:** `RebuildSource`/`WalRetentionSource`/`SnapshotSource`/
+  `CacheEvictionSource` traits drop `Send + Sync`; real adapters
+  `ArenaRebuildSource`, `WalDirRetentionSource`, `ShardSnapshotSource`
+  ship; `CacheEvictionSource` stays `DisabledCacheEvictionSource`
+  (waiting on 9.10's `CachingDispatcher`); `Shard.arena` +
+  `Shard.wal` switch to `Rc<RefCell<…>>` so adapters can share state
+  with the main loop; 31 brain-server tests + full workspace green
+  (`just docker-verify`).
+
 ### Task 9.7b — Per-shard OpsContext + workers wired in  [x]
 **Reads:** plan `phase-09-task-07b.md`, audit §5.3 + §6 + §8.2.
 **Writes:** `crates/brain-server/Cargo.toml` (6 new Linux deps + parking_lot),

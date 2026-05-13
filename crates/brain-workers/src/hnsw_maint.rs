@@ -111,14 +111,21 @@ pub enum RebuildSourceError {
 }
 
 /// Future returned by [`RebuildSource::snapshot_vectors`].
+///
+/// `!Send` because real adapters (Phase 9.8 `ArenaRebuildSource`) hold
+/// `Rc<RefCell<ArenaFile>>` and run on the per-shard Glommio executor.
 pub type SnapshotFuture<'a, const D: usize> =
     Pin<Box<dyn Future<Output = Result<Vec<(MemoryId, [f32; D])>, RebuildSourceError>> + 'a>>;
 
 /// Produces a snapshot of active `(MemoryId, vector)` pairs to feed
 /// into `HnswIndex::rebuild`. Production deployments inject an
-/// arena-backed impl (Phase 9). Same `Pin<Box<Future>>` pattern as
+/// arena-backed impl (Phase 9.8). Same `Pin<Box<Future>>` pattern as
 /// the `Summarizer` trait — no `async-trait` dep.
-pub trait RebuildSource<const D: usize>: Send + Sync + 'static {
+///
+/// Post-9.8 the trait is `!Send + !Sync`: the per-shard
+/// `WorkerScheduler` runs on Glommio (`!Send` futures), so the trait
+/// only needs `'static` for `Arc<dyn …>` storage in the worker.
+pub trait RebuildSource<const D: usize>: 'static {
     fn snapshot_vectors(&self) -> SnapshotFuture<'_, D>;
 }
 

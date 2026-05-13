@@ -48,7 +48,10 @@ pub type PruneFuture<'a> = Pin<Box<dyn Future<Output = Result<usize, CacheEvicti
 /// Pluggable seam. Production deployments inject an impl backed by
 /// `brain_embed::CachingDispatcher::prune_older_than` (Phase 9). v1
 /// default is `DisabledCacheEvictionSource`.
-pub trait CacheEvictionSource: Send + Sync + 'static {
+/// Post-9.8 `!Send + !Sync` to match the other per-shard source
+/// traits. CacheEvictionSource stays Disabled* by default until
+/// 9.10 wires a real `CachingDispatcher` per shard.
+pub trait CacheEvictionSource: 'static {
     fn prune_older_than(&self, max_age: Duration) -> PruneFuture<'_>;
 }
 

@@ -11,8 +11,12 @@ use std::time::Duration;
 
 use tempfile::TempDir;
 
+// shard.rs uses `crate::shard_adapters::…`; pull both source files into
+// the test binary so that `crate::` resolves the same as in main.rs.
 #[path = "../src/shard.rs"]
 mod shard;
+#[path = "../src/shard_adapters.rs"]
+mod shard_adapters;
 
 use shard::{
     spawn_shard, AllocSlotError, AppendWalError, ShardError, ShardHandle, ShardOpError,

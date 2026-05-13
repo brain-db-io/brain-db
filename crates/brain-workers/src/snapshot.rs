@@ -116,7 +116,14 @@ pub type ListFuture<'a> =
     Pin<Box<dyn Future<Output = Result<Vec<SnapshotDesc>, SnapshotSourceError>> + 'a>>;
 pub type DeleteFuture<'a> = Pin<Box<dyn Future<Output = Result<(), SnapshotSourceError>> + 'a>>;
 
-pub trait SnapshotSource: Send + Sync + 'static {
+/// Pluggable seam for the snapshot worker. Production deployments
+/// inject an impl backed by the per-shard arena + WAL + metadata
+/// (Phase 9.8 `ShardSnapshotSource`).
+///
+/// Post-9.8 the trait is `!Send + !Sync`: real adapters hold
+/// `Rc<RefCell<…>>` per-shard state and run on the per-shard Glommio
+/// executor.
+pub trait SnapshotSource: 'static {
     fn take_snapshot(&self) -> TakeFuture<'_>;
     fn list_snapshots(&self) -> ListFuture<'_>;
     fn delete_snapshot(&self, id: SnapshotId) -> DeleteFuture<'_>;

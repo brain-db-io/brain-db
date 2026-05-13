@@ -13,6 +13,9 @@ mod routing;
 #[cfg(target_os = "linux")]
 #[allow(dead_code)] // consumed by the connection layer in sub-task 9.9.
 mod shard;
+#[cfg(target_os = "linux")]
+#[allow(dead_code)] // adapters wired into the per-shard scheduler in 9.8.
+mod shard_adapters;
 
 use std::env;
 use std::path::PathBuf;

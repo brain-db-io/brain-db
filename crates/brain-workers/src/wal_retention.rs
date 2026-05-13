@@ -105,9 +105,13 @@ pub type DeleteFuture<'a> = Pin<Box<dyn Future<Output = Result<(), WalRetentionS
 
 /// Pluggable seam for the WAL retention worker. Production
 /// deployments inject an impl backed by `brain_storage::Wal` (Phase
-/// 9). Same `Pin<Box<Future>>` pattern as `Summarizer` /
-/// `RebuildSource`.
-pub trait WalRetentionSource: Send + Sync + 'static {
+/// 9.8 `WalDirRetentionSource`). Same `Pin<Box<Future>>` pattern as
+/// `Summarizer` / `RebuildSource`.
+///
+/// Post-9.8 the trait is `!Send + !Sync`: the per-shard Glommio
+/// executor is single-threaded, so the trait only needs `'static`
+/// for `Arc<dyn …>` storage inside the worker.
+pub trait WalRetentionSource: 'static {
     fn current_checkpoint(&self) -> CheckpointFuture<'_>;
     fn list_segments(&self) -> SegmentListFuture<'_>;
     fn delete_segment(&self, segment_id: u64) -> DeleteFuture<'_>;
