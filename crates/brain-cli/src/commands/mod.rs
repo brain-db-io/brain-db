@@ -2,7 +2,12 @@
 //! run(server, output) -> Result<String>` that returns the
 //! rendered output; `main` prints it and sets the exit code.
 
+pub mod agent;
+pub mod audit;
+pub mod config;
 pub mod health;
 pub mod rebuild;
+pub mod shard;
 pub mod snapshot;
 pub mod stats;
+pub mod worker;

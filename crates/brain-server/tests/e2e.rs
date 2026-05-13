@@ -54,6 +54,9 @@ use tokio::net::TcpStream;
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/config/mod.rs"]
+mod config;
+#[allow(dead_code)]
 #[path = "../src/network/connection.rs"]
 mod connection;
 #[path = "../src/network/dispatch.rs"]
@@ -147,7 +150,11 @@ async fn start(n_shards: usize) -> Server {
     let data_plane_addr = bound.local_addr();
     let listener_handle = tokio::spawn(async move { bound.serve().await });
 
-    let admin_state = Arc::new(AdminState::new(shards, connections));
+    let admin_state = Arc::new(AdminState::new(
+        shards,
+        connections,
+        Arc::new(config::Config::for_tests()),
+    ));
     let admin = AdminServer::new("127.0.0.1:0".parse().unwrap(), admin_state, signal);
     let bound_admin = admin.bind().expect("bind admin");
     let admin_addr = bound_admin.local_addr();

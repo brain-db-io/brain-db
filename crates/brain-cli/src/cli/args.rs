@@ -30,6 +30,22 @@ pub struct Args {
     pub command: Command,
 }
 
+/// Optional sub-flags consumed by the 10.11 command families. Each
+/// field is populated only if the operator passes the corresponding
+/// `--name`, `--key`, `--value`, … flag. Stored as a flat bag so the
+/// argv loop stays simple; family parsers pull what they need.
+#[derive(Debug, Clone, Default)]
+pub struct FamilyFlags {
+    pub name: Option<String>,
+    pub key: Option<String>,
+    pub value: Option<String>,
+    pub since: Option<String>,
+    pub until: Option<String>,
+    pub agent: Option<String>,
+    pub logical_id: Option<u16>,
+    pub confirm: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Command {
     Help,
@@ -43,6 +59,13 @@ pub enum Command {
     RebuildAnn {
         shard: usize,
     },
+    /// Sub-task 10.11 — five new command families. Sub-actions live
+    /// in `crate::commands::<family>`.
+    Worker(crate::commands::worker::WorkerAction),
+    Config(crate::commands::config::ConfigAction),
+    Audit(crate::commands::audit::AuditAction),
+    Agent(crate::commands::agent::AgentAction),
+    Shard(crate::commands::shard::ShardAction),
 }
 
 /// Parse a `Vec<String>` (typically `env::args().skip(1).collect()`).
@@ -52,6 +75,7 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
     let mut token: Option<String> = None;
     let mut shard: usize = 0;
     let mut positional: Vec<String> = Vec::new();
+    let mut family = FamilyFlags::default();
 
     let mut i = 0;
     while i < argv.len() {
@@ -92,6 +116,42 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
                     .parse::<usize>()
                     .map_err(|e| anyhow!("invalid --shard `{v}`: {e}"))?;
             }
+            // ----- 10.11 family flags --------------------------------
+            "--name" => {
+                i += 1;
+                family.name = Some(take_value("--name", &argv, i)?.to_string());
+            }
+            "--key" => {
+                i += 1;
+                family.key = Some(take_value("--key", &argv, i)?.to_string());
+            }
+            "--value" => {
+                i += 1;
+                family.value = Some(take_value("--value", &argv, i)?.to_string());
+            }
+            "--since" => {
+                i += 1;
+                family.since = Some(take_value("--since", &argv, i)?.to_string());
+            }
+            "--until" => {
+                i += 1;
+                family.until = Some(take_value("--until", &argv, i)?.to_string());
+            }
+            "--agent" => {
+                i += 1;
+                family.agent = Some(take_value("--agent", &argv, i)?.to_string());
+            }
+            "--logical-id" => {
+                i += 1;
+                let v = take_value("--logical-id", &argv, i)?;
+                family.logical_id = Some(
+                    v.parse::<u16>()
+                        .map_err(|e| anyhow!("invalid --logical-id `{v}`: {e}"))?,
+                );
+            }
+            "--confirm" => {
+                family.confirm = true;
+            }
             other if other.starts_with("--") => {
                 return Err(anyhow!("unknown flag `{other}`"));
             }
@@ -111,6 +171,26 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
             Command::Snapshot(action)
         }
         Some("rebuild-ann") => Command::RebuildAnn { shard },
+        Some("worker") => {
+            use crate::commands::worker::WorkerAction;
+            Command::Worker(WorkerAction::parse(&positional[1..], shard, &family)?)
+        }
+        Some("config") => {
+            use crate::commands::config::ConfigAction;
+            Command::Config(ConfigAction::parse(&positional[1..], &family)?)
+        }
+        Some("audit") => {
+            use crate::commands::audit::AuditAction;
+            Command::Audit(AuditAction::parse(&positional[1..], &family)?)
+        }
+        Some("agent") => {
+            use crate::commands::agent::AgentAction;
+            Command::Agent(AgentAction::parse(&positional[1..], shard, &family)?)
+        }
+        Some("shard") => {
+            use crate::commands::shard::ShardAction;
+            Command::Shard(ShardAction::parse(&positional[1..], &family)?)
+        }
         Some(other) => return Err(anyhow!("unknown subcommand `{other}`")),
     };
 

@@ -87,6 +87,84 @@ fn parse_response(raw: &[u8]) -> anyhow::Result<HttpResponse> {
     Ok(HttpResponse { status, body })
 }
 
+// ---------------------------------------------------------------------------
+// POST / DELETE (sub-task 10.11)
+// ---------------------------------------------------------------------------
+
+/// HTTP/1.1 POST. `body` may be empty. `read_timeout` lets callers
+/// pick a long-running window (e.g. rebuild-ann waits minutes).
+pub fn post(
+    endpoint: &str,
+    path: &str,
+    body: &str,
+    read_timeout: Duration,
+) -> anyhow::Result<HttpResponse> {
+    request_with_body(endpoint, "POST", path, body, read_timeout)
+}
+
+/// HTTP/1.1 DELETE with empty body. Default 10-second timeout — the
+/// only callers today are the 501-stubs for `agent` / `shard` deletes.
+pub fn delete(endpoint: &str, path: &str) -> anyhow::Result<HttpResponse> {
+    request_with_body(endpoint, "DELETE", path, "", DEFAULT_TIMEOUT)
+}
+
+fn request_with_body(
+    endpoint: &str,
+    method: &str,
+    path: &str,
+    body: &str,
+    read_timeout: Duration,
+) -> anyhow::Result<HttpResponse> {
+    let addr = endpoint
+        .to_socket_addrs()
+        .map_err(|e| anyhow::anyhow!("resolve {endpoint}: {e}"))?
+        .next()
+        .ok_or_else(|| anyhow::anyhow!("resolve {endpoint}: no addresses"))?;
+    let mut stream = TcpStream::connect_timeout(&addr, DEFAULT_TIMEOUT)
+        .map_err(|e| anyhow::anyhow!("connect {addr}: {e}"))?;
+    stream.set_read_timeout(Some(read_timeout))?;
+    stream.set_write_timeout(Some(DEFAULT_TIMEOUT))?;
+
+    let request = format!(
+        "{method} {path} HTTP/1.1\r\nHost: {endpoint}\r\nUser-Agent: brain-cli/{ver}\r\nContent-Length: {len}\r\nContent-Type: application/json\r\nConnection: close\r\nAccept: */*\r\n\r\n{body}",
+        ver = env!("CARGO_PKG_VERSION"),
+        len = body.len(),
+    );
+    stream.write_all(request.as_bytes())?;
+    stream.flush()?;
+    let mut raw = Vec::with_capacity(4096);
+    stream.read_to_end(&mut raw)?;
+    parse_response(&raw)
+}
+
+/// Decode a `{"error":"not_implemented","deferred_to":..,"detail":..}`
+/// body, surfaced by the 10.11 admin routes that lack a backend.
+/// Returns `Some` if the body has the expected shape, `None` otherwise.
+pub fn parse_not_implemented(body: &str) -> Option<NotImplemented> {
+    let v: serde_json::Value = serde_json::from_str(body).ok()?;
+    if v.get("error").and_then(|e| e.as_str())? != "not_implemented" {
+        return None;
+    }
+    Some(NotImplemented {
+        deferred_to: v
+            .get("deferred_to")
+            .and_then(|s| s.as_str())
+            .unwrap_or("unknown")
+            .to_string(),
+        detail: v
+            .get("detail")
+            .and_then(|s| s.as_str())
+            .unwrap_or("")
+            .to_string(),
+    })
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct NotImplemented {
+    pub deferred_to: String,
+    pub detail: String,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -112,5 +190,19 @@ mod tests {
         let raw = b"not-an-http-response";
         let err = parse_response(raw).expect_err("err");
         assert!(err.to_string().contains("no header/body separator"));
+    }
+
+    #[test]
+    fn parse_not_implemented_decodes_shape() {
+        let body = r#"{"error":"not_implemented","deferred_to":"phase-11/foo","detail":"why"}"#;
+        let ni = parse_not_implemented(body).expect("parse");
+        assert_eq!(ni.deferred_to, "phase-11/foo");
+        assert_eq!(ni.detail, "why");
+    }
+
+    #[test]
+    fn parse_not_implemented_rejects_other_shape() {
+        assert!(parse_not_implemented("{\"error\":\"oops\"}").is_none());
+        assert!(parse_not_implemented("not-json").is_none());
     }
 }

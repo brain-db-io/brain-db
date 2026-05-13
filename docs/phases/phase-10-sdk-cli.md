@@ -221,9 +221,25 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   green. Deferred: rebuild-ann-status, async dispatch, cross-
   shard "rebuild all", dry-run, auth.
 
-### Task 10.11 — `brain-cli worker`, `config`, `audit`, `agent`, `shard`
-**Writes:** `crates/brain-cli/src/{worker,config,audit,agent,shard}.rs`
-**Done when:** All spec'd subcommands work. (Stubs from Phase 0 are now real.)
+### Task 10.11 — `brain-cli worker`, `config`, `audit`, `agent`, `shard` [x]
+**Writes:** `crates/brain-cli/src/commands/{worker,config,audit,agent,shard}/`,
+`crates/brain-server/src/admin/{worker,config_route,audit,agent,shard_route}.rs`,
+`crates/brain-cli/tests/{worker,config,audit,agent,shard}.rs`.
+**Done when:** Full CLI surface for 5 families; admin server backs the
+read paths end-to-end (`worker list`, `config get`, `shard list`)
+and returns a structured `501 {error:"not_implemented",deferred_to:..}`
+for the rest. CLI surfaces the marker uniformly and exits non-zero.
+30+ new tests; `just docker-verify` green.
+**Deferred (per 501 marker):**
+- `phase-11/scheduler-control` — worker stop/start/run-now (needs
+  Scheduler pause/resume/trigger hooks).
+- `phase-11/live-config-reload` — `config reload`.
+- `phase-11/runtime-config-set` — `config set`.
+- `phase-11/audit-log` — `audit query` and `audit export`.
+- `phase-11/agent-index` — `agent list`, `agent stats`.
+- `phase-11/agent-cascade-delete` — `agent delete`.
+- `phase-12/shard-create` and `phase-12/shard-delete` — cluster
+  expansion / decommission.
 
 ### Task 10.12 — `brain-cli profile`, `debug-snapshot`
 **Writes:** `crates/brain-cli/src/diagnostics.rs`

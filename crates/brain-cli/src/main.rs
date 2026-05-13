@@ -12,7 +12,7 @@ use std::process::ExitCode;
 
 use brain_cli::cli::{parse, Command};
 use brain_cli::commands::snapshot::SnapshotAction;
-use brain_cli::commands::{health, rebuild, snapshot, stats};
+use brain_cli::commands::{agent, audit, config, health, rebuild, shard, snapshot, stats, worker};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -80,16 +80,25 @@ fn main() -> ExitCode {
                     snapshot::restore::run(&args.server, id, args.output)
                 }
             };
-            match result {
-                Ok(out) => {
-                    print!("{out}");
-                    ExitCode::SUCCESS
-                }
-                Err(e) => {
-                    eprintln!("error: {e}");
-                    ExitCode::from(2)
-                }
-            }
+            run_result(result)
+        }
+        Command::Worker(action) => run_result(worker::run(&args.server, &action, args.output)),
+        Command::Config(action) => run_result(config::run(&args.server, &action, args.output)),
+        Command::Audit(action) => run_result(audit::run(&args.server, &action, args.output)),
+        Command::Agent(action) => run_result(agent::run(&args.server, &action, args.output)),
+        Command::Shard(action) => run_result(shard::run(&args.server, &action, args.output)),
+    }
+}
+
+fn run_result(result: anyhow::Result<String>) -> ExitCode {
+    match result {
+        Ok(out) => {
+            print!("{out}");
+            ExitCode::SUCCESS
+        }
+        Err(e) => {
+            eprintln!("error: {e}");
+            ExitCode::from(2)
         }
     }
 }
@@ -103,18 +112,31 @@ USAGE:
     brain-cli [OPTIONS] <COMMAND>
 
 COMMANDS:
-    health          Probe the admin /healthz endpoint
-    stats           Snapshot /metrics counters
+    health                                    Probe /healthz
+    stats                                     Snapshot /metrics counters
+    snapshot create|list|delete|restore       Snapshot family
+    rebuild-ann [--shard N]                   Rebuild HNSW for a shard
+    worker list|stop|start|run-now            Worker control (some deferred)
+    config get|reload|set                     Read/write config (some deferred)
+    audit query|export                        Audit log (deferred)
+    agent list|stats|delete                   Agent operations (deferred)
+    shard list|create|delete                  Shard operations (create/delete deferred)
 
 OPTIONS:
-    --server <host:port>   Admin endpoint (default 127.0.0.1:9091)
-    --output <json|table>  Output format (default table)
-    --token <value>        Admin token (parsed for forward compat; unused in 10.8)
-    --version, -V          Print version
-    --help, -h             Print this help
+    --server <host:port>      Admin endpoint (default 127.0.0.1:9091)
+    --output <json|table>     Output format (default table)
+    --token <value>           Admin token (parsed; auth wiring lands later)
+    --shard <N>               Target a specific shard
+    --name <worker>           Worker name (decay, consolidation, …)
+    --key <dotted.path>       Config key
+    --value <v>               Config value (for `config set`)
+    --since|--until|--agent   Audit query filters
+    --logical-id <N>          Shard create
+    --confirm                 Required for destructive commands
+    --version, -V             Print version
+    --help, -h                Print this help
 
-10.9–10.12 add: snapshot, rebuild-ann, worker, config, audit,
-agent, shard, profile, debug-snapshot.
+10.12 will add: profile, debug-snapshot.
 
 See spec/14_observability_ops/06_admin_ops.md for the full surface.
 "
