@@ -26,6 +26,8 @@
 
 #![cfg(target_os = "linux")]
 
+mod snapshot;
+
 use std::fmt::Write as _;
 use std::io;
 use std::net::SocketAddr;
@@ -200,8 +202,16 @@ async fn serve_request(stream: TcpStream, state: Arc<AdminState>) -> io::Result<
         }
     }
 
-    let (method, path) = parse_request_line(&request_line);
+    let (method, path_with_query) = parse_request_line(&request_line);
+    let (path, query) = split_path_query(path_with_query);
     let mut stream = reader.into_inner();
+
+    // Snapshot routes (POST / GET / DELETE on /v1/snapshots[*]) —
+    // sub-task 10.9. Falls through if no match.
+    if let Some(res) = snapshot::dispatch(&mut stream, method, path, query, &state).await {
+        return res;
+    }
+
     if method != "GET" {
         return write_response(
             &mut stream,
@@ -237,6 +247,16 @@ async fn serve_request(stream: TcpStream, state: Arc<AdminState>) -> io::Result<
             )
             .await
         }
+    }
+}
+
+/// Split `/path?query` into `("/path", "query")`. No URL decoding;
+/// the snapshot routes only need keyed numeric values which don't
+/// require it.
+fn split_path_query(s: &str) -> (&str, &str) {
+    match s.find('?') {
+        Some(i) => (&s[..i], &s[i + 1..]),
+        None => (s, ""),
     }
 }
 
@@ -278,7 +298,7 @@ where
     Ok(bytes_read)
 }
 
-async fn write_response<W>(
+pub(super) async fn write_response<W>(
     stream: &mut W,
     code: u16,
     reason: &str,

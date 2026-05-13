@@ -36,6 +36,9 @@ pub enum Command {
     Version,
     Health,
     Stats,
+    /// Sub-task 10.9 — snapshot family. The sub-action + args are
+    /// validated by [`crate::commands::snapshot::SnapshotAction::parse`].
+    Snapshot(crate::commands::snapshot::SnapshotAction),
 }
 
 /// Parse a `Vec<String>` (typically `env::args().skip(1).collect()`).
@@ -43,6 +46,7 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
     let mut server = DEFAULT_SERVER.to_string();
     let mut output = OutputFormat::Table;
     let mut token: Option<String> = None;
+    let mut shard: usize = 0;
     let mut positional: Vec<String> = Vec::new();
 
     let mut i = 0;
@@ -77,6 +81,13 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
                 i += 1;
                 token = Some(take_value("--token", &argv, i)?.to_string());
             }
+            "--shard" => {
+                i += 1;
+                let v = take_value("--shard", &argv, i)?;
+                shard = v
+                    .parse::<usize>()
+                    .map_err(|e| anyhow!("invalid --shard `{v}`: {e}"))?;
+            }
             other if other.starts_with("--") => {
                 return Err(anyhow!("unknown flag `{other}`"));
             }
@@ -89,6 +100,12 @@ pub fn parse(argv: Vec<String>) -> Result<Args> {
         None => Command::Help,
         Some("health") => Command::Health,
         Some("stats") => Command::Stats,
+        Some("snapshot") => {
+            use crate::commands::snapshot::SnapshotAction;
+            let rest = positional[1..].to_vec();
+            let action = SnapshotAction::parse(&rest, shard)?;
+            Command::Snapshot(action)
+        }
         Some(other) => return Err(anyhow!("unknown subcommand `{other}`")),
     };
 

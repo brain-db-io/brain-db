@@ -11,7 +11,8 @@ use std::env;
 use std::process::ExitCode;
 
 use brain_cli::cli::{parse, Command};
-use brain_cli::commands::{health, stats};
+use brain_cli::commands::snapshot::SnapshotAction;
+use brain_cli::commands::{health, snapshot, stats};
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -56,6 +57,30 @@ fn main() -> ExitCode {
                 ExitCode::from(2)
             }
         },
+        Command::Snapshot(action) => {
+            let result = match action {
+                SnapshotAction::Create { shard } => {
+                    snapshot::create::run(&args.server, shard, args.output)
+                }
+                SnapshotAction::List => snapshot::list::run(&args.server, args.output),
+                SnapshotAction::Delete { id, shard } => {
+                    snapshot::delete::run(&args.server, id, shard, args.output)
+                }
+                SnapshotAction::Restore { id } => {
+                    snapshot::restore::run(&args.server, id, args.output)
+                }
+            };
+            match result {
+                Ok(out) => {
+                    print!("{out}");
+                    ExitCode::SUCCESS
+                }
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    ExitCode::from(2)
+                }
+            }
+        }
     }
 }
 

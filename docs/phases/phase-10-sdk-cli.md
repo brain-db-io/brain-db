@@ -177,9 +177,27 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   unauth), TLS, YAML/colored output, subprocess CLI test
   (10.13), all other subcommands (10.9-10.12).
 
-### Task 10.9 — `brain-cli snapshot` family
-**Writes:** `crates/brain-cli/src/snapshot.rs`
-**Done when:** `snapshot create/list/restore/delete` all work end-to-end.
+### Task 10.9 — `brain-cli snapshot` family  [x]
+**Reads:** `spec/14_observability_ops/06_admin_ops.md` §5. Plan
+  `.claude/plans/phase-10-task-09.md`.
+**Writes:**
+  - Server: `crates/brain-server/src/admin/snapshot.rs` — new
+    POST /v1/snapshots, GET /v1/snapshots, DELETE
+    /v1/snapshots/<id> HTTP handlers (with `?shard=N` query).
+    Three new `ShardRequest` variants
+    (`TakeSnapshot`/`ListSnapshots`/`DeleteSnapshot`) +
+    matching `ShardHandle` methods + main-loop arms.
+    `Shard` struct gains a `snapshot_source` field.
+  - CLI: `crates/brain-cli/src/commands/snapshot/` —
+    `mod.rs` + `create.rs` + `list.rs` + `delete.rs` +
+    `restore.rs` (stub). `--shard N` flag added to the arg
+    parser.
+**Done when:** Snapshot create/list/delete round-trip end-to-end
+  through the admin HTTP endpoint. Restore is a documented stub
+  (spec §14/06 §5 — destructive; v2). 32 brain-cli tests pass
+  (17 lib unit + 15 integration). docker-verify green.
+  Deferred: auth tokens on admin HTTP, TLS, wire-protocol
+  admin ops, dry-run mode, job-id tracking, online restore.
 
 ### Task 10.10 — `brain-cli rebuild-ann`
 **Writes:** `crates/brain-cli/src/rebuild.rs`

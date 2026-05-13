@@ -121,6 +121,31 @@ pub(crate) enum ShardRequest {
     SchedulerSnapshot {
         reply_tx: Sender<Vec<(&'static str, WorkerKind, MetricsSnapshot)>>,
     },
+    /// Trigger a synchronous snapshot. Spec §14/06 §5; sub-task 10.9.
+    /// The reply carries the snapshot id (mapped from
+    /// `brain_workers::snapshot::SnapshotId.0`).
+    TakeSnapshot {
+        reply_tx: Sender<Result<u64, String>>,
+    },
+    /// List all on-disk snapshots for this shard. Sub-task 10.9.
+    ListSnapshots {
+        reply_tx: Sender<Result<Vec<SnapshotInfo>, String>>,
+    },
+    /// Delete a single snapshot by id. Sub-task 10.9.
+    DeleteSnapshot {
+        id: u64,
+        reply_tx: Sender<Result<(), String>>,
+    },
+}
+
+/// Owned snapshot descriptor surfaced through `ShardHandle`. Mirrors
+/// `brain_workers::snapshot::SnapshotDesc` but with plain types so it
+/// can cross the admin HTTP boundary unchanged.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SnapshotInfo {
+    pub id: u64,
+    pub taken_at_unix_nanos: u64,
+    pub size_bytes: u64,
 }
 
 // ---------------------------------------------------------------------------
@@ -179,6 +204,9 @@ pub enum ShardError {
 
     #[error("failed to join shard executor thread: {0}")]
     Join(String),
+
+    #[error("snapshot operation failed: {0}")]
+    Snapshot(String),
 
     #[error("failed to open arena: {0}")]
     ArenaOpen(#[from] ArenaOpenError),
@@ -325,6 +353,49 @@ impl ShardHandle {
             .map_err(|_| ShardError::ShardDisconnected)
     }
 
+    /// Trigger a synchronous snapshot of this shard. Returns the
+    /// snapshot's id on success. Spec §14/06 §5; sub-task 10.9.
+    pub async fn take_snapshot(&self) -> Result<u64, ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::TakeSnapshot { reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?
+            .map_err(ShardError::Snapshot)
+    }
+
+    /// List the snapshots persisted for this shard.
+    pub async fn list_snapshots(&self) -> Result<Vec<SnapshotInfo>, ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::ListSnapshots { reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?
+            .map_err(ShardError::Snapshot)
+    }
+
+    /// Delete a single snapshot by id.
+    pub async fn delete_snapshot(&self, id: u64) -> Result<(), ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::DeleteSnapshot { id, reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?
+            .map_err(ShardError::Snapshot)
+    }
+
     /// Dispatch a fully-decoded wire request through the shard's
     /// `OpsContext`. Returns the wire `ResponseBody` (variant chosen by
     /// `brain_ops::dispatch`). Added in 9.10 as the frame-dispatcher's
@@ -445,6 +516,9 @@ struct Shard {
     ops: Arc<OpsContext>,
     /// Per-shard worker scheduler. `Option` so shutdown can `.take()`.
     scheduler: Option<WorkerScheduler>,
+    /// Snapshot source for the admin HTTP routes (sub-task 10.9).
+    /// Cloned from the same `Arc` the `SnapshotWorker` holds.
+    snapshot_source: Arc<dyn SnapshotSource>,
 }
 
 /// Stub dispatcher used until 9.10 wires the config-driven CpuDispatcher.
@@ -690,7 +764,7 @@ pub fn spawn_shard(
                 ops.clone(),
                 rebuild_source,
                 wal_retention_source,
-                snapshot_source,
+                snapshot_source.clone(),
                 cache_eviction_source,
                 summarizer,
             )
@@ -708,6 +782,7 @@ pub fn spawn_shard(
                 wal: wal_cell,
                 ops,
                 scheduler: Some(scheduler),
+                snapshot_source,
             };
             shard_main_loop(shard, rx).await;
         })
@@ -771,6 +846,53 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     warn!(
                         shard_id = shard.shard_id,
                         "SchedulerSnapshot reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::TakeSnapshot { reply_tx } => {
+                let result = match shard.snapshot_source.take_snapshot().await {
+                    Ok(id) => Ok(id.0),
+                    Err(e) => Err(e.to_string()),
+                };
+                if reply_tx.send_async(result).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "TakeSnapshot reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::ListSnapshots { reply_tx } => {
+                let result = match shard.snapshot_source.list_snapshots().await {
+                    Ok(descs) => Ok(descs
+                        .into_iter()
+                        .map(|d| SnapshotInfo {
+                            id: d.id.0,
+                            taken_at_unix_nanos: d.taken_at_unix_nanos,
+                            size_bytes: d.size_bytes,
+                        })
+                        .collect()),
+                    Err(e) => Err(e.to_string()),
+                };
+                if reply_tx.send_async(result).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "ListSnapshots reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::DeleteSnapshot { id, reply_tx } => {
+                let result = match shard
+                    .snapshot_source
+                    .delete_snapshot(brain_workers::snapshot::SnapshotId(id))
+                    .await
+                {
+                    Ok(()) => Ok(()),
+                    Err(e) => Err(e.to_string()),
+                };
+                if reply_tx.send_async(result).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "DeleteSnapshot reply dropped (caller gone)"
                     );
                 }
             }

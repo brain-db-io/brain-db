@@ -3,4 +3,5 @@
 //! rendered output; `main` prints it and sets the exit code.
 
 pub mod health;
+pub mod snapshot;
 pub mod stats;
