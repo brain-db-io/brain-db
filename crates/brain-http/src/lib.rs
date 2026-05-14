@@ -53,6 +53,13 @@ pub mod error;
 pub mod observability;
 pub mod service;
 
+#[cfg(feature = "server")]
+pub mod router;
+#[cfg(feature = "server")]
+pub mod server;
+#[cfg(feature = "server")]
+pub mod tcp;
+
 // Re-exports — the surface every handler uses.
 pub use error::{Error, Result};
 pub use http::{
