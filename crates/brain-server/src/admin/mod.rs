@@ -100,6 +100,7 @@ impl AdminState {
             shards: self.shards.as_slice(),
             connections: self.connections.as_ref(),
             request_metrics: self.request_metrics.as_ref(),
+            config: self.config.as_ref(),
         }
     }
 }

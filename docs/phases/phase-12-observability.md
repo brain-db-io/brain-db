@@ -47,6 +47,13 @@ stays tight enough to land in one push.
 **Writes:** `crates/brain-server/src/metrics/` (Counter / Gauge / Histogram primitives, registry, exposition); per-crate emission points (`brain-embed`, `brain-index`).
 **Done when:** every in-scope metric family from the plan emits on `/metrics` in valid Prometheus text format; integration tests assert the body shape; deferred families documented with `phase-12/<slug>` markers.
 
+Status: **12.1a + 12.1b + 12.1c shipped.** In-scope families now live on `/metrics`:
+- Primitives (`Counter`, `Gauge`, `Histogram`, exposition helpers) — 12.1a.
+- Request path (`brain_request_total`, `brain_request_active`, `brain_request_duration_ms`) — 12.1b.
+- Process resource (`process_cpu_seconds_total`, `process_memory_resident_bytes`, `process_memory_virtual_bytes`, `process_open_fds`) + `brain_config_info` — 12.1c.
+
+Deferred (each has a `phase-12/<slug>` marker in `crates/brain-server/src/metrics/mod.rs`): connection-extended frame counters / size histogram; storage `_wal_size_bytes` / `_metadata_size_bytes` (needs a storage-stat API); HNSW node / tombstone counts (needs `SharedHnsw` getter); embedder calls / cache / queue / duration (needs hooks); Glommio executor latency.
+
 ### Task 12.2 — Structured JSON logs
 **Reads:** `spec/14_observability_ops/02_logs.md`
 **Writes:** `tracing-subscriber` JSON layer wired in `brain-server/src/main.rs`; log macro audit across crates to ensure the schema fields (level, timestamp, target, request_id, agent_id, shard_id, message) are populated.

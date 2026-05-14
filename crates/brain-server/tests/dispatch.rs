@@ -32,6 +32,9 @@ use tokio::net::TcpStream;
 // Pull every brain-server source the connection layer reaches into the
 // test binary so `crate::` resolves the same as in main.rs.
 #[allow(dead_code)]
+#[path = "../src/config/mod.rs"]
+mod config;
+#[allow(dead_code)]
 #[path = "../src/network/connection.rs"]
 mod connection;
 #[path = "../src/network/dispatch.rs"]

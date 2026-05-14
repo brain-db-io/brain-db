@@ -21,6 +21,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 #[allow(dead_code)]
+#[path = "../src/config/mod.rs"]
+mod config;
+#[allow(dead_code)]
 #[path = "../src/network/connection.rs"]
 mod connection;
 #[path = "../src/network/dispatch.rs"]

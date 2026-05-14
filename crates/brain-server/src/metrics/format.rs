@@ -18,7 +18,9 @@ use tracing::warn;
 use super::exposition::{
     emit_counter_labeled, emit_gauge_labeled, emit_header, emit_histogram, emit_info, emit_scalar,
 };
+use super::process::ProcessSnapshot;
 use super::request::{RequestMetrics, OP_LABELS, STATUS_LABELS};
+use crate::config::Config;
 use crate::connection::ConnectionMetrics;
 use crate::shard::ShardHandle;
 
@@ -40,6 +42,9 @@ pub struct Snapshot<'a> {
     pub shards: &'a [ShardHandle],
     pub connections: &'a ConnectionMetrics,
     pub request_metrics: &'a RequestMetrics,
+    /// 12.1c — read-only borrow of the loaded config, surfaces as
+    /// `brain_config_info` labels.
+    pub config: &'a Config,
 }
 
 /// Render the full `/metrics` body. Async because per-shard
@@ -49,10 +54,12 @@ pub async fn format(snap: &Snapshot<'_>) -> String {
     let mut s = String::with_capacity(4096);
 
     emit_build_info(&mut s, snap.build_info);
+    emit_config_info(&mut s, snap.config);
     emit_up(&mut s);
     emit_shards_total(&mut s, snap.shards);
     emit_connection_basic(&mut s, snap.connections);
     emit_process_uptime(&mut s, snap.started_at, snap.started_at_unix_secs);
+    emit_process_resource(&mut s);
     emit_worker_counters(&mut s, snap.shards).await;
     emit_request_metrics(&mut s, snap.request_metrics);
 
@@ -67,6 +74,26 @@ fn emit_build_info(out: &mut String, info: BuildInfo) {
         g = info.git_commit,
     );
     emit_info(out, "brain_build_info", &labels);
+}
+
+/// `brain_config_info` per spec §14/01 §17. Value is always 1; the
+/// information rides in labels. Cardinality stays bounded because
+/// every label value is a config knob, not user input.
+fn emit_config_info(out: &mut String, cfg: &Config) {
+    emit_header(
+        out,
+        "brain_config_info",
+        "Loaded config — knobs that affect runtime behaviour.",
+        "gauge",
+    );
+    let labels = format!(
+        "{{shard_count=\"{sc}\",arena_capacity_bytes=\"{arena}\",hnsw_m=\"{m}\",embedder_model=\"{em}\"}}",
+        sc = cfg.storage.shard_count,
+        arena = cfg.shard.arena_capacity_bytes,
+        m = cfg.hnsw.m,
+        em = cfg.embedder.model,
+    );
+    emit_info(out, "brain_config_info", &labels);
 }
 
 fn emit_up(out: &mut String) {
@@ -113,6 +140,46 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         "brain_connections_total {}",
         connections.total.load(Ordering::Relaxed),
     );
+}
+
+/// 12.1c — `/proc/self`-derived resource metrics per spec §14/01 §10.
+/// Sampled fresh on every scrape; missing fields are skipped so a
+/// `/proc` access failure doesn't pollute dashboards with zeros.
+fn emit_process_resource(out: &mut String) {
+    let snap = ProcessSnapshot::capture();
+
+    if let Some(secs) = snap.cpu_seconds {
+        emit_header(
+            out,
+            "process_cpu_seconds_total",
+            "Total process CPU time (user + system).",
+            "counter",
+        );
+        // Sub-second precision: write as decimal.
+        let _ = writeln!(out, "process_cpu_seconds_total {secs}");
+    }
+    if let Some(bytes) = snap.memory_resident_bytes {
+        emit_header(
+            out,
+            "process_memory_resident_bytes",
+            "Resident set size (RSS) of the process.",
+            "gauge",
+        );
+        emit_scalar(out, "process_memory_resident_bytes", bytes);
+    }
+    if let Some(bytes) = snap.memory_virtual_bytes {
+        emit_header(
+            out,
+            "process_memory_virtual_bytes",
+            "Virtual memory size of the process.",
+            "gauge",
+        );
+        emit_scalar(out, "process_memory_virtual_bytes", bytes);
+    }
+    if let Some(count) = snap.open_fds {
+        emit_header(out, "process_open_fds", "Open file descriptors.", "gauge");
+        emit_scalar(out, "process_open_fds", count);
+    }
 }
 
 fn emit_process_uptime(out: &mut String, started_at: Instant, started_at_unix_secs: u64) {

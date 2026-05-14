@@ -229,6 +229,23 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("process_uptime_seconds"),
         "missing process_uptime_seconds"
     );
+    // 12.1c — config_info + process resource metrics.
+    assert!(
+        body.contains("brain_config_info{"),
+        "missing brain_config_info; body:\n{body}"
+    );
+    assert!(
+        body.contains("process_cpu_seconds_total"),
+        "missing process_cpu_seconds_total"
+    );
+    assert!(
+        body.contains("process_open_fds "),
+        "missing process_open_fds"
+    );
+    assert!(
+        body.contains("process_memory_resident_bytes "),
+        "missing process_memory_resident_bytes"
+    );
     server.stop().await;
 }
 

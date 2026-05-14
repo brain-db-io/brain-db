@@ -47,9 +47,11 @@
 //!   `phase-12/glommio-reactor-metrics`.
 
 #![cfg(target_os = "linux")]
-// Gauge accessors and a few exposition helpers are scaffolding that
-// 12.1c (connection-extended / process metrics) lights up. The
-// blanket allow retires when that lands.
+// `gauge::Gauge::set` and the labelless `emit_gauge` helper remain
+// untouched by 12.1a-c (process gauges are scalars; request gauges
+// use `inc`/`dec`). The follow-up sub-task for connection-extended
+// metrics (`brain_connections_closed_total{reason=...}` etc.) lights
+// them up.
 #![allow(dead_code)]
 
 pub mod counter;
@@ -57,4 +59,5 @@ pub mod exposition;
 pub mod format;
 pub mod gauge;
 pub mod histogram;
+pub mod process;
 pub mod request;

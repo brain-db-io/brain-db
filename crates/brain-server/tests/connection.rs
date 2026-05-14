@@ -21,6 +21,9 @@ use tokio::net::TcpStream;
 // main.rs. The connection tests don't exercise the shard / adapter /
 // dispatch surface directly; silence dead-code noise.
 #[allow(dead_code)]
+#[path = "../src/config/mod.rs"]
+mod config;
+#[allow(dead_code)]
 #[path = "../src/network/connection.rs"]
 mod connection;
 #[path = "../src/network/dispatch.rs"]
