@@ -1,116 +1,97 @@
-# Phase 12 — Observability, Benchmarks, Acceptance
+# Phase 12 — Observability
 
 ## Goal
 
-Make Brain production-ready. Full Prometheus metrics, structured JSON logs, OpenTelemetry tracing, reference dashboards, alert rules, benchmark suite, chaos test harness, and the v1 acceptance gate.
+Make every part of Brain visible. Spec §14 mandates a specific metrics
+taxonomy, log schema, tracing spans, dashboards, and alert rules; this
+phase implements the lot. Benchmarks, chaos tests, and the v1.0.0
+acceptance gate are split out to Phase 13 and Phase 14 so this phase
+stays tight enough to land in one push.
 
 ## Prerequisites
 
-- [x] Phase 10 complete.
+- [x] Phase 11 complete (`brain-http` is the wire substrate the request-path
+      metrics and OTel spans hook into; tagged `phase-11-complete`).
 
 ## Reading list
 
-1. [`spec/14_observability_ops/01_metrics.md`](../../spec/14_observability_ops/01_metrics.md)
-2. [`spec/14_observability_ops/02_logs.md`](../../spec/14_observability_ops/02_logs.md)
-3. [`spec/14_observability_ops/03_tracing.md`](../../spec/14_observability_ops/03_tracing.md)
-4. [`spec/14_observability_ops/04_dashboards.md`](../../spec/14_observability_ops/04_dashboards.md)
-5. [`spec/14_observability_ops/05_alerts.md`](../../spec/14_observability_ops/05_alerts.md)
-6. [`spec/14_observability_ops/07_runbooks.md`](../../spec/14_observability_ops/07_runbooks.md)
-7. [`spec/15_failure_recovery/07_chaos_testing.md`](../../spec/15_failure_recovery/07_chaos_testing.md)
-8. [`spec/16_benchmarks_acceptance/`](../../spec/16_benchmarks_acceptance/) — all files.
+1. [`spec/14_observability_ops/01_metrics.md`](../../spec/14_observability_ops/01_metrics.md) — the full `brain_*` taxonomy.
+2. [`spec/14_observability_ops/02_logs.md`](../../spec/14_observability_ops/02_logs.md) — JSON log schema.
+3. [`spec/14_observability_ops/03_tracing.md`](../../spec/14_observability_ops/03_tracing.md) — OTel span model.
+4. [`spec/14_observability_ops/04_dashboards.md`](../../spec/14_observability_ops/04_dashboards.md) — the 8 reference Grafana dashboards.
+5. [`spec/14_observability_ops/05_alerts.md`](../../spec/14_observability_ops/05_alerts.md) — alert rules.
+6. [`spec/14_observability_ops/07_runbooks.md`](../../spec/14_observability_ops/07_runbooks.md) — runbooks (validated in Phase 14).
 
 ## Outputs
 
-- Full `brain_*` Prometheus metrics taxonomy.
-- Structured JSON logs (slog or tracing-subscriber JSON layer).
-- OpenTelemetry tracing (OTLP exporter optional).
-- Reference Grafana dashboards (JSON).
-- Alertmanager rules (YAML).
-- Benchmark suite using `criterion`.
-- Chaos test harness.
-- Acceptance gate: every gate in `spec/16_benchmarks_acceptance/08_acceptance_test_suite.md` passes.
+- Full `brain_*` Prometheus metrics taxonomy (~50 families) emitted on `/metrics`.
+- Structured JSON logs (`tracing-subscriber` JSON layer) matching spec §14/02.
+- OpenTelemetry tracing with OTLP exporter; spans cover the request lifecycle through the Tokio↔Glommio boundary.
+- Reference Grafana dashboards in `dashboards/` (8 JSON files).
+- Alertmanager rules in `alerts/brain-rules.yml`.
 - Tag: `phase-12-complete`.
-- Tag: `v1.0.0`.
+
+## Non-goals (deferred)
+
+- Benchmark suite, load generator → Phase 13.
+- Chaos / fault injection harness → Phase 13.
+- Soak test rig → Phase 13.
+- Runbook execution against chaos scenarios → Phase 14.
+- Acceptance gates 1-10 → Phase 14.
+- `v1.0.0` tag → Phase 14.
 
 ## Sub-tasks
 
 ### Task 12.1 — Full metrics taxonomy
 **Reads:** `spec/14_observability_ops/01_metrics.md`
-**Writes:** `crates/brain-server/src/metrics.rs` and per-crate emission points.
-**Done when:** Every spec'd metric is emitted; `/metrics` endpoint returns the full set in Prometheus format.
+**Writes:** `crates/brain-server/src/metrics/` (Counter / Gauge / Histogram primitives, registry, exposition); per-crate emission points (`brain-embed`, `brain-index`).
+**Done when:** every in-scope metric family from the plan emits on `/metrics` in valid Prometheus text format; integration tests assert the body shape; deferred families documented with `phase-12/<slug>` markers.
 
 ### Task 12.2 — Structured JSON logs
 **Reads:** `spec/14_observability_ops/02_logs.md`
-**Writes:** integrate `tracing-subscriber` JSON layer in `brain-server`.
-**Done when:** Log output is one JSON object per line, schema per spec; configurable level via env.
+**Writes:** `tracing-subscriber` JSON layer wired in `brain-server/src/main.rs`; log macro audit across crates to ensure the schema fields (level, timestamp, target, request_id, agent_id, shard_id, message) are populated.
+**Done when:** every server log line is a single valid JSON object; level configurable via `BRAIN_LOG=...`; an integration test exercises a request path and asserts the JSON shape.
 
 ### Task 12.3 — OpenTelemetry tracing
 **Reads:** `spec/14_observability_ops/03_tracing.md`
-**Writes:** `crates/brain-server/src/tracing.rs`
-**Done when:** Spans cover request lifecycle; OTLP exporter sends to a configured collector.
+**Writes:** `crates/brain-server/src/tracing/` (init + OTLP exporter setup); span attribution at the connection layer and shard dispatch boundary; brain-http's `connection_span` / `request_span` hooks promoted to load-bearing.
+**Done when:** OTLP spans for a request lifecycle (connection → frame decode → shard dispatch → operation → frame encode) flow to a collector under integration test; trace context propagates from the SDK's `RequestId`.
 
 ### Task 12.4 — Reference Grafana dashboards
 **Reads:** `spec/14_observability_ops/04_dashboards.md`
-**Writes:** `dashboards/*.json`
-**Done when:** Dashboards (overview, per-shard, storage, HNSW, workers, network, errors, capacity) imported and rendering against a running server.
+**Writes:** `dashboards/{overview,per-shard,storage,hnsw,workers,network,errors,capacity}.json`.
+**Done when:** all 8 dashboards import into Grafana 11.x and render real data when pointed at a running server with synthetic load.
 
-### Task 12.5 — Alert rules
+### Task 12.5 — Alertmanager rules
 **Reads:** `spec/14_observability_ops/05_alerts.md`
-**Writes:** `alerts/brain-rules.yml`
-**Done when:** PrometheusRule YAML covers every alert in spec §05.
+**Writes:** `alerts/brain-rules.yml` (Prometheus rule format).
+**Done when:** every alert in spec §05 has a corresponding rule; `promtool check rules` is clean; each rule's labels match the metric families emitted in 12.1.
 
-### Task 12.6 — Runbook validation
-**Reads:** `spec/14_observability_ops/07_runbooks.md`
-**Writes:** `docs/runbooks/*.md` (one per runbook).
-**Done when:** Each runbook is a working procedure; tested by following the steps in a chaos scenario.
-
-### Task 12.7 — Benchmark suite
-**Reads:** `spec/16_benchmarks_acceptance/02_latency_targets.md`, `03_throughput_targets.md`, `07_benchmark_methodology.md`
-**Writes:** `benches/*.rs` per crate, plus `benches/load_generator.rs`
-**Done when:** Each operation has a criterion benchmark; targets met on reference hardware.
-
-### Task 12.8 — Chaos test harness
-**Reads:** `spec/15_failure_recovery/07_chaos_testing.md`
-**Writes:** `tests/chaos/*.rs`
-**What to build:**
-- Process kill at random points.
-- I/O fault injection (FUSE-based or in-process).
-- Network failure simulation.
-- Resource exhaustion.
-- Concurrency stress (loom for select paths).
-- Bit-flip corruption injection.
-- Each scenario verifies the spec'd recovery behavior.
-
-### Task 12.9 — Acceptance gate
-**Reads:** `spec/16_benchmarks_acceptance/08_acceptance_test_suite.md`
-**Writes:** `acceptance/run.sh` + per-gate test files.
-**What to build:**
-- Script that runs every gate (1-10) and reports pass/fail.
-- Gates: Unit, Integration, E2E, Smoke, Performance, Chaos, Soak (48h), Compliance, Documentation, Security.
-**Done when:** Gates 1-10 pass on the reference environment.
-
-### Task 12.10 — Soak test
-**Reads:** `spec/16_benchmarks_acceptance/08_acceptance_test_suite.md`
-**Writes:** `tests/soak.rs`
-**Done when:** 48h continuous load, no memory leak, no latency drift, no errors. (Run on dedicated infra; not a CI test.)
-
-### Task 12.12 — Documentation pass
-**Writes:** README updates, `docs/guides/`, etc.
-**Done when:** Every public API documented; getting-started works; operator guide covers install, config, monitor, recover.
-
-### Task 12.12 — Release prep
-**Writes:** `CHANGELOG.md`, version bumps, release notes.
-**Done when:** Tagged as `v1.0.0`; changelog complete.
+### Task 12.6 — Observability docs
+**Writes:** `docs/observability.md` (operator-facing); README pointers to dashboards/alerts; per-crate doc comments on the new metric / tracing surfaces.
+**Done when:** a fresh operator can stand up Brain + Prometheus + Grafana from `docs/observability.md` alone.
 
 ## Phase exit checklist
 
-- [ ] All sub-tasks complete.
-- [ ] All 10 acceptance gates pass.
-- [ ] Soak test result recorded.
-- [ ] `cargo doc` builds without warnings.
-- [ ] Release notes written.
-- [ ] Tag `phase-12-complete` and `v1.0.0`.
+- [ ] Sub-tasks 12.1–12.6 complete.
+- [ ] `/metrics` body contains every in-scope spec family.
+- [ ] Log output is one valid JSON object per line.
+- [ ] OTel spans land in a collector under integration test.
+- [ ] All 8 dashboards render against synthetic load.
+- [ ] `promtool check rules alerts/brain-rules.yml` is clean.
+- [ ] `just docker-verify` green.
+- [ ] `cargo doc --workspace` builds without warnings on the new modules.
+- [ ] Tag `phase-12-complete`.
 
 ## Notes
 
-This is the longest phase. Don't try to do it in one push. Work each sub-task to completion (the "done when") before starting the next. Many require running infrastructure (Prometheus, Grafana, real load tests) — set those up as separate tasks if needed.
+This phase is plumbing, not behaviour. The risk to watch for is
+**instrumentation overhead in the hot path** (atomic increments per
+request, span allocation per dispatch). Sub-task 12.1's plan calls for
+a sanity-check pass with `cargo bench -p brain-http` before/after to
+confirm the request-path counters add < 5 % to the round-trip baseline
+established in Phase 11 M8.
+
+Cardinality discipline from spec §13 is non-negotiable: no per-agent
+labels, no unbounded label values. Every PR in this phase must justify
+new label sets against the spec rule.

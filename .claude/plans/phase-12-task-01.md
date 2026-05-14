@@ -1,4 +1,4 @@
-# Phase 11 — Sub-task 11.1 plan
+# Phase 12 — Sub-task 12.1 plan
 
 **Task:** Full metrics taxonomy.
 
@@ -31,9 +31,9 @@ runtime right now:
 | Embedder (§7) | `calls_total`, `cache_hits_total`, `cache_misses_total`, `duration_ms`, `queue_depth`, `workers_active` | ❌ none | Add `EmbedderMetrics` struct in `brain-embed`, wire counters at entry points |
 | Worker (§8) | `cycles_total`, `processed_total`, `errors_total`, `cycle_duration_ms`, `last_run_unixtime`, `pending_work` | ✅ first 3 + last_run; ⚠️ duration histogram + pending_work missing from `/metrics` exposition | Extend the exposition loop to emit them |
 | Connection (§9) | `connections_active`, `_total`, `_closed_total{reason=}`, `streams_active`, `frame_send_total`, `frame_recv_total`, `frame_size_bytes` | ✅ first 2; ❌ rest | Extend `ConnectionMetrics` with closed_total, streams_active, frame counters |
-| Resource (§10) | `process_cpu_seconds_total`, `process_memory_resident_bytes`, `process_memory_virtual_bytes`, `process_open_fds`, `brain_executor_latency_ms`, `brain_executor_tasks_active` | ❌ none | Read `/proc/self/{stat,status,fd}` on Linux; executor latency deferred to Phase 11.3 |
+| Resource (§10) | `process_cpu_seconds_total`, `process_memory_resident_bytes`, `process_memory_virtual_bytes`, `process_open_fds`, `brain_executor_latency_ms`, `brain_executor_tasks_active` | ❌ none | Read `/proc/self/{stat,status,fd}` on Linux; executor latency deferred to Phase 12.3 |
 
-**Decision (scope of 11.1):**
+**Decision (scope of 12.1):**
 
 Land **the foundation + the high-value bulk**, defer the surfaces
 that need primitives that don't exist yet. Specifically:
@@ -51,7 +51,7 @@ that need primitives that don't exist yet. Specifically:
    + `pending_work_estimate` counters through the exposition path.
 5. **HNSW basic metrics (§6)** — `node_count`, `tombstone_count`,
    `tombstone_ratio`. Add a getter on `SharedHnsw` that's already
-   trivially computable; rebuild metrics need Phase 11.3 wiring.
+   trivially computable; rebuild metrics need Phase 12.3 wiring.
 6. **Memory metrics (§4)** — basic aggregated counters via
    `ShardHandle::memory_snapshot()` returning
    `{ active, tombstoned, by_kind }`. Backed by existing redb scans.
@@ -67,7 +67,7 @@ that need primitives that don't exist yet. Specifically:
    batching surface needs more instrumentation hooks.
 9. **Resource metrics (§10)** — `process_cpu_seconds_total`,
    `process_memory_resident_bytes`, `process_open_fds` via
-   `/proc/self`. Defer `brain_executor_*` to Phase 11.3 (tracing
+   `/proc/self`. Defer `brain_executor_*` to Phase 12.3 (tracing
    pulls Glommio reactor metrics in that sub-task).
 10. **`brain_config_info` (§17)** — labels-only gauge that exposes
     the loaded config's key knobs (shard_count, arena_capacity,
@@ -75,20 +75,20 @@ that need primitives that don't exist yet. Specifically:
 
 **Deferred (with marker comments + follow-up tickets):**
 - `brain_wal_size_bytes`, `brain_metadata_size_bytes` — storage
-  introspection API doesn't exist yet (`phase-11/storage-stat-api`).
+  introspection API doesn't exist yet (`phase-12/storage-stat-api`).
 - `brain_hnsw_search_visits`, `brain_hnsw_recall_estimate`,
   `brain_hnsw_rebuild_*` — sampling infrastructure deferred
-  (`phase-11/hnsw-sampling`).
+  (`phase-12/hnsw-sampling`).
 - `brain_embedder_duration_ms`, `_queue_depth`, `_workers_active`
   — embedder needs internal instrumentation
-  (`phase-11/embedder-instrumentation`).
+  (`phase-12/embedder-instrumentation`).
 - `brain_executor_latency_ms`, `_tasks_active` — Glommio executor
-  metrics (`phase-11/glommio-reactor-metrics`); paired with 11.3.
+  metrics (`phase-12/glommio-reactor-metrics`); paired with 12.3.
 
 The deferred set isn't a 501-marker scenario like the CLI's 501
 pattern — these are metrics that simply don't appear in `/metrics`
 yet. A comment block in `metrics/mod.rs` lists them with the same
-`phase-11/<slug>` form, and Phase 11 follow-up sub-tasks pop them
+`phase-12/<slug>` form, and Phase 12 follow-up sub-tasks pop them
 off as the underlying primitives land.
 
 **Result:** ~30 of ~50 spec'd metric families emitted end-to-end,
@@ -194,8 +194,8 @@ ms-decimal.
 - [ ] `/metrics` body contains all in-scope families from §2.
 - [ ] `brain-server/tests/metrics.rs` integration tests pass.
 - [ ] Deferred set documented in `metrics/mod.rs` with
-      `phase-11/<slug>` markers.
-- [ ] Phase doc 11.1 ticked, deferred list noted.
+      `phase-12/<slug>` markers.
+- [ ] Phase doc 12.1 ticked, deferred list noted.
 - [ ] `just docker-verify` green.
 
 ---

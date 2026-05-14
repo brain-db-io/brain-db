@@ -184,17 +184,45 @@ For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
 ---
 
-## Phase 12 — Observability, Benchmarks, Acceptance
+## Phase 12 — Observability
 
-**One-line:** Production-ready: metrics, logs, tracing, dashboards, alerts, benchmarks, chaos suite, the v1 gate.
+**One-line:** Production-grade telemetry surface — full metrics taxonomy, structured JSON logs, OpenTelemetry tracing, dashboards, alerts.
 
 **Detailed plan:** [`docs/phases/phase-12-observability.md`](docs/phases/phase-12-observability.md)
 
-**Crates touched:** all (instrumentation), plus `dashboards/`, `alerts/`, `benches/`, `tests/chaos/`.
+**Crates touched:** all (instrumentation), plus `dashboards/`, `alerts/`.
 
-**Sub-tasks:** 12.
+**Sub-tasks:** 6.
 
-**Exit:** all 10 acceptance gates pass; soak test recorded; tag `phase-12-complete` and `v1.0.0`.
+**Exit:** every spec'd `brain_*` metric emitted; JSON log schema matches spec §14/02; OTel spans cover request lifecycle; reference Grafana dashboards + Alertmanager rules ship in-tree; tag `phase-12-complete`.
+
+---
+
+## Phase 13 — Benchmarks & Chaos
+
+**One-line:** Measure-and-stress: criterion benches for every operation, load generator, chaos harness, soak rig.
+
+**Detailed plan:** [`docs/phases/phase-13-benchmarks.md`](docs/phases/phase-13-benchmarks.md)
+
+**Crates touched:** `benches/`, `tests/chaos/`, `tests/soak/`.
+
+**Sub-tasks:** 4.
+
+**Exit:** every operation has a criterion baseline that hits the spec §16 targets on reference hardware; chaos suite covers kill / I/O fault / network / corruption scenarios; tag `phase-13-complete`.
+
+---
+
+## Phase 14 — Acceptance & v1.0.0 Release
+
+**One-line:** Run all 10 acceptance gates, runbook-validate, doc pass, release.
+
+**Detailed plan:** [`docs/phases/phase-14-acceptance-release.md`](docs/phases/phase-14-acceptance-release.md)
+
+**Crates touched:** `acceptance/`, `docs/runbooks/`, READMEs, CHANGELOG.
+
+**Sub-tasks:** 5.
+
+**Exit:** gates 1-10 green; 48 h soak result recorded; runbooks executed against a chaos scenario; `cargo doc` clean; tag `phase-14-complete` and `v1.0.0`.
 
 ---
 
@@ -208,7 +236,8 @@ Phase N+1 doesn't start before Phase N is exited and tagged. The dependencies ar
 - Phase 7 wires Phases 2-6 together.
 - Phase 9 wires everything.
 - Phase 11 provides the HTTP substrate Phase 12 instruments on.
-- Phase 12 instruments everything.
+- Phase 12 emits the metrics Phase 13 measures.
+- Phase 13's chaos rig produces the recovery evidence Phase 14's acceptance gates consume.
 
 Skipping ahead means stubbing types you'll have to revisit. Don't.
 
