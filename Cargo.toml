@@ -127,7 +127,7 @@ time = { version = "0.3", features = ["serde", "formatting"] }
 
 # Testing
 proptest = "1"
-criterion = { version = "0.5", features = ["html_reports"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 tempfile = "3"
 
 [profile.dev]

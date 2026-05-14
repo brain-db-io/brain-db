@@ -66,3 +66,17 @@ http-body-util = { workspace = true }
 # M6 tests: WebSocket client driven via `futures` traits.
 tokio-tungstenite = { workspace = true }
 futures-util = { workspace = true }
+# M8 criterion benches.
+criterion = { workspace = true }
+
+[[bench]]
+name = "router"
+harness = false
+
+[[bench]]
+name = "sse_encoder"
+harness = false
+
+[[bench]]
+name = "end_to_end"
+harness = false

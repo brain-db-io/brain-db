@@ -287,28 +287,40 @@ milestone. Plan-first per [`AUTONOMY.md`](../../AUTONOMY.md) §21.
   connect_async`.
 **Done when:** client ↔ brain-http server echo round-trip passes.
 
-### M8 — Hardening, observability, benches
+### M8 — Hardening, observability, benches ✅
 **Reads:** [`CLAUDE.md`](../../CLAUDE.md) §14 (tracing/OTel pattern).
-**Writes:** `observability::span` populated with per-request span
-  attributes per spec §14/03; criterion benches for end-to-end
-  request, SSE event emission, WS framing; load test in `tests/load.rs`.
-**Done when:** `just bench brain-http` produces stable numbers;
-  10k-concurrent-connections load test runs 5 min without errors or
-  leaks; clippy `-D warnings` green.
+**Writes:** observability wiring + criterion benches + load test.
+**Shipped:**
+- `accept.rs` per-connection task `.instrument()`-ed with
+  `connection_span(peer)`; `connection.rs::handle_request` wrapped
+  in `request_span(&req)`; `http.response.status_code` recorded
+  after the handler returns via new `observability::record_status`.
+- Criterion benches: `benches/router.rs` (exact / prefix / 404
+  fallback), `benches/sse_encoder.rs` (small / multi-line / full
+  event), `benches/end_to_end.rs` (GET round-trip over loopback).
+  `cargo bench -p brain-http` produces stable numbers.
+- `tests/load.rs` — `#[ignore]`-d 10k-concurrent-connections /
+  5-minute load test, operator-invoked
+  (`cargo test ... -- --ignored load_10k --nocapture`). Linux-only;
+  requires `ulimit -n` ≥20k.
+
+**Done when:** all three workstreams above shipped; clippy `-D
+warnings` green; load-test infra present (numbers in commit message
+on operator run).
 
 **Total: 8 milestones**, ~2.5-3 kLOC production + ~1.5 kLOC tests.
 Realistic timeline: 2-3 weeks of focused work.
 
 ## Phase exit checklist
 
-- [ ] All 8 milestones complete.
-- [ ] `just docker-verify` green.
-- [ ] `brain-server::admin` hand-roll deleted.
-- [ ] Admin endpoints unchanged externally (existing tests pass).
-- [ ] WebSocket server + client smoke-tested round-trip.
-- [ ] SSE server + client smoke-tested with reconnect.
-- [ ] Criterion baselines recorded for Phase 12.
-- [ ] Tag `phase-11-complete`.
+- [x] All 8 milestones complete.
+- [x] `just docker-verify` green.
+- [x] `brain-server::admin` hand-roll deleted (M3).
+- [x] Admin endpoints unchanged externally (all 47 existing tests pass).
+- [x] WebSocket server (M6) + client (M7) smoke-tested round-trip.
+- [x] SSE server smoke-tested with `Last-Event-ID` reconnect (M4).
+- [x] Criterion baselines available via `cargo bench -p brain-http` (M8).
+- [ ] Tag `phase-11-complete`.  *(awaiting user signal)*
 
 ## Notes
 

@@ -25,7 +25,7 @@ use hyper::service::service_fn;
 use hyper_util::rt::TokioIo;
 use tokio::net::TcpListener;
 use tokio::task::JoinSet;
-use tracing::{info, warn};
+use tracing::{info, warn, Instrument};
 
 use crate::body::ResponseBody;
 use crate::router::Router;
@@ -114,15 +114,19 @@ pub async fn run(
                     .serve_connection(TokioIo::new(stream), service)
                     .with_upgrades();
 
-                tasks.spawn(async move {
-                    if let Err(e) = conn.await {
-                        // Many errors here are benign — clients close
-                        // mid-request, browsers send malformed
-                        // pipelined requests, etc. Log at debug
-                        // through `warn` once you've added a filter.
-                        warn!(peer = %peer, error = %e, "connection task ended with error");
+                // Wrap the connection task in a `http.connection`
+                // span so per-request spans inherit the peer
+                // attributes via the OTel-semconv parent-child
+                // relationship.
+                let conn_span = crate::observability::connection_span(peer);
+                tasks.spawn(
+                    async move {
+                        if let Err(e) = conn.await {
+                            warn!(peer = %peer, error = %e, "connection task ended with error");
+                        }
                     }
-                });
+                    .instrument(conn_span),
+                );
             }
         }
     }

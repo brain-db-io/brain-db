@@ -7,4 +7,4 @@
 //! exist.
 
 mod span;
-pub use span::{connection_span, request_span};
+pub use span::{connection_span, record_status, request_span};
