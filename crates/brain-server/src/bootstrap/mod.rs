@@ -3,6 +3,8 @@
 //! `main::run`.
 
 #[cfg(target_os = "linux")]
+pub mod logging;
+#[cfg(target_os = "linux")]
 pub mod shutdown;
 #[cfg(target_os = "linux")]
 pub mod tls;

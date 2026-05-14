@@ -30,7 +30,7 @@ mod shard;
 // crate root preserves those paths and matches the way integration
 // tests load source files via `#[path]` + `mod xxx;`.
 #[cfg(target_os = "linux")]
-use bootstrap::{shutdown, tls};
+use bootstrap::{logging, shutdown, tls};
 #[cfg(target_os = "linux")]
 use network::{connection, dispatch, routing, subscribe};
 #[cfg(target_os = "linux")]
@@ -41,7 +41,7 @@ use std::env;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
-use crate::config::{Config, LoggingConfig};
+use crate::config::Config;
 
 const NAME: &str = env!("CARGO_PKG_NAME");
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -67,7 +67,10 @@ fn main() -> ExitCode {
         return ExitCode::SUCCESS;
     }
 
-    init_tracing_pre_config();
+    #[cfg(target_os = "linux")]
+    logging::init_pre_config();
+    #[cfg(not(target_os = "linux"))]
+    init_tracing_pre_config_portable();
 
     let cfg = match Config::load(&args.config) {
         Ok(c) => c,
@@ -77,7 +80,8 @@ fn main() -> ExitCode {
         }
     };
 
-    reinit_tracing_from_config(&cfg.logging);
+    #[cfg(target_os = "linux")]
+    logging::reinit_from_config(&cfg.logging);
 
     tracing::info!(
         version = %VERSION,
@@ -451,24 +455,17 @@ fn parse_args<I: IntoIterator<Item = String>>(iter: I) -> Result<Args, String> {
 }
 
 // ----------------------------------------------------------------------------
-// tracing init
+// tracing init (non-Linux fallback)
+//
+// Linux uses crate::bootstrap::logging — it owns the JSON / EnvFilter
+// wiring spec'd in §14/02. The shim below keeps the non-Linux build
+// path (which never reaches linux_main) compilable.
 // ----------------------------------------------------------------------------
 
-fn init_tracing_pre_config() {
+#[cfg(not(target_os = "linux"))]
+fn init_tracing_pre_config_portable() {
     use tracing_subscriber::{fmt, EnvFilter};
     let filter = EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new("info"));
-    let _ = fmt().with_env_filter(filter).with_target(true).try_init();
-}
-
-/// Best-effort re-init using the config's logging level / format. Because
-/// `tracing` only allows one global subscriber per process, this only takes
-/// effect if `init_tracing_pre_config` failed to install one (rare). In the
-/// common case the pre-config subscriber stays active and we just log the
-/// intended values for operator visibility.
-fn reinit_tracing_from_config(logging: &LoggingConfig) {
-    use tracing_subscriber::{fmt, EnvFilter};
-    let filter = EnvFilter::try_from_default_env()
-        .unwrap_or_else(|_| EnvFilter::new(logging.level.as_str()));
     let _ = fmt().with_env_filter(filter).with_target(true).try_init();
 }
 
