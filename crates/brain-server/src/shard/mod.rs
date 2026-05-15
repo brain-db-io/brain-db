@@ -705,15 +705,22 @@ pub fn spawn_shard(
     cfg: ShardSpawnConfig,
 ) -> Result<(ShardHandle, ShardJoiner), ShardError> {
     // ---- 1. Directory layout ------------------------------------------------
+    //
+    // `ensure_dirs` (sub-task 15.3) mkdir-p's the shard root, `wal/`, and
+    // the knowledge-layer tantivy directories. It's idempotent over
+    // existing substrate shards (no-op when present) and bootstraps fresh
+    // ones. Knowledge-layer *files* (entity.hnsw, statement.hnsw,
+    // llm_cache.redb) are created lazily by their owning modules.
     let dir = cfg.data_dir.join(shard_id.to_string());
-    std::fs::create_dir_all(&dir).map_err(|e| ShardError::dir_create(dir.clone(), e))?;
+    brain_storage::ensure_dirs(&dir).map_err(|e| ShardError::dir_create(dir.clone(), e))?;
+    let paths = brain_storage::ShardPaths::at(&dir);
 
     // ---- 2. UUID (generate or read existing) -------------------------------
-    let uuid_path = dir.join("shard.uuid");
+    let uuid_path = paths.shard_uuid();
     let shard_uuid = read_or_generate_uuid(&uuid_path)?;
 
     // ---- 3. Arena open / create -------------------------------------------
-    let arena_path = dir.join("arena.bin");
+    let arena_path = paths.arena();
     let mut arena = ArenaFile::open(&arena_path, shard_uuid, cfg.arena_initial_capacity_slots)?;
     info!(
         shard_id,
@@ -727,11 +734,13 @@ pub fn spawn_shard(
     // Per the audit, `recover()` is sync (mmap-based, reads only — io_uring
     // brings nothing). Sub-task 9.7b replaces 9.6's InMemoryMetadataSink
     // stand-in with the durable redb-backed MetadataDb.
-    let metadata_path = dir.join("metadata.redb");
+    let metadata_path = paths.metadata_db();
     let mut metadata_db = MetadataDb::open(&metadata_path)?;
 
-    let wal_dir = dir.join("wal");
-    std::fs::create_dir_all(&wal_dir).map_err(|e| ShardError::dir_create(wal_dir.clone(), e))?;
+    let wal_dir = paths.wal_dir();
+    // `ensure_dirs` above already created wal_dir; this assertion documents
+    // the precondition for the segment scan below.
+    debug_assert!(wal_dir.is_dir(), "ensure_dirs must have created wal/");
     let segments_present = wal_dir
         .read_dir()
         .map_err(|e| ShardError::dir_create(wal_dir.clone(), e))?
@@ -1275,5 +1284,51 @@ mod tests {
         assert_eq!(handle.shard_id(), 0);
         drop(handle);
         joiner.join().expect("shard should join cleanly");
+    }
+
+    /// Sub-task 15.3 — spawning a shard must leave the knowledge-layer
+    /// tantivy directories present on disk so phases 16/22 can open
+    /// them without a separate mkdir step.
+    #[test]
+    fn spawn_creates_knowledge_directories() {
+        let dir = TempDir::new().unwrap();
+        let cfg = ShardSpawnConfig::new(dir.path());
+        let (handle, joiner) = spawn_shard(3, cfg).expect("spawn");
+        // Stop the executor before inspecting state so the test isn't
+        // racing with shard startup.
+        drop(handle);
+        joiner.join().expect("shard should join cleanly");
+
+        let shard_dir = dir.path().join("3");
+        let paths = brain_storage::ShardPaths::at(&shard_dir);
+        assert!(paths.wal_dir().is_dir(), "wal/ should exist");
+        assert!(
+            paths.statements_tantivy().is_dir(),
+            "statements.tantivy/ should exist after spawn"
+        );
+        assert!(
+            paths.memory_text_tantivy().is_dir(),
+            "memory_text.tantivy/ should exist after spawn"
+        );
+
+        // Substrate files are present (arena + metadata + uuid).
+        assert!(paths.arena().exists(), "arena.bin should exist");
+        assert!(paths.metadata_db().exists(), "metadata.redb should exist");
+        assert!(paths.shard_uuid().exists(), "shard.uuid should exist");
+
+        // Knowledge-layer files are NOT created by spawn — owning
+        // modules open them on demand.
+        assert!(
+            !paths.entity_hnsw().exists(),
+            "entity.hnsw is created by phase 16, not by spawn"
+        );
+        assert!(
+            !paths.statement_hnsw().exists(),
+            "statement.hnsw is created by phase 17, not by spawn"
+        );
+        assert!(
+            !paths.llm_cache_db().exists(),
+            "llm_cache.redb is created by sub-task 15.4, not by spawn"
+        );
     }
 }
