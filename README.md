@@ -363,7 +363,7 @@ The 17-document specification is **complete** (~42K lines). Implementation is ph
 
 See [`ROADMAP.md`](ROADMAP.md) for the high-level index and [`docs/phases/`](docs/phases/) for per-phase sub-task breakdowns. Per-phase plans (with web-validated external choices, trade-offs, risks, and test plans) are recorded in [`.claude/plans/`](.claude/plans/) as durable design ADRs.
 
-For operators running brain-server: [`docs/observability.md`](docs/observability.md) is the standalone guide to metrics, logs, tracing, dashboards, and alerts.
+For operators running brain-server: [`docs/guides/observability.md`](docs/guides/observability.md) is the standalone guide to metrics, logs, tracing, dashboards, and alerts.
 
 ## Development environment
 

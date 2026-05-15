@@ -104,7 +104,7 @@ opcode + handler + tests:
   HNSW, workers, network, errors, capacity). Phase 12.4.
 - Prometheus alert rules covering spec §14/05 RB-1..RB-10.
   Phase 12.5.
-- Operator guide at `docs/observability.md`. Phase 12.6.
+- Operator guide at `docs/guides/observability.md`. Phase 12.6.
 
 ### Tooling
 
@@ -135,7 +135,7 @@ opcode + handler + tests:
 
 ### Acceptance
 
-- `acceptance/run.sh` runs spec §16/08's 10 release gates. Phase 14.1.
+- `scripts/acceptance/run.sh` runs spec §16/08's 10 release gates. Phase 14.1.
 - 10 operator runbooks in `docs/runbooks/`. Phase 14.2.
 - Install / configure / operate / upgrade guides in
   `docs/guides/`. Phase 14.3.

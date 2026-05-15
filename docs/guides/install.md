@@ -110,4 +110,4 @@ kill %1
 - **Configure for your workload**: [`configure.md`](configure.md)
 - **Run in production**: [`operate.md`](operate.md)
 - **Upgrade between versions**: [`upgrade.md`](upgrade.md)
-- **Monitor**: [`../observability.md`](../observability.md)
+- **Monitor**: [`observability.md`](observability.md)

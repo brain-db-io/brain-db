@@ -1,4 +1,4 @@
-//! CI gate for `alerts/brain-rules.yml` per spec §14/05 §15.
+//! CI gate for `docs/analytics/alerts/brain-rules.yml` per spec §14/05 §15.
 //!
 //! `promtool check rules` is the authoritative check but requires
 //! the Prometheus toolchain on CI. This test catches the common
@@ -41,6 +41,8 @@ fn rules_path() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
+        .join("docs")
+        .join("analytics")
         .join("alerts")
         .join("brain-rules.yml")
 }
@@ -64,7 +66,7 @@ fn scan_alerts_and_severities(text: &str) -> (Vec<String>, Vec<String>) {
 
 #[test]
 fn rules_file_exists() {
-    assert!(rules_path().exists(), "alerts/brain-rules.yml missing");
+    assert!(rules_path().exists(), "docs/analytics/alerts/brain-rules.yml missing");
 }
 
 #[test]

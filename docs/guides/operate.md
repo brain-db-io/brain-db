@@ -46,7 +46,7 @@ curl -s http://<metrics-addr>/metrics | head
 curl -s http://<admin-addr>/v1/workers  # list background workers
 ```
 
-The Phase 12 observability stack ([observability.md](../observability.md))
+The Phase 12 observability stack ([observability.md](observability.md))
 is the operator's primary surface. Wire up Prometheus + Grafana +
 Alertmanager per that guide.
 
@@ -100,13 +100,13 @@ journalctl -u brain-server -f \
 ```
 
 For Loki / Elastic, the JSON layer's field shape is documented in
-[observability.md §3](../observability.md#3-logs).
+[observability.md §3](observability.md#3-logs).
 
 ## When something's wrong
 
 The 10 runbooks in `docs/runbooks/` cover the common failure
 modes. Each is linked from the corresponding alert in
-`alerts/brain-rules.yml`. The flow is:
+`docs/analytics/alerts/brain-rules.yml`. The flow is:
 
 1. Alert fires in Alertmanager.
 2. Alert annotation links to the runbook.

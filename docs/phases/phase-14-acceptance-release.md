@@ -18,7 +18,7 @@ components; this phase declares them, together, production-ready.
 
 ## Outputs
 
-- `acceptance/run.sh` — single entry point that runs gates 1-10 and
+- `scripts/acceptance/run.sh` — single entry point that runs gates 1-10 and
   reports pass/fail.
 - `docs/runbooks/*.md` — one per runbook in spec §14/07, each tested
   against a chaos scenario produced in Phase 13.
@@ -31,8 +31,8 @@ components; this phase declares them, together, production-ready.
 
 ### Task 14.1 — Acceptance suite runner
 **Reads:** spec §16/08.
-**Writes:** `acceptance/run.sh` + per-gate test files.
-**Done when:** `bash acceptance/run.sh` exits 0 on the reference
+**Writes:** `scripts/acceptance/run.sh` + per-gate test files.
+**Done when:** `bash scripts/acceptance/run.sh` exits 0 on the reference
 environment; output is a clear pass/fail per gate.
 
 ### Task 14.2 — Runbook validation
@@ -62,8 +62,8 @@ checkout, after the 48 h soak passes):
 
 ```bash
 # 1. Run the full acceptance suite. Expected: 10/10 PASS.
-bash acceptance/run.sh
-cat acceptance/last-run.jsonl    # archive this with the release.
+bash scripts/acceptance/run.sh
+cat scripts/acceptance/last-run.jsonl    # archive this with the release.
 
 # 2. Confirm soak result exists.
 ls docs/performance/soak-*.md
@@ -93,7 +93,7 @@ git push origin main dev phase-13-complete phase-14-complete v1.0.0
 - [x] CHANGELOG + RELEASE-NOTES-v1.0.0 written.
 - [x] Acceptance runner + per-gate tests in place.
 - [x] 10 runbooks + 4 operator guides shipped.
-- [ ] Operator runs `bash acceptance/run.sh`; gates 1-10 green on
+- [ ] Operator runs `bash scripts/acceptance/run.sh`; gates 1-10 green on
       reference infra (gates 5, 7, 8, 10 need full operator runs
       vs the CI smoke-checks).
 - [ ] Operator runs the 48 h soak; result file lands in

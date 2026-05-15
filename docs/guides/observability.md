@@ -6,8 +6,8 @@ wire dashboards and alerts. Covers the Phase 12 deliverables:
 - §14/01 — Prometheus metrics taxonomy.
 - §14/02 — JSON-structured logs.
 - §14/03 — OpenTelemetry tracing.
-- §14/04 — Reference Grafana dashboards (in `dashboards/`).
-- §14/05 — Prometheus alert rules (in `alerts/`).
+- §14/04 — Reference Grafana dashboards (in `docs/analytics/dashboards/`).
+- §14/05 — Prometheus alert rules (in `docs/analytics/alerts/`).
 
 If you're an operator standing up a brain-server for the first time
 and want metrics flowing in 10 minutes, follow [§1 quick-start](#1-quick-start).
@@ -32,7 +32,7 @@ scrape_configs:
 
 # 4. Import the reference dashboards into Grafana 9+.
 #    Grafana UI → Dashboards → Import → upload each
-#    dashboards/*.json. Set the Prometheus datasource UID prompt
+#    docs/analytics/dashboards/*.json. Set the Prometheus datasource UID prompt
 #    to your Prometheus instance.
 
 # 5. Load the alert rules into Prometheus.
@@ -248,7 +248,7 @@ spec:
 
 ### Alert rules
 
-Drop `alerts/brain-rules.yml` into Prometheus' `rule_files:` list,
+Drop `docs/analytics/alerts/brain-rules.yml` into Prometheus' `rule_files:` list,
 or wrap as a `PrometheusRule` CRD. Reload Prometheus:
 
 ```bash
@@ -257,7 +257,7 @@ curl -X POST http://prometheus:9090/-/reload
 
 ### Grafana dashboards
 
-Import each file in `dashboards/` via Grafana UI or the
+Import each file in `docs/analytics/dashboards/` via Grafana UI or the
 file-provisioning sidecar. The dashboards expect a Prometheus
 datasource; set the prompt to your instance.
 
@@ -357,5 +357,5 @@ the wrong port. Verify with `curl <metrics_addr>/metrics | head`.
     init.
   - `crates/brain-server/src/bootstrap/tracing.rs` — OTLP exporter
     init.
-- Dashboards: `dashboards/*.json` (8 files).
-- Alerts: `alerts/brain-rules.yml`.
+- Dashboards: `docs/analytics/dashboards/*.json` (8 files).
+- Alerts: `docs/analytics/alerts/brain-rules.yml`.

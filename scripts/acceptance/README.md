@@ -26,16 +26,16 @@ compliance) run on dedicated infrastructure before release tagging.
 
 ```bash
 # All gates (mix of CI and operator-side; some will be no-ops without infra):
-bash acceptance/run.sh
+bash scripts/acceptance/run.sh
 
 # Selected gates only:
-bash acceptance/run.sh 1 2 3 4
+bash scripts/acceptance/run.sh 1 2 3 4
 
 # All except slow ones:
-bash acceptance/run.sh --skip 5 7
+bash scripts/acceptance/run.sh --skip 5 7
 
-# Per-gate report path (default acceptance/last-run.jsonl):
-BRAIN_ACCEPT_REPORT=/tmp/acceptance.jsonl bash acceptance/run.sh
+# Per-gate report path (default scripts/acceptance/last-run.jsonl):
+BRAIN_ACCEPT_REPORT=/tmp/acceptance.jsonl bash scripts/acceptance/run.sh
 ```
 
 Exit 0 iff every selected gate passes. The JSONL report is one

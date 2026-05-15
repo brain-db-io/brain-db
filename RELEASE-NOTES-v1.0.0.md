@@ -114,7 +114,7 @@ These are scoped, documented, and tracked — none are silent gaps.
 - Install: [`docs/guides/install.md`](docs/guides/install.md)
 - Configure: [`docs/guides/configure.md`](docs/guides/configure.md)
 - Operate: [`docs/guides/operate.md`](docs/guides/operate.md)
-- Monitor: [`docs/observability.md`](docs/observability.md)
+- Monitor: [`docs/guides/observability.md`](docs/guides/observability.md)
 
 ## Acknowledgements
 

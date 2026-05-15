@@ -6,14 +6,14 @@
 #
 # Usage:
 #
-#   bash acceptance/run.sh                # all gates
-#   bash acceptance/run.sh 1 2 4          # only those gates
-#   bash acceptance/run.sh --skip 7 8     # all except soak + compliance
+#   bash scripts/acceptance/run.sh                # all gates
+#   bash scripts/acceptance/run.sh 1 2 4          # only those gates
+#   bash scripts/acceptance/run.sh --skip 7 8     # all except soak + compliance
 #
 # Environment:
 #
 #   BRAIN_ACCEPT_REPORT  path to write the per-gate JSONL report
-#                        (default: acceptance/last-run.jsonl)
+#                        (default: scripts/acceptance/last-run.jsonl)
 #
 # Some gates require dedicated infra (soak, chaos with cgroups/tc,
 # compliance with TLS certs). Those are skipped on CI by default
@@ -22,10 +22,11 @@
 
 set -uo pipefail
 
-REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/.." &> /dev/null && pwd)"
+# scripts/acceptance/run.sh → repo root is two levels up.
+REPO_ROOT="$(cd -- "$(dirname -- "${BASH_SOURCE[0]}")/../.." &> /dev/null && pwd)"
 cd "$REPO_ROOT"
 
-REPORT_FILE="${BRAIN_ACCEPT_REPORT:-$REPO_ROOT/acceptance/last-run.jsonl}"
+REPORT_FILE="${BRAIN_ACCEPT_REPORT:-$REPO_ROOT/scripts/acceptance/last-run.jsonl}"
 mkdir -p "$(dirname "$REPORT_FILE")"
 : > "$REPORT_FILE"
 

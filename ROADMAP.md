@@ -190,7 +190,7 @@ For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
 **Detailed plan:** [`docs/phases/phase-12-observability.md`](docs/phases/phase-12-observability.md)
 
-**Crates touched:** all (instrumentation), plus `dashboards/`, `alerts/`.
+**Crates touched:** all (instrumentation), plus `docs/analytics/dashboards/`, `docs/analytics/alerts/`.
 
 **Sub-tasks:** 6.
 
