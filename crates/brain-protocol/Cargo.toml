@@ -17,3 +17,8 @@ uuid.workspace = true
 
 [dev-dependencies]
 proptest.workspace = true
+criterion.workspace = true
+
+[[bench]]
+name = "frame_codec"
+harness = false

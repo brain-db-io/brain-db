@@ -475,6 +475,7 @@ dependencies = [
  "brain-core",
  "bytemuck",
  "crc32c",
+ "criterion",
  "proptest",
  "rkyv",
  "thiserror 1.0.69",
