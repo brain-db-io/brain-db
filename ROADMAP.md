@@ -1,8 +1,15 @@
 # Roadmap
 
-High-level implementation plan. Each phase is a step toward a working v1. Detailed sub-task breakdowns live in [`docs/phases/`](docs/phases/) — this file is the index.
+High-level implementation plan. Each phase is a step toward Brain v1.0. Detailed sub-task breakdowns live in [`docs/phases/`](docs/phases/) — this file is the index.
 
 For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
+
+## v1.0 ships in two layers
+
+- **Substrate (phases 0–14)** — vector memory store: WAL, HNSW, wire protocol, cognitive primitives, HTTP transport, observability, benchmarks, substrate acceptance. Tags out as `v0.9.x-substrate-rc` at Phase 14.
+- **Knowledge layer (phases 15–24)** — typed entities, statements, relations, schema DSL, three-tier extractors (pattern → classifier → LLM), hybrid retrieval (semantic + lexical + graph with RRF fusion). Activates when a schema is declared; dormant otherwise.
+
+The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance suite passes. A deployment that never calls `SCHEMA_UPLOAD` is a valid v1.0 deployment posture (substrate-only mode).
 
 ---
 
@@ -212,9 +219,9 @@ For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
 ---
 
-## Phase 14 — Acceptance & v1.0.0 Release
+## Phase 14 — Substrate Acceptance & `v0.9.x-substrate-rc`
 
-**One-line:** Run all 10 acceptance gates, runbook-validate, doc pass, release.
+**One-line:** Run all 10 substrate acceptance gates, runbook-validate, doc pass, tag substrate release-candidate.
 
 **Detailed plan:** [`docs/phases/phase-14-acceptance-release.md`](docs/phases/phase-14-acceptance-release.md)
 
@@ -222,7 +229,133 @@ For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
 **Sub-tasks:** 5.
 
-**Exit:** gates 1-10 green; 48 h soak result recorded; runbooks executed against a chaos scenario; `cargo doc` clean; tag `phase-14-complete` and `v1.0.0`.
+**Exit:** gates 1-10 green; 48 h soak result recorded; runbooks executed against a chaos scenario; `cargo doc` clean; tag `phase-14-complete` and `v0.9.x-substrate-rc`. **The `v1.0.0` tag is deferred to Phase 24** (combined substrate + knowledge-layer release).
+
+---
+
+# Knowledge layer (phases 15–24)
+
+These phases turn Brain from a vector memory store into a cognitive database with typed entities, statements, relations, schema-driven extraction, and hybrid retrieval. Estimated 58–83 days of focused work. Phases 16–22 can partially overlap once Phase 15 is done. See [`docs/phases/README.md`](docs/phases/README.md) for the full dependency DAG.
+
+---
+
+## Phase 15 — Knowledge storage extensions
+
+**One-line:** New redb tables, WAL frame types, on-disk artifact paths (tantivy/HNSW/LLM cache), schema-declared flag. Binary boots; substrate behaves identically.
+
+**Detailed plan:** [`docs/phases/phase-15-knowledge-storage.md`](docs/phases/phase-15-knowledge-storage.md)
+
+**Crates touched:** `brain-metadata`, `brain-storage`, `brain-server`.
+
+**Sub-tasks:** 6. **Exit:** substrate-only regression suite stays green; tag `phase-15-complete`.
+
+---
+
+## Phase 16 — Entity layer
+
+**One-line:** Entity table, type system, entity HNSW, resolver (tiers 1 exact, 2 trigram fuzzy, 3 embedding). Tier 4 (LLM) is a stub.
+
+**Detailed plan:** [`docs/phases/phase-16-entities.md`](docs/phases/phase-16-entities.md)
+
+**Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
+
+**Sub-tasks:** 9. **Exit:** entity create / merge / rename / resolve all work via wire + SDK; tag `phase-16-complete`.
+
+---
+
+## Phase 17 — Statement layer
+
+**One-line:** Statement table; three kinds (Fact, Preference, Event); supersession chains; contradiction surfacing; statement HNSW.
+
+**Detailed plan:** [`docs/phases/phase-17-statements.md`](docs/phases/phase-17-statements.md)
+
+**Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
+
+**Sub-tasks:** 10. **Exit:** all three kinds work end-to-end; supersession + contradiction tests green; tag `phase-17-complete`.
+
+---
+
+## Phase 18 — Relation layer
+
+**One-line:** Relation table; cardinality enforcement; symmetric relations; 1–3 hop traversal.
+
+**Detailed plan:** [`docs/phases/phase-18-relations.md`](docs/phases/phase-18-relations.md)
+
+**Crates touched:** `brain-core`, `brain-metadata`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
+
+**Sub-tasks:** 8. **Exit:** traverse + cardinality tests green; tag `phase-18-complete`.
+
+---
+
+## Phase 19 — Schema DSL
+
+**One-line:** Parser + validator + versioning + migration plan computation for the declarative schema language.
+
+**Detailed plan:** [`docs/phases/phase-19-schema-dsl.md`](docs/phases/phase-19-schema-dsl.md)
+
+**Crates touched:** `brain-protocol`, `brain-metadata`, `brain-core`, `brain-server`, `brain-sdk-rust`.
+
+**Sub-tasks:** 8. **Exit:** schema upload validates and versions correctly; subsequent entity ops respect declared types; tag `phase-19-complete`.
+
+---
+
+## Phase 20 — Pattern + classifier extractors
+
+**One-line:** Extractor framework; pattern (regex) + classifier (small model) tiers run on ENCODE; built-ins (`brain.entity_mentions`, basic NER); extraction audit log.
+
+**Detailed plan:** [`docs/phases/phase-20-pattern-classifier-extractors.md`](docs/phases/phase-20-pattern-classifier-extractors.md)
+
+**Crates touched:** new `brain-extractors`; `brain-core`, `brain-metadata`, `brain-server`.
+
+**Sub-tasks:** 8. **Exit:** ENCODE P99 ≤ 20 ms with extractors active; audit log queryable; tag `phase-20-complete`.
+
+---
+
+## Phase 21 — LLM extractor
+
+**One-line:** LLM extractor kind with cache, retry-once, cost budget, schema-validated output; resolver tier 4 activates.
+
+**Detailed plan:** [`docs/phases/phase-21-llm-extractor.md`](docs/phases/phase-21-llm-extractor.md)
+
+**Crates touched:** new `brain-llm`; `brain-extractors`, `brain-workers`, `brain-metadata`.
+
+**Sub-tasks:** 9. **Exit:** mock-LLM end-to-end test green; real-LLM gated behind opt-in env var; tag `phase-21-complete`.
+
+---
+
+## Phase 22 — Tantivy / lexical retrieval
+
+**One-line:** Tantivy BM25 over memory text + statement text; LexicalRetriever; index workers maintain on writes.
+
+**Detailed plan:** [`docs/phases/phase-22-tantivy-lexical.md`](docs/phases/phase-22-tantivy-lexical.md)
+
+**Crates touched:** `brain-index`, `brain-workers`.
+
+**Sub-tasks:** ~7. **Exit:** lexical recall@10 ≥ targets on reference workload; tag `phase-22-complete`.
+
+---
+
+## Phase 23 — Hybrid query engine
+
+**One-line:** Query router (5 rules), RRF fusion (`k=60`), filter chain (type / temporal / confidence), EXPLAIN/TRACE; `RECALL` transparently uses hybrid path when a schema is declared.
+
+**Detailed plan:** [`docs/phases/phase-23-hybrid-query.md`](docs/phases/phase-23-hybrid-query.md)
+
+**Crates touched:** `brain-planner`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
+
+**Sub-tasks:** ~9. **Exit:** hybrid recall@10 beats semantic-only baseline; EXPLAIN/TRACE structured outputs; tag `phase-23-complete`.
+
+---
+
+## Phase 24 — Sweepers, knowledge acceptance & `v1.0.0`
+
+**One-line:** Backfill worker, FORGET cascade, supersession sweeper, stale-extraction detector, LLM cache sweeper, schema migration runner, schema-toggle runbook, full combined acceptance suite, release.
+
+**Detailed plan:** [`docs/phases/phase-24-acceptance.md`](docs/phases/phase-24-acceptance.md)
+
+**Crates touched:** `brain-workers`, `acceptance/`, `docs/runbooks/`, READMEs, CHANGELOG.
+
+**Sub-tasks:** 12. **Exit:** full functional + performance + storage + operational + schema-toggle acceptance criteria pass; substrate regression continues to pass; tag `phase-24-complete` and `v1.0.0`.
 
 ---
 
@@ -238,6 +371,14 @@ Phase N+1 doesn't start before Phase N is exited and tagged. The dependencies ar
 - Phase 11 provides the HTTP substrate Phase 12 instruments on.
 - Phase 12 emits the metrics Phase 13 measures.
 - Phase 13's chaos rig produces the recovery evidence Phase 14's acceptance gates consume.
+- Phase 14's substrate-rc is the foundation Phase 15 builds on without disturbing.
+- Phase 15's storage layout is consumed by every knowledge-layer phase.
+- Phases 16, 17, 18 layer up the data model; 19 declares it via DSL.
+- Phases 20, 21 produce typed data into the model; 22 indexes it for keyword search.
+- Phase 23 fuses semantic + lexical + graph retrievers.
+- Phase 24's combined acceptance suite is what `v1.0.0` ships against.
+
+Phases 16 through 22 may partially overlap (see DAG in [`docs/phases/README.md`](docs/phases/README.md)). Strict ordering still applies across the substrate/knowledge boundary at Phases 14 → 15.
 
 Skipping ahead means stubbing types you'll have to revisit. Don't.
 
