@@ -429,6 +429,7 @@ dependencies = [
  "proptest",
  "redb",
  "rkyv",
+ "smallvec",
  "tempfile",
  "thiserror 1.0.69",
  "tracing",

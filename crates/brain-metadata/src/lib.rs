@@ -21,6 +21,7 @@ pub mod llm_cache;
 pub mod predicate_ops;
 pub mod schema;
 pub mod sink;
+pub mod statement_ops;
 pub mod tables;
 pub mod trigram_ops;
 
@@ -33,6 +34,12 @@ pub use entity_ops::{
 pub use llm_cache::{LlmCacheDb, LlmCacheError, LlmResponse};
 pub use predicate_ops::{
     predicate_get, predicate_intern, predicate_list, predicate_lookup_by_qname, PredicateOpError,
+};
+pub use statement_ops::{
+    allocate_evidence_overflow, evidence_overflow_load, statement_create, statement_get,
+    statement_history, statement_list, statement_retract, statement_supersede,
+    statement_tombstone, statements_contradicting, StatementListFilter, StatementOpError,
+    DEFAULT_LIST_LIMIT,
 };
 pub use trigram_ops::{
     candidates_for_query, extract_trigrams, index_entity_trigrams, jaccard,
