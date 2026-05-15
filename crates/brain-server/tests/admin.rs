@@ -246,6 +246,19 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("process_memory_resident_bytes "),
         "missing process_memory_resident_bytes"
     );
+    // 12.7 — connection-extended family.
+    assert!(
+        body.contains("brain_connections_closed_total{reason=\"bye\"}"),
+        "missing brain_connections_closed_total{{reason=\"bye\"}}"
+    );
+    assert!(
+        body.contains("brain_frame_send_total"),
+        "missing brain_frame_send_total"
+    );
+    assert!(
+        body.contains("brain_frame_recv_total"),
+        "missing brain_frame_recv_total"
+    );
     server.stop().await;
 }
 

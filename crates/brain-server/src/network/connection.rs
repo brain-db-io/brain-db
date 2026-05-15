@@ -148,13 +148,87 @@ impl Default for ConnectionLimits {
 }
 
 /// Live connection counters surfaced via the admin `/metrics`
-/// endpoint (sub-task 9.13). `active` is incremented on accept and
-/// decremented by an RAII [`ConnectionGuard`] when the per-connection
-/// task returns. `total` is a monotonic accept counter.
+/// endpoint. Extended in 12.7 with the spec §14/01 §9 family
+/// (closed-by-reason, frame send/recv counters).
+///
+/// The `brain_frame_size_bytes` histogram is deferred — the current
+/// `Histogram` primitive's sum is scaled (× 1000) for ms decimal
+/// rendering, which would emit a wrong-units `_sum` for byte values.
+/// Tracker: `phase-12/histogram-unit-agnostic`.
 #[derive(Default)]
 pub struct ConnectionMetrics {
     pub active: AtomicU64,
     pub total: AtomicU64,
+    /// Per-reason close counters; indexed by [`CloseReason::idx`].
+    pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
+    pub frame_send_total: AtomicU64,
+    pub frame_recv_total: AtomicU64,
+}
+
+/// Stable close-reason set spec §14/01 §9 expects on
+/// `brain_connections_closed_total{reason=}`. Order is the
+/// label-emission order; the indexed array in
+/// [`ConnectionMetrics::closed_by_reason`] uses this same order.
+#[derive(Clone, Copy, Debug)]
+pub enum CloseReason {
+    Bye,
+    ProtocolError,
+    Timeout,
+    Eof,
+    Fatal,
+}
+
+impl CloseReason {
+    pub const COUNT: usize = 5;
+
+    /// Lookup label used by `brain_connections_closed_total{reason=}`.
+    /// Reserved for diagnostics that report the close cause without
+    /// going through the metric registry; the exposition path uses
+    /// [`CLOSE_REASONS`] indexed by [`Self::idx`] instead.
+    #[must_use]
+    #[allow(dead_code)]
+    pub fn label(self) -> &'static str {
+        match self {
+            CloseReason::Bye => "bye",
+            CloseReason::ProtocolError => "protocol_error",
+            CloseReason::Timeout => "timeout",
+            CloseReason::Eof => "eof",
+            CloseReason::Fatal => "fatal",
+        }
+    }
+
+    #[must_use]
+    pub fn idx(self) -> usize {
+        match self {
+            CloseReason::Bye => 0,
+            CloseReason::ProtocolError => 1,
+            CloseReason::Timeout => 2,
+            CloseReason::Eof => 3,
+            CloseReason::Fatal => 4,
+        }
+    }
+}
+
+/// Label strings for `brain_connections_closed_total{reason=}` in
+/// the same order as [`ConnectionMetrics::closed_by_reason`].
+pub const CLOSE_REASONS: [&str; CloseReason::COUNT] =
+    ["bye", "protocol_error", "timeout", "eof", "fatal"];
+
+impl ConnectionMetrics {
+    /// Bump the per-reason close counter.
+    pub fn record_close(&self, reason: CloseReason) {
+        self.closed_by_reason[reason.idx()].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Bump the outbound frame counter.
+    pub fn observe_send(&self) {
+        self.frame_send_total.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Bump the inbound frame counter.
+    pub fn observe_recv(&self) {
+        self.frame_recv_total.fetch_add(1, Ordering::Relaxed);
+    }
 }
 
 /// Decrement `active` when this guard drops. Survives panic and
@@ -308,6 +382,7 @@ impl BoundConnectionListener {
                                 Ok(tls_stream) => {
                                     serve_connection(
                                         tls_stream, topology, event_hub, limits, shutdown,
+                                        metrics.clone(),
                                     )
                                     .await
                                 }
@@ -317,8 +392,11 @@ impl BoundConnectionListener {
                                 }
                             },
                             None => {
-                                serve_connection(stream, topology, event_hub, limits, shutdown)
-                                    .await
+                                serve_connection(
+                                    stream, topology, event_hub, limits, shutdown,
+                                    metrics.clone(),
+                                )
+                                .await
                             }
                         };
                         if let Err(e) = result {
@@ -358,13 +436,15 @@ pub(crate) async fn serve_connection<S>(
     event_hub: ShardEventHub,
     limits: ConnectionLimits,
     shutdown: ShutdownSignal,
+    metrics: Arc<ConnectionMetrics>,
 ) -> io::Result<()>
 where
     S: AsyncRead + AsyncWrite + Send + Unpin + 'static,
 {
     let (mut read_half, write_half) = split(stream);
     let (frame_tx, frame_rx) = flume::bounded::<OutgoingFrame>(limits.outgoing_capacity);
-    let writer = tokio::spawn(writer_loop(write_half, frame_rx));
+    let writer_metrics = metrics.clone();
+    let writer = tokio::spawn(writer_loop(write_half, frame_rx, writer_metrics));
 
     // Sub-task 9.11: each connection gets its own SubscriptionRegistry.
     // It reuses the listener-wide `ShardEventHub` to subscribe to per-
@@ -378,6 +458,7 @@ where
         shutdown,
         frame_tx.clone(),
         subscriptions,
+        metrics.clone(),
     )
     .await;
 
@@ -399,8 +480,11 @@ pub(crate) struct OutgoingFrame {
     pub(crate) close_after: bool,
 }
 
-async fn writer_loop<W>(mut write: W, rx: flume::Receiver<OutgoingFrame>)
-where
+async fn writer_loop<W>(
+    mut write: W,
+    rx: flume::Receiver<OutgoingFrame>,
+    metrics: Arc<ConnectionMetrics>,
+) where
     W: AsyncWrite + Unpin,
 {
     while let Ok(out) = rx.recv_async().await {
@@ -412,6 +496,7 @@ where
             debug!(error = %e, "writer flush failed");
             break;
         }
+        metrics.observe_send();
         if out.close_after {
             break;
         }
@@ -425,6 +510,7 @@ async fn receiver_loop<R>(
     mut shutdown: ShutdownSignal,
     frame_tx: flume::Sender<OutgoingFrame>,
     subscriptions: Arc<SubscriptionRegistry>,
+    metrics: Arc<ConnectionMetrics>,
 ) -> io::Result<()>
 where
     R: AsyncRead + Unpin,
@@ -469,6 +555,7 @@ where
                     }
                     Tick::Close => {
                         // SERVER_PING went unanswered past ping_timeout.
+                        metrics.record_close(CloseReason::Timeout);
                         return Ok(());
                     }
                 }
@@ -477,6 +564,7 @@ where
                 idle.on_frame_received();
                 match result {
                     Ok(frame) => {
+                        metrics.observe_recv();
                         let action = dispatch_frame(frame, &mut state, topology);
                         // Once handshake is complete, drop the auth deadline.
                         if matches!(
@@ -556,28 +644,47 @@ where
                                     bytes: frame.encode(),
                                     close_after: true,
                                 }).await;
+                                // BYE handler routes here; other CloseWith
+                                // arms (BadOpcode etc.) are protocol errors.
+                                let reason = if frame.header.opcode == Opcode::Bye.as_u8() {
+                                    CloseReason::Bye
+                                } else {
+                                    CloseReason::ProtocolError
+                                };
+                                metrics.record_close(reason);
                                 return Ok(());
                             }
-                            Action::Close => return Ok(()),
+                            Action::Close => {
+                                metrics.record_close(CloseReason::Bye);
+                                return Ok(());
+                            }
                             Action::Nothing => {}
                         }
                     }
-                    Err(FrameReadError::Eof) => return Ok(()),
+                    Err(FrameReadError::Eof) => {
+                        metrics.record_close(CloseReason::Eof);
+                        return Ok(());
+                    }
                     Err(FrameReadError::Protocol(code, category, detail)) => {
                         let frame = build_close_error_frame_with_category(code, category, &detail);
                         let _ = frame_tx.send_async(OutgoingFrame {
                             bytes: frame.encode(),
                             close_after: true,
                         }).await;
+                        metrics.record_close(CloseReason::ProtocolError);
                         return Ok(());
                     }
                     Err(FrameReadError::Timeout) => {
                         // Per-frame read budget expired. Close quietly;
                         // the idle/SERVER_PING path is for application-
                         // level keepalive.
+                        metrics.record_close(CloseReason::Timeout);
                         return Ok(());
                     }
-                    Err(FrameReadError::Io(e)) => return Err(e),
+                    Err(FrameReadError::Io(e)) => {
+                        metrics.record_close(CloseReason::Fatal);
+                        return Err(e);
+                    }
                 }
             }
         }

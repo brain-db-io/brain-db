@@ -140,6 +140,45 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         "brain_connections_total {}",
         connections.total.load(Ordering::Relaxed),
     );
+
+    // 12.7 (deferred-set burn-down): connection-extended families
+    // per spec §14/01 §9. `brain_frame_size_bytes` histogram is
+    // still deferred — tracker `phase-12/histogram-unit-agnostic`.
+    emit_header(
+        out,
+        "brain_connections_closed_total",
+        "Connections closed by reason.",
+        "counter",
+    );
+    for (i, reason) in crate::connection::CLOSE_REASONS.iter().enumerate() {
+        let labels = format!("{{reason=\"{reason}\"}}");
+        let v = connections.closed_by_reason[i].load(Ordering::Relaxed);
+        let _ = writeln!(out, "brain_connections_closed_total{labels} {v}");
+    }
+
+    emit_header(
+        out,
+        "brain_frame_send_total",
+        "Total outbound frames since startup.",
+        "counter",
+    );
+    let _ = writeln!(
+        out,
+        "brain_frame_send_total {}",
+        connections.frame_send_total.load(Ordering::Relaxed),
+    );
+
+    emit_header(
+        out,
+        "brain_frame_recv_total",
+        "Total inbound frames since startup.",
+        "counter",
+    );
+    let _ = writeln!(
+        out,
+        "brain_frame_recv_total {}",
+        connections.frame_recv_total.load(Ordering::Relaxed),
+    );
 }
 
 /// 12.1c — `/proc/self`-derived resource metrics per spec §14/01 §10.
