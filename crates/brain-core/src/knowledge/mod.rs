@@ -18,6 +18,7 @@ pub mod entity;
 pub mod ids;
 pub mod kinds;
 pub mod resolver;
+pub mod trigrams;
 
 pub use entity::{Entity, EntityAttributes, EntityType};
 pub use ids::{
@@ -25,4 +26,8 @@ pub use ids::{
     RelationId, RelationTypeId, StatementId,
 };
 pub use kinds::{Cardinality, ExtractorKind, StatementKind};
-pub use resolver::{ResolutionOutcome, ResolverConfig, ResolverTier, TypeConstraint};
+pub use resolver::{
+    resolve_entity, ResolutionOutcome, ResolverConfig, ResolverEmbedder, ResolverError,
+    ResolverIndex, ResolverStorage, ResolverTier, TypeConstraint, VECTOR_DIM,
+};
+pub use trigrams::{extract_trigrams, jaccard};

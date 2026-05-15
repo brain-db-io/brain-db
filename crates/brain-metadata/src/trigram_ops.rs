@@ -37,32 +37,15 @@ pub enum TrigramOpError {
 }
 
 // ---------------------------------------------------------------------------
-// Extraction.
+// Extraction + similarity — re-exported from brain-core.
+//
+// Sub-task 16.5 moved the pure trigram functions to brain-core so the
+// resolver (in brain-core) can use them without taking a dep on
+// brain-metadata. The redb integration stays here; the pure functions
+// are re-exported for compatibility with existing callers.
 // ---------------------------------------------------------------------------
 
-/// Extract the trigram set of a normalized string.
-///
-/// Caller is responsible for pre-normalizing (`entity_ops::normalize_name`).
-/// Empty input returns an empty set.
-#[must_use]
-pub fn extract_trigrams(normalized: &str) -> HashSet<[u8; 3]> {
-    let mut out = HashSet::new();
-    for word in normalized.split_whitespace() {
-        // Pad each word: 2 leading spaces + word + 1 trailing space.
-        let mut padded = Vec::with_capacity(word.len() + 3);
-        padded.extend_from_slice(b"  ");
-        padded.extend_from_slice(word.as_bytes());
-        padded.push(b' ');
-        for window in padded.windows(3) {
-            // windows(3) yields slices of exactly length 3; the conversion
-            // is infallible.
-            if let Ok(arr) = <[u8; 3]>::try_from(window) {
-                out.insert(arr);
-            }
-        }
-    }
-    out
-}
+pub use brain_core::knowledge::trigrams::{extract_trigrams, jaccard};
 
 /// Union of trigrams across an entity's `canonical_name` and every
 /// alias. Normalizes each component internally.
@@ -87,26 +70,6 @@ pub fn trigrams_of_components(canonical_name: &str, aliases: &[String]) -> HashS
         out.extend(extract_trigrams(&normalize_name(alias)));
     }
     out
-}
-
-// ---------------------------------------------------------------------------
-// Similarity.
-// ---------------------------------------------------------------------------
-
-/// Jaccard similarity between two trigram sets: `|A ∩ B| / |A ∪ B|`.
-/// Returns `0.0` when both sets are empty (avoids 0/0).
-#[must_use]
-pub fn jaccard(a: &HashSet<[u8; 3]>, b: &HashSet<[u8; 3]>) -> f32 {
-    if a.is_empty() && b.is_empty() {
-        return 0.0;
-    }
-    let intersection = a.intersection(b).count();
-    let union = a.len() + b.len() - intersection;
-    if union == 0 {
-        0.0
-    } else {
-        (intersection as f32) / (union as f32)
-    }
 }
 
 // ---------------------------------------------------------------------------
@@ -227,57 +190,17 @@ mod tests {
         MetadataDb::open(db_path(dir)).expect("open")
     }
 
-    // ----- Extraction ---------------------------------------------------
+    // ----- Extraction + Jaccard ----------------------------------------
+    //
+    // The pure functions live in brain-core::knowledge::trigrams and are
+    // tested there (sub-task 16.5 moved them). One re-export sanity test
+    // here ensures the public path through brain-metadata still works.
 
     #[test]
-    fn extract_trigrams_pg_trgm_style_single_word() {
-        // "priya" → padded "  priya " → windows: "  p", " pr", "pri",
-        // "riy", "iya", "ya "
+    fn re_export_extract_trigrams_works() {
         let t = extract_trigrams("priya");
-        let expected: HashSet<[u8; 3]> = [
-            *b"  p", *b" pr", *b"pri", *b"riy", *b"iya", *b"ya ",
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(t, expected);
-    }
-
-    #[test]
-    fn extract_trigrams_two_words_unions_and_dedupes() {
-        // "priya patel": both padded words contribute; "  p" is shared.
-        let t = extract_trigrams("priya patel");
-        // Union of both words; dedupe.
-        let expected: HashSet<[u8; 3]> = [
-            *b"  p", *b" pr", *b"pri", *b"riy", *b"iya", *b"ya ", // priya
-            *b" pa", *b"pat", *b"ate", *b"tel", *b"el ", // patel
-        ]
-        .into_iter()
-        .collect();
-        assert_eq!(t, expected);
-    }
-
-    #[test]
-    fn extract_trigrams_empty_string_is_empty_set() {
-        assert!(extract_trigrams("").is_empty());
-        assert!(extract_trigrams("   ").is_empty()); // pure whitespace
-    }
-
-    #[test]
-    fn extract_trigrams_single_char_yields_two() {
-        // "x" → padded "  x " → windows: "  x", " x "
-        let t = extract_trigrams("x");
-        assert_eq!(t.len(), 2);
-        assert!(t.contains(b"  x"));
-        assert!(t.contains(b" x "));
-    }
-
-    #[test]
-    fn extract_trigrams_unicode_does_not_panic_and_is_byte_level() {
-        let t = extract_trigrams("straße");
-        // Specific shape is pg_trgm convention applied byte-by-byte;
-        // not asserting the exact set — just that we got SOME trigrams
-        // and the call returned without panic.
-        assert!(!t.is_empty());
+        assert!(t.contains(b"  p"));
+        assert!(t.contains(b"ya "));
     }
 
     #[test]
@@ -301,39 +224,11 @@ mod tests {
         assert!(!canonical_only.contains(b"pat"));
     }
 
-    // ----- Jaccard ------------------------------------------------------
-
     #[test]
-    fn jaccard_identical_sets_is_one() {
+    fn re_export_jaccard_works() {
         let a = extract_trigrams("priya patel");
         let b = a.clone();
         assert!((jaccard(&a, &b) - 1.0).abs() < f32::EPSILON);
-    }
-
-    #[test]
-    fn jaccard_disjoint_sets_is_zero() {
-        let mut a = HashSet::new();
-        a.insert(*b"abc");
-        a.insert(*b"def");
-        let mut b = HashSet::new();
-        b.insert(*b"xyz");
-        b.insert(*b"123");
-        assert_eq!(jaccard(&a, &b), 0.0);
-    }
-
-    #[test]
-    fn jaccard_empty_empty_is_zero() {
-        let a: HashSet<[u8; 3]> = HashSet::new();
-        let b: HashSet<[u8; 3]> = HashSet::new();
-        assert_eq!(jaccard(&a, &b), 0.0);
-    }
-
-    #[test]
-    fn jaccard_partial_overlap() {
-        // {abc, def, ghi} vs {def, ghi, jkl} → intersection 2, union 4 → 0.5
-        let a: HashSet<[u8; 3]> = [*b"abc", *b"def", *b"ghi"].into_iter().collect();
-        let b: HashSet<[u8; 3]> = [*b"def", *b"ghi", *b"jkl"].into_iter().collect();
-        assert!((jaccard(&a, &b) - 0.5).abs() < f32::EPSILON);
     }
 
     // ----- redb integration --------------------------------------------

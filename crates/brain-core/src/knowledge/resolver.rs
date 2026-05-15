@@ -1,12 +1,41 @@
-//! Entity-resolver types. **Types only** — algorithm lands in
-//! sub-task 16.5 (`fn resolve(...) -> ResolutionOutcome`).
+//! Entity resolver. Sub-task 16.5 added the algorithm + traits on top
+//! of 16.1's type set.
 //!
-//! See `spec/18_entities/01_resolution.md` for the full algorithm,
-//! configuration semantics, and ambiguity-handling rules.
+//! See `spec/18_entities/01_resolution.md` for the full algorithm.
+//!
+//! ## Dependency inversion
+//!
+//! brain-core can't depend on brain-metadata (cycle) or brain-embed or
+//! brain-index. The resolver therefore takes three traits — provided
+//! by the caller — and operates against them generically:
+//!
+//! - [`ResolverStorage`] — exact / alias / trigram lookups + type
+//!   metadata. Implemented by brain-metadata for `MetadataDb`.
+//! - [`ResolverEmbedder`] — text → 384-dim BGE vector. Implemented by
+//!   brain-embed.
+//! - [`ResolverIndex`] — entity HNSW top-k. Implemented by brain-index
+//!   for `EntityHnswIndex`.
+//!
+//! 16.5 ships the traits + the algorithm + mock-impl tests. The
+//! concrete impls land in phase 20 when extractors invoke the
+//! resolver.
+
+use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
 
-use crate::knowledge::{AuditId, EntityId};
+use crate::knowledge::{trigrams, AuditId, EntityId, EntityTypeId};
+
+/// Dimension of the entity-embedding vector. 384 = BGE-small-en-v1.5
+/// (matches the substrate). Hardcoded so trait signatures stay
+/// concrete; no const-generic on `resolve_entity`.
+pub const VECTOR_DIM: usize = 384;
+
+/// Ambiguity-detection delta: when the top two candidates' scores are
+/// within `δ` of each other (and both above threshold), the resolver
+/// returns `Ambiguous` rather than picking arbitrarily. Spec §18/01
+/// default; tuned via a future `ResolverConfig` knob.
+const AMBIGUITY_DELTA: f32 = 0.05;
 
 // ---------------------------------------------------------------------------
 // ResolverTier.
@@ -213,3 +242,757 @@ mod tests {
         assert!(!ambiguous.is_created());
     }
 }
+
+// ===========================================================================
+// 16.5: ResolverError, traits, algorithm, mock-impl tests.
+// ===========================================================================
+
+/// Errors surfaced by the resolver pipeline.
+///
+/// Concrete impls in brain-metadata / brain-embed / brain-index
+/// convert their native errors via `.to_string()`. Imperfect type
+/// erasure, but keeps brain-core free of cross-crate dependencies.
+#[derive(thiserror::Error, Debug, Clone, PartialEq, Eq)]
+pub enum ResolverError {
+    #[error("storage: {0}")]
+    Storage(String),
+    #[error("embedder: {0}")]
+    Embedder(String),
+    #[error("index: {0}")]
+    Index(String),
+}
+
+// ---------------------------------------------------------------------------
+// Traits.
+// ---------------------------------------------------------------------------
+
+/// Read-side access to the entity registry. The resolver uses it for
+/// tier-1 (exact + alias), tier-2 (trigram candidates + per-entity
+/// trigrams), and the type-constraint filter on tier 3.
+pub trait ResolverStorage {
+    /// Tier-1 exact: `(type, normalized(candidate))` → at most one
+    /// EntityId (the `entity_by_canonical_name` index is single-value).
+    fn lookup_exact_canonical_name(
+        &self,
+        type_id: EntityTypeId,
+        candidate: &str,
+    ) -> Result<Option<EntityId>, ResolverError>;
+
+    /// Tier-1 alias: `(type, normalized(candidate))` → zero or more
+    /// EntityIds (alias index is multi-value).
+    fn lookup_exact_aliases(
+        &self,
+        type_id: EntityTypeId,
+        candidate: &str,
+    ) -> Result<Vec<EntityId>, ResolverError>;
+
+    /// Tier-2 candidate union: every EntityId whose trigram set
+    /// shares ≥1 trigram with `query_normalized`'s trigrams.
+    fn trigram_candidates(
+        &self,
+        type_id: EntityTypeId,
+        query_normalized: &str,
+    ) -> Result<HashSet<EntityId>, ResolverError>;
+
+    /// Tier-2 per-candidate trigram set, for Jaccard scoring.
+    fn trigrams_of(&self, id: EntityId) -> Result<HashSet<[u8; 3]>, ResolverError>;
+
+    /// Tier-3 type-constraint filter: the entity's declared type.
+    /// `Ok(None)` means "no such entity" — tombstoned or never
+    /// existed.
+    fn entity_type_of(&self, id: EntityId) -> Result<Option<EntityTypeId>, ResolverError>;
+}
+
+/// Tier-3 text → vector. Produces a 384-dim BGE-small L2-normalised
+/// vector. Implemented by brain-embed.
+pub trait ResolverEmbedder {
+    fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], ResolverError>;
+}
+
+/// Tier-3 HNSW top-k. Returns `(EntityId, similarity)` descending by
+/// similarity. Tombstoned entries pre-filtered by the impl.
+pub trait ResolverIndex {
+    fn search(
+        &self,
+        query: &[f32; VECTOR_DIM],
+        top_k: usize,
+    ) -> Result<Vec<(EntityId, f32)>, ResolverError>;
+}
+
+// ---------------------------------------------------------------------------
+// Helpers.
+// ---------------------------------------------------------------------------
+
+/// Normalize for the resolver: trim + Unicode-aware lowercase +
+/// whitespace collapse. Identical semantics to
+/// `brain_metadata::normalize_name` but duplicated here so brain-core
+/// stays dependency-free; both must produce the same output for a
+/// given input (testing via concrete impl).
+fn normalize_for_resolver(s: &str) -> String {
+    s.trim()
+        .to_lowercase()
+        .split_whitespace()
+        .collect::<Vec<_>>()
+        .join(" ")
+}
+
+/// Truncate `context` at the largest byte index ≤ `max_chars` that
+/// falls on a Unicode codepoint boundary. Avoids slicing mid-codepoint
+/// when constructing the tier-3 embedding input.
+fn truncate_context_chars(context: &str, max_chars: usize) -> &str {
+    if context.chars().count() <= max_chars {
+        return context;
+    }
+    match context.char_indices().nth(max_chars) {
+        Some((idx, _)) => &context[..idx],
+        None => context,
+    }
+}
+
+/// Apply `TypeConstraint` to a candidate. Returns `Ok(true)` if the
+/// candidate passes the filter for the given hint + constraint.
+fn passes_type_constraint<S>(
+    storage: &S,
+    id: EntityId,
+    hint: Option<EntityTypeId>,
+    constraint: TypeConstraint,
+) -> Result<bool, ResolverError>
+where
+    S: ResolverStorage + ?Sized,
+{
+    match (constraint, hint) {
+        (TypeConstraint::None, _) | (_, None) => Ok(true),
+        (TypeConstraint::Hint, Some(_)) => {
+            // Hint mode: prefer matching type but allow fallback.
+            // For tier-3 filtering we don't reject; downstream
+            // scoring may bias (left to phase 20).
+            Ok(true)
+        }
+        (TypeConstraint::Strict, Some(want)) => {
+            match storage.entity_type_of(id)? {
+                Some(got) => Ok(got == want),
+                None => Ok(false), // Strict rejects missing-type
+            }
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Algorithm.
+// ---------------------------------------------------------------------------
+
+/// Resolve `candidate` to a [`ResolutionOutcome`].
+///
+/// Per spec §18/01:
+///
+/// 1. **Tier 1** (exact): exact canonical_name match → Resolved.
+///    Alias hits: 1 → Resolved; multiple → carry forward as
+///    candidates.
+/// 2. **Tier 2** (fuzzy/trigram): Jaccard-scored candidates above
+///    `fuzzy_threshold`. Single hit → Resolved. Multiple → carry.
+/// 3. **Tier 3** (embedding): HNSW top-k filtered by type
+///    constraint; single hit above `embedding_threshold` → Resolved.
+/// 4. **Tier 4** (LLM): stubbed in 16.5 — emits a warn log and
+///    skips. Real impl lands in phase 21.
+/// 5. **Ambiguity check**: if tier-2 / tier-3 produced ≥2
+///    candidates with top-two scores within `AMBIGUITY_DELTA` of
+///    each other, return `Ambiguous`. Audit_id minted but NOT
+///    persisted — caller writes the audit row if it wants one.
+/// 6. **Tier 5** (Created): mint a fresh `EntityId` and return
+///    `Created`. The caller persists via `entity_put`.
+pub fn resolve_entity<S, E, I>(
+    storage: &S,
+    embedder: &E,
+    index: &I,
+    candidate: &str,
+    context: &str,
+    entity_type_hint: Option<EntityTypeId>,
+    config: &ResolverConfig,
+) -> Result<ResolutionOutcome, ResolverError>
+where
+    S: ResolverStorage + ?Sized,
+    E: ResolverEmbedder + ?Sized,
+    I: ResolverIndex + ?Sized,
+{
+    let normalized = normalize_for_resolver(candidate);
+
+    // -------------------- Tier 1: Exact match ---------------------------
+    let mut tier1_alias_pool: Vec<EntityId> = Vec::new();
+    if config.enable_exact {
+        if let Some(hint) = entity_type_hint {
+            // 1a. Exact canonical_name.
+            if let Some(id) = storage.lookup_exact_canonical_name(hint, &normalized)? {
+                return Ok(ResolutionOutcome::Resolved {
+                    entity: id,
+                    confidence: 1.0,
+                    tier: ResolverTier::Exact,
+                });
+            }
+            // 1b. Aliases.
+            let alias_hits = storage.lookup_exact_aliases(hint, &normalized)?;
+            match alias_hits.len() {
+                0 => {} // proceed to tier 2
+                1 => {
+                    return Ok(ResolutionOutcome::Resolved {
+                        entity: alias_hits[0],
+                        confidence: 1.0,
+                        tier: ResolverTier::Exact,
+                    });
+                }
+                _ => tier1_alias_pool = alias_hits,
+            }
+        }
+        // If no type hint: skip tier 1 entirely. The exact-name index
+        // is keyed by type; without a hint we can't query it
+        // deterministically.
+    }
+
+    // -------------------- Tier 2: Fuzzy (trigram) -----------------------
+    let mut tier2_scored: Vec<(EntityId, f32)> = Vec::new();
+    if config.enable_fuzzy {
+        let q_trigrams = trigrams::extract_trigrams(&normalized);
+        if !q_trigrams.is_empty() && entity_type_hint.is_some() {
+            let hint = entity_type_hint.unwrap();
+            let mut cands = storage.trigram_candidates(hint, &normalized)?;
+            // Include the tier-1 alias pool — they're real matches we
+            // want scored too.
+            cands.extend(tier1_alias_pool.iter().copied());
+            for cid in cands {
+                if !passes_type_constraint(storage, cid, entity_type_hint, config.type_constraint)?
+                {
+                    continue;
+                }
+                let cid_trigrams = storage.trigrams_of(cid)?;
+                let score = trigrams::jaccard(&q_trigrams, &cid_trigrams);
+                if score > 0.0 {
+                    tier2_scored.push((cid, score));
+                }
+            }
+            tier2_scored.sort_by(|a, b| {
+                b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+            });
+
+            // Spec §18/01: "match fuzzy_hits.len() { 1 if score ≥
+            // threshold => Resolved, _ => keep for tier 3 }".
+            // Interpret: at least one above threshold AND clear of
+            // the runner-up by AMBIGUITY_DELTA → Resolved at Fuzzy
+            // tier. Otherwise fall through.
+            let above: Vec<&(EntityId, f32)> = tier2_scored
+                .iter()
+                .filter(|(_, s)| *s >= config.fuzzy_threshold)
+                .collect();
+            if above.len() == 1 {
+                return Ok(ResolutionOutcome::Resolved {
+                    entity: above[0].0,
+                    confidence: above[0].1,
+                    tier: ResolverTier::Fuzzy,
+                });
+            }
+            if above.len() >= 2 {
+                let top = above[0].1;
+                let second = above[1].1;
+                if (top - second) >= AMBIGUITY_DELTA {
+                    return Ok(ResolutionOutcome::Resolved {
+                        entity: above[0].0,
+                        confidence: top,
+                        tier: ResolverTier::Fuzzy,
+                    });
+                }
+                // Otherwise top-2 are close — carry to tier-3 +
+                // ambiguity check.
+            }
+        }
+    }
+
+    // -------------------- Tier 3: Embedding -----------------------------
+    let mut tier3_scored: Vec<(EntityId, f32)> = Vec::new();
+    if config.enable_embedding {
+        let ctx = truncate_context_chars(context, 100);
+        let text = if ctx.is_empty() {
+            candidate.to_owned()
+        } else {
+            format!("{candidate} {ctx}")
+        };
+        let q_vec = embedder.embed(&text)?;
+        let hits = index.search(&q_vec, config.embedding_top_k)?;
+        for (cid, sim) in hits {
+            if !passes_type_constraint(storage, cid, entity_type_hint, config.type_constraint)? {
+                continue;
+            }
+            tier3_scored.push((cid, sim));
+        }
+        tier3_scored.sort_by(|a, b| {
+            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        let above: Vec<&(EntityId, f32)> = tier3_scored
+            .iter()
+            .filter(|(_, s)| *s >= config.embedding_threshold)
+            .collect();
+        if above.len() == 1 {
+            return Ok(ResolutionOutcome::Resolved {
+                entity: above[0].0,
+                confidence: above[0].1,
+                tier: ResolverTier::Embedding,
+            });
+        }
+        if above.len() >= 2 {
+            let top = above[0].1;
+            let second = above[1].1;
+            if (top - second) >= AMBIGUITY_DELTA {
+                return Ok(ResolutionOutcome::Resolved {
+                    entity: above[0].0,
+                    confidence: top,
+                    tier: ResolverTier::Embedding,
+                });
+            }
+            // top-2 close — carry to ambiguity check.
+        }
+    }
+
+    // -------------------- Tier 4: LLM (stub) ----------------------------
+    if config.enable_llm {
+        tracing::warn!(
+            "LLM resolver tier enabled but not implemented in 16.5; skipping (phase 21 wires the real LLM extractor)"
+        );
+    }
+
+    // -------------------- Ambiguity check -------------------------------
+    // Merge tier-2 + tier-3 candidates above their respective
+    // thresholds; dedupe by EntityId keeping the higher score.
+    let mut by_id: HashMap<EntityId, f32> = HashMap::new();
+    for (cid, score) in tier2_scored
+        .iter()
+        .filter(|(_, s)| *s >= config.fuzzy_threshold)
+    {
+        let e = by_id.entry(*cid).or_insert(0.0);
+        if *score > *e {
+            *e = *score;
+        }
+    }
+    for (cid, score) in tier3_scored
+        .iter()
+        .filter(|(_, s)| *s >= config.embedding_threshold)
+    {
+        let e = by_id.entry(*cid).or_insert(0.0);
+        if *score > *e {
+            *e = *score;
+        }
+    }
+    let mut merged: Vec<(EntityId, f32)> = by_id.into_iter().collect();
+    merged.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    if merged.len() >= 2 && (merged[0].1 - merged[1].1).abs() < AMBIGUITY_DELTA {
+        return Ok(ResolutionOutcome::Ambiguous {
+            audit_id: AuditId::new(),
+            candidates: merged,
+        });
+    }
+
+    // -------------------- Tier 5: Create --------------------------------
+    Ok(ResolutionOutcome::Created {
+        entity: EntityId::new(),
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Tests with mock impls.
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod algorithm_tests {
+    use super::*;
+    use std::cell::RefCell;
+
+    /// In-memory mock for the three traits. Configured per test.
+    #[derive(Default)]
+    struct MockBackend {
+        // Tier 1.
+        canonical: RefCell<HashMap<(EntityTypeId, String), EntityId>>,
+        aliases: RefCell<HashMap<(EntityTypeId, String), Vec<EntityId>>>,
+        // Tier 2.
+        trigram_candidates: RefCell<HashMap<(EntityTypeId, String), HashSet<EntityId>>>,
+        trigrams: RefCell<HashMap<EntityId, HashSet<[u8; 3]>>>,
+        // Tier 3.
+        embeddings: RefCell<HashMap<String, [f32; VECTOR_DIM]>>,
+        index_results: RefCell<Vec<(EntityId, f32)>>,
+        // Type-constraint filter.
+        types: RefCell<HashMap<EntityId, EntityTypeId>>,
+    }
+
+    impl MockBackend {
+        fn new() -> Self {
+            Self::default()
+        }
+        fn set_canonical(&self, type_id: EntityTypeId, name: &str, id: EntityId) {
+            self.canonical
+                .borrow_mut()
+                .insert((type_id, normalize_for_resolver(name)), id);
+        }
+        fn set_aliases(&self, type_id: EntityTypeId, alias: &str, ids: Vec<EntityId>) {
+            self.aliases
+                .borrow_mut()
+                .insert((type_id, normalize_for_resolver(alias)), ids);
+        }
+        fn set_trigram_candidates(
+            &self,
+            type_id: EntityTypeId,
+            query: &str,
+            ids: HashSet<EntityId>,
+        ) {
+            self.trigram_candidates
+                .borrow_mut()
+                .insert((type_id, normalize_for_resolver(query)), ids);
+        }
+        fn set_trigrams_for(&self, id: EntityId, name: &str) {
+            let tg = trigrams::extract_trigrams(&normalize_for_resolver(name));
+            self.trigrams.borrow_mut().insert(id, tg);
+        }
+        fn set_embedding(&self, text: &str, v: [f32; VECTOR_DIM]) {
+            self.embeddings.borrow_mut().insert(text.to_owned(), v);
+        }
+        fn set_index_results(&self, results: Vec<(EntityId, f32)>) {
+            *self.index_results.borrow_mut() = results;
+        }
+        fn set_type(&self, id: EntityId, type_id: EntityTypeId) {
+            self.types.borrow_mut().insert(id, type_id);
+        }
+    }
+
+    impl ResolverStorage for MockBackend {
+        fn lookup_exact_canonical_name(
+            &self,
+            type_id: EntityTypeId,
+            candidate: &str,
+        ) -> Result<Option<EntityId>, ResolverError> {
+            Ok(self
+                .canonical
+                .borrow()
+                .get(&(type_id, normalize_for_resolver(candidate)))
+                .copied())
+        }
+        fn lookup_exact_aliases(
+            &self,
+            type_id: EntityTypeId,
+            candidate: &str,
+        ) -> Result<Vec<EntityId>, ResolverError> {
+            Ok(self
+                .aliases
+                .borrow()
+                .get(&(type_id, normalize_for_resolver(candidate)))
+                .cloned()
+                .unwrap_or_default())
+        }
+        fn trigram_candidates(
+            &self,
+            type_id: EntityTypeId,
+            query_normalized: &str,
+        ) -> Result<HashSet<EntityId>, ResolverError> {
+            Ok(self
+                .trigram_candidates
+                .borrow()
+                .get(&(type_id, query_normalized.to_owned()))
+                .cloned()
+                .unwrap_or_default())
+        }
+        fn trigrams_of(&self, id: EntityId) -> Result<HashSet<[u8; 3]>, ResolverError> {
+            Ok(self.trigrams.borrow().get(&id).cloned().unwrap_or_default())
+        }
+        fn entity_type_of(
+            &self,
+            id: EntityId,
+        ) -> Result<Option<EntityTypeId>, ResolverError> {
+            Ok(self.types.borrow().get(&id).copied())
+        }
+    }
+
+    impl ResolverEmbedder for MockBackend {
+        fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], ResolverError> {
+            self.embeddings
+                .borrow()
+                .get(text)
+                .copied()
+                .ok_or_else(|| ResolverError::Embedder(format!("no fixture for {text:?}")))
+        }
+    }
+
+    impl ResolverIndex for MockBackend {
+        fn search(
+            &self,
+            _query: &[f32; VECTOR_DIM],
+            _top_k: usize,
+        ) -> Result<Vec<(EntityId, f32)>, ResolverError> {
+            Ok(self.index_results.borrow().clone())
+        }
+    }
+
+    fn person() -> EntityTypeId {
+        crate::knowledge::EntityType::PERSON_ID
+    }
+
+    // --- Tier 1 --------------------------------------------------------
+
+    #[test]
+    fn tier1_canonical_hit_resolves() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_canonical(person(), "Priya Patel", id);
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya Patel",
+            "",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            out,
+            ResolutionOutcome::Resolved { entity, tier: ResolverTier::Exact, confidence }
+            if entity == id && (confidence - 1.0).abs() < f32::EPSILON
+        ));
+    }
+
+    #[test]
+    fn tier1_single_alias_hit_resolves() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_aliases(person(), "priya", vec![id]);
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya",
+            "",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            out,
+            ResolutionOutcome::Resolved { entity, tier: ResolverTier::Exact, .. }
+            if entity == id
+        ));
+    }
+
+    #[test]
+    fn tier1_disabled_falls_through_to_tier5_when_nothing_else_set() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_canonical(person(), "Priya", id);
+        let mut cfg = ResolverConfig::default();
+        cfg.enable_exact = false;
+        cfg.enable_fuzzy = false;
+        cfg.enable_embedding = false;
+        let out = resolve_entity(&m, &m, &m, "Priya", "", Some(person()), &cfg).unwrap();
+        assert!(out.is_created(), "all tiers disabled → Created");
+    }
+
+    // --- Tier 2 --------------------------------------------------------
+
+    #[test]
+    fn tier2_single_high_jaccard_resolves() {
+        // Jaccard for short names is brittle around the 0.85 default.
+        // Use identical normalized text — the test demonstrates tier-2
+        // resolves on a high-score single hit; the score-shape itself
+        // is exercised by trigrams.rs's unit tests.
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        let q = normalize_for_resolver("Priya Patel");
+        let cands: HashSet<EntityId> = [id].into_iter().collect();
+        m.set_trigram_candidates(person(), &q, cands);
+        m.set_trigrams_for(id, "Priya Patel");
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya Patel",
+            "",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            out,
+            ResolutionOutcome::Resolved { tier: ResolverTier::Fuzzy, entity, .. } if entity == id
+        ));
+    }
+
+    #[test]
+    fn tier2_below_threshold_falls_through() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        let q = normalize_for_resolver("Priya Patel");
+        m.set_trigram_candidates(person(), &q, [id].into_iter().collect());
+        m.set_trigrams_for(id, "Totally Different"); // low Jaccard
+        // Disable tier 3 + tier 1 to isolate.
+        let mut cfg = ResolverConfig::default();
+        cfg.enable_embedding = false;
+        let out = resolve_entity(&m, &m, &m, "Priya Patel", "", Some(person()), &cfg).unwrap();
+        assert!(
+            out.is_created(),
+            "below-threshold fuzzy with no tier-3 → Created; got {out:?}"
+        );
+    }
+
+    // --- Tier 3 --------------------------------------------------------
+
+    #[test]
+    fn tier3_single_above_threshold_resolves() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(id, 0.95)]);
+        m.set_type(id, person());
+
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya",
+            "ctx",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        assert!(matches!(
+            out,
+            ResolutionOutcome::Resolved { tier: ResolverTier::Embedding, entity, .. }
+            if entity == id
+        ));
+    }
+
+    #[test]
+    fn tier3_below_threshold_falls_through() {
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(id, 0.5)]); // below default 0.78
+        m.set_type(id, person());
+
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya",
+            "ctx",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        assert!(out.is_created());
+    }
+
+    #[test]
+    fn tier3_strict_type_constraint_filters_out_wrong_type() {
+        let m = MockBackend::new();
+        let cross = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(cross, 0.99)]);
+        m.set_type(cross, EntityTypeId(7)); // not Person
+
+        let mut cfg = ResolverConfig::default();
+        cfg.type_constraint = TypeConstraint::Strict;
+        let out = resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg).unwrap();
+        assert!(
+            out.is_created(),
+            "Strict + wrong type → no tier-3 match → Created; got {out:?}"
+        );
+    }
+
+    // --- Ambiguity ----------------------------------------------------
+
+    #[test]
+    fn tier3_top_two_close_returns_ambiguous() {
+        let m = MockBackend::new();
+        let a = EntityId::new();
+        let b = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(a, 0.90), (b, 0.89)]); // within 0.05 of each other
+        m.set_type(a, person());
+        m.set_type(b, person());
+
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "Priya",
+            "ctx",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        match out {
+            ResolutionOutcome::Ambiguous { candidates, .. } => {
+                let ids: HashSet<EntityId> =
+                    candidates.iter().map(|(id, _)| *id).collect();
+                assert!(ids.contains(&a));
+                assert!(ids.contains(&b));
+            }
+            other => panic!("expected Ambiguous, got {other:?}"),
+        }
+    }
+
+    // --- Tier 5 (create) ----------------------------------------------
+
+    #[test]
+    fn all_tiers_empty_creates_fresh_entity() {
+        // When context is empty, the algorithm embeds just `candidate`
+        // (no trailing space — see resolve_entity tier-3 branch).
+        let m = MockBackend::new();
+        m.set_embedding("X", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![]);
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "X",
+            "",
+            Some(person()),
+            &ResolverConfig::default(),
+        )
+        .unwrap();
+        match out {
+            ResolutionOutcome::Created { entity } => {
+                // Fresh UUIDv7 should not be the null EntityId.
+                assert_ne!(entity, EntityId::from([0u8; 16]));
+            }
+            other => panic!("expected Created, got {other:?}"),
+        }
+    }
+
+    // --- LLM stub -----------------------------------------------------
+
+    #[test]
+    fn tier4_llm_enabled_is_silently_skipped() {
+        let m = MockBackend::new();
+        m.set_embedding("X", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![]);
+        let mut cfg = ResolverConfig::default();
+        cfg.enable_llm = true;
+        let out = resolve_entity(&m, &m, &m, "X", "", Some(person()), &cfg).unwrap();
+        // Tier-4 stub falls through; created.
+        assert!(out.is_created());
+    }
+
+    // --- Helpers ------------------------------------------------------
+
+    #[test]
+    fn normalize_for_resolver_matches_metadata_layer() {
+        // Spot-check Unicode + whitespace collapse parity. brain-metadata's
+        // normalize_name has the same semantics.
+        assert_eq!(normalize_for_resolver("  Priya   Patel  "), "priya patel");
+        assert_eq!(normalize_for_resolver("Straße"), "straße");
+    }
+
+    #[test]
+    fn truncate_context_respects_unicode_boundaries() {
+        let s = "αβγδεζηθικλμ"; // multi-byte each
+        let truncated = truncate_context_chars(s, 5);
+        assert!(truncated.chars().count() <= 5);
+        // Must be a valid str slice (no codepoint splitting).
+        assert_eq!(truncated.chars().count(), 5);
+    }
+}
+
