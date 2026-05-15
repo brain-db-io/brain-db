@@ -110,5 +110,24 @@ pub async fn dispatch(req: RequestBody, ctx: &OpsContext) -> Result<ResponseBody
         | RequestBody::AdminListTombstoned(_) => {
             Err(OpError::NotYetImplemented("admin op — Phase 8 / 9"))
         }
+
+        // -----------------------------------------------------------
+        // Knowledge layer — Phase 16+ (spec §28/00).
+        // -----------------------------------------------------------
+        RequestBody::EntityCreate(r) => crate::knowledge_entity::handle_entity_create(r, ctx)
+            .await
+            .map(ResponseBody::EntityCreate),
+
+        RequestBody::EntityGet(r) => crate::knowledge_entity::handle_entity_get(r, ctx)
+            .await
+            .map(ResponseBody::EntityGet),
+
+        RequestBody::EntityUpdate(r) => crate::knowledge_entity::handle_entity_update(r, ctx)
+            .await
+            .map(ResponseBody::EntityUpdate),
+
+        RequestBody::EntityRename(r) => crate::knowledge_entity::handle_entity_rename(r, ctx)
+            .await
+            .map(ResponseBody::EntityRename),
     }
 }

@@ -87,6 +87,13 @@ pub enum RequestBody {
     AdminMoveMemory(AdminMoveMemoryRequest),
     AdminReclassify(AdminReclassifyRequest),
     AdminListTombstoned(AdminListTombstonedRequest),
+
+    // Knowledge namespace (spec §28/00). Phase 16.6c lands the four
+    // entity opcodes; the rest follow in phases 17-24.
+    EntityCreate(crate::knowledge::EntityCreateRequest),
+    EntityGet(crate::knowledge::EntityGetRequest),
+    EntityUpdate(crate::knowledge::EntityUpdateRequest),
+    EntityRename(crate::knowledge::EntityRenameRequest),
 }
 
 impl RequestBody {
@@ -123,6 +130,10 @@ impl RequestBody {
             Self::AdminMoveMemory(_) => Opcode::AdminMoveMemoryReq,
             Self::AdminReclassify(_) => Opcode::AdminReclassifyReq,
             Self::AdminListTombstoned(_) => Opcode::AdminListTombstonedReq,
+            Self::EntityCreate(_) => Opcode::EntityCreateReq,
+            Self::EntityGet(_) => Opcode::EntityGetReq,
+            Self::EntityUpdate(_) => Opcode::EntityUpdateReq,
+            Self::EntityRename(_) => Opcode::EntityRenameReq,
         }
     }
 
@@ -161,6 +172,10 @@ impl RequestBody {
             Self::AdminMoveMemory(r) => to_rkyv_bytes(r),
             Self::AdminReclassify(r) => to_rkyv_bytes(r),
             Self::AdminListTombstoned(r) => to_rkyv_bytes(r),
+            Self::EntityCreate(r) => to_rkyv_bytes(r),
+            Self::EntityGet(r) => to_rkyv_bytes(r),
+            Self::EntityUpdate(r) => to_rkyv_bytes(r),
+            Self::EntityRename(r) => to_rkyv_bytes(r),
         }
     }
 
@@ -200,7 +215,11 @@ impl RequestBody {
             Opcode::AdminMoveMemoryReq => Self::AdminMoveMemory(from_rkyv_bytes(bytes)?),
             Opcode::AdminReclassifyReq => Self::AdminReclassify(from_rkyv_bytes(bytes)?),
             Opcode::AdminListTombstonedReq => Self::AdminListTombstoned(from_rkyv_bytes(bytes)?),
-            other => return Err(ProtocolError::UnknownOpcode(other.as_u8())),
+            Opcode::EntityCreateReq => Self::EntityCreate(from_rkyv_bytes(bytes)?),
+            Opcode::EntityGetReq => Self::EntityGet(from_rkyv_bytes(bytes)?),
+            Opcode::EntityUpdateReq => Self::EntityUpdate(from_rkyv_bytes(bytes)?),
+            Opcode::EntityRenameReq => Self::EntityRename(from_rkyv_bytes(bytes)?),
+            other => return Err(ProtocolError::UnknownOpcode(other.as_u16())),
         })
     }
 }
