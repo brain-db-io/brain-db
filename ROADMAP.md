@@ -251,15 +251,34 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 ---
 
-## Phase 16 — Entity layer
+## Phase 16 — Entity layer ✓
 
-**One-line:** Entity table, type system, entity HNSW, resolver (tiers 1 exact, 2 trigram fuzzy, 3 embedding). Tier 4 (LLM) is a stub.
+**One-line:** Entity table, type system, entity HNSW (declared; resolver wiring in phase 21), resolver tiers 1 (exact / alias) and 2 (trigram fuzzy). Tiers 3 (embedding) and 4 (LLM) stubbed for phase 21.
 
 **Detailed plan:** [`docs/phases/phase-16-entities.md`](docs/phases/phase-16-entities.md)
 
 **Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
 
-**Sub-tasks:** 9. **Exit:** entity create / merge / rename / resolve all work via wire + SDK; tag `phase-16-complete`.
+**Sub-tasks:** 9. **Exit:** entity create / merge / unmerge / rename / resolve / list / tombstone all work via wire + SDK; tag `phase-16-complete`.
+
+**Delivered:**
+
+- 9 entity wire opcodes (`0x0130–0x0138`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
+- Knowledge namespace introduced at high-byte `0x01` (wire opcode widened to `u16` in 16.6a — pre-v1.0 wire change documented in §03/12 §0).
+- Hand-written entity SDK over `Person` (typed `EntityHandle<T>` + 5 builders for all 9 ops + `ClientErrorEntityExt`). Derive macros defer to phase 19.
+- `MergeRecord` v2 + `entity_merge_ops` (full diff captured for grace-period unmerge). Statement / relation re-route deferred to phases 17 / 18 sweeps.
+- §28 knowledge wire protocol section brought to §03-depth (15 detail files, ~135 KB of spec).
+- §18 entities backfilled with merge / unmerge / GC mechanics (§03 / §04 / §05).
+- Adversarial-input resolver tests + create→merge→unmerge→rename lifecycle integration test + criterion bench for tier-1 / tier-2 perf.
+- 14 substrate `SubscriptionEvent` event types extended for knowledge layer; event emission wired across all six mutating entity handlers.
+
+**Deferred to later phases (tracked in `spec/28/09_open_questions.md` + `spec/18/06_open_questions.md`):**
+
+- Resolver tier 3 (embedding) — phase 21 when entity HNSW is wired into the resolver.
+- Tier 4 (LLM-tier) — phase 21.
+- Cursor pagination + multi-frame streaming for `ENTITY_LIST` — phase 23.
+- Statement / relation re-routing during merge — phases 17 / 18.
+- Derive macro `#[derive(BrainEntity)]` — phase 19.
 
 ---
 
