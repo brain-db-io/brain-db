@@ -130,15 +130,24 @@ pub async fn dispatch(req: RequestBody, ctx: &OpsContext) -> Result<ResponseBody
             .await
             .map(ResponseBody::EntityRename),
 
-        // 16.7.5 — handlers wired in the next commit; 16.7.3 stubs out
-        // the dispatch arms so the workspace compiles after the wire
-        // shapes land.
-        RequestBody::EntityMerge(_)
-        | RequestBody::EntityUnmerge(_)
-        | RequestBody::EntityResolve(_)
-        | RequestBody::EntityList(_)
-        | RequestBody::EntityTombstone(_) => Err(OpError::NotYetImplemented(
-            "entity merge/unmerge/resolve/list/tombstone — phase 16.7.5",
-        )),
+        RequestBody::EntityMerge(r) => crate::knowledge_entity::handle_entity_merge(r, ctx)
+            .await
+            .map(ResponseBody::EntityMerge),
+
+        RequestBody::EntityUnmerge(r) => crate::knowledge_entity::handle_entity_unmerge(r, ctx)
+            .await
+            .map(ResponseBody::EntityUnmerge),
+
+        RequestBody::EntityResolve(r) => crate::knowledge_entity::handle_entity_resolve(r, ctx)
+            .await
+            .map(ResponseBody::EntityResolve),
+
+        RequestBody::EntityList(r) => crate::knowledge_entity::handle_entity_list(r, ctx)
+            .await
+            .map(ResponseBody::EntityList),
+
+        RequestBody::EntityTombstone(r) => crate::knowledge_entity::handle_entity_tombstone(r, ctx)
+            .await
+            .map(ResponseBody::EntityTombstone),
     }
 }

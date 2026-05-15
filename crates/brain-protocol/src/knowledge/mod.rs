@@ -24,9 +24,8 @@ pub use entity_req::{
 };
 pub use entity_resp::{
     EntityCreateResponse, EntityGetResponse, EntityListItem, EntityListResponseFrame,
-    EntityListResponseTail, EntityMergeResponse, EntityRenameResponse, EntityResolveResponse,
-    EntityTombstoneResponse, EntityUnmergeResponse, EntityUpdateResponse, EntityView,
-    ResolutionOutcomeWire,
+    EntityMergeResponse, EntityRenameResponse, EntityResolveResponse, EntityTombstoneResponse,
+    EntityUnmergeResponse, EntityUpdateResponse, EntityView, ResolutionOutcomeWire,
 };
 pub use events::{
     EntityCreatedEvent, EntityMergedEvent, EntityRenamedEvent, EntityTombstonedEvent,

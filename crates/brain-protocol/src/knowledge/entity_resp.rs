@@ -112,8 +112,7 @@ pub struct EntityResolveResponse {
     pub audit_id: WireUuid,
 }
 
-/// Per-item frame body for the streaming `ENTITY_LIST` response.
-/// Spec §28/01 §10.2.
+/// One entity in an `ENTITY_LIST` response batch. Spec §28/01 §10.2.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -121,32 +120,35 @@ pub struct EntityListItem {
     pub entity: EntityView,
 }
 
-/// Tail frame body for the streaming `ENTITY_LIST` response. EOS-flagged.
+/// Response body for `ENTITY_LIST` (`0x01B7`). Carries one or more
+/// `EntityListItem`s per frame; `is_final = true` on the last frame.
+/// Mirrors the substrate's `RecallResponseFrame` streaming shape — see
+/// [`../../../spec/03_wire_protocol/09_streaming.md`](../../../spec/03_wire_protocol/09_streaming.md).
+///
+/// Phase 16.7.5 emits a single frame with `is_final = true` carrying
+/// the entire snapshot. Phase 16.7.6 splits this into per-batch
+/// streaming.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
-pub struct EntityListResponseTail {
+pub struct EntityListResponseFrame {
+    pub items: Vec<EntityListItem>,
+    /// Empty on intermediate frames; populated only on the final
+    /// frame. Empty `next_cursor` on the final frame means "exhausted";
+    /// non-empty means "more pages available, resume with this".
     pub next_cursor: Vec<u8>,
-    pub total_returned: u32,
-}
-
-/// Combined response body for `ENTITY_LIST`. The streaming dispatcher
-/// emits either an `Item` frame or a `Tail` frame; the wire opcode is
-/// the same (`0x01B7`) and the body discriminates.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub enum EntityListResponseFrame {
-    Item(EntityListItem),
-    Tail(EntityListResponseTail),
+    /// Cumulative count of items emitted across all frames in this
+    /// stream so far.
+    pub cumulative_count: u32,
+    pub is_final: bool,
 }
 
 impl EntityListResponseFrame {
-    /// True for the final tail frame; false for per-item intermediate
+    /// True for the final tail frame; false for per-batch intermediate
     /// frames. Mirrors the substrate's `is_final` body-side signal.
     #[must_use]
     pub fn is_final(&self) -> bool {
-        matches!(self, Self::Tail(_))
+        self.is_final
     }
 }
 

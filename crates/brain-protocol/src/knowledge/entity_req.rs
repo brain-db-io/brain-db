@@ -367,22 +367,31 @@ mod tests {
     }
 
     #[test]
-    fn entity_list_response_roundtrip_item_and_tail() {
-        use crate::knowledge::{EntityListItem, EntityListResponseFrame, EntityListResponseTail};
-        // Item frame.
-        let item_frame = EntityListResponseFrame::Item(EntityListItem {
-            entity: sample_view(),
-        });
-        assert!(!item_frame.is_final());
-        resp_round_trip(ResponseBody::EntityList(item_frame));
+    fn entity_list_response_roundtrip_intermediate_and_final() {
+        use crate::knowledge::{EntityListItem, EntityListResponseFrame};
+        // Intermediate frame: items present, not final.
+        let intermediate = EntityListResponseFrame {
+            items: vec![EntityListItem {
+                entity: sample_view(),
+            }],
+            next_cursor: Vec::new(),
+            cumulative_count: 1,
+            is_final: false,
+        };
+        assert!(!intermediate.is_final());
+        resp_round_trip(ResponseBody::EntityList(intermediate));
 
-        // Tail frame.
-        let tail_frame = EntityListResponseFrame::Tail(EntityListResponseTail {
+        // Final frame: may carry items + cursor + EOS-flag-equivalent body bit.
+        let final_frame = EntityListResponseFrame {
+            items: vec![EntityListItem {
+                entity: sample_view(),
+            }],
             next_cursor: vec![0xAB, 0xCD],
-            total_returned: 42,
-        });
-        assert!(tail_frame.is_final());
-        resp_round_trip(ResponseBody::EntityList(tail_frame));
+            cumulative_count: 42,
+            is_final: true,
+        };
+        assert!(final_frame.is_final());
+        resp_round_trip(ResponseBody::EntityList(final_frame));
     }
 
     #[test]
