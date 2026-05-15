@@ -54,6 +54,14 @@ X" prose); the per-section audit pages filter visually.
   remaining section has its owning crate, MUST count, audit
   priority (P1/P2/P3), and a recommended-order list.
 
+## Fix plan
+
+[`fix-plan.md`](fix-plan.md) triages every audit finding into
+**must-fix v1.0 / should-fix v1.x / defer to v2 / spec-side /
+closed**, with scope, files touched, effort estimate, and a
+sequencing recommendation. Headline: **F-1 (a one-line spec
+typo) is the only audit-driven v1.0 blocker.**
+
 ## Cross-references
 
 - [`docs/spec-deviations.md`](../spec-deviations.md) — 19 conscious
