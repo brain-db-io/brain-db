@@ -8,8 +8,13 @@
 //! See `spec/29_knowledge_sdk/00_purpose.md` "Phase scope" for the
 //! roadmap across phases 16-24.
 
+pub mod builder;
 pub mod entity;
 
+pub use builder::{
+    EntityClient, EntityCreateBuilder, EntityListBuilder, EntityMergeBuilder, EntityResolveBuilder,
+    EntityUpdateBuilder, MergeOutcome, ResolutionOutcome,
+};
 pub use entity::{
     BrainEntityType, EntityHandle, EntityHandleFromViewError, Person, PersonAttributes,
 };
