@@ -59,8 +59,12 @@ X" prose); the per-section audit pages filter visually.
 [`fix-plan.md`](fix-plan.md) triages every audit finding into
 **must-fix v1.0 / should-fix v1.x / defer to v2 / spec-side /
 closed**, with scope, files touched, effort estimate, and a
-sequencing recommendation. Headline: **F-1 (a one-line spec
-typo) is the only audit-driven v1.0 blocker.**
+sequencing recommendation.
+
+**Headline: zero v1.0 blockers remaining.** F-1 closed via
+operator-run `sed`; F-2 / F-3 / F-7 / F-13 closed in commit
+`8b78de1`. The remaining open items are v1.x tightenings + v2
+wire amendments + future per-section audits.
 
 ## Cross-references
 

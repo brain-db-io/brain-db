@@ -43,7 +43,7 @@ The server's *effective* limit is configurable, defaulting to 16 MiB. A frame wi
 
 ### 2.5 Stream ID rules
 
-Stream IDs MUST follow the parity convention from [`05_streams.md`](05_streams.md):
+Stream IDs MUST follow the parity convention from [`09_streaming.md`](09_streaming.md):
 
 - Client-initiated streams: odd values.
 - Reserved for server-initiated: even values (not used in v1).
@@ -156,7 +156,7 @@ Some validations span multiple frames.
 
 ### 5.1 Stream lifecycle
 
-Frames within a stream MUST follow the lifecycle rules from [`05_streams.md`](05_streams.md):
+Frames within a stream MUST follow the lifecycle rules from [`09_streaming.md`](09_streaming.md):
 
 - A stream is opened by the first request frame.
 - Subsequent frames on the stream MUST be either continuation or response frames belonging to that opcode's pattern.

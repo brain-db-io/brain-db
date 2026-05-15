@@ -7,8 +7,10 @@
 **MUSTs scanned:** 42 normative clauses (after filtering
   non-normative "must understand X"-style prose from the raw
   77-hit grep).
-**Status:** 40 matched · 0 deferred · 1 deviation (broken spec
-  cross-ref) · 1 drift (stream-ID parity not enforced).
+**Status:** 42 matched · 0 deferred · 0 deviation · 0 drift.
+  Original audit found 1 spec-side typo + 1 drift (stream-ID
+  parity); both **closed** in the F-1 / F-2 fixes (commit
+  `8b78de1` + operator-run `sed`).
 
 ## Summary
 
@@ -28,10 +30,12 @@ payload-decode validation, opcode validity) is fully enforced in
    parity convention internally), so this is a SHOULD-fix not a
    MUST-fix for v1.0.
 
-2. **Spec cross-ref broken — `WP-X1` `05_streams.md` doesn't
-   exist.** Spec §11/2.5 links to `05_streams.md`; the file is
-   actually `05_opcodes.md`. Pure spec-side typo. Surface to the
-   spec author; no impl change.
+2. ~~**Spec cross-ref broken — `WP-X1` `05_streams.md` doesn't
+   exist.**~~ — **closed** (operator-run `sed`). Both broken links
+   in `spec/03_wire_protocol/11_validation.md` (lines 46 and 159)
+   now point at `09_streaming.md`, the sibling file that actually
+   carries the stream-ID and EOS rules. See F-1 in
+   [`fix-plan.md`](fix-plan.md).
 
 Everything else matches.
 
