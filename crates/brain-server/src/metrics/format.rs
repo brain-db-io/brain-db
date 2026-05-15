@@ -180,6 +180,27 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         "brain_frame_recv_total {}",
         connections.frame_recv_total.load(Ordering::Relaxed),
     );
+
+    // F-7: frame size histograms (raw-mode; `_sum` is the true byte
+    // total). Spec §14/01 §9.
+    emit_header(
+        out,
+        "brain_frame_size_bytes",
+        "Per-frame wire size in bytes (header + payload), by direction.",
+        "histogram",
+    );
+    emit_histogram(
+        out,
+        "brain_frame_size_bytes",
+        "direction=\"send\"",
+        &connections.frame_send_bytes,
+    );
+    emit_histogram(
+        out,
+        "brain_frame_size_bytes",
+        "direction=\"recv\"",
+        &connections.frame_recv_bytes,
+    );
 }
 
 /// 12.1c — `/proc/self`-derived resource metrics per spec §14/01 §10.

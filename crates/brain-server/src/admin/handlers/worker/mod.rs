@@ -2,10 +2,13 @@
 //!
 //! Routes:
 //! - `GET /v1/workers[?shard=N]` → 200 + per-shard worker snapshots.
-//! - `POST /v1/workers/{name}/{stop|start|run-now}` → 501.
-//!
-//! Worker control plane is deferred; spec §14/06 §6 calls for
-//! pause/resume/trigger but the Scheduler has no such hooks today.
+//! - `POST /v1/workers/{name}/{stop|start|run-now}` — F-13 wired the
+//!   live control plane. `stop` pauses the loop's `run_cycle`; the
+//!   loop keeps ticking on its interval so the worker can be resumed
+//!   without restarting the shard. `start` resumes a paused worker
+//!   (and kicks the wake channel so the next cycle runs without
+//!   waiting out the current sleep). `run-now` triggers a single
+//!   immediate cycle.
 
 mod control;
 mod list;

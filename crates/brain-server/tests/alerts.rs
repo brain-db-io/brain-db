@@ -66,7 +66,10 @@ fn scan_alerts_and_severities(text: &str) -> (Vec<String>, Vec<String>) {
 
 #[test]
 fn rules_file_exists() {
-    assert!(rules_path().exists(), "docs/analytics/alerts/brain-rules.yml missing");
+    assert!(
+        rules_path().exists(),
+        "docs/analytics/alerts/brain-rules.yml missing"
+    );
 }
 
 #[test]

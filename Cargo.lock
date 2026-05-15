@@ -576,6 +576,7 @@ dependencies = [
  "brain-ops",
  "brain-planner",
  "brain-protocol",
+ "flume 0.11.1",
  "futures-lite 2.6.1",
  "glommio",
  "parking_lot",

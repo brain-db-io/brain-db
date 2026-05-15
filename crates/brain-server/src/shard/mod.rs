@@ -144,6 +144,26 @@ pub(crate) enum ShardRequest {
     /// Snapshot the HNSW index counts. Used by the admin `/metrics`
     /// path to emit `brain_hnsw_*` families. Sub-task 12.8.
     HnswSnapshot { reply_tx: Sender<HnswCounts> },
+    /// F-13: pause / resume / run-now a single background worker.
+    /// Replies with `true` iff the named worker exists.
+    WorkerControl {
+        name: String,
+        action: WorkerAction,
+        reply_tx: Sender<bool>,
+    },
+}
+
+/// F-13 action verbs for [`ShardRequest::WorkerControl`].
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum WorkerAction {
+    /// Pause the worker. Loop keeps ticking but skips `run_cycle`.
+    Pause,
+    /// Resume a paused worker (kicks the wake channel so the next
+    /// cycle runs immediately rather than waiting out the current
+    /// sleep).
+    Resume,
+    /// Wake the worker now; run one cycle outside the schedule.
+    RunNow,
 }
 
 /// Counts surfaced by `ShardRequest::HnswSnapshot`. Pure data type so
@@ -440,6 +460,30 @@ impl ShardHandle {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
             .send_async(ShardRequest::HnswSnapshot { reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)
+    }
+
+    /// F-13: pause / resume / run-now a named background worker on
+    /// this shard. Returns `Ok(true)` iff the worker exists,
+    /// `Ok(false)` if there's no such worker (caller should reply
+    /// `404 unknown worker`).
+    pub async fn worker_control(
+        &self,
+        name: String,
+        action: WorkerAction,
+    ) -> Result<bool, ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::WorkerControl {
+                name,
+                action,
+                reply_tx,
+            })
             .await
             .map_err(|_| ShardError::ShardDisconnected)?;
         reply_rx
@@ -982,6 +1026,26 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     warn!(
                         shard_id = shard.shard_id,
                         "HnswSnapshot reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::WorkerControl {
+                name,
+                action,
+                reply_tx,
+            } => {
+                let applied = match &shard.scheduler {
+                    Some(scheduler) => match action {
+                        WorkerAction::Pause => scheduler.pause(&name),
+                        WorkerAction::Resume => scheduler.resume(&name),
+                        WorkerAction::RunNow => scheduler.run_now(&name),
+                    },
+                    None => false,
+                };
+                if reply_tx.send_async(applied).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "WorkerControl reply dropped (caller gone)"
                     );
                 }
             }

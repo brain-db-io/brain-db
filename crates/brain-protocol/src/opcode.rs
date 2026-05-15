@@ -196,6 +196,32 @@ impl Opcode {
     pub fn is_admin(self) -> bool {
         matches!(self as u8, 0x60..=0x69 | 0xE0..=0xE9)
     }
+
+    /// True if this opcode rides on the connection-level stream
+    /// (stream_id MUST be 0 per spec §03/11 §2.5): HELLO, WELCOME,
+    /// AUTH, AUTH_OK, PING, PONG, ServerPing, ClientPong, BYE.
+    ///
+    /// ERROR (0xFF) is deliberately excluded — the server can emit
+    /// an error frame on either stream 0 (handshake error) or on
+    /// the offending op's stream (per-op error).
+    ///
+    /// F-2 in `docs/spec-audit/fix-plan.md`.
+    #[inline]
+    #[must_use]
+    pub fn is_connection_level(self) -> bool {
+        matches!(
+            self,
+            Opcode::Hello
+                | Opcode::Welcome
+                | Opcode::Auth
+                | Opcode::AuthOk
+                | Opcode::Ping
+                | Opcode::Pong
+                | Opcode::ServerPing
+                | Opcode::ClientPong
+                | Opcode::Bye
+        )
+    }
 }
 
 #[cfg(test)]

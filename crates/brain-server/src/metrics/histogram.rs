@@ -8,9 +8,19 @@
 //! ## Why an integer sum
 //!
 //! Prometheus accepts a floating-point `_sum`, but `AtomicF64` isn't
-//! stable in libcore. We track `sum_micros: AtomicU64` (sum × 1000) so
-//! `fetch_add` works; exposition divides by 1000 to emit a decimal
-//! millisecond value with one digit of precision.
+//! stable in libcore. We track `sum_scaled: AtomicU64` and divide by
+//! a per-histogram `scale` at exposition time.
+//!
+//! - **ms histograms** use `scale = 1000`. Observations multiply by
+//!   1000 before `fetch_add`, giving one decimal place of precision
+//!   on the rendered `_sum`.
+//! - **raw histograms** (byte counts, item counts, etc.) use
+//!   `scale = 1`. The sum is the true integer total.
+//!
+//! Constructed via [`Histogram::new`] (raw) or
+//! [`Histogram::new_default_ms`] (ms-scaled with spec §12 buckets).
+//! F-7 in `docs/spec-audit/fix-plan.md` introduced the unit-agnostic
+//! split.
 //!
 //! ## Allocation
 //!
@@ -33,17 +43,36 @@ pub const DEFAULT_BUCKETS_MS: &[f64] = &[
 pub struct Histogram {
     bounds: &'static [f64],
     counts: Vec<AtomicU64>,
-    sum_micros: AtomicU64,
+    /// Sum × `scale`. Stored as `u64` so `fetch_add` works without
+    /// an atomic float. Divide by `scale` at exposition.
+    sum_scaled: AtomicU64,
     count: AtomicU64,
+    /// Multiplier applied to observations before integer-summing.
+    /// 1 = raw integer sum; 1000 = ms-decimal with one digit of
+    /// precision.
+    scale: u64,
 }
 
 impl Histogram {
-    /// Construct a histogram with the supplied bucket boundaries
-    /// (cumulative `le` semantics). Boundaries must be sorted
-    /// ascending; the constructor does not validate this — callers
-    /// pass static slices.
+    /// Construct a histogram with raw integer-sum semantics. Use
+    /// this for byte counts, item counts, frame sizes — anything
+    /// where the observation is an integer and you want
+    /// `_sum` to be the exact total.
     #[must_use]
     pub fn new(bounds: &'static [f64]) -> Self {
+        Self::with_scale(bounds, 1)
+    }
+
+    /// Construct an ms-scaled histogram with the spec §14/01 §12
+    /// default buckets. Observations are stored as `value × 1000`
+    /// internally; the rendered `_sum` is `sum_scaled / 1000` (one
+    /// decimal place).
+    #[must_use]
+    pub fn new_default_ms() -> Self {
+        Self::with_scale(DEFAULT_BUCKETS_MS, 1000)
+    }
+
+    fn with_scale(bounds: &'static [f64], scale: u64) -> Self {
         let mut counts = Vec::with_capacity(bounds.len() + 1);
         for _ in 0..=bounds.len() {
             counts.push(AtomicU64::new(0));
@@ -51,24 +80,22 @@ impl Histogram {
         Self {
             bounds,
             counts,
-            sum_micros: AtomicU64::new(0),
+            sum_scaled: AtomicU64::new(0),
             count: AtomicU64::new(0),
+            scale,
         }
     }
 
-    /// Construct a histogram with the spec §14/01 §12 default buckets.
-    #[must_use]
-    pub fn new_default_ms() -> Self {
-        Self::new(DEFAULT_BUCKETS_MS)
-    }
-
-    /// Observe a value (ms). Negative values are clamped to zero —
-    /// they would otherwise pollute the sum and aren't meaningful for
-    /// latency histograms.
-    pub fn observe_ms(&self, value_ms: f64) {
-        let v = value_ms.max(0.0);
-        let micros = (v * 1000.0) as u64;
-        self.sum_micros.fetch_add(micros, Ordering::Relaxed);
+    /// Observe a value. Negative values are clamped to zero — they
+    /// would otherwise pollute the sum and aren't meaningful for
+    /// latency or size histograms.
+    pub fn observe(&self, value: f64) {
+        let v = value.max(0.0);
+        // Multiply by scale (lossy if scale > 1; that's the
+        // intentional precision trade-off documented in the module
+        // docstring).
+        let scaled = (v * self.scale as f64) as u64;
+        self.sum_scaled.fetch_add(scaled, Ordering::Relaxed);
         self.count.fetch_add(1, Ordering::Relaxed);
         for (i, &bound) in self.bounds.iter().enumerate() {
             if v <= bound {
@@ -79,6 +106,13 @@ impl Histogram {
         // +Inf bucket.
         let last = self.counts.len() - 1;
         self.counts[last].fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// Convenience alias for [`Self::observe`] on ms-scaled
+    /// histograms. Kept for call-site readability where the unit
+    /// matters (`request.observe_ms(elapsed.as_secs_f64() * 1000.0)`).
+    pub fn observe_ms(&self, value_ms: f64) {
+        self.observe(value_ms);
     }
 
     /// Bucket bounds (does not include +Inf).
@@ -109,7 +143,7 @@ impl Histogram {
         }
         HistogramSnapshot {
             buckets,
-            sum_ms: self.sum_micros.load(Ordering::Relaxed) as f64 / 1000.0,
+            sum: self.sum_scaled.load(Ordering::Relaxed) as f64 / self.scale as f64,
             count: self.count.load(Ordering::Relaxed),
         }
     }
@@ -136,7 +170,7 @@ impl Histogram {
             true => String::new(),
             false => format!("{{{label_prefix}}}"),
         };
-        let _ = writeln!(out, "{name}_sum{bare_label} {sum}", sum = snap.sum_ms);
+        let _ = writeln!(out, "{name}_sum{bare_label} {sum}", sum = snap.sum);
         let _ = writeln!(out, "{name}_count{bare_label} {count}", count = snap.count);
     }
 }
@@ -166,10 +200,15 @@ impl std::fmt::Display for Bound {
 
 /// Snapshot of a histogram. Cheap to produce; computed on `/metrics`
 /// scrape only.
+///
+/// `sum` is the unscaled, true total — divided by the histogram's
+/// internal `scale` at snapshot time. For ms histograms `sum` is in
+/// milliseconds; for raw histograms it's the integer total cast to
+/// `f64`.
 #[derive(Debug, Clone)]
 pub struct HistogramSnapshot {
     pub buckets: Vec<BucketSnapshot>,
-    pub sum_ms: f64,
+    pub sum: f64,
     pub count: u64,
 }
 
@@ -206,7 +245,6 @@ mod tests {
         //   le=2.5 : 1
         //   le=5   : 2 (+3.0)
         //   le=10  : 3 (+7.0)
-        //   le=25  : 3
         //   ...
         //   le=+Inf: 4 (+15000)
         assert_eq!(snap.buckets[0].cumulative_count, 1, "le=1 cumulative");
@@ -219,11 +257,7 @@ mod tests {
         );
         assert_eq!(snap.count, 4);
         // Sum: 0.5 + 3.0 + 7.0 + 15000.0 = 15010.5
-        assert!(
-            (snap.sum_ms - 15_010.5).abs() < 0.001,
-            "sum_ms = {}",
-            snap.sum_ms
-        );
+        assert!((snap.sum - 15_010.5).abs() < 0.001, "sum = {}", snap.sum);
     }
 
     #[test]
@@ -232,7 +266,7 @@ mod tests {
         h.observe_ms(-1.0);
         let snap = h.snapshot();
         assert_eq!(snap.count, 1);
-        assert!(snap.sum_ms < 0.001, "sum_ms = {}", snap.sum_ms);
+        assert!(snap.sum < 0.001, "sum = {}", snap.sum);
         assert_eq!(snap.buckets[0].cumulative_count, 1, "le=1 catches 0");
     }
 
@@ -256,11 +290,7 @@ mod tests {
         let snap = h.snapshot();
         assert_eq!(snap.count, 8 * 1_000);
         // Sum: (1+2+3+4+5+6+7+8) × 1000 = 36000.0
-        assert!(
-            (snap.sum_ms - 36_000.0).abs() < 1.0,
-            "sum_ms = {}",
-            snap.sum_ms
-        );
+        assert!((snap.sum - 36_000.0).abs() < 1.0, "sum = {}", snap.sum);
     }
 
     #[test]
@@ -284,5 +314,30 @@ mod tests {
         h.expose("brain_test_duration_ms", "", &mut out);
         assert!(out.contains("brain_test_duration_ms_bucket{le=\"1\"} 1"));
         assert!(out.contains("brain_test_duration_ms_count 1"));
+    }
+
+    /// F-7: raw-mode histograms emit the true integer sum, not
+    /// scaled. Used by frame-size histograms where the observation
+    /// is bytes.
+    #[test]
+    fn raw_histogram_sum_is_unscaled() {
+        const BYTE_BUCKETS: &[f64] = &[64.0, 256.0, 1024.0, 4096.0, 16_384.0];
+        let h = Histogram::new(BYTE_BUCKETS);
+        h.observe(128.0); // ≤ 256
+        h.observe(2048.0); // ≤ 4096
+        h.observe(10_000.0); // ≤ 16384
+        let snap = h.snapshot();
+        // True byte total: 128 + 2048 + 10000 = 12176.
+        assert!(
+            (snap.sum - 12_176.0).abs() < 0.001,
+            "raw sum = {}",
+            snap.sum
+        );
+        assert_eq!(snap.count, 3);
+        assert_eq!(
+            snap.buckets[1].cumulative_count, 1,
+            "le=256 has the 128 obs"
+        );
+        assert_eq!(snap.buckets[3].cumulative_count, 2, "le=4096 has 128+2048");
     }
 }

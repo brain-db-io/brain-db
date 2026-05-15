@@ -23,6 +23,8 @@ uuid.workspace = true
 # After sub-task 9.7: per-shard scheduler runs on Glommio.
 glommio.workspace = true
 futures-lite.workspace = true
+# F-13: per-worker run-now wakeup channel (Glommio-compatible).
+flume.workspace = true
 
 [dev-dependencies]
 brain-embed = { path = "../brain-embed" }

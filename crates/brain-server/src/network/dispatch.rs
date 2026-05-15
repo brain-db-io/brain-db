@@ -159,13 +159,42 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
     let opcode = match Opcode::from_u8(frame.header.opcode) {
         Ok(o) => o,
         Err(_) => {
-            return Action::CloseWith(error_frame(
+            // Per spec §03/11 §2.6: unknown opcodes return BadOpcode and
+            // the connection stays open. F-3 in docs/spec-audit/fix-plan.md
+            // reconciled the previous CloseWith behaviour.
+            return Action::Inline(error_frame(
                 frame.header.stream_id_u32(),
                 ErrorCode::BadOpcode,
                 "unknown opcode",
             ));
         }
     };
+
+    // F-2 (docs/spec-audit/fix-plan.md), spec §03/11 §2.5:
+    // - Connection-level opcodes (HELLO/AUTH/PING/PONG/BYE/…)
+    //   MUST ride on stream_id = 0.
+    // - Client-initiated op streams MUST be odd (and != 0).
+    // - The ERROR opcode is exempt — the server can emit on
+    //   either stream_id = 0 (handshake error) or the offending
+    //   op's stream.
+    let stream_id = frame.header.stream_id_u32();
+    if opcode != Opcode::Error {
+        if opcode.is_connection_level() {
+            if stream_id != 0 {
+                return Action::Inline(error_frame(
+                    stream_id,
+                    ErrorCode::BadFrame,
+                    "connection-level opcode requires stream_id = 0",
+                ));
+            }
+        } else if stream_id == 0 || stream_id % 2 == 0 {
+            return Action::Inline(error_frame(
+                stream_id,
+                ErrorCode::BadFrame,
+                "op streams must be non-zero and odd (client-initiated)",
+            ));
+        }
+    }
 
     // Connection-management opcodes are handled regardless of phase
     // (they're stream_id = 0 control frames).
@@ -697,6 +726,81 @@ mod tests {
         match dispatch_frame(frame, &mut state, &topo) {
             Action::Inline(f) => assert_eq!(f.header.opcode, Opcode::Pong.as_u8()),
             _ => panic!("expected Inline(PONG)"),
+        }
+    }
+
+    /// F-2: HELLO with stream_id != 0 returns BadFrame and stays
+    /// open. Spec §03/11 §2.5.
+    #[test]
+    fn connection_level_opcode_rejects_nonzero_stream() {
+        // HELLO payload is valid; the only violation is stream_id=1.
+        let hello = build_hello_frame();
+        let frame = Frame::new(Opcode::Hello.as_u8(), FLAG_EOS, 1, hello.payload);
+        let mut state = ConnState::new();
+        let topo = test_topology();
+        match dispatch_frame(frame, &mut state, &topo) {
+            Action::Inline(reply) => {
+                assert_eq!(reply.header.opcode, Opcode::Error.as_u8());
+                assert_eq!(reply.header.stream_id_u32(), 1);
+            }
+            _ => panic!("expected Inline(ERROR) on bad-stream HELLO"),
+        }
+    }
+
+    /// F-2: client op on even stream_id is BadFrame.
+    #[test]
+    fn op_stream_must_be_odd() {
+        // EncodeReq on stream_id = 2 (even). The op is client-bound
+        // (`is_request() == true`, `is_connection_level() == false`).
+        let frame = Frame::new(Opcode::EncodeReq.as_u8(), FLAG_EOS, 2, Vec::new());
+        let mut state = ConnState::new();
+        let topo = test_topology();
+        match dispatch_frame(frame, &mut state, &topo) {
+            Action::Inline(reply) => {
+                assert_eq!(reply.header.opcode, Opcode::Error.as_u8());
+                assert_eq!(reply.header.stream_id_u32(), 2);
+            }
+            _ => panic!("expected Inline(ERROR) on even op stream_id"),
+        }
+    }
+
+    /// F-2: client op on stream_id = 0 is BadFrame.
+    #[test]
+    fn op_stream_must_be_nonzero() {
+        let frame = Frame::new(Opcode::EncodeReq.as_u8(), FLAG_EOS, 0, Vec::new());
+        let mut state = ConnState::new();
+        let topo = test_topology();
+        match dispatch_frame(frame, &mut state, &topo) {
+            Action::Inline(reply) => {
+                assert_eq!(reply.header.opcode, Opcode::Error.as_u8());
+            }
+            _ => panic!("expected Inline(ERROR) on stream_id=0 op"),
+        }
+    }
+
+    /// F-3: unknown opcode returns BadOpcode but the connection stays
+    /// open (Action::Inline, not CloseWith). Spec §03/11 §2.6.
+    #[test]
+    fn unknown_opcode_stays_open() {
+        // 0xAA is not in the Opcode enum.
+        let frame = Frame::new(0xAA, 0, 7, Vec::new());
+        let mut state = ConnState::new();
+        let topo = test_topology();
+        match dispatch_frame(frame, &mut state, &topo) {
+            Action::Inline(reply) => {
+                assert_eq!(
+                    reply.header.opcode,
+                    Opcode::Error.as_u8(),
+                    "expected an Error frame"
+                );
+                assert_eq!(
+                    reply.header.stream_id_u32(),
+                    7,
+                    "error should be on the offending stream id"
+                );
+            }
+            Action::CloseWith(_) => panic!("F-3 regression: connection closed on unknown opcode"),
+            _ => panic!("expected Action::Inline(ERROR)"),
         }
     }
 }

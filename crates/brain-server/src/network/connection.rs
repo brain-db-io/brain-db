@@ -148,14 +148,9 @@ impl Default for ConnectionLimits {
 }
 
 /// Live connection counters surfaced via the admin `/metrics`
-/// endpoint. Extended in 12.7 with the spec §14/01 §9 family
-/// (closed-by-reason, frame send/recv counters).
-///
-/// The `brain_frame_size_bytes` histogram is deferred — the current
-/// `Histogram` primitive's sum is scaled (× 1000) for ms decimal
-/// rendering, which would emit a wrong-units `_sum` for byte values.
-/// Tracker: `phase-12/histogram-unit-agnostic`.
-#[derive(Default)]
+/// endpoint. Extended in 12.7 (closed-by-reason + frame send/recv
+/// counters) and in F-7 (frame_size_bytes histograms after the
+/// unit-agnostic `Histogram` refactor).
 pub struct ConnectionMetrics {
     pub active: AtomicU64,
     pub total: AtomicU64,
@@ -163,6 +158,42 @@ pub struct ConnectionMetrics {
     pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
     pub frame_send_total: AtomicU64,
     pub frame_recv_total: AtomicU64,
+    /// F-7 (`docs/spec-audit/fix-plan.md`): raw-mode histograms of
+    /// outbound / inbound frame size in bytes. `Histogram::new` with
+    /// [`FRAME_BYTES_BUCKETS`] gives an exact `_sum`.
+    pub frame_send_bytes: crate::metrics::histogram::Histogram,
+    pub frame_recv_bytes: crate::metrics::histogram::Histogram,
+}
+
+/// Frame-size histogram bucket bounds in **bytes**. Covers tiny
+/// control frames (PONG, BYE, ~32 B) through the spec §03 hard
+/// 16 MiB payload max, with extra resolution in the 1-64 KiB band
+/// where most request/response payloads land.
+pub const FRAME_BYTES_BUCKETS: &[f64] = &[
+    64.0,
+    256.0,
+    1_024.0,
+    4_096.0,
+    16_384.0,
+    65_536.0,
+    262_144.0,
+    1_048_576.0,
+    4_194_304.0,
+    16_777_216.0,
+];
+
+impl Default for ConnectionMetrics {
+    fn default() -> Self {
+        Self {
+            active: AtomicU64::new(0),
+            total: AtomicU64::new(0),
+            closed_by_reason: Default::default(),
+            frame_send_total: AtomicU64::new(0),
+            frame_recv_total: AtomicU64::new(0),
+            frame_send_bytes: crate::metrics::histogram::Histogram::new(FRAME_BYTES_BUCKETS),
+            frame_recv_bytes: crate::metrics::histogram::Histogram::new(FRAME_BYTES_BUCKETS),
+        }
+    }
 }
 
 /// Stable close-reason set spec §14/01 §9 expects on
@@ -220,14 +251,16 @@ impl ConnectionMetrics {
         self.closed_by_reason[reason.idx()].fetch_add(1, Ordering::Relaxed);
     }
 
-    /// Bump the outbound frame counter.
-    pub fn observe_send(&self) {
+    /// Bump the outbound frame counter and observe the frame size.
+    pub fn observe_send(&self, bytes: usize) {
         self.frame_send_total.fetch_add(1, Ordering::Relaxed);
+        self.frame_send_bytes.observe(bytes as f64);
     }
 
-    /// Bump the inbound frame counter.
-    pub fn observe_recv(&self) {
+    /// Bump the inbound frame counter and observe the frame size.
+    pub fn observe_recv(&self, bytes: usize) {
         self.frame_recv_total.fetch_add(1, Ordering::Relaxed);
+        self.frame_recv_bytes.observe(bytes as f64);
     }
 }
 
@@ -496,7 +529,7 @@ async fn writer_loop<W>(
             debug!(error = %e, "writer flush failed");
             break;
         }
-        metrics.observe_send();
+        metrics.observe_send(out.bytes.len());
         if out.close_after {
             break;
         }
@@ -564,7 +597,8 @@ where
                 idle.on_frame_received();
                 match result {
                     Ok(frame) => {
-                        metrics.observe_recv();
+                        // Wire size = fixed header + payload bytes.
+                        metrics.observe_recv(HEADER_SIZE + frame.payload.len());
                         let action = dispatch_frame(frame, &mut state, topology);
                         // Once handshake is complete, drop the auth deadline.
                         if matches!(

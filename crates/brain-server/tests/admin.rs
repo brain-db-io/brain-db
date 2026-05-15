@@ -259,6 +259,17 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("brain_frame_recv_total"),
         "missing brain_frame_recv_total"
     );
+    // F-7: frame-size histogram lines should appear once exposition
+    // walks ConnectionMetrics. Empty histogram is fine — count=0
+    // still emits the bucket + _sum + _count lines.
+    assert!(
+        body.contains("brain_frame_size_bytes_bucket{direction=\"send\""),
+        "missing brain_frame_size_bytes send buckets"
+    );
+    assert!(
+        body.contains("brain_frame_size_bytes_bucket{direction=\"recv\""),
+        "missing brain_frame_size_bytes recv buckets"
+    );
     server.stop().await;
 }
 

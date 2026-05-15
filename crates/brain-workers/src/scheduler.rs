@@ -34,12 +34,40 @@ use crate::worker::Worker;
 
 const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(5);
 
+/// Per-worker control surface — F-13 (docs/spec-audit/fix-plan.md).
+///
+/// - `paused`: when true, the loop skips `run_cycle` but keeps
+///   ticking on its interval. Set by `WorkerScheduler::pause` /
+///   `::resume`.
+/// - `wake_tx`/`wake_rx`: a bounded `flume` channel the loop races
+///   against `sleep(interval)`. `WorkerScheduler::run_now` sends a
+///   unit value; the loop wakes immediately and runs the next
+///   cycle. Bounded(1) coalesces multiple run-now signals into one
+///   wakeup.
+pub struct WorkerControls {
+    pub paused: AtomicBool,
+    pub wake_tx: flume::Sender<()>,
+    pub wake_rx: flume::Receiver<()>,
+}
+
+impl WorkerControls {
+    fn new() -> Arc<Self> {
+        let (wake_tx, wake_rx) = flume::bounded(1);
+        Arc::new(Self {
+            paused: AtomicBool::new(false),
+            wake_tx,
+            wake_rx,
+        })
+    }
+}
+
 /// Per-worker entry tracked by the scheduler.
 pub struct WorkerHandle {
     pub name: &'static str,
     pub kind: WorkerKind,
     pub config: WorkerConfig,
     pub metrics: Arc<WorkerMetrics>,
+    pub controls: Arc<WorkerControls>,
     task: Task<()>,
 }
 
@@ -79,11 +107,13 @@ impl WorkerScheduler {
             )));
         }
         let metrics = Arc::new(WorkerMetrics::default());
+        let controls = WorkerControls::new();
         let ctx = WorkerContext {
             ops,
             shutdown: self.shutdown.clone(),
         };
-        let task = glommio::spawn_local(worker_loop(worker, ctx, metrics.clone()));
+        let task =
+            glommio::spawn_local(worker_loop(worker, ctx, metrics.clone(), controls.clone()));
         self.handles.insert(
             name,
             WorkerHandle {
@@ -91,11 +121,58 @@ impl WorkerScheduler {
                 kind,
                 config,
                 metrics,
+                controls,
                 task,
             },
         );
         info!(worker = name, ?kind, "worker registered");
         Ok(())
+    }
+
+    /// F-13: pause a registered worker. The loop keeps ticking on
+    /// its interval but skips `run_cycle` until [`Self::resume`].
+    /// Returns false if no such worker.
+    pub fn pause(&self, name: &str) -> bool {
+        match self.handles.get(name) {
+            Some(h) => {
+                h.controls.paused.store(true, Ordering::Relaxed);
+                info!(worker = name, "worker paused");
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// F-13: resume a paused worker. Returns false if no such worker.
+    pub fn resume(&self, name: &str) -> bool {
+        match self.handles.get(name) {
+            Some(h) => {
+                h.controls.paused.store(false, Ordering::Relaxed);
+                // Kick the loop so it doesn't wait out the rest of
+                // its current sleep before running the next cycle.
+                let _ = h.controls.wake_tx.try_send(());
+                info!(worker = name, "worker resumed");
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// F-13: request an immediate cycle. The loop wakes from its
+    /// current sleep and runs `run_cycle` once. No-op if the
+    /// worker is paused. Returns false if no such worker.
+    pub fn run_now(&self, name: &str) -> bool {
+        match self.handles.get(name) {
+            Some(h) => {
+                // Bounded(1) channel coalesces — try_send drops on
+                // overflow, which is fine; the loop runs at most one
+                // extra cycle per wake.
+                let _ = h.controls.wake_tx.try_send(());
+                info!(worker = name, "worker run-now requested");
+                true
+            }
+            None => false,
+        }
     }
 
     /// Metrics for a registered worker.
@@ -194,14 +271,28 @@ impl Default for WorkerScheduler {
 
 /// The per-worker loop task. Spec §11/01 §4 lifecycle:
 /// `wake → run_cycle → update metrics → sleep`.
-async fn worker_loop(worker: Arc<dyn Worker>, ctx: WorkerContext, metrics: Arc<WorkerMetrics>) {
+///
+/// F-13 extends the loop with two control points:
+///
+/// - `controls.paused`: when true, skip `run_cycle` for this tick
+///   (the loop still sleeps so it observes shutdown promptly).
+/// - `controls.wake_rx`: races against `sleep(interval)`. A
+///   `WorkerScheduler::run_now` send wakes the loop early; the
+///   next cycle runs immediately.
+async fn worker_loop(
+    worker: Arc<dyn Worker>,
+    ctx: WorkerContext,
+    metrics: Arc<WorkerMetrics>,
+    controls: Arc<WorkerControls>,
+) {
     let name = worker.name();
     let cfg = worker.config();
     loop {
         if ctx.is_shutdown() {
             break;
         }
-        if cfg.enabled {
+        let paused = controls.paused.load(Ordering::Relaxed);
+        if cfg.enabled && !paused {
             let start = Instant::now();
             match worker.run_cycle(&ctx).await {
                 Ok(processed) => {
@@ -225,10 +316,16 @@ async fn worker_loop(worker: Arc<dyn Worker>, ctx: WorkerContext, metrics: Arc<W
                 }
             }
         }
-        // Sleep until next interval, but wake promptly on shutdown.
-        // Single-threaded executor: a cooperative check after the
-        // sleep is sufficient — no select needed.
-        sleep(cfg.interval).await;
+        // Race the per-worker sleep against a run-now wake signal.
+        // `flume::Receiver::recv_async` resolves when a sender
+        // succeeds; `sleep` resolves on the timer. Whichever fires
+        // first ends the wait — the loop checks shutdown + paused
+        // on the next iteration.
+        let sleeper = async { sleep(cfg.interval).await };
+        let waker = async {
+            let _ = controls.wake_rx.recv_async().await;
+        };
+        sleeper.or(waker).await;
         if ctx.is_shutdown() {
             break;
         }
