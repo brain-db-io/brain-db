@@ -1,0 +1,15 @@
+//! Knowledge-layer SDK helpers. Spec §29.
+//!
+//! Phase 16.8 lands the hand-written `Entity` slice — the built-in
+//! [`Person`] type plus an `EntityHandle<T>` wrapper covering all
+//! 9 entity wire opcodes. Phase 19's schema DSL + derive macro
+//! (`#[derive(BrainEntity)]`) generalises this to user-declared types.
+//!
+//! See `spec/29_knowledge_sdk/00_purpose.md` "Phase scope" for the
+//! roadmap across phases 16-24.
+
+pub mod entity;
+
+pub use entity::{
+    BrainEntityType, EntityHandle, EntityHandleFromViewError, Person, PersonAttributes,
+};

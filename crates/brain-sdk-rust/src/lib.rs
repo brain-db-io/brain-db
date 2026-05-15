@@ -35,6 +35,7 @@
 pub mod client;
 pub mod config;
 pub mod error;
+pub mod knowledge;
 pub mod observability;
 pub mod ops;
 pub mod pool;
@@ -42,10 +43,13 @@ pub mod proto;
 pub mod request_id;
 pub mod retry;
 
-pub use brain_core::{MemoryId, RequestId};
+pub use brain_core::{EntityId, MemoryId, RequestId};
 pub use client::Client;
 pub use config::{AuthMethod, ClientConfig};
 pub use error::ClientError;
+pub use knowledge::{
+    BrainEntityType, EntityHandle, EntityHandleFromViewError, Person, PersonAttributes,
+};
 pub use observability::{MetricsSnapshot, OpMetrics};
 pub use ops::{
     EncodeBuilder, ForgetBuilder, LinkBuilder, PlanBuilder, ReasonBuilder, RecallBuilder,
