@@ -390,6 +390,7 @@ mod tests {
             salience: 0.5,
             timestamp_unix_nanos: 1_700_000_000_000_000_000,
             lsn: 1234,
+            knowledge_payload: None,
         }));
     }
 
@@ -654,6 +655,7 @@ mod tests {
                 salience: 0.0,
                 timestamp_unix_nanos: 0,
                 lsn: 0,
+                knowledge_payload: None,
             })
             .is_final(),
             None

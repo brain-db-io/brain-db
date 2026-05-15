@@ -15,6 +15,7 @@
 
 pub mod entity_req;
 pub mod entity_resp;
+pub mod events;
 
 pub use entity_req::{
     EntityCreateRequest, EntityGetRequest, EntityListRequest, EntityMergeRequest,
@@ -26,4 +27,10 @@ pub use entity_resp::{
     EntityListResponseTail, EntityMergeResponse, EntityRenameResponse, EntityResolveResponse,
     EntityTombstoneResponse, EntityUnmergeResponse, EntityUpdateResponse, EntityView,
     ResolutionOutcomeWire,
+};
+pub use events::{
+    EntityCreatedEvent, EntityMergedEvent, EntityRenamedEvent, EntityTombstonedEvent,
+    EntityUnmergedEvent, EntityUpdatedEvent, ExtractionCompletedEvent, ExtractionFailedEvent,
+    KnowledgeEventPayload, RelationCreatedEvent, RelationSupersededEvent, SchemaUpdatedEvent,
+    StatementCreatedEvent, StatementSupersededEvent, StatementTombstonedEvent,
 };
