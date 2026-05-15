@@ -129,5 +129,16 @@ pub async fn dispatch(req: RequestBody, ctx: &OpsContext) -> Result<ResponseBody
         RequestBody::EntityRename(r) => crate::knowledge_entity::handle_entity_rename(r, ctx)
             .await
             .map(ResponseBody::EntityRename),
+
+        // 16.7.5 — handlers wired in the next commit; 16.7.3 stubs out
+        // the dispatch arms so the workspace compiles after the wire
+        // shapes land.
+        RequestBody::EntityMerge(_)
+        | RequestBody::EntityUnmerge(_)
+        | RequestBody::EntityResolve(_)
+        | RequestBody::EntityList(_)
+        | RequestBody::EntityTombstone(_) => Err(OpError::NotYetImplemented(
+            "entity merge/unmerge/resolve/list/tombstone — phase 16.7.5",
+        )),
     }
 }

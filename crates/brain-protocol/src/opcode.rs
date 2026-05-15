@@ -120,6 +120,16 @@ pub enum Opcode {
     EntityUpdateResp = 0x01B2,
     EntityRenameReq = 0x0133,
     EntityRenameResp = 0x01B3,
+    EntityMergeReq = 0x0134,
+    EntityMergeResp = 0x01B4,
+    EntityUnmergeReq = 0x0135,
+    EntityUnmergeResp = 0x01B5,
+    EntityResolveReq = 0x0136,
+    EntityResolveResp = 0x01B6,
+    EntityListReq = 0x0137,
+    EntityListResp = 0x01B7,
+    EntityTombstoneReq = 0x0138,
+    EntityTombstoneResp = 0x01B8,
 }
 
 impl Opcode {
@@ -202,6 +212,16 @@ impl Opcode {
             0x01B2 => Self::EntityUpdateResp,
             0x0133 => Self::EntityRenameReq,
             0x01B3 => Self::EntityRenameResp,
+            0x0134 => Self::EntityMergeReq,
+            0x01B4 => Self::EntityMergeResp,
+            0x0135 => Self::EntityUnmergeReq,
+            0x01B5 => Self::EntityUnmergeResp,
+            0x0136 => Self::EntityResolveReq,
+            0x01B6 => Self::EntityResolveResp,
+            0x0137 => Self::EntityListReq,
+            0x01B7 => Self::EntityListResp,
+            0x0138 => Self::EntityTombstoneReq,
+            0x01B8 => Self::EntityTombstoneResp,
 
             other => return Err(ProtocolError::UnknownOpcode(other)),
         })
@@ -361,6 +381,16 @@ mod tests {
         (0x01B2, Opcode::EntityUpdateResp),
         (0x0133, Opcode::EntityRenameReq),
         (0x01B3, Opcode::EntityRenameResp),
+        (0x0134, Opcode::EntityMergeReq),
+        (0x01B4, Opcode::EntityMergeResp),
+        (0x0135, Opcode::EntityUnmergeReq),
+        (0x01B5, Opcode::EntityUnmergeResp),
+        (0x0136, Opcode::EntityResolveReq),
+        (0x01B6, Opcode::EntityResolveResp),
+        (0x0137, Opcode::EntityListReq),
+        (0x01B7, Opcode::EntityListResp),
+        (0x0138, Opcode::EntityTombstoneReq),
+        (0x01B8, Opcode::EntityTombstoneResp),
     ];
 
     #[test]
@@ -387,10 +417,10 @@ mod tests {
             Opcode::from_u16(0x0070),
             Err(ProtocolError::UnknownOpcode(0x0070))
         ));
-        // 0x0134 is a not-yet-implemented knowledge opcode.
+        // 0x0139 is a not-yet-assigned knowledge entity opcode.
         assert!(matches!(
-            Opcode::from_u16(0x0134),
-            Err(ProtocolError::UnknownOpcode(0x0134))
+            Opcode::from_u16(0x0139),
+            Err(ProtocolError::UnknownOpcode(0x0139))
         ));
         // 0x0200 is in the reserved future namespace.
         assert!(matches!(

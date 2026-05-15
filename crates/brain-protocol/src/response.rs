@@ -80,6 +80,13 @@ pub enum ResponseBody {
     EntityGet(crate::knowledge::EntityGetResponse),
     EntityUpdate(crate::knowledge::EntityUpdateResponse),
     EntityRename(crate::knowledge::EntityRenameResponse),
+    EntityMerge(crate::knowledge::EntityMergeResponse),
+    EntityUnmerge(crate::knowledge::EntityUnmergeResponse),
+    EntityResolve(crate::knowledge::EntityResolveResponse),
+    /// Streaming response — per-item or tail. Wire opcode is the same
+    /// (`0x01B7`); the body's `is_final()` discriminates.
+    EntityList(crate::knowledge::EntityListResponseFrame),
+    EntityTombstone(crate::knowledge::EntityTombstoneResponse),
 
     Error(ErrorResponse),
 }
@@ -121,6 +128,11 @@ impl ResponseBody {
             Self::EntityGet(_) => Opcode::EntityGetResp,
             Self::EntityUpdate(_) => Opcode::EntityUpdateResp,
             Self::EntityRename(_) => Opcode::EntityRenameResp,
+            Self::EntityMerge(_) => Opcode::EntityMergeResp,
+            Self::EntityUnmerge(_) => Opcode::EntityUnmergeResp,
+            Self::EntityResolve(_) => Opcode::EntityResolveResp,
+            Self::EntityList(_) => Opcode::EntityListResp,
+            Self::EntityTombstone(_) => Opcode::EntityTombstoneResp,
             Self::Error(_) => Opcode::Error,
         }
     }
@@ -177,6 +189,11 @@ impl ResponseBody {
             Self::EntityGet(r) => to_rkyv_bytes(r),
             Self::EntityUpdate(r) => to_rkyv_bytes(r),
             Self::EntityRename(r) => to_rkyv_bytes(r),
+            Self::EntityMerge(r) => to_rkyv_bytes(r),
+            Self::EntityUnmerge(r) => to_rkyv_bytes(r),
+            Self::EntityResolve(r) => to_rkyv_bytes(r),
+            Self::EntityList(r) => to_rkyv_bytes(r),
+            Self::EntityTombstone(r) => to_rkyv_bytes(r),
             Self::Error(r) => to_rkyv_bytes(r),
         }
     }
@@ -220,6 +237,11 @@ impl ResponseBody {
             Opcode::EntityGetResp => Self::EntityGet(from_rkyv_bytes(bytes)?),
             Opcode::EntityUpdateResp => Self::EntityUpdate(from_rkyv_bytes(bytes)?),
             Opcode::EntityRenameResp => Self::EntityRename(from_rkyv_bytes(bytes)?),
+            Opcode::EntityMergeResp => Self::EntityMerge(from_rkyv_bytes(bytes)?),
+            Opcode::EntityUnmergeResp => Self::EntityUnmerge(from_rkyv_bytes(bytes)?),
+            Opcode::EntityResolveResp => Self::EntityResolve(from_rkyv_bytes(bytes)?),
+            Opcode::EntityListResp => Self::EntityList(from_rkyv_bytes(bytes)?),
+            Opcode::EntityTombstoneResp => Self::EntityTombstone(from_rkyv_bytes(bytes)?),
             Opcode::Error => Self::Error(from_rkyv_bytes(bytes)?),
             other => return Err(ProtocolError::UnknownOpcode(other.as_u16())),
         })

@@ -17,9 +17,13 @@ pub mod entity_req;
 pub mod entity_resp;
 
 pub use entity_req::{
-    EntityCreateRequest, EntityGetRequest, EntityRenameRequest, EntityUpdateRequest,
+    EntityCreateRequest, EntityGetRequest, EntityListRequest, EntityMergeRequest,
+    EntityRenameRequest, EntityResolveRequest, EntityTombstoneRequest, EntityUnmergeRequest,
+    EntityUpdateRequest,
 };
 pub use entity_resp::{
-    EntityCreateResponse, EntityGetResponse, EntityRenameResponse, EntityUpdateResponse,
-    EntityView,
+    EntityCreateResponse, EntityGetResponse, EntityListItem, EntityListResponseFrame,
+    EntityListResponseTail, EntityMergeResponse, EntityRenameResponse, EntityResolveResponse,
+    EntityTombstoneResponse, EntityUnmergeResponse, EntityUpdateResponse, EntityView,
+    ResolutionOutcomeWire,
 };

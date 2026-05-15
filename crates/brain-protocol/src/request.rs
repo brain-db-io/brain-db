@@ -88,12 +88,18 @@ pub enum RequestBody {
     AdminReclassify(AdminReclassifyRequest),
     AdminListTombstoned(AdminListTombstonedRequest),
 
-    // Knowledge namespace (spec §28/00). Phase 16.6c lands the four
-    // entity opcodes; the rest follow in phases 17-24.
+    // Knowledge namespace (spec §28/00). 16.6c landed CREATE/GET/UPDATE/
+    // RENAME; 16.7 adds MERGE/UNMERGE/RESOLVE/LIST/TOMBSTONE. Statement /
+    // relation / query / admin opcodes follow in phases 17-24.
     EntityCreate(crate::knowledge::EntityCreateRequest),
     EntityGet(crate::knowledge::EntityGetRequest),
     EntityUpdate(crate::knowledge::EntityUpdateRequest),
     EntityRename(crate::knowledge::EntityRenameRequest),
+    EntityMerge(crate::knowledge::EntityMergeRequest),
+    EntityUnmerge(crate::knowledge::EntityUnmergeRequest),
+    EntityResolve(crate::knowledge::EntityResolveRequest),
+    EntityList(crate::knowledge::EntityListRequest),
+    EntityTombstone(crate::knowledge::EntityTombstoneRequest),
 }
 
 impl RequestBody {
@@ -134,6 +140,11 @@ impl RequestBody {
             Self::EntityGet(_) => Opcode::EntityGetReq,
             Self::EntityUpdate(_) => Opcode::EntityUpdateReq,
             Self::EntityRename(_) => Opcode::EntityRenameReq,
+            Self::EntityMerge(_) => Opcode::EntityMergeReq,
+            Self::EntityUnmerge(_) => Opcode::EntityUnmergeReq,
+            Self::EntityResolve(_) => Opcode::EntityResolveReq,
+            Self::EntityList(_) => Opcode::EntityListReq,
+            Self::EntityTombstone(_) => Opcode::EntityTombstoneReq,
         }
     }
 
@@ -176,6 +187,11 @@ impl RequestBody {
             Self::EntityGet(r) => to_rkyv_bytes(r),
             Self::EntityUpdate(r) => to_rkyv_bytes(r),
             Self::EntityRename(r) => to_rkyv_bytes(r),
+            Self::EntityMerge(r) => to_rkyv_bytes(r),
+            Self::EntityUnmerge(r) => to_rkyv_bytes(r),
+            Self::EntityResolve(r) => to_rkyv_bytes(r),
+            Self::EntityList(r) => to_rkyv_bytes(r),
+            Self::EntityTombstone(r) => to_rkyv_bytes(r),
         }
     }
 
@@ -219,6 +235,11 @@ impl RequestBody {
             Opcode::EntityGetReq => Self::EntityGet(from_rkyv_bytes(bytes)?),
             Opcode::EntityUpdateReq => Self::EntityUpdate(from_rkyv_bytes(bytes)?),
             Opcode::EntityRenameReq => Self::EntityRename(from_rkyv_bytes(bytes)?),
+            Opcode::EntityMergeReq => Self::EntityMerge(from_rkyv_bytes(bytes)?),
+            Opcode::EntityUnmergeReq => Self::EntityUnmerge(from_rkyv_bytes(bytes)?),
+            Opcode::EntityResolveReq => Self::EntityResolve(from_rkyv_bytes(bytes)?),
+            Opcode::EntityListReq => Self::EntityList(from_rkyv_bytes(bytes)?),
+            Opcode::EntityTombstoneReq => Self::EntityTombstone(from_rkyv_bytes(bytes)?),
             other => return Err(ProtocolError::UnknownOpcode(other.as_u16())),
         })
     }
