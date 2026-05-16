@@ -418,8 +418,28 @@ pub fn statement_create(
         }
     }
 
-    insert_new_statement(wtxn, s)?;
-    Ok(s.id)
+    // 17.9 confidence aggregation hookup. Recompute the statement's
+    // confidence via noisy-OR (spec §19/04) iff inline evidence
+    // carries per-entry metadata. Wire callers send
+    // EvidenceRef::Inline with `confidence_milli = 0` (per-evidence
+    // metadata dropped on the wire per spec §28/06 §2.3); in-process
+    // callers (phase 22 extractors / unit tests) populate the field.
+    //
+    // TODO(phase 21): also re-key the by_predicate confidence bucket
+    // entry when the bucket changes by > 0.05 per spec §19/04 §6.
+    let mut to_insert = s.clone();
+    if evidence_has_per_entry_metadata(wtxn, &to_insert.evidence)? {
+        let entries = resolve_evidence_entries(wtxn, &to_insert.evidence)?;
+        to_insert.confidence = brain_core::knowledge::aggregate_confidence(
+            &entries,
+            now_unix_nanos,
+            to_insert.kind,
+            &brain_core::knowledge::ConfidenceConfig::default_v1(),
+        );
+    }
+
+    insert_new_statement(wtxn, &to_insert)?;
+    Ok(to_insert.id)
 }
 
 /// Supersede `old_id` with `new_statement`. Atomic two-step inside
@@ -496,6 +516,19 @@ pub fn statement_supersede(
     new_to_insert.supersedes = Some(old_id);
     new_to_insert.superseded_by = None;
     new_to_insert.chain_root = StatementId::from(chain_root_bytes);
+
+    // 17.9 — aggregate confidence over per-entry evidence metadata
+    // when present. See `statement_create` for the wire-vs-in-process
+    // split.
+    if evidence_has_per_entry_metadata(wtxn, &new_to_insert.evidence)? {
+        let entries = resolve_evidence_entries(wtxn, &new_to_insert.evidence)?;
+        new_to_insert.confidence = brain_core::knowledge::aggregate_confidence(
+            &entries,
+            new_to_insert.extracted_at_unix_nanos,
+            new_to_insert.kind,
+            &brain_core::knowledge::ConfidenceConfig::default_v1(),
+        );
+    }
 
     // Update old in place — flip is_current, set valid_to (Fact /
     // Preference only) if not already pinned (§01 §3.2 — caller
@@ -809,6 +842,47 @@ fn load_active_facts_for_subject_predicate_wtxn(
         return Ok(Vec::new());
     };
     Ok(vec![s])
+}
+
+/// True iff any inline evidence entry carries per-entry metadata
+/// (`confidence_milli > 0`). Overflow rows are assumed to carry full
+/// metadata (the four parallel vectors store confidence_milli per
+/// entry). 17.9 gates noisy-OR aggregation on this signal — see the
+/// design note in `statement_create`.
+fn evidence_has_per_entry_metadata(
+    wtxn: &WriteTransaction,
+    evidence: &EvidenceRef,
+) -> Result<bool, StatementOpError> {
+    match evidence {
+        EvidenceRef::Inline(entries) => Ok(entries.iter().any(|e| e.confidence_milli > 0)),
+        EvidenceRef::Overflow(id) => {
+            let t = wtxn.open_table(EVIDENCE_OVERFLOW_TABLE)?;
+            let row: Option<EvidenceOverflow> = t.get(&id.to_bytes())?.map(|g| g.value());
+            let Some(over) = row else { return Ok(false); };
+            Ok(over.confidences_milli.iter().any(|&c| c > 0))
+        }
+    }
+}
+
+/// Materialise the `EvidenceEntry` slice an evidence ref refers to.
+/// Inline → clone; Overflow → load + project the four parallel vectors.
+fn resolve_evidence_entries(
+    wtxn: &WriteTransaction,
+    evidence: &EvidenceRef,
+) -> Result<Vec<EvidenceEntry>, StatementOpError> {
+    match evidence {
+        EvidenceRef::Inline(entries) => Ok(entries.to_vec()),
+        EvidenceRef::Overflow(id) => {
+            let t = wtxn.open_table(EVIDENCE_OVERFLOW_TABLE)?;
+            let row: Option<EvidenceOverflow> = t.get(&id.to_bytes())?.map(|g| g.value());
+            let Some(over) = row else {
+                return Err(StatementOpError::InvalidArgument(
+                    "evidence overflow id references missing row",
+                ));
+            };
+            Ok(over.to_entries())
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -1449,5 +1523,74 @@ mod tests {
                 .unwrap()
                 .is_some());
         }
+    }
+
+    // ----- 17.9 confidence aggregation hookup -----
+
+    #[test]
+    fn create_aggregates_when_evidence_has_metadata() {
+        let (_dir, mut db) = open_db();
+        let subj = make_entity(&mut db, "priya");
+        let obj = make_entity(&mut db, "role-mgr");
+        let pred = intern_fact_entity_pred(&mut db, "role_agg");
+
+        // Two pieces of c=0.9 evidence, no decay age (Event would be
+        // simpler but Event-kind needs event_at; use Fact at zero age
+        // — fact decay at age=0 is exp(0) = 1.0).
+        let mut s = fresh_fact(subj, pred, obj);
+        s.confidence = 0.5; // caller's wire-level value, should be overwritten
+        let entry = |conf: f32| {
+            EvidenceEntry::from_parts(
+                MemoryId::pack(1, ContextId::DEFAULT.into(), 0),
+                conf,
+                1_700_000_000_000_000_000,
+                brain_core::ExtractorId::from(0),
+            )
+        };
+        let mut sv = SmallVec::<[EvidenceEntry; INLINE_EVIDENCE_CAP]>::new();
+        sv.push(entry(0.9));
+        sv.push(entry(0.9));
+        s.evidence = EvidenceRef::Inline(sv);
+
+        let wtxn = db.write_txn().unwrap();
+        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        wtxn.commit().unwrap();
+
+        let rtxn = db.read_txn().unwrap();
+        let got = statement_get(&rtxn, s.id).unwrap().unwrap();
+        // Expected: 1 - (1 - 0.9)^2 = 0.99 (zero age → decay = 1).
+        assert!((got.confidence - 0.99).abs() < 1e-3, "got {}", got.confidence);
+    }
+
+    #[test]
+    fn create_keeps_wire_confidence_when_evidence_lacks_metadata() {
+        let (_dir, mut db) = open_db();
+        let subj = make_entity(&mut db, "priya");
+        let obj = make_entity(&mut db, "role-2");
+        let pred = intern_fact_entity_pred(&mut db, "role_wire");
+
+        // Inline evidence with confidence_milli = 0 (the wire-side
+        // shape — SDK decodes EvidenceRefWire::Inline into entries
+        // with zero metadata).
+        let mut s = fresh_fact(subj, pred, obj);
+        s.confidence = 0.42;
+        let entry_zero = EvidenceEntry {
+            memory_id: MemoryId::pack(1, ContextId::DEFAULT.into(), 0),
+            confidence_milli: 0,
+            timestamp_unix_nanos: 0,
+            extractor_id: brain_core::ExtractorId::from(0),
+        };
+        let mut sv = SmallVec::<[EvidenceEntry; INLINE_EVIDENCE_CAP]>::new();
+        sv.push(entry_zero);
+        s.evidence = EvidenceRef::Inline(sv);
+
+        let wtxn = db.write_txn().unwrap();
+        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        wtxn.commit().unwrap();
+
+        let rtxn = db.read_txn().unwrap();
+        let got = statement_get(&rtxn, s.id).unwrap().unwrap();
+        // No aggregation: caller's confidence preserved verbatim.
+        assert!((got.confidence - 0.42).abs() < 1e-6, "got {}", got.confidence);
     }
 }
