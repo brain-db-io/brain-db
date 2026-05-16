@@ -44,3 +44,7 @@ futures-lite.workspace = true
 [[bench]]
 name = "pattern_extract"
 harness = false
+
+[[bench]]
+name = "llm_pipeline"
+harness = false
