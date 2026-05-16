@@ -386,6 +386,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
+ "criterion",
  "regex",
  "serde",
  "serde_json",
