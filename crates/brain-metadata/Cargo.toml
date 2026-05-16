@@ -15,6 +15,9 @@ rkyv.workspace = true
 thiserror.workspace = true
 bytemuck.workspace = true
 tracing.workspace = true
+# 17.4: SmallVec used when projecting StatementMetadata → Statement
+# (inline evidence list size INLINE_EVIDENCE_CAP).
+smallvec.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true
@@ -25,4 +28,8 @@ glommio.workspace = true
 
 [[bench]]
 name = "entity_resolve"
+harness = false
+
+[[bench]]
+name = "statement_ops"
 harness = false

@@ -14,12 +14,15 @@
 //! Phase 15.1 — types and identifiers only. Behavior follows in later
 //! phases.
 
+pub mod confidence;
 pub mod entity;
 pub mod ids;
 pub mod kinds;
 pub mod resolver;
+pub mod statement;
 pub mod trigrams;
 
+pub use confidence::{aggregate_confidence, ConfidenceConfig};
 pub use entity::{Entity, EntityAttributes, EntityType};
 pub use ids::{
     AuditId, EntityId, EntityTypeId, EvidenceOverflowId, ExtractorId, MergeId, PredicateId,
@@ -29,5 +32,9 @@ pub use kinds::{Cardinality, ExtractorKind, StatementKind};
 pub use resolver::{
     resolve_entity, ResolutionOutcome, ResolverConfig, ResolverEmbedder, ResolverError,
     ResolverIndex, ResolverStorage, ResolverTier, TypeConstraint, VECTOR_DIM,
+};
+pub use statement::{
+    EvidenceEntry, EvidenceRef, Predicate, Statement, StatementObject, StatementValue,
+    SubjectRef, TombstoneReason, INLINE_EVIDENCE_CAP,
 };
 pub use trigrams::{extract_trigrams, jaccard};

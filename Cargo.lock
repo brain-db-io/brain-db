@@ -349,6 +349,7 @@ version = "0.1.0"
 dependencies = [
  "proptest",
  "serde",
+ "smallvec",
  "thiserror 1.0.69",
  "tracing",
  "uuid",
@@ -428,6 +429,7 @@ dependencies = [
  "proptest",
  "redb",
  "rkyv",
+ "smallvec",
  "tempfile",
  "thiserror 1.0.69",
  "tracing",
@@ -446,6 +448,7 @@ dependencies = [
  "brain-protocol",
  "parking_lot",
  "redb",
+ "smallvec",
  "tempfile",
  "thiserror 1.0.69",
  "tokio",
@@ -480,6 +483,7 @@ dependencies = [
  "criterion",
  "proptest",
  "rkyv",
+ "smallvec",
  "thiserror 1.0.69",
  "uuid",
 ]
@@ -494,6 +498,7 @@ dependencies = [
  "futures-lite 2.6.1",
  "parking_lot",
  "rkyv",
+ "smallvec",
  "thiserror 1.0.69",
  "tokio",
  "tracing",
@@ -3769,6 +3774,9 @@ name = "smallvec"
 version = "1.15.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "67b1b7a3b5fe4f1376887184045fcf45c69e92af734b7aaddc05fb777b6fbd03"
+dependencies = [
+ "serde",
+]
 
 [[package]]
 name = "socket2"
