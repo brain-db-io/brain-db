@@ -22,6 +22,10 @@ use tantivy::schema::{Schema, FAST, INDEXED, STORED, STRING, TEXT};
 use tantivy::Index;
 use thiserror::Error;
 
+pub mod tokenizer;
+
+pub use tokenizer::{build_analyzer, BrainTokenizer, BRAIN_TOKENIZER_NAME};
+
 /// Brain-side schema version stamped on the tantivy `IndexMeta::payload`.
 ///
 /// Bumped whenever any field in the schemas defined by [`memory_text_schema`]
@@ -181,6 +185,17 @@ impl TantivyShard {
             open_or_create(shard_dir, LexicalScope::MemoryText, memory_text_schema())?;
         let (statements_index, statements_status) =
             open_or_create(shard_dir, LexicalScope::StatementText, statements_schema())?;
+
+        // Phase 22.2: register the brain analyzer on both
+        // indexes. Override of tantivy's built-in `"default"`
+        // name so 22.1's TEXT fields pick it up without a
+        // schema-version bump.
+        memory_index
+            .tokenizers()
+            .register(BRAIN_TOKENIZER_NAME, build_analyzer());
+        statements_index
+            .tokenizers()
+            .register(BRAIN_TOKENIZER_NAME, build_analyzer());
 
         let shard = Arc::new(TantivyShard {
             memory_text: IndexHandle {
