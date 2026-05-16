@@ -193,13 +193,31 @@ const BUILTIN_PREDICATES: &[(&str, &str, Option<StatementKind>, u8, &str)] = &[
 ///
 /// `(namespace, name, cardinality, is_symmetric, description)`.
 /// `from_type` / `to_type` are both `None` (any entity type).
-const BUILTIN_RELATION_TYPES: &[(&str, &str, Cardinality, bool, &str)] = &[(
-    "brain",
-    "related_to",
-    Cardinality::ManyToMany,
-    false,
-    "Generic relation between two entities.",
-)];
+const BUILTIN_RELATION_TYPES: &[(&str, &str, Cardinality, bool, &str)] = &[
+    (
+        "brain",
+        "related_to",
+        Cardinality::ManyToMany,
+        false,
+        "Generic relation between two entities.",
+    ),
+    // 18.9a — enable integration-test coverage of cardinality and
+    // symmetric paths without a SCHEMA_UPLOAD path (phase 19).
+    (
+        "brain",
+        "reports_to",
+        Cardinality::ManyToOne,
+        false,
+        "Generic ManyToOne relation; second create on same `from` auto-supersedes.",
+    ),
+    (
+        "brain",
+        "co_authored",
+        Cardinality::ManyToMany,
+        true,
+        "Generic symmetric ManyToMany relation; canonicalises from/to byte-wise.",
+    ),
+];
 
 /// Seed the built-in `brain:*` relation types idempotently. Mirrors
 /// `seed_builtin_predicates` (17.3). Pre-existing rows with
