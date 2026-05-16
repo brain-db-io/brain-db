@@ -29,3 +29,7 @@ glommio.workspace = true
 [[bench]]
 name = "entity_resolve"
 harness = false
+
+[[bench]]
+name = "statement_ops"
+harness = false

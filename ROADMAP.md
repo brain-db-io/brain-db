@@ -282,15 +282,41 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 ---
 
-## Phase 17 — Statement layer
+## Phase 17 — Statement layer ✓
 
-**One-line:** Statement table; three kinds (Fact, Preference, Event); supersession chains; contradiction surfacing; statement HNSW.
+**One-line:** Statement table; three kinds (Fact, Preference, Event); supersession chains; contradiction surfacing; statement HNSW (declared; populator in phase 21); per-kind noisy-OR confidence aggregation.
 
 **Detailed plan:** [`docs/phases/phase-17-statements.md`](docs/phases/phase-17-statements.md)
 
-**Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
+**Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
 
-**Sub-tasks:** 10. **Exit:** all three kinds work end-to-end; supersession + contradiction tests green; tag `phase-17-complete`.
+**Sub-tasks:** 11. **Exit:** all three kinds work end-to-end via wire + SDK; supersession chains traverse; contradictions surface (not auto-resolved); confidence aggregation drops in; tag `phase-17-complete`.
+
+**Delivered:**
+
+- §19 statements section brought to §03-depth (8 files; supersession / contradiction / storage / confidence / evidence / open questions / references).
+- §28/06 statement frames already at §03-depth from phase 16; new opcodes wired end-to-end.
+- 7 statement wire opcodes (`0x0140–0x0146`) + responses (`0x01C0–0x01C6`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
+- `brain-core` value types: `Statement` / `StatementObject` (tagged union: Entity / Value / Memory / Statement) / `StatementValue` (Text / Integer / Float / Bool / UnixNanos / Blob) / `EvidenceRef` (Inline / Overflow) / `SubjectRef` / `TombstoneReason` / `Predicate`.
+- Predicate registry + interning in `brain-metadata`, with built-ins `brain:is_a / has_name / mentions / related_to / prefers / scheduled` seeded at `MetadataDb::open`. `predicate_intern` is idempotent on identical constraints; `AlreadyExists` on diverging shapes.
+- `statement_ops`: CRUD + supersession (auto for Preference, explicit for Fact) + contradiction surface (Facts) + tombstone / retract + chain history + filtered list. All operations atomic within one redb txn.
+- Statement HNSW declared in `brain-index` (M=32, ef_construction=200, ef_search=128 per spec §26/00); populator deferred to phase 21 with the embedding worker.
+- Confidence aggregation per spec §19/04: noisy-OR with per-kind decay (Fact 365d half-life / Preference 60d / Event none). Wired into `statement_create` / `_supersede` when inline evidence carries per-entry metadata; wire callers keep their supplied confidence until phase 22's ADD_EVIDENCE op.
+- Hand-written statement SDK: `client.fact() / .preference() / .event() / .statements()`. Uniform `StatementHandle` read-side; derive macros defer to phase 19.
+- Integration test suite: 11 wire-smoke tests + 13-step lifecycle + 9 mock-server SDK tests + statement_ops criterion bench.
+
+**Deferred to later phases (tracked in `spec/19_statements/06_open_questions.md` + `spec/28/09_open_questions.md`):**
+
+- Statement HNSW embedding worker — phase 21.
+- `STATEMENT_ADD_EVIDENCE` opcode (richer per-entry metadata wire path) — phase 22.
+- Confidence-sweep worker + bucket re-indexing on confidence delta > 0.05 — phase 21.
+- Hybrid query router (RRF fusion) for statement semantic search — phase 23.
+- Cursor pagination + multi-frame streaming for `STATEMENT_LIST` / `STATEMENT_HISTORY` — phase 23.
+- Discrete `STATEMENT_CONTRADICTED` event + dedicated contradiction audit table — phase 22-23.
+- Multi-value `by_subject` index for contradictory active Facts — phase 23.
+- Per-predicate decay overrides (vs kind-level defaults) — phase 19 schema DSL.
+- Cross-shard `statements_by_object_entity` reverse-index writes — phase 23.
+- `#[derive(BrainFact)]` macro + typed `Fact<T>` SDK wrappers — phase 19.
 
 ---
 
