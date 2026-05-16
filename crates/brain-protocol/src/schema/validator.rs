@@ -87,9 +87,35 @@ const ANY_TYPE_LITERAL: &str = "Any";
 /// carries at least one element. Successful validation produces a
 /// `ValidatedSchema` carrying the input.
 pub fn validate(schema: &Schema) -> Result<ValidatedSchema, ValidationErrors> {
+    validate_inner(schema, ValidatorMode::User)
+}
+
+/// Validate the **system schema** — same rules as [`validate`]
+/// except `namespace = "brain"` is allowed (it's the reserved
+/// namespace for the substrate's own built-in types).
+///
+/// Restricted to the substrate's seed path (`brain-metadata`'s
+/// `system_schema` module). User uploads of `namespace brain`
+/// must continue to be rejected by [`validate`].
+pub fn validate_system_schema(
+    schema: &Schema,
+) -> Result<ValidatedSchema, ValidationErrors> {
+    validate_inner(schema, ValidatorMode::System)
+}
+
+#[derive(Clone, Copy)]
+enum ValidatorMode {
+    User,
+    System,
+}
+
+fn validate_inner(
+    schema: &Schema,
+    mode: ValidatorMode,
+) -> Result<ValidatedSchema, ValidationErrors> {
     let mut errors: ValidationErrors = Vec::new();
 
-    check_namespace(schema, &mut errors);
+    check_namespace(schema, &mut errors, mode);
     check_duplicates(schema, &mut errors);
 
     let entity_names = collect_entity_names(schema);
@@ -121,7 +147,7 @@ pub fn validate(schema: &Schema) -> Result<ValidatedSchema, ValidationErrors> {
 // §2.1 Namespace.
 // ---------------------------------------------------------------------------
 
-fn check_namespace(schema: &Schema, errors: &mut ValidationErrors) {
+fn check_namespace(schema: &Schema, errors: &mut ValidationErrors, mode: ValidatorMode) {
     if schema.namespace.is_empty() {
         errors.push(ValidationError {
             code: ValidationErrorCode::NamespaceMissing,
@@ -130,7 +156,7 @@ fn check_namespace(schema: &Schema, errors: &mut ValidationErrors) {
         });
         return;
     }
-    if schema.namespace == RESERVED_NAMESPACE {
+    if schema.namespace == RESERVED_NAMESPACE && matches!(mode, ValidatorMode::User) {
         errors.push(ValidationError {
             code: ValidationErrorCode::NamespaceInvalidIdentifier,
             message: format!(

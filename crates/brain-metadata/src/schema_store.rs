@@ -17,6 +17,7 @@
 use brain_protocol::schema::ValidatedSchema;
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
+use crate::schema_apply::{apply_schema_definitions, SchemaApplyError};
 use crate::tables::knowledge::schema_version::{
     SchemaVersionRow, SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE, VALIDATOR_VERSION,
 };
@@ -41,6 +42,9 @@ pub enum SchemaStoreError {
 
     #[error("json encode failed: {0}")]
     Encode(String),
+
+    #[error("schema apply: {0}")]
+    Apply(#[from] SchemaApplyError),
 }
 
 // ---------------------------------------------------------------------------
@@ -86,6 +90,10 @@ pub fn schema_upload(
         let mut active = wtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE)?;
         active.insert(&namespace.as_str(), &new_version)?;
     }
+
+    // §21/05 §1: fan out new + changed definitions into the
+    // existing entity_type / predicate / relation_type intern paths.
+    apply_schema_definitions(wtxn, validated, new_version, now_unix_nanos)?;
 
     Ok(new_version)
 }

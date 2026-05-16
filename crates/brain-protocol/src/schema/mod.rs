@@ -18,5 +18,6 @@ pub use ast::{
 pub use parse_error::ParseError;
 pub use parser::parse_schema;
 pub use validator::{
-    validate, SourceSpan, ValidatedSchema, ValidationError, ValidationErrorCode, ValidationErrors,
+    validate, validate_system_schema, SourceSpan, ValidatedSchema, ValidationError,
+    ValidationErrorCode, ValidationErrors,
 };
