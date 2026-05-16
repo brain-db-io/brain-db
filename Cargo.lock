@@ -439,6 +439,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "brain-llm"
+version = "0.1.0"
+dependencies = [
+ "blake3",
+ "http-body-util",
+ "hyper",
+ "hyper-util",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "thiserror 1.0.69",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "brain-metadata"
 version = "0.1.0"
 dependencies = [
