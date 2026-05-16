@@ -14,6 +14,7 @@
 )]
 #![forbid(unsafe_code)]
 
+pub mod audit_ops;
 pub mod db;
 pub mod entity_merge_ops;
 pub mod entity_ops;
@@ -32,6 +33,10 @@ pub mod system_schema;
 pub mod tables;
 pub mod trigram_ops;
 
+pub use audit_ops::{
+    audit_by_extractor, audit_by_memory, audit_get, audit_recent, audit_recent_failures,
+    audit_write, AuditOpError,
+};
 pub use db::{MetadataDb, MetadataDbError};
 pub use entity_ops::{
     entity_add_alias, entity_get, entity_list_by_type, entity_lookup_by_alias,
