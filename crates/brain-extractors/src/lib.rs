@@ -17,6 +17,7 @@ pub mod extractor;
 pub mod idempotency;
 pub mod item;
 pub mod options;
+pub mod pattern;
 pub mod registry;
 
 pub use extractor::{
@@ -25,4 +26,5 @@ pub use extractor::{
 pub use idempotency::{hash_memory_text, IdempotencyKey};
 pub use item::{EntityMention, ExtractedItem, RelationMention, StatementMention};
 pub use options::ExtractorRunOptions;
+pub use pattern::{CompiledRegex, PatternExtractor};
 pub use registry::ExtractorRegistry;

@@ -14,6 +14,8 @@ blake3 = { workspace = true }
 thiserror.workspace = true
 tracing.workspace = true
 serde = { workspace = true }
+# 20.2: pattern extractor uses the regex crate's DFA matcher.
+regex = { workspace = true }
 
 [dev-dependencies]
 serde_json = { workspace = true }

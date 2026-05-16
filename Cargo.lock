@@ -382,6 +382,7 @@ dependencies = [
  "blake3",
  "brain-core",
  "brain-protocol",
+ "regex",
  "serde",
  "serde_json",
  "thiserror 1.0.69",
