@@ -543,6 +543,7 @@ dependencies = [
  "brain-cli",
  "brain-core",
  "brain-embed",
+ "brain-extractors",
  "brain-http",
  "brain-index",
  "brain-metadata",
