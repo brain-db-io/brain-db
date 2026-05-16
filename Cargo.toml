@@ -88,6 +88,9 @@ pest = "2.7"
 pest_derive = "2.7"
 # Pattern extractor (phase 20.2) — regex over memory text.
 regex = "1"
+# LLM extractor (phase 21.3) — validate structured JSON responses
+# against the operator-declared draft-7 JSON schema.
+jsonschema = { version = "0.18", default-features = false }
 
 # Storage / indexing
 redb = "4"
