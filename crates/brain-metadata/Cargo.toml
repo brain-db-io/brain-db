@@ -41,3 +41,7 @@ harness = false
 [[bench]]
 name = "relation_ops"
 harness = false
+
+[[bench]]
+name = "schema_ops"
+harness = false
