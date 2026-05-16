@@ -567,6 +567,7 @@ dependencies = [
  "brain-extractors",
  "brain-http",
  "brain-index",
+ "brain-llm",
  "brain-metadata",
  "brain-ops",
  "brain-planner",

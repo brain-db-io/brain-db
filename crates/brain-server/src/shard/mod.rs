@@ -52,6 +52,7 @@
 #![allow(clippy::await_holding_refcell_ref)]
 
 pub mod adapters;
+pub mod llm_setup;
 
 use std::cell::RefCell;
 use std::path::{Path, PathBuf};
@@ -796,6 +797,9 @@ pub fn spawn_shard(
     let arena_path_for_executor = arena_path.clone();
     let metadata_path_for_executor = metadata_path.clone();
     let snapshots_root_for_executor = dir.join("snapshots");
+    // 21.5: the shard dir is also home to the per-shard LLM
+    // extractor response cache (`<shard_dir>/llm_cache.redb`).
+    let shard_dir_for_executor = dir.clone();
     let join_handle = LocalExecutorBuilder::new(placement)
         .name(&format!("brain-shard-{shard_id}"))
         .spawn(move || async move {
@@ -814,9 +818,15 @@ pub fn spawn_shard(
             // Phase 20.7: materialise the persisted `EXTRACTORS_TABLE`
             // rows (seeded by the system-schema bootstrap at
             // MetadataDb::open) into a runtime ExtractorRegistry.
-            // The classifier model is unloaded in phase 20.7;
-            // operator-provided weights via BRAIN_NER_MODEL_PATH
-            // are wired in phase 20.7b.
+            //
+            // Phase 21.5 lights up the LLM-tier deps the materializer
+            // needs: `ModelRouter` from env (ANTHROPIC_API_KEY /
+            // OPENAI_API_KEY) and the per-shard `llm_cache.redb`.
+            // Both slots default to `None` so substrate-only
+            // deployments stay unchanged.
+            let llm_deps = llm_setup::build_llm_deps(&shard_dir_for_executor);
+            let llm_cache_for_ops = llm_deps.cache.clone();
+
             let extractor_registry = {
                 let db_guard = metadata.lock();
                 let rtxn = db_guard
@@ -827,10 +837,10 @@ pub fn spawn_shard(
                 drop(rtxn);
                 drop(db_guard);
 
-                // 21.4: LLM router + cache deps land in phase 21.5;
-                // until then the materializer registers LLM rows as
-                // degraded extractors via the default deps bundle.
-                let materialize_deps = brain_extractors::MaterializeDeps::default();
+                // Classifier model wiring lives in 20.7b — `None`
+                // here keeps the existing degraded-classifier
+                // behaviour intact. 21.5 only fills the LLM slots.
+                let materialize_deps = llm_deps.into_materialize_deps(None);
                 let (reg, errors) = brain_extractors::build_registry_from_definitions(
                     &defs,
                     &materialize_deps,
@@ -854,7 +864,8 @@ pub fn spawn_shard(
             let ops = Arc::new(
                 OpsContext::new(executor_ctx)
                     .with_extractor_registry(extractor_registry)
-                    .with_classifier_config(classifier_config),
+                    .with_classifier_config(classifier_config)
+                    .with_llm_cache(llm_cache_for_ops),
             );
 
             // Spawn the per-shard fanout task: drains the in-process

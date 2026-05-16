@@ -15,8 +15,9 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use brain_extractors::{ClassifierConfig, ExtractorRegistry};
+use brain_metadata::LlmCacheDb;
 use brain_planner::{ExecutorContext, PlannerContext};
-use parking_lot::RwLock;
+use parking_lot::{Mutex, RwLock};
 
 use crate::access_buffer::AccessBuffer;
 use crate::subscribe::{EventBus, SubscriptionRegistry};
@@ -55,6 +56,13 @@ pub struct OpsContext {
     /// model path). Defaults to `unloaded`; operators wire
     /// `BRAIN_NER_MODEL_PATH` via `with_classifier_config`.
     pub classifier_config: Arc<ClassifierConfig>,
+    /// Per-shard LLM extractor response cache (spec §15.4 / §26).
+    /// `None` when no API keys are configured, the cache file
+    /// failed to open, or the deployment runs substrate-only.
+    /// LLM extractors thread this into their cache lookups via
+    /// the registry; later ops (RECALL provenance lookups, cache
+    /// admin endpoints) can read through this field directly.
+    pub llm_cache: Option<Arc<Mutex<LlmCacheDb>>>,
 }
 
 impl OpsContext {
@@ -72,6 +80,7 @@ impl OpsContext {
             access_buffer: Arc::new(AccessBuffer::default()),
             extractor_registry: Arc::new(RwLock::new(ExtractorRegistry::new())),
             classifier_config: Arc::new(ClassifierConfig::unloaded()),
+            llm_cache: None,
         }
     }
 
@@ -130,6 +139,16 @@ impl OpsContext {
     #[must_use]
     pub fn with_classifier_config(mut self, cfg: ClassifierConfig) -> Self {
         self.classifier_config = Arc::new(cfg);
+        self
+    }
+
+    /// Install (or clear) the per-shard LLM cache handle. Phase
+    /// 21.5 calls this once at shard startup with an open
+    /// `LlmCacheDb`; substrate-only deployments and tests pass
+    /// `None`.
+    #[must_use]
+    pub fn with_llm_cache(mut self, cache: Option<Arc<Mutex<LlmCacheDb>>>) -> Self {
+        self.llm_cache = cache;
         self
     }
 }
