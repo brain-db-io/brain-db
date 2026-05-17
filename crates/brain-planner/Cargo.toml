@@ -20,6 +20,9 @@ parking_lot.workspace = true
 # query text (exact-id detection, Title-Case mention probe,
 # temporal expression detection).
 regex = { workspace = true }
+# 23.5: filter chain reads MetadataDb via a single redb
+# ReadTransaction shared across the five filters.
+redb = { workspace = true }
 
 [dev-dependencies]
 uuid.workspace = true

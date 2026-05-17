@@ -553,6 +553,7 @@ dependencies = [
  "brain-metadata",
  "brain-protocol",
  "parking_lot",
+ "redb",
  "regex",
  "tempfile",
  "thiserror 1.0.69",
