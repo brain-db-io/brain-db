@@ -5,6 +5,7 @@
 //! planner (23.6), and executor (23.7) share types without
 //! polluting the substrate planner.
 
+pub mod executor;
 pub mod filters;
 pub mod fusion;
 pub mod planner;
