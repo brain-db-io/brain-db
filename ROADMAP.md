@@ -588,15 +588,78 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 ---
 
-## Phase 23 — Hybrid query engine
+## Phase 23 — Hybrid query engine ✓
 
-**One-line:** Query router (5 rules), RRF fusion (`k=60`), filter chain (type / temporal / confidence), EXPLAIN/TRACE; `RECALL` transparently uses hybrid path when a schema is declared.
+**One-line:** Rule-based query router (5 rules), RRF fusion (`k=60`), post-fusion filter chain (type / temporal / confidence / tombstone / supersession), planner + executor, EXPLAIN/TRACE renderers, four wire opcodes (`QUERY` / `QUERY_EXPLAIN` / `QUERY_TRACE` / `RECALL_HYBRID`), fluent SDK `client.query()` builder, and substrate `RECALL` transparently routes through the hybrid pipeline on schema-declared deployments.
 
-**Detailed plan:** [`docs/phases/phase-23-hybrid-query.md`](docs/phases/phase-23-hybrid-query.md)
+**Detailed plan:** [`docs/phases/phase-23-hybrid-query.md`](docs/phases/phase-23-hybrid-query.md) (per-sub-task plans `.claude/plans/phase-23-task-0[0-9].md`, `.claude/plans/phase-23-task-1[0-2].md`).
 
-**Crates touched:** `brain-planner`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
+**Crates touched:** `brain-planner`, `brain-index`, `brain-protocol`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
 
-**Sub-tasks:** ~9. **Exit:** hybrid recall@10 beats semantic-only baseline; EXPLAIN/TRACE structured outputs; tag `phase-23-complete`.
+**Sub-tasks:** 13 (23.0 spec backfill → 23.12 phase exit).
+
+**Exit:** `client.query()` plans + executes hybrid; EXPLAIN renders the plan text without execution; TRACE adds the per-retriever execution block; substrate `RECALL_REQ` transparently routes through the hybrid engine when a schema is declared (`MemoryResult.contributing_retrievers` + `fused_score` populated); tag `phase-23-complete`.
+
+**Scope cuts:**
+
+- **Streaming hybrid query results (limit > 100) deferred** to post-v1 — single `QueryResponse` frame in v1; SUBSCRIBE streaming path tracked as §30 OQ-23-A.
+- **Hybrid + transactional read-your-writes deferred** — RECALL inside a txn stays on the substrate path. Lens layering across statements + relations is multi-week work; tracked as §30 OQ-23-B.
+- **Filter-only retriever mode (no text + no anchor) deferred** — planner returns `NoSignal`. A "find by filters only" mode needs a new "everything" retriever; tracked as §30 OQ-23-C.
+- **Learned router on top of the rule-based one** — re-affirms `OQ-V2-1` + adds §30 OQ-23-D. Rule-based router ships as the stable fallback in v1.
+- **Cross-shard hybrid result merging deferred** — v1 is per-shard; cross-shard fan-out belongs upstream of the hybrid engine. Tracked as §30 OQ-23-E.
+- **`MemoryResult.text` not auto-populated on the hybrid path** — matches the substrate default (text only when caller requests).
+- **Parallel retriever execution deferred** — v1 invokes the three retrievers sequentially under Glommio's single-threaded executor. Async-trait migration is post-v1; §16/02 §2.10 budget headroom is comfortable at 10K scale.
+- **No `client.recall_hybrid` SDK verb** — the wire opcode `RECALL_HYBRID` (`0x0163`) exists for narrow / non-Rust callers, but the Rust SDK leaves it unreachable from the public surface. Domain verbs in the public API (`client.recall(...)` is the substrate verb; 23.11 routes it through hybrid transparently).
+
+**Delivered:**
+
+- §23/03 (SemanticRetriever), §23/04 (GraphRetriever), §16/02 §2.10 (hybrid perf targets) brought to phase-23 implementation depth in 23.0.
+- `brain-index` (new modules):
+  - `semantic_retriever` — trait + `SemanticQuery / SemanticScope / SemanticFilters / SemanticRetrieverConfig / SemanticError` plus `RankedItemId::{Memory,Statement,Entity,Relation}` extension to cover all four item kinds.
+  - `graph_retriever` — trait + `GraphQuery::{Star,Path,Subgraph}` / `GraphRetrieverConfig` / `Direction` / `GraphError`.
+- `brain-ops` (new modules):
+  - `ops::semantic_retriever::BrainSemanticRetriever` — embeds via the dispatcher, searches the per-shard memory HNSW + (when wired) the statement HNSW, pushes filters down via `SemanticFiltersConfigSlot`.
+  - `ops::graph_retriever::BrainGraphRetriever` — Star / Path / Subgraph traversal over the entity + relation + statement redb tables; relation-type push-down; bounded depth + branching.
+  - `ops::knowledge_query` — four hybrid-query wire handlers (`Query` / `QueryExplain` / `QueryTrace` / `RecallHybrid`) + wire ⇄ planner translation helpers; 16 KiB text cap; 3-entry cap on explicit retriever lists.
+  - `schema_gate` — `SchemaGate(Arc<ArcSwap<bool>>)` seeded from `schema_namespaces` at shard spawn; flipped by `handle_schema_upload` post-commit (spec §28/08 §1).
+  - `OpsContext` gains `semantic_retriever / lexical_retriever (22.5) / graph_retriever / schema_gate` slots.
+  - `handle_recall` routes through hybrid when the gate is set AND no txn is attached; falls back to substrate on `MissingRetriever`.
+- `brain-planner::knowledge` (new namespace):
+  - `router` — 5 routing rules + classification features (`has_text`, `has_entity_anchor`, `contains_exact_id`, `is_all_caps_tokens`, `is_question`, `contains_entity_mention_heuristic`, `contains_temporal_expression`, etc.).
+  - `fusion` — `fuse_rrf(outputs, k, weights)` with `DEFAULT_K = 60`; stable sort with deterministic tie-break.
+  - `filters` — type → temporal → confidence → tombstone → supersession; single `ReadTransaction` shared across the five filters; per-step survivor counts.
+  - `planner` — `plan(req) -> QueryPlan`; expands routing into `PlannedRetriever` configs with per-retriever defaults and a single pre-filter push-down (temporal > predicate > kind precedence in v1).
+  - `executor` — `execute(plan, req, ctx) -> QueryResult` with sequential retriever invocation, soft post-hoc timeout, RRF fuse, filter chain, project.
+  - `explain` — `render_plan(plan)` and `render_trace(plan, metadata)`.
+- `brain-protocol`:
+  - 8 new opcode entries at `0x0160-0x0163` (req) and `0x01E0-0x01E3` (resp).
+  - `knowledge::query` (new module) — `QueryRequest`, `QueryResponse`, `QueryExplainRequest`, `QueryExplainResponse`, `QueryTraceRequest`, `QueryTraceResponse`, `RecallHybridRequest`, `RecallHybridResponse`, and the supporting types (`RetrieverWire`, `RetrieverSelectionWire`, `FusionConfigWire`, `TimeRangeWire`, `ItemIdWire`, `RetrieverContributionWire`, `RetrieverOutcomeWire`).
+  - Substrate `MemoryResult` gains `contributing_retrievers: Vec<RetrieverNameWire>` and `fused_score: f32`; new `RetrieverNameWire` enum in `responses::types` with a `From<RetrieverWire>` bridge so substrate types stay free of the knowledge namespace.
+- `brain-sdk-rust::knowledge::query` (new module):
+  - `Client::query()` returns `QueryBuilder<'_>` with three terminal verbs: `.execute()` / `.explain()` / `.trace()`.
+  - SDK-owned domain types (no aliasing): `Retriever`, `RetrieverSelection` (with `.explicit()` validating constructor), `FusionConfig`, `TimeRange` (with `from_to / since / until / last_days / last_hours / open_ended / contains`), `ItemRef` (typed-ID enum), `RetrieverOutcomeStatus` (collapses `(u8, String)` wire pair into an enum), `QueryHit`, `RetrieverContribution`, `RetrieverOutcome`, `QueryResult`, `ExplainResult`, `TraceResult`.
+  - Builder-side validation (NoSignal, oversized text, invalid fusion knobs, inverted time range, oversized explicit retriever list) runs once in the terminal verb; setters stay infallible.
+- `brain-server`:
+  - Shard spawn seeds the `SchemaGate` from the per-shard `MetadataDb`; installs it on `OpsContext` via `with_schema_gate`.
+- Tests:
+  - brain-protocol: 188 lib tests including rkyv round-trips for every new query type.
+  - brain-planner: per-module unit tests for router, fusion, filters, planner, executor, explain (~80 tests).
+  - brain-ops: knowledge_query unit tests + schema_gate unit tests.
+  - brain-server: 6 wire integration tests in `knowledge_query_wire.rs`, 3 in `recall_hybrid_routing.rs`, 4 in `knowledge_hybrid_phase_exit.rs`.
+  - brain-sdk-rust: 18 unit tests in `query::tests` + 7 integration tests in `tests/knowledge_query.rs` (mock-server round-trips).
+- `crates/brain-planner/benches/hybrid_query.rs` — three criterion benches against §16/02 §2.10 perf targets (hybrid 3-retriever, router-degraded, EXPLAIN-only).
+
+**Deferred to later phases:**
+
+- Streaming hybrid query results — §30 OQ-23-A.
+- Hybrid + transactional read-your-writes — §30 OQ-23-B.
+- Filter-only retriever mode — §30 OQ-23-C.
+- Learned router on top of rule-based — §30 OQ-23-D + §30 OQ-V2-1.
+- Cross-shard hybrid result merging — §30 OQ-23-E.
+- Parallel retriever execution (async-trait migration) — post-v1.
+- Production-scale wall-time validation — phase 14 acceptance.
+
+**Bench results** (Linux, --quick): bench harness in `crates/brain-planner/benches/hybrid_query.rs` ready for capture; wall-time numbers deferred per the 21.7 / 22.8 precedent. Spec targets: hybrid 3-retriever p50 10 ms / p99 50 ms; router-degraded p50 7 ms / p99 30 ms; EXPLAIN-only p50 500 µs / p99 2 ms (§16/02 §2.10). Production-scale (100 K / 1 M) validation runs in phase 14's acceptance suite.
 
 ---
 

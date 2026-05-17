@@ -553,6 +553,7 @@ dependencies = [
  "brain-index",
  "brain-metadata",
  "brain-protocol",
+ "criterion",
  "parking_lot",
  "redb",
  "regex",

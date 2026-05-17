@@ -106,3 +106,38 @@ Top-level questions deferred to future versions or beyond. These are *known* unk
 **Open:** multilingual NER, language-detection, per-language extractors.
 **Why deferred:** built-in extractors are limited; users can ship their own LLM extractors that handle other languages.
 **Path:** community-contributed extractors; future versions bundled.
+
+## OQ-23-A: Streaming hybrid query results (`limit > 100`)
+
+**the knowledge layer:** the hybrid `QUERY` opcode returns a single `QueryResponse` frame, items truncated to `limit`.
+**Open:** stream items over the SUBSCRIBE wire path as they pass the limit boundary, per spec §24/00 §"Streaming results".
+**Why deferred:** v1 deployments are local-first with modest result-set sizes; the streaming path adds wire-protocol surface (event types) and SDK iterator plumbing that wasn't worth the complexity at v1.
+**Path:** post-v1 — add a `QueryStream` event type on SUBSCRIBE; SDK gains `client.query()…stream().await` returning a `Stream<Item = QueryHit>`.
+
+## OQ-23-B: Hybrid query + transactional read-your-writes
+
+**the knowledge layer:** RECALL inside a txn falls back to the substrate vector path even when a schema is declared. The hybrid pipeline doesn't see the txn buffer's pending statements / relations.
+**Open:** layer the txn buffer's pending writes (entities, statements, relations) on top of the hybrid retriever outputs before fusion + filter.
+**Why deferred:** lens layering for the substrate's vector recall is bounded scope (one buffer, one corpus). Hybrid + RYW would need parallel lenses for the entity, statement, and relation tables, plus fusion logic that tolerates pending rows missing from secondary indexes (HNSW / tantivy commit cadence).
+**Path:** post-v1 — design a per-table `TxnLens` shared by the substrate and hybrid paths; phase ordering would put it after the §27 sweepers stabilise.
+
+## OQ-23-C: Filter-only retriever mode (no text, no anchor)
+
+**the knowledge layer:** the planner rejects requests with neither `text` nor `entity_anchor` as `PlanError::NoSignal`. A filter-only query like "all preferences with confidence ≥ 0.9 in the last week" is not expressible.
+**Open:** add an "everything" retriever (or a "filter scan" mode) that emits all candidates matching the pre-filter, then applies the post-fusion filter chain.
+**Why deferred:** v1 didn't have a clear use case; "filter-only" is also a query class that benefits from a dedicated index design rather than reusing the hybrid pipeline.
+**Path:** post-v1 — likely a new opcode or a planner-side filter-scan retriever; depends on how users land on filter-only patterns in practice.
+
+## OQ-23-D: Learned router on top of the rule-based one
+
+**the knowledge layer:** rule-based router (5 rules) ships in v1; see also top-level `OQ-V2-1`.
+**Open:** train a learned router on labeled query → preferred-retrievers data.
+**Why deferred:** need real query traffic + labels. The rules ship as the stable fallback so cold start works.
+**Path:** future versions — feature-flag a learned classifier on top; rules stay as fallback. Labels come from click-through, explicit feedback, and synthetic teacher-LLM labels (per §24/00 §"Learned routing").
+
+## OQ-23-E: Cross-shard hybrid result merging
+
+**the knowledge layer:** the hybrid pipeline runs per-shard. Multi-shard deployments fan RECALL / QUERY out at the connection layer and merge results by score upstream of the hybrid engine.
+**Open:** push the cross-shard merge into the hybrid query layer — global RRF fusion across shards, with per-shard partial results streamed in.
+**Why deferred:** single-shard deployments are the v1 default; multi-shard with cross-shard hybrid fusion adds latency-budget pressure that's better tackled once production telemetry is in.
+**Path:** post-v1 — extend the connection layer's fan-out to deliver per-retriever partial result lists, and fuse globally before the filter chain.
