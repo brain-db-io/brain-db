@@ -18,6 +18,7 @@ pub mod error;
 pub mod ids;
 pub mod knowledge;
 pub mod memory;
+pub mod migration;
 pub mod worker_state;
 
 pub use edge::{Edge, EdgeKind, EdgeOrigin};
@@ -32,6 +33,10 @@ pub use knowledge::{
     TypeConstraint,
 };
 pub use memory::{Memory, MemoryKind, Salience};
+pub use migration::{
+    MigrationByReason, MigrationId, MigrationItem, MigrationPlan, MigrationReason,
+    MigrationSummary,
+};
 pub use worker_state::{
     BackfillId, BackfillProgress, BackfillRange, BackfillRequest, WorkerPriority,
 };

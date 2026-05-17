@@ -14,6 +14,7 @@ pub mod forget_cascade;
 pub mod hnsw_maint;
 pub mod idempotency_cleanup;
 pub mod llm_cache_sweeper;
+pub mod schema_migration;
 pub mod slot_reclaim;
 pub mod snapshot;
 pub mod stale_extraction_detector;
