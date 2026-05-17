@@ -167,11 +167,52 @@ benches use shard-local scale.
 | Statement @ 1M, multi-term + filter | 15 ms | 70 ms |
 | `IndexWriter::commit` (256-doc batch) | 5 ms | 25 ms |
 
-Hybrid query end-to-end latency (LexicalRetriever + SemanticRetriever
-+ RRF fusion) lands in phase 23's §2.10 backfill — phase 22
-gates only the per-retriever numbers above.
+Hybrid query end-to-end latency (LexicalRetriever +
+SemanticRetriever + GraphRetriever + RRF fusion) is in §2.10
+below; phase 22 gates only the per-retriever LexicalRetriever
+numbers above.
 
-### 2.10 Phase perf gates
+### 2.10 Knowledge layer — Hybrid query (phase 23)
+
+Hybrid query latency is dominated by per-retriever wall-time;
+RRF fusion (§23/01) and the filter chain (§24/00) add sub-ms
+overhead. The phase-23 gate at sub-task 23.12 measures three
+retrievers in parallel (semantic + lexical + graph at depth 1)
+plus the cross-cutting operations.
+
+Per-retriever single-call latency (sourced from §23/02 §8,
+§23/03 §8, §23/04 §8 — the per-retriever specs):
+
+| Retriever | Single-call p50 | Single-call p99 |
+|---|---|---|
+| `SemanticRetriever` (Memory or Statement, push-down filters) | 5 ms | 25 ms |
+| `SemanticRetriever` `Both` corpora | 8 ms | 35 ms |
+| `LexicalRetriever` (Memory @ 100K, single-term) | 10 ms | 50 ms |
+| `LexicalRetriever` (Statement @ 1M, single-term) | 10 ms | 50 ms |
+| `GraphRetriever` (`Star` depth=1) | 5 ms | 20 ms |
+| `GraphRetriever` (`Star` depth=2) | 10 ms | 40 ms |
+| `GraphRetriever` (`Subgraph` depth=2) | 15 ms | 60 ms |
+
+Hybrid query end-to-end (parallel retrievers + RRF + filter):
+
+| Operation | p50 | p99 |
+|---|---|---|
+| Hybrid 3-retriever, push-down filters | 10 ms | 50 ms |
+| Hybrid 3-retriever, post-fusion filters only | 15 ms | 70 ms |
+| Hybrid single-retriever (router-degraded) | 7 ms | 30 ms |
+| `EXPLAIN` (plan-only, no execution) | 500 µs | 2 ms |
+| `TRACE` (plan + per-retriever metadata, includes execution) | inherits hybrid + ~200 µs | inherits + ~1 ms |
+| Filter chain (1 K candidates, full chain) | 1 ms | 5 ms |
+| RRF fusion (3 lists × 100 items) | 100 µs | 500 µs |
+
+Notes:
+
+- The hybrid query end-to-end is approximately `max(per-retriever) + filter + fusion`, not their sum — retrievers run in parallel on the shard's executor.
+- Production-scale validation (100 K memories / 1 M statements / 100 K entities) is the phase-14 acceptance gate; sub-task 23.12 validates these targets at the 10 K corpus scale used by the phase-22 / 23 bench harnesses.
+- `EXPLAIN` skips the executor entirely — cost is plan construction (router + cost estimate + pre-filter computation).
+- Streaming queries (limit > 100; §24/00 §"Streaming results") use the SUBSCRIBE wire path; per-emit latency is hybrid-query latency divided across the result chunks.
+
+### 2.11 Phase perf gates
 
 - **Phase 16 (sub-task 16.9)** — §2.2 entity targets at 100K entities.
 - **Phase 17 (sub-task 17.10)** — §2.3 statement targets at 1M statements.
@@ -180,6 +221,7 @@ gates only the per-retriever numbers above.
 - **Phase 20 (sub-task 20.10)** — §2.7 extractor targets at single-extractor dispatch.
 - **Phase 21 (sub-task 21.7)** — §2.8 LLM extractor targets at cache-hit + cost-budget skip + mock-API miss.
 - **Phase 22 (sub-task 22.8)** — §2.9 LexicalRetriever targets at 100K memory / 1M statement scale.
+- **Phase 23 (sub-task 23.12)** — §2.10 hybrid query targets at 10K corpus / 3 retrievers.
 
 Phases verify on the dev workstation; production-reference numbers (16-core / 64 GB / NVMe per §1) are revalidated in phase 14's CI suite.
 
