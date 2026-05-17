@@ -24,6 +24,13 @@ The substrate workers (section 11) handle: HNSW maintenance, decay sweeping, sal
 | **Entity merge** | On manual/admin trigger | Foreground (sync) | None |
 | **Stale extraction detection** | Periodic | Low | None |
 
+Detailed mechanics:
+
+- The **three extractor workers** (pattern / classifier / LLM) and the **entity / statement / embedding workers** are documented in [`./01_extractor_workers.md`](./01_extractor_workers.md).
+- The **two text indexer workers** (memory + statement → tantivy) are documented in [`./02_text_indexer_workers.md`](./02_text_indexer_workers.md).
+- The **five periodic sweepers** (supersession sweeper, audit log sweeper, cache sweeper (LLM), entity GC, stale extraction detection) are documented in [`./03_sweeper_workers.md`](./03_sweeper_workers.md).
+- The **three state-carrying workers** (backfill, FORGET cascade, schema migration) are documented in [`./04_state_carrying_workers.md`](./04_state_carrying_workers.md).
+
 ## Worker scheduling
 
 The knowledge layer uses the substrate's worker scheduling discipline (section 11):
