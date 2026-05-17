@@ -63,7 +63,7 @@ Phase 17 implementation lives in (paths to be filled in as sub-tasks land):
 |---|---|
 | [`../../.claude/plans/phase-17.md`](../../.claude/plans/phase-17.md) | Phase 17 master plan (this implementation). |
 | [`../../.claude/plans/phase-16-task-07.md`](../../.claude/plans/phase-16-task-07.md) | Phase 16.7 plan that pre-built statement event variants + error codes. |
-| [`../../docs/phases/phase-17-statements.md`](../../docs/phases/phase-17-statements.md) | Phase 17 sub-task index. |
+| [`../../docs/development/phases/phase-17-statements.md`](../../docs/development/phases/phase-17-statements.md) | Phase 17 sub-task index. |
 
 ## §19 internal file map
 

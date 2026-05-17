@@ -13,7 +13,7 @@ Algorithm:
    - If no `phase-*-complete` tag exists at all, active phase is **Phase 0** (verify scaffolding) or **Phase 1** (start wire protocol) depending on whether `just verify` passes.
 
 2. **Open the relevant phase doc.**
-   - `docs/phases/phase-NN-*.md` — the file matching the active phase.
+   - `docs/development/phases/phase-NN-*.md` — the file matching the active phase.
    - For Phase 0, there is no detailed doc — the work is just `just verify` then tag.
 
 3. **Find the lowest unfinished sub-task.**
@@ -29,7 +29,7 @@ Algorithm:
 
    ```
    Active phase: <N> — <Title>
-   Phase doc: docs/phases/phase-NN-*.md
+   Phase doc: docs/development/phases/phase-NN-*.md
    
    Next sub-task: <task-id> — <title>
    

@@ -106,7 +106,7 @@ For Loki / Elastic, the JSON layer's field shape is documented in
 
 The 10 runbooks in `docs/runbooks/` cover the common failure
 modes. Each is linked from the corresponding alert in
-`docs/analytics/alerts/brain-rules.yml`. The flow is:
+`monitoring/alerts/brain-rules.yml`. The flow is:
 
 1. Alert fires in Alertmanager.
 2. Alert annotation links to the runbook.

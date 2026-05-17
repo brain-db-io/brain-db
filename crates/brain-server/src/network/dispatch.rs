@@ -160,7 +160,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         Ok(o) => o,
         Err(_) => {
             // Per spec §03/11 §2.6: unknown opcodes return BadOpcode and
-            // the connection stays open. F-3 in docs/spec-audit/fix-plan.md
+            // the connection stays open. F-3
             // reconciled the previous CloseWith behaviour.
             return Action::Inline(error_frame(
                 frame.header.stream_id_u32(),
@@ -170,7 +170,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         }
     };
 
-    // F-2 (docs/spec-audit/fix-plan.md), spec §03/11 §2.5:
+    // F-2 , spec §03/11 §2.5:
     // - Connection-level opcodes (HELLO/AUTH/PING/PONG/BYE/…)
     //   MUST ride on stream_id = 0.
     // - Client-initiated op streams MUST be odd (and != 0).

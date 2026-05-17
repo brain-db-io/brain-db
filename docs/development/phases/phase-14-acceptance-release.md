@@ -48,7 +48,7 @@ API in the SDK has at least one example; getting-started works from a
 clean machine in under 15 minutes.
 
 ### Task 14.4 — Release notes
-**Writes:** `CHANGELOG.md` covering every feature shipped Phase 1 → Phase 13; `RELEASE-NOTES-v1.0.0.md`; known-limitations section pulled from `spec/*/open_questions.md`.
+**Writes:** `CHANGELOG.md` covering every feature shipped Phase 1 → Phase 13; `CHANGELOG.md`; known-limitations section pulled from `spec/*/open_questions.md`.
 **Done when:** changelog references every tagged phase; release notes
 are written for an operator (not a developer) audience.
 
@@ -78,7 +78,7 @@ git add Cargo.toml Cargo.lock
 git commit -m "release: v1.0.0"
 git tag -a phase-13-complete -m "Phase 13 — soak + chaos gates green"
 git tag -a phase-14-complete -m "Phase 14 — acceptance gates 1-10 green"
-git tag -a v1.0.0 -s -m "Brain v1.0.0 — see RELEASE-NOTES-v1.0.0.md"
+git tag -a v1.0.0 -s -m "Brain v1.0.0 — see CHANGELOG.md"
 
 # 5. Push.
 git push origin main dev phase-13-complete phase-14-complete v1.0.0
@@ -90,7 +90,7 @@ git push origin main dev phase-13-complete phase-14-complete v1.0.0
 ## Phase exit checklist
 
 - [x] Sub-tasks 14.1–14.4 scaffolded.
-- [x] CHANGELOG + RELEASE-NOTES-v1.0.0 written.
+- [x] CHANGELOG + CHANGELOG (v1.0.0 section) written.
 - [x] Acceptance runner + per-gate tests in place.
 - [x] 10 runbooks + 4 operator guides shipped.
 - [ ] Operator runs `bash scripts/acceptance/run.sh`; gates 1-10 green on

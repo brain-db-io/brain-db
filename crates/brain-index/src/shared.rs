@@ -1,7 +1,7 @@
 //! Concurrent wrapper around `HnswIndex`.
 //!
 //! See `spec/06_ann_index/08_concurrency.md` and SD-4.8-1 in
-//! `docs/spec-deviations.md`.
+//! `docs/development/spec-deviations.md`.
 //!
 //! ## Reader / writer split
 //!

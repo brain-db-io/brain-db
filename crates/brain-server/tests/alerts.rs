@@ -1,4 +1,4 @@
-//! CI gate for `docs/analytics/alerts/brain-rules.yml` per spec §14/05 §15.
+//! CI gate for `monitoring/alerts/brain-rules.yml` per spec §14/05 §15.
 //!
 //! `promtool check rules` is the authoritative check but requires
 //! the Prometheus toolchain on CI. This test catches the common
@@ -68,7 +68,7 @@ fn scan_alerts_and_severities(text: &str) -> (Vec<String>, Vec<String>) {
 fn rules_file_exists() {
     assert!(
         rules_path().exists(),
-        "docs/analytics/alerts/brain-rules.yml missing"
+        "monitoring/alerts/brain-rules.yml missing"
     );
 }
 

@@ -6,8 +6,8 @@ wire dashboards and alerts. Covers the Phase 12 deliverables:
 - §14/01 — Prometheus metrics taxonomy.
 - §14/02 — JSON-structured logs.
 - §14/03 — OpenTelemetry tracing.
-- §14/04 — Reference Grafana dashboards (in `docs/analytics/dashboards/`).
-- §14/05 — Prometheus alert rules (in `docs/analytics/alerts/`).
+- §14/04 — Reference Grafana dashboards (in `monitoring/dashboards/`).
+- §14/05 — Prometheus alert rules (in `monitoring/alerts/`).
 
 If you're an operator standing up a brain-server for the first time
 and want metrics flowing in 10 minutes, follow [§1 quick-start](#1-quick-start).
@@ -32,7 +32,7 @@ scrape_configs:
 
 # 4. Import the reference dashboards into Grafana 9+.
 #    Grafana UI → Dashboards → Import → upload each
-#    docs/analytics/dashboards/*.json. Set the Prometheus datasource UID prompt
+#    monitoring/dashboards/*.json. Set the Prometheus datasource UID prompt
 #    to your Prometheus instance.
 
 # 5. Load the alert rules into Prometheus.
@@ -248,7 +248,7 @@ spec:
 
 ### Alert rules
 
-Drop `docs/analytics/alerts/brain-rules.yml` into Prometheus' `rule_files:` list,
+Drop `monitoring/alerts/brain-rules.yml` into Prometheus' `rule_files:` list,
 or wrap as a `PrometheusRule` CRD. Reload Prometheus:
 
 ```bash
@@ -257,7 +257,7 @@ curl -X POST http://prometheus:9090/-/reload
 
 ### Grafana dashboards
 
-Import each file in `docs/analytics/dashboards/` via Grafana UI or the
+Import each file in `monitoring/dashboards/` via Grafana UI or the
 file-provisioning sidecar. The dashboards expect a Prometheus
 datasource; set the prompt to your instance.
 
@@ -348,7 +348,7 @@ the wrong port. Verify with `curl <metrics_addr>/metrics | head`.
 - Spec: `spec/14_observability_ops/` — primary contract for every
   family / log field / alert / span.
 - Roadmap: `ROADMAP.md` — Phase 12 / 13 / 14 split.
-- Phase doc: `docs/phases/phase-12-observability.md` — what's
+- Phase doc: `docs/development/phases/phase-12-observability.md` — what's
   shipped vs deferred.
 - Runtime entry points:
   - `crates/brain-server/src/metrics/` — metric primitives,
@@ -357,5 +357,5 @@ the wrong port. Verify with `curl <metrics_addr>/metrics | head`.
     init.
   - `crates/brain-server/src/bootstrap/tracing.rs` — OTLP exporter
     init.
-- Dashboards: `docs/analytics/dashboards/*.json` (8 files).
-- Alerts: `docs/analytics/alerts/brain-rules.yml`.
+- Dashboards: `monitoring/dashboards/*.json` (8 files).
+- Alerts: `monitoring/alerts/brain-rules.yml`.

@@ -19,7 +19,7 @@
 //!
 //! Constructed via [`Histogram::new`] (raw) or
 //! [`Histogram::new_default_ms`] (ms-scaled with spec §12 buckets).
-//! F-7 in `docs/spec-audit/fix-plan.md` introduced the unit-agnostic
+//! F-7 introduced the unit-agnostic
 //! split.
 //!
 //! ## Allocation

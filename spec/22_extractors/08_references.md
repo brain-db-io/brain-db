@@ -56,8 +56,8 @@ Phase 20 implementation lives in:
 |---|---|
 | [`../../.claude/plans/phase-20.md`](../../.claude/plans/phase-20.md) | Phase 20 master plan. |
 | [`../../.claude/plans/phase-21.md`](../../.claude/plans/phase-21.md) | Phase 21 LLM extractor master plan. |
-| [`../../docs/phases/phase-20-pattern-classifier-extractors.md`](../../docs/phases/phase-20-pattern-classifier-extractors.md) | Phase 20 sub-task index (original; superseded by the .claude plans). |
-| [`../../docs/phases/phase-21-llm-extractor.md`](../../docs/phases/phase-21-llm-extractor.md) | Phase 21 sub-task index. |
+| [`../../docs/development/phases/phase-20-pattern-classifier-extractors.md`](../../docs/development/phases/phase-20-pattern-classifier-extractors.md) | Phase 20 sub-task index (original; superseded by the .claude plans). |
+| [`../../docs/development/phases/phase-21-llm-extractor.md`](../../docs/development/phases/phase-21-llm-extractor.md) | Phase 21 sub-task index. |
 
 ## §22 internal file map
 

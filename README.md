@@ -187,7 +187,7 @@ When a schema is declared, the substrate exposes typed cognition. Three layers, 
 | `0x60–0x6F` | Query | QUERY (hybrid), QUERY_EXPLAIN, QUERY_TRACE, RECALL_HYBRID |
 | `0x70–0x7F` | Admin | ADMIN_BACKFILL, ADMIN_LIST_PENDING_RESOLUTIONS, ADMIN_LIST_STALE_STATEMENTS |
 
-**End-to-end** ([`docs/usage/practical-guide.md`](docs/usage/practical-guide.md) walks through this in full):
+**End-to-end** ([`docs/development/usage/practical-guide.md`](docs/development/usage/practical-guide.md) walks through this in full):
 
 ```
 ENCODE "Priya kicked off the billing rewrite today."
@@ -512,9 +512,9 @@ Activates when a schema is declared. Substrate-only deployments are unaffected.
 | 23 | Hybrid query engine (router, RRF fusion, filter chain, EXPLAIN/TRACE) | planned |
 | 24 | Sweepers, knowledge acceptance & `v1.0.0` | planned |
 
-See [`ROADMAP.md`](ROADMAP.md) for the phase index and [`docs/phases/`](docs/phases/) for per-phase sub-task breakdowns. The dependency DAG for the knowledge-layer phases lives in [`docs/phases/README.md`](docs/phases/README.md).
+See [`ROADMAP.md`](ROADMAP.md) for the phase index and [`docs/development/phases/`](docs/development/phases/) for per-phase sub-task breakdowns. The dependency DAG for the knowledge-layer phases lives in [`docs/development/phases/README.md`](docs/development/phases/README.md).
 
-For a hands-on walkthrough of every feature in context (substrate primitives, schema declaration, extractors, hybrid query, FORGET cascade), see [`docs/usage/practical-guide.md`](docs/usage/practical-guide.md).
+For a hands-on walkthrough of every feature in context (substrate primitives, schema declaration, extractors, hybrid query, FORGET cascade), see [`docs/development/usage/practical-guide.md`](docs/development/usage/practical-guide.md).
 
 ## Development environment
 
@@ -597,7 +597,7 @@ cargo +nightly fuzz run protocol_frame -- -max_total_time=60      # nightly + Li
 just shell                                                        # enter the dev container (Docker required)
 ```
 
-A step-by-step setup, CLI tour, SDK tour, and troubleshooting walkthrough lives under [`docs/usage/`](docs/usage/).
+A step-by-step setup, CLI tour, SDK tour, and troubleshooting walkthrough lives under [`docs/development/usage/`](docs/development/usage/).
 
 ### When something doesn't work
 
@@ -616,14 +616,17 @@ brain/
 │   ├── Dockerfile
 │   ├── devcontainer.json
 │   └── post-create.sh
-├── docs/
-│   ├── phases/                   # Per-phase detailed sub-task plans (0–24)
-│   ├── usage/                    # Setup + CLI + SDK + walkthrough + troubleshooting
-│   ├── guides/                   # Operator guides (observability, …)
-│   ├── analytics/                # Reference Grafana dashboards + Alertmanager rules
-│   ├── runbooks/                 # Operational runbooks
-│   ├── spec-audit/               # Per-section spec ↔ impl audit pages
-│   └── spec-deviations.md        # Recorded conscious deviations from the spec
+├── docs/                         # See docs/README.md for navigation
+│   ├── README.md                 # Navigation hub (Diátaxis-shaped)
+│   ├── tutorials/                # Learning-oriented (getting started)
+│   ├── guides/                   # Task-oriented (install, configure, operate, upgrade, observability)
+│   ├── reference/                # Info-oriented (perf targets, error codes)
+│   ├── runbooks/                 # Operator procedures (RB-1 … RB-11)
+│   └── development/              # Contributor-oriented
+│       ├── usage/                # Build + run + debug + test workflow
+│       ├── spec-deviations.md    # Recorded conscious deviations from the spec
+│       └── phases/               # Per-phase plans (0–24); dev history
+├── monitoring/                   # Deployment assets (Grafana dashboards + Alertmanager rules)
 ├── spec/                         # The 32-section specification (read-only)
 │   ├── 00_master_overview/       # Substrate (§00–§16)
 │   ├── 01_system_architecture/

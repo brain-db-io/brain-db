@@ -10,7 +10,7 @@
 //! away when there is a concrete client that needs it.
 //!
 //! Architecture and milestone breakdown live in
-//! `docs/phases/phase-11-brain-http.md`.
+//! `docs/development/phases/phase-11-brain-http.md`.
 //!
 //! ## What this crate owns
 //!

@@ -158,7 +158,7 @@ pub struct ConnectionMetrics {
     pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
     pub frame_send_total: AtomicU64,
     pub frame_recv_total: AtomicU64,
-    /// F-7 (`docs/spec-audit/fix-plan.md`): raw-mode histograms of
+    /// F-7: raw-mode histograms of
     /// outbound / inbound frame size in bytes. `Histogram::new` with
     /// [`FRAME_BYTES_BUCKETS`] gives an exact `_sum`.
     pub frame_send_bytes: crate::metrics::histogram::Histogram,

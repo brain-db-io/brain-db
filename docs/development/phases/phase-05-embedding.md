@@ -82,7 +82,7 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 
 Sub-task 5.4 ships the dispatch *surface* (`Dispatcher` trait + `CpuDispatcher` passthrough) rather than the GPU window-and-batch machinery the original sketch implied — spec §04/03 §7 + §14 are explicit that CPU has no internal batching. The window+batch design is reserved for a future GPU sub-task behind the same trait.
 
-Spec deviations logged in `docs/spec-deviations.md`:
+Spec deviations logged in `docs/development/spec-deviations.md`:
 - SD-5.1-1: refuse `pytorch_model.bin` outright (arbitrary-code-execution risk).
 - SD-5.1-2: safetensors loaded via the safe full-file loader to preserve `#![forbid(unsafe_code)]` in `brain-embed`.
 

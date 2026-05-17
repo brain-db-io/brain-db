@@ -27,8 +27,8 @@ stays tight enough to land in one push.
 - Full `brain_*` Prometheus metrics taxonomy (~50 families) emitted on `/metrics`.
 - Structured JSON logs (`tracing-subscriber` JSON layer) matching spec §14/02.
 - OpenTelemetry tracing with OTLP exporter; spans cover the request lifecycle through the Tokio↔Glommio boundary.
-- Reference Grafana dashboards in `docs/analytics/dashboards/` (8 JSON files).
-- Alertmanager rules in `docs/analytics/alerts/brain-rules.yml`.
+- Reference Grafana dashboards in `monitoring/dashboards/` (8 JSON files).
+- Alertmanager rules in `monitoring/alerts/brain-rules.yml`.
 - Tag: `phase-12-complete`.
 
 ## Non-goals (deferred)
@@ -66,12 +66,12 @@ Deferred (each has a `phase-12/<slug>` marker in `crates/brain-server/src/metric
 
 ### Task 12.4 — Reference Grafana dashboards
 **Reads:** `spec/14_observability_ops/04_dashboards.md`
-**Writes:** `docs/analytics/dashboards/{overview,per-shard,storage,hnsw,workers,network,errors,capacity}.json`.
+**Writes:** `monitoring/dashboards/{overview,per-shard,storage,hnsw,workers,network,errors,capacity}.json`.
 **Done when:** all 8 dashboards import into Grafana 11.x and render real data when pointed at a running server with synthetic load.
 
 ### Task 12.5 — Alertmanager rules
 **Reads:** `spec/14_observability_ops/05_alerts.md`
-**Writes:** `docs/analytics/alerts/brain-rules.yml` (Prometheus rule format).
+**Writes:** `monitoring/alerts/brain-rules.yml` (Prometheus rule format).
 **Done when:** every alert in spec §05 has a corresponding rule; `promtool check rules` is clean; each rule's labels match the metric families emitted in 12.1.
 
 ### Task 12.6 — Observability docs
@@ -85,7 +85,7 @@ Deferred (each has a `phase-12/<slug>` marker in `crates/brain-server/src/metric
 - [x] Log output is one valid JSON object per line (when `format = "json"`).
 - [x] OTel spans build (integration against a real collector is operator-side; the runtime ships).
 - [x] All 8 dashboards exist + parse + reference taxonomy metrics (`tests/dashboards.rs`).
-- [x] `docs/analytics/alerts/brain-rules.yml` carries every spec-mandated alert with valid severities (`tests/alerts.rs`).
+- [x] `monitoring/alerts/brain-rules.yml` carries every spec-mandated alert with valid severities (`tests/alerts.rs`).
 - [x] `just docker-verify` green.
 - [ ] Tag `phase-12-complete`.  *(awaiting user signal)*
 

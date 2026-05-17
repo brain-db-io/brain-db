@@ -14,7 +14,7 @@ Steps:
 
 2. **Active phase**
    - The lowest-numbered phase that does NOT have a `phase-N-complete` tag is the active phase.
-   - Open `docs/phases/phase-NN-*.md` for that phase.
+   - Open `docs/development/phases/phase-NN-*.md` for that phase.
    - Count `[x]` vs `[ ]` checkboxes in sub-task headers and the phase exit checklist.
 
 3. **Next sub-task**

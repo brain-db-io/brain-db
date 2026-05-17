@@ -10,7 +10,7 @@ Steps:
 
 1. **Pre-commit verification.** Run `just verify` (or the equivalent `cargo` chain). If it fails, abort the commit and surface the failure — never commit red. Per `AUTONOMY.md` §2 rule 3.
 
-2. **Identify the spec file(s) referenced** in the sub-task. From `docs/phases/phase-NN-*.md`, find the sub-task by ID. Extract the entries from its "Reads:" list.
+2. **Identify the spec file(s) referenced** in the sub-task. From `docs/development/phases/phase-NN-*.md`, find the sub-task by ID. Extract the entries from its "Reads:" list.
 
 3. **Compose the commit message** in the format from `AUTONOMY.md` §5:
 

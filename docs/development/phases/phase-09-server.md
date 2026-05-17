@@ -42,7 +42,7 @@ A runnable substrate. TCP connection layer (Tokio) accepts clients; per-shard Gl
 
 ### Task 9.2 — Tokio/Glommio port audit  [x]
 **Reads:** every shard-bound crate's `src/`; spec §01/04, §10/02.
-**Writes:** `docs/phases/phase-09-glommio-port.md`
+**Writes:** `docs/development/phases/phase-09-glommio-port.md`
 **Done when:** Every `tokio::*` use-site in shard-bound code has a
 disposition (STAY-CONN / STAY-TEST / PORT-GLOMMIO / PORT-LOCAL / MOVE /
 DELETE / QUESTION). Cross-cutting decisions locked. Open questions
@@ -105,7 +105,7 @@ all 12 Phase-8 workers. Shutdown drains scheduler → WAL → arena msync.
 > every cascading site. `brain-server`'s per-shard OpsContext wire-up
 > moves to a follow-up sub-task (was the original 9.7c).
 
-**Reads:** audit `docs/phases/phase-09-glommio-port.md` §4 + §6 + §8.2 + §8.5.
+**Reads:** audit `docs/development/phases/phase-09-glommio-port.md` §4 + §6 + §8.2 + §8.5.
 **Writes:** `crates/brain-planner/src/executor/{writer,context}.rs`;
   `crates/brain-ops/src/{writer,lib,context,subscribe,access_buffer,txn}.rs`;
   `crates/brain-workers/src/{worker,context,scheduler,*}.rs` + every test
@@ -121,7 +121,7 @@ on Glommio (no `tokio::spawn`); `WorkerContext.shutdown` is
 **Done when:** Each shard owns a real `Wal` on disk under `<data_dir>/<shard_id>/wal/`; recovers on respawn via `brain_storage::recovery::recover` (with `InMemoryMetadataSink` stand-in — 9.7 swaps in `MetadataDb`); `AppendWalRecord` exercises `Wal::append` end-to-end.
 
 ### Task 9.6a — WAL io_uring port  [x]
-**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`, `docs/spec-deviations.md` SD-2.8-2/SD-2.9-1.
+**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`, `docs/development/spec-deviations.md` SD-2.8-2/SD-2.9-1.
 **Writes:** `crates/brain-storage/src/wal/{segment,group_commit,wal,checkpoint,reader,recovery}.rs`, `crates/brain-storage/tests/random_kill.rs`, `crates/brain-metadata/tests/recovery_integration.rs`.
 **Done when:** WAL writes go through Glommio io_uring (`BufferedFile::write_at` + `fdatasync`); committer is a `spawn_local` coroutine on the shard executor; `Wal::append` is `async fn(&self)`. SD-2.8-2 + SD-2.9-1 reconciled; new SD-2.8-2-b documents the two-syscall fsync.
 
@@ -140,7 +140,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 **Reads:** plan `phase-09-task-09.md`, `spec/01_system_architecture/04_layers.md` (L1),
   `spec/03_wire_protocol/02_transport.md` (TCP + TLS),
   `spec/03_wire_protocol/03_frame_header.md` (frame layout),
-  audit `docs/phases/phase-09-glommio-port.md` §7 (Tokio side locked).
+  audit `docs/development/phases/phase-09-glommio-port.md` §7 (Tokio side locked).
 **Writes:** `Cargo.toml` (workspace deps: tokio-rustls, rustls, rustls-pemfile, rcgen, socket2);
   `crates/brain-server/Cargo.toml` (Linux deps: tokio + rustls stack + socket2 + rcgen dev-dep);
   `crates/brain-server/src/connection.rs` (new — `ConnectionListener` two-step
@@ -167,7 +167,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
   `spec/03_wire_protocol/07_request_frames.md` + `08_response_frames.md`,
   `spec/03_wire_protocol/09_streaming.md` §1–§5,
   `spec/12_sharding_clustering/02_routing.md`,
-  audit `docs/phases/phase-09-glommio-port.md` §7.
+  audit `docs/development/phases/phase-09-glommio-port.md` §7.
 **Writes:** `crates/brain-server/src/dispatch.rs` (new — `ConnPhase` state
   machine, handshake / PING / BYE handlers, `Topology`, op routing,
   `IdleTimer` + `Tick`, OpError→wire mapping);
@@ -192,7 +192,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 ### Task 9.11 — Cross-shard SUBSCRIBE fan-out  [x]
 **Reads:** plan `phase-09-task-11.md`, `spec/09_cognitive_operations/09_subscribe.md`,
   `spec/03_wire_protocol/05_opcodes.md` §1.3, `spec/03_wire_protocol/09_streaming.md`,
-  audit `docs/phases/phase-09-glommio-port.md` §8.1.
+  audit `docs/development/phases/phase-09-glommio-port.md` §8.1.
 **Writes:** `crates/brain-server/src/subscribe.rs` (new — `ShardEventHub`,
   `SubscriptionRegistry`, per-sub task);
   `crates/brain-server/src/shard.rs` (`ShardHandle::events()` flume
@@ -232,14 +232,14 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 **Reads:** plan `phase-09-task-12.md`,
   `spec/10_concurrency_epochs/05_arc_swap.md`,
   `spec/10_concurrency_epochs/06_crossbeam_epoch.md`,
-  `docs/spec-deviations.md` SD-4.8-1 (HNSW RwLock fallback, locked).
+  `docs/development/spec-deviations.md` SD-4.8-1 (HNSW RwLock fallback, locked).
 **Writes:** `crates/brain-server/Cargo.toml` (add `arc-swap`);
   `crates/brain-server/src/dispatch.rs` (`Topology.routing` becomes
   `Arc<ArcSwap<RoutingTable>>`, `dispatch_frame` uses `load_full()`);
   `crates/brain-server/src/main.rs` (construct via
   `ArcSwap::from_pointee`); `crates/brain-server/src/routing.rs` (new
   unit test); test scaffolds in `tests/{connection,dispatch,subscribe}.rs`;
-  `docs/spec-deviations.md` (new **SD-10.6-1** documenting why
+  `docs/development/spec-deviations.md` (new **SD-10.6-1** documenting why
   first-party code intentionally doesn't use `crossbeam-epoch` under
   single-writer-per-shard).
 **Done when:** `Topology.routing` is an `Arc<ArcSwap<RoutingTable>>`;
@@ -283,7 +283,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 
 **Reads:** plan `phase-09-task-14.md`,
   `spec/01_system_architecture/04_layers.md`,
-  audit `docs/phases/phase-09-glommio-port.md` §8.2.
+  audit `docs/development/phases/phase-09-glommio-port.md` §8.2.
 **Writes:** `crates/brain-server/src/shutdown.rs` (new —
   `graceful_shutdown_shards` with per-shard timed `join()`);
   `crates/brain-server/src/main.rs` (`spawn_signal_listener`

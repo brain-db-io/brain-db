@@ -154,7 +154,7 @@ std-dev, min, max, throughput). Spec §16/13 expects ±10 %
 run-to-run variance; ±30 % indicates instability.
 
 Full performance baselines are run on quiet reference hardware
-per spec §16/07. See [`docs/performance/README.md`](../performance/README.md).
+per spec §16/07. See [`docs/reference/performance.md`](../performance/README.md).
 
 ## 8. Load generator (operator-run)
 
@@ -195,7 +195,7 @@ cargo run --release --example soak -p brain-sdk-rust -- \
 ```
 
 Emits per-sample CSV and a final `SOAK_RESULT pass=... ...` line.
-See [`docs/performance/README.md`](../performance/README.md) for
+See [`docs/reference/performance.md`](../performance/README.md) for
 the methodology.
 
 ## 10. Acceptance suite

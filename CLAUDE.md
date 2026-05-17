@@ -56,7 +56,7 @@ The full directory map is in [`spec/00_master_overview/02_doc_map.md`](spec/00_m
 The roadmap is in three layers:
 
 1. **[`ROADMAP.md`](ROADMAP.md)** — high-level phase index. One-line per phase.
-2. **[`docs/phases/phase-NN-*.md`](docs/phases/)** — detailed sub-task breakdown for each phase. Reads, writes, "done when" criteria.
+2. **[`docs/development/phases/phase-NN-*.md`](docs/development/phases/)** — detailed sub-task breakdown for each phase. Reads, writes, "done when" criteria.
 3. **[`AUTONOMY.md`](AUTONOMY.md)** — operating rules (commit format, stop conditions, scope guards).
 
 When asked "what's next?", the answer is always: the lowest-numbered unfinished sub-task in the active phase doc.
@@ -221,7 +221,7 @@ If running for the first time on a fresh checkout:
 2. `just verify` — confirm Phase 0 passes.
 3. If green: `git tag phase-0-complete` (if not already tagged).
 4. Read [`AUTONOMY.md`](AUTONOMY.md) end-to-end.
-5. Read the relevant phase doc (`docs/phases/phase-NN-*.md`) end-to-end.
+5. Read the relevant phase doc (`docs/development/phases/phase-NN-*.md`) end-to-end.
 6. Begin sub-task 1.1 (or current).
 
 ## 15. When in doubt

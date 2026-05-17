@@ -11,7 +11,7 @@
 //!
 //! Backed by `glommio::io::BufferedFile`: all open/write/fsync ops go through
 //! io_uring on the shard's executor. Durability is `write_at` + `fdatasync`
-//! (two io_uring syscalls) — see `docs/spec-deviations.md` SD-2.8-2-b for
+//! (two io_uring syscalls) — see `docs/development/spec-deviations.md` SD-2.8-2-b for
 //! the rationale vs. the spec's single `pwritev2(RWF_DSYNC)` syscall.
 //!
 //! ## What's *not* in this layer

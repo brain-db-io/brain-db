@@ -21,7 +21,7 @@ use thiserror::Error;
 /// Rust 1.95 can't yet be used through `dyn`, so we hand-roll the return
 /// type.
 ///
-/// **`!Send + !Sync`** per the audit (`docs/phases/phase-09-glommio-port.md`
+/// **`!Send + !Sync`** per the audit (`docs/development/phases/phase-09-glommio-port.md`
 /// §4). Phase 9 enforces single-writer-per-shard (spec §10/02) by living
 /// on one Glommio executor — no cross-thread sharing — so `Send + Sync` on
 /// the trait would be misleading + over-constraining for concrete impls.

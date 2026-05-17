@@ -80,7 +80,7 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 
 ### Task 4.8 — Concurrency wrapper ✅
 **Reads:** `spec/06_ann_index/08_concurrency.md`.
-**Writes:** `crates/brain-index/src/shared.rs` (new), `docs/spec-deviations.md` (SD-4.8-1).
+**Writes:** `crates/brain-index/src/shared.rs` (new), `docs/development/spec-deviations.md` (SD-4.8-1).
 
 **What was built:**
 - `SharedHnsw<D>` — cloneable reader handle. All methods `&self`; concurrent reads via `parking_lot::RwLock::read()`.

@@ -54,7 +54,7 @@ Phase 19 implementation lives in:
 | Document | Purpose |
 |---|---|
 | [`../../.claude/plans/phase-19.md`](../../.claude/plans/phase-19.md) | Phase 19 master plan (this implementation). |
-| [`../../docs/phases/phase-19-schema-dsl.md`](../../docs/phases/phase-19-schema-dsl.md) | Phase 19 sub-task index (original; superseded by the .claude plan). |
+| [`../../docs/development/phases/phase-19-schema-dsl.md`](../../docs/development/phases/phase-19-schema-dsl.md) | Phase 19 sub-task index (original; superseded by the .claude plan). |
 
 ## §21 internal file map
 

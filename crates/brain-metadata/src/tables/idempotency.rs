@@ -69,7 +69,7 @@ pub const DEFAULT_TTL_NANOS: u64 = 24 * 60 * 60 * 1_000_000_000;
 /// Cached response for a single mutating request. Spec §07/06 §2 lists
 /// four fields; this v1 stores those four plus a `request_hash` so the
 /// conflict-detection check spec §5 mandates can run in O(1) byte
-/// compare. See SD-3.5-1 in `docs/spec-deviations.md`.
+/// compare. See SD-3.5-1 in `docs/development/spec-deviations.md`.
 ///
 /// - `response_kind` — one of the [`response_kind`] u8 constants.
 /// - `memory_id_bytes` — the resulting memory, if any. Spec lists this

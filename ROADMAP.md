@@ -1,6 +1,6 @@
 # Roadmap
 
-High-level implementation plan. Each phase is a step toward Brain v1.0. Detailed sub-task breakdowns live in [`docs/phases/`](docs/phases/) — this file is the index.
+High-level implementation plan. Each phase is a step toward Brain v1.0. Detailed sub-task breakdowns live in [`docs/development/phases/`](docs/development/phases/) — this file is the index.
 
 For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
@@ -41,7 +41,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Frame format, opcode codecs, fuzz target.
 
-**Detailed plan:** [`docs/phases/phase-01-wire-protocol.md`](docs/phases/phase-01-wire-protocol.md)
+**Detailed plan:** [`docs/development/phases/phase-01-wire-protocol.md`](docs/development/phases/phase-01-wire-protocol.md)
 
 **Crates touched:** `brain-core`, `brain-protocol`.
 
@@ -55,7 +55,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Memory-mapped vector arena, write-ahead log with group commit, crash recovery.
 
-**Detailed plan:** [`docs/phases/phase-02-storage.md`](docs/phases/phase-02-storage.md)
+**Detailed plan:** [`docs/development/phases/phase-02-storage.md`](docs/development/phases/phase-02-storage.md)
 
 **Crates touched:** `brain-storage`.
 
@@ -69,7 +69,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** All 13 redb tables; idempotency; recovery integration with Phase 2.
 
-**Detailed plan:** [`docs/phases/phase-03-metadata.md`](docs/phases/phase-03-metadata.md)
+**Detailed plan:** [`docs/development/phases/phase-03-metadata.md`](docs/development/phases/phase-03-metadata.md)
 
 **Crates touched:** `brain-metadata`.
 
@@ -83,7 +83,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Wrap `hnsw_rs` with the spec's parameters and lifecycle.
 
-**Detailed plan:** [`docs/phases/phase-04-ann-index.md`](docs/phases/phase-04-ann-index.md)
+**Detailed plan:** [`docs/development/phases/phase-04-ann-index.md`](docs/development/phases/phase-04-ann-index.md)
 
 **Crates touched:** `brain-index`.
 
@@ -97,7 +97,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** BGE-small via candle, batching, caching, determinism.
 
-**Detailed plan:** [`docs/phases/phase-05-embedding.md`](docs/phases/phase-05-embedding.md)
+**Detailed plan:** [`docs/development/phases/phase-05-embedding.md`](docs/development/phases/phase-05-embedding.md)
 
 **Crates touched:** `brain-embed`.
 
@@ -111,7 +111,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Logical plan tree, cost model, pull-based executor.
 
-**Detailed plan:** [`docs/phases/phase-06-planner.md`](docs/phases/phase-06-planner.md)
+**Detailed plan:** [`docs/development/phases/phase-06-planner.md`](docs/development/phases/phase-06-planner.md)
 
 **Crates touched:** `brain-planner`.
 
@@ -125,7 +125,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** ENCODE, RECALL, PLAN, REASON, FORGET on top of the planner; idempotency.
 
-**Detailed plan:** [`docs/phases/phase-07-operations.md`](docs/phases/phase-07-operations.md)
+**Detailed plan:** [`docs/development/phases/phase-07-operations.md`](docs/development/phases/phase-07-operations.md)
 
 **Crates touched:** `brain-ops`.
 
@@ -139,7 +139,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** All 12 workers running cooperatively.
 
-**Detailed plan:** [`docs/phases/phase-08-workers.md`](docs/phases/phase-08-workers.md)
+**Detailed plan:** [`docs/development/phases/phase-08-workers.md`](docs/development/phases/phase-08-workers.md)
 
 **Crates touched:** `brain-workers`.
 
@@ -153,7 +153,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** A runnable substrate. Tokio connection layer + Glommio shards.
 
-**Detailed plan:** [`docs/phases/phase-09-server.md`](docs/phases/phase-09-server.md)
+**Detailed plan:** [`docs/development/phases/phase-09-server.md`](docs/development/phases/phase-09-server.md)
 
 **Crates touched:** `brain-server`.
 
@@ -167,7 +167,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Polished `Client` + `brain-cli` covering every spec'd admin command.
 
-**Detailed plan:** [`docs/phases/phase-10-sdk-cli.md`](docs/phases/phase-10-sdk-cli.md)
+**Detailed plan:** [`docs/development/phases/phase-10-sdk-cli.md`](docs/development/phases/phase-10-sdk-cli.md)
 
 **Crates touched:** `brain-sdk-rust`, `brain-cli`.
 
@@ -181,7 +181,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Brain-owned HTTP transport on hyper 1.x — replaces hand-rolled admin/CLI HTTP, adds WebSocket + SSE.
 
-**Detailed plan:** [`docs/phases/phase-11-brain-http.md`](docs/phases/phase-11-brain-http.md)
+**Detailed plan:** [`docs/development/phases/phase-11-brain-http.md`](docs/development/phases/phase-11-brain-http.md)
 
 **Crates touched:** new `brain-http`; migrations in `brain-server`, `brain-cli`.
 
@@ -195,9 +195,9 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Production-grade telemetry surface — full metrics taxonomy, structured JSON logs, OpenTelemetry tracing, dashboards, alerts.
 
-**Detailed plan:** [`docs/phases/phase-12-observability.md`](docs/phases/phase-12-observability.md)
+**Detailed plan:** [`docs/development/phases/phase-12-observability.md`](docs/development/phases/phase-12-observability.md)
 
-**Crates touched:** all (instrumentation), plus `docs/analytics/dashboards/`, `docs/analytics/alerts/`.
+**Crates touched:** all (instrumentation), plus `monitoring/dashboards/`, `monitoring/alerts/`.
 
 **Sub-tasks:** 6.
 
@@ -209,7 +209,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Measure-and-stress: criterion benches for every operation, load generator, chaos harness, soak rig.
 
-**Detailed plan:** [`docs/phases/phase-13-benchmarks.md`](docs/phases/phase-13-benchmarks.md)
+**Detailed plan:** [`docs/development/phases/phase-13-benchmarks.md`](docs/development/phases/phase-13-benchmarks.md)
 
 **Crates touched:** `benches/`, `tests/chaos/`, `tests/soak/`.
 
@@ -223,7 +223,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **One-line:** Run all 10 substrate acceptance gates, runbook-validate, doc pass, tag substrate release-candidate.
 
-**Detailed plan:** [`docs/phases/phase-14-acceptance-release.md`](docs/phases/phase-14-acceptance-release.md)
+**Detailed plan:** [`docs/development/phases/phase-14-acceptance-release.md`](docs/development/phases/phase-14-acceptance-release.md)
 
 **Crates touched:** `acceptance/`, `docs/runbooks/`, READMEs, CHANGELOG.
 
@@ -235,7 +235,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 # Knowledge layer (phases 15–24)
 
-These phases turn Brain from a vector memory store into a cognitive database with typed entities, statements, relations, schema-driven extraction, and hybrid retrieval. Estimated 58–83 days of focused work. Phases 16–22 can partially overlap once Phase 15 is done. See [`docs/phases/README.md`](docs/phases/README.md) for the full dependency DAG.
+These phases turn Brain from a vector memory store into a cognitive database with typed entities, statements, relations, schema-driven extraction, and hybrid retrieval. Estimated 58–83 days of focused work. Phases 16–22 can partially overlap once Phase 15 is done. See [`docs/development/phases/README.md`](docs/development/phases/README.md) for the full dependency DAG.
 
 ---
 
@@ -243,7 +243,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** New redb tables, WAL frame types, on-disk artifact paths (tantivy/HNSW/LLM cache), schema-declared flag. Binary boots; substrate behaves identically.
 
-**Detailed plan:** [`docs/phases/phase-15-knowledge-storage.md`](docs/phases/phase-15-knowledge-storage.md)
+**Detailed plan:** [`docs/development/phases/phase-15-knowledge-storage.md`](docs/development/phases/phase-15-knowledge-storage.md)
 
 **Crates touched:** `brain-metadata`, `brain-storage`, `brain-server`.
 
@@ -255,7 +255,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Entity table, type system, entity HNSW (declared; resolver wiring in phase 21), resolver tiers 1 (exact / alias) and 2 (trigram fuzzy). Tiers 3 (embedding) and 4 (LLM) stubbed for phase 21.
 
-**Detailed plan:** [`docs/phases/phase-16-entities.md`](docs/phases/phase-16-entities.md)
+**Detailed plan:** [`docs/development/phases/phase-16-entities.md`](docs/development/phases/phase-16-entities.md)
 
 **Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-server`, `brain-sdk-rust`.
 
@@ -286,7 +286,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Statement table; three kinds (Fact, Preference, Event); supersession chains; contradiction surfacing; statement HNSW (declared; populator in phase 21); per-kind noisy-OR confidence aggregation.
 
-**Detailed plan:** [`docs/phases/phase-17-statements.md`](docs/phases/phase-17-statements.md)
+**Detailed plan:** [`docs/development/phases/phase-17-statements.md`](docs/development/phases/phase-17-statements.md)
 
 **Crates touched:** `brain-core`, `brain-metadata`, `brain-index`, `brain-protocol`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
 
@@ -324,7 +324,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Relation table; relation-type registry with cardinality + symmetric flags; cardinality-driven auto-supersession; canonical symmetric ordering with dual-index population; iterative BFS traversal with cycle detection and depth/branching caps.
 
-**Detailed plan:** [`docs/phases/phase-18-relations.md`](docs/phases/phase-18-relations.md)
+**Detailed plan:** [`docs/development/phases/phase-18-relations.md`](docs/development/phases/phase-18-relations.md)
 
 **Crates touched:** `brain-core`, `brain-metadata`, `brain-protocol`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
 
@@ -364,7 +364,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Parser + validator + per-namespace versioning for the declarative schema language; system-schema bootstrap replaces hand-seeded built-ins; SDK schema builders.
 
-**Detailed plan:** [`docs/phases/phase-19-schema-dsl.md`](docs/phases/phase-19-schema-dsl.md) (superseded by `.claude/plans/phase-19*.md` per-sub-task plans).
+**Detailed plan:** [`docs/development/phases/phase-19-schema-dsl.md`](docs/development/phases/phase-19-schema-dsl.md) (superseded by `.claude/plans/phase-19*.md` per-sub-task plans).
 
 **Crates touched:** `brain-protocol`, `brain-metadata`, `brain-ops`, `brain-sdk-rust`, `brain-server`.
 
@@ -407,7 +407,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Extractor framework; pattern (regex) + classifier (operator-provided model) tiers wire into ENCODE; built-ins (`brain.entity_mentions`, `brain.basic_ner`) declared via the system schema; extraction audit log + governance wire ops.
 
-**Detailed plan:** [`docs/phases/phase-20-pattern-classifier-extractors.md`](docs/phases/phase-20-pattern-classifier-extractors.md) (superseded by `.claude/plans/phase-20*.md` per-sub-task plans).
+**Detailed plan:** [`docs/development/phases/phase-20-pattern-classifier-extractors.md`](docs/development/phases/phase-20-pattern-classifier-extractors.md) (superseded by `.claude/plans/phase-20*.md` per-sub-task plans).
 
 **Crates touched:** new `brain-extractors`; `brain-protocol`, `brain-metadata`, `brain-ops`, `brain-server`.
 
@@ -477,7 +477,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Third extractor tier (LLM) lights up — Anthropic + OpenAI clients behind a `LlmClient` trait; `LlmExtractor` with cache (phase-17 `LlmCacheDb`) + JSON-schema validation + retry-once + per-call cost budget; server-side env-driven router + per-shard cache wiring; mock-client integration + wire-smoke tests.
 
-**Detailed plan:** [`docs/phases/phase-21-llm-extractor.md`](docs/phases/phase-21-llm-extractor.md) (per-sub-task plans `.claude/plans/phase-21-task-0[0-7].md`).
+**Detailed plan:** [`docs/development/phases/phase-21-llm-extractor.md`](docs/development/phases/phase-21-llm-extractor.md) (per-sub-task plans `.claude/plans/phase-21-task-0[0-7].md`).
 
 **Crates touched:** new `brain-llm`; `brain-extractors`, `brain-metadata`, `brain-ops`, `brain-server`.
 
@@ -528,7 +528,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Tantivy BM25 over memory text + statement text; brain analyzer with URL / code-ID / Porter pipeline; per-shard memory + statement text indexer workers (bounded channel + group commit + retry-once-then-fatal); `LexicalRetriever` trait + `TantivyLexicalRetriever`; atomic-swap rebuild + shard-startup recovery.
 
-**Detailed plan:** [`docs/phases/phase-22-tantivy-lexical.md`](docs/phases/phase-22-tantivy-lexical.md) (per-sub-task plans `.claude/plans/phase-22-task-0[0-8].md`).
+**Detailed plan:** [`docs/development/phases/phase-22-tantivy-lexical.md`](docs/development/phases/phase-22-tantivy-lexical.md) (per-sub-task plans `.claude/plans/phase-22-task-0[0-8].md`).
 
 **Crates touched:** `brain-index`, `brain-ops`, `brain-server` (no `brain-workers` — text indexer drain runs as `glommio::spawn_local` directly under the shard executor).
 
@@ -592,7 +592,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Rule-based query router (5 rules), RRF fusion (`k=60`), post-fusion filter chain (type / temporal / confidence / tombstone / supersession), planner + executor, EXPLAIN/TRACE renderers, four wire opcodes (`QUERY` / `QUERY_EXPLAIN` / `QUERY_TRACE` / `RECALL_HYBRID`), fluent SDK `client.query()` builder, and substrate `RECALL` transparently routes through the hybrid pipeline on schema-declared deployments.
 
-**Detailed plan:** [`docs/phases/phase-23-hybrid-query.md`](docs/phases/phase-23-hybrid-query.md) (per-sub-task plans `.claude/plans/phase-23-task-0[0-9].md`, `.claude/plans/phase-23-task-1[0-2].md`).
+**Detailed plan:** [`docs/development/phases/phase-23-hybrid-query.md`](docs/development/phases/phase-23-hybrid-query.md) (per-sub-task plans `.claude/plans/phase-23-task-0[0-9].md`, `.claude/plans/phase-23-task-1[0-2].md`).
 
 **Crates touched:** `brain-planner`, `brain-index`, `brain-protocol`, `brain-ops`, `brain-server`, `brain-sdk-rust`.
 
@@ -667,7 +667,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **One-line:** Eight background workers (backfill, FORGET cascade, schema migration, five sweepers), schema-toggle runbook, end-to-end test, acceptance suite, v1.0.0 release.
 
-**Detailed plan:** [`docs/phases/phase-24-acceptance.md`](docs/phases/phase-24-acceptance.md) (per-sub-task plans `.claude/plans/phase-24-task-0[0-9].md` + `phase-24-task-1[0-2].md`).
+**Detailed plan:** [`docs/development/phases/phase-24-acceptance.md`](docs/development/phases/phase-24-acceptance.md) (per-sub-task plans `.claude/plans/phase-24-task-0[0-9].md` + `phase-24-task-1[0-2].md`).
 
 **Crates touched:** `brain-core`, `brain-metadata`, `brain-workers`, `docs/runbooks/`, `docs/tutorials/`, `scripts/`, CHANGELOG, ROADMAP.
 
@@ -731,7 +731,7 @@ Phase N+1 doesn't start before Phase N is exited and tagged. The dependencies ar
 - Phase 23 fuses semantic + lexical + graph retrievers.
 - Phase 24's combined acceptance suite is what `v1.0.0` ships against.
 
-Phases 16 through 22 may partially overlap (see DAG in [`docs/phases/README.md`](docs/phases/README.md)). Strict ordering still applies across the substrate/knowledge boundary at Phases 14 → 15.
+Phases 16 through 22 may partially overlap (see DAG in [`docs/development/phases/README.md`](docs/development/phases/README.md)). Strict ordering still applies across the substrate/knowledge boundary at Phases 14 → 15.
 
 Skipping ahead means stubbing types you'll have to revisit. Don't.
 

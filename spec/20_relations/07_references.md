@@ -58,7 +58,7 @@ Phase 18 implementation lives in:
 | Document | Purpose |
 |---|---|
 | [`../../.claude/plans/phase-18.md`](../../.claude/plans/phase-18.md) | Phase 18 master plan (this implementation). |
-| [`../../docs/phases/phase-18-relations.md`](../../docs/phases/phase-18-relations.md) | Phase 18 sub-task index (original; superseded by the .claude plan). |
+| [`../../docs/development/phases/phase-18-relations.md`](../../docs/development/phases/phase-18-relations.md) | Phase 18 sub-task index (original; superseded by the .claude plan). |
 
 ## §20 internal file map
 

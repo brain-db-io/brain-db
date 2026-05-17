@@ -191,7 +191,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 **Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`
 
-**Writes:** `crates/brain-storage/src/wal/group_commit.rs` + new `WalSegment::flush_durable` in `wal/segment.rs` + `docs/spec-deviations.md` (new).
+**Writes:** `crates/brain-storage/src/wal/group_commit.rs` + new `WalSegment::flush_durable` in `wal/segment.rs` + `docs/development/spec-deviations.md` (new).
 
 **What was built:**
 - `WalSegment::flush_durable()` — drains the buffer to the file via `libc::pwritev2(fd, &iov, 1, offset, RWF_DSYNC)` at an explicit offset (`HEADER_LEN + bytes_on_disk`). Cursor is updated post-write so it composes cleanly with the existing non-durable `flush`.
@@ -202,7 +202,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 - Sticky failure mode (`CommitError::WalBroken`): a failed flush poisons subsequent appends and existing handles.
 - Graceful shutdown via `shutdown()` (drains the queue, flushes the final batch, returns the `WalSegment`); `Drop` does the best-effort equivalent.
 
-**Spec deviations** (logged in `docs/spec-deviations.md`):
+**Spec deviations** (logged in `docs/development/spec-deviations.md`):
 - **SD-2.8-1**: no `O_DIRECT`. The spec's mandated 4 KB padding-per-flush + `O_DIRECT` would create zero-padded gaps mid-segment that `WalReader` (2.7) treats as `MidSegmentCorruption`. The proper `O_DIRECT`-correct design needs WAL pages (per-page headers); deferred to Phase 9.
 - **SD-2.8-2**: synchronous `pwritev2` from a `std::thread` rather than `io_uring` via Glommio. Glommio isn't wired into this crate yet; the public API is shaped so the swap to a Glommio coroutine is local.
 
@@ -217,11 +217,11 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 **Reads:** `spec/05_storage_arena_wal/07_write_path.md` §§3, 4, 13–15; `04_wal_overview.md` §§3, 4; `06_wal_durability.md` §7 (rollover protocol).
 
-**Writes:** `crates/brain-storage/src/wal/wal.rs` (and `wal/mod.rs` re-exports + a new entry in `docs/spec-deviations.md`).
+**Writes:** `crates/brain-storage/src/wal/wal.rs` (and `wal/mod.rs` re-exports + a new entry in `docs/development/spec-deviations.md`).
 
 **Architecture:** `Wal` owns the directory, a monotonic LSN counter, and the active `GroupCommitter` (which in turn owns the active `WalSegment`). `append` allocates the next LSN, rolls over to a fresh segment if needed, enqueues to the committer, blocks until durable. `reader()` produces a `WalReader` whose segment list is fixed at `open()` time but whose contents are read at iteration time.
 
-**Spec deviation SD-2.9-1**: synchronous `append(&mut self, record)` instead of phase-doc's `async fn append(&self, record)`. Carries forward SD-2.8-2 (no async runtime yet); `&mut self` matches spec §07 §15's single-writer-per-shard discipline at the type level. Logged in `docs/spec-deviations.md`.
+**Spec deviation SD-2.9-1**: synchronous `append(&mut self, record)` instead of phase-doc's `async fn append(&self, record)`. Carries forward SD-2.8-2 (no async runtime yet); `&mut self` matches spec §07 §15's single-writer-per-shard discipline at the type level. Logged in `docs/development/spec-deviations.md`.
 
 **Rollover** follows spec §06 §7 step-by-step: drain current commit → drop old segment → `WalSegment::create_new` for the new segment (its 4 KB header is written and `msync`'d as part of `create_new` from 2.6) → `fsync` the parent directory so the new file's directory entry is durable → restart `GroupCommitter` on the new segment.
 
@@ -318,7 +318,7 @@ All 12 sub-tasks done. Final state on `feature/brain-storage`:
 
 - 155 unit tests + 4 integration tests (1 ignored — the 1000-iter sweep).
 - Random-kill sweep (1000 iterations) passes cleanly in ~197 seconds.
-- 8 spec deviations logged in `docs/spec-deviations.md`, all with reconciliation paths.
+- 8 spec deviations logged in `docs/development/spec-deviations.md`, all with reconciliation paths.
 - 12 plan files in `.claude/plans/phase-02-task-NN.md` documenting the design rationale per sub-task.
 
 Outstanding from the phase exit checklist:

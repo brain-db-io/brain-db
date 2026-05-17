@@ -15,7 +15,7 @@ LOOP:
   1. Read current state:
      - git status, git log -5
      - last commit's tag (phase-N-task-M-complete or similar)
-     - check ROADMAP.md and the active docs/phases/phase-NN-*.md
+     - check ROADMAP.md and the active docs/development/phases/phase-NN-*.md
 
   2. Decide the next sub-task:
      - The lowest-numbered sub-task in the current phase that isn't ✓ done
@@ -411,7 +411,7 @@ This is not a "legacy mode" or "compatibility mode" — it is a real v1.0 deploy
 
 ### Phase progression for knowledge layer
 
-Phases 16–22 may partially overlap once 15 is done (see DAG in `docs/phases/README.md`). Phase 23 strictly requires 17, 21, 22. Phase 24 is final.
+Phases 16–22 may partially overlap once 15 is done (see DAG in `docs/development/phases/README.md`). Phase 23 strictly requires 17, 21, 22. Phase 24 is final.
 
 After each knowledge-layer phase:
 - Run that phase's tests.

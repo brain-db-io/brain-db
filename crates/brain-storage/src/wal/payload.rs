@@ -119,7 +119,7 @@ pub enum SalienceReason {
 /// Spec §05/05 §10 lists three fields (`slot_id`, `old_version`,
 /// `new_version`); we add `memory_id` so the metadata sink can delete the
 /// reclaimed memory's row by primary key in O(1) instead of scanning the
-/// `memories` table. See `docs/spec-deviations.md` SD-3.11-3 (which
+/// `memories` table. See `docs/development/spec-deviations.md` SD-3.11-3 (which
 /// supersedes the deferred reconciliation in SD-3.11-2).
 ///
 /// On-disk layout: `slot_id` (u64) → `old_version` (u32) → `new_version`

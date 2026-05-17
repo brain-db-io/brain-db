@@ -34,7 +34,7 @@ use crate::worker::Worker;
 
 const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(5);
 
-/// Per-worker control surface — F-13 (docs/spec-audit/fix-plan.md).
+/// Per-worker control surface — F-13 .
 ///
 /// - `paused`: when true, the loop skips `run_cycle` but keeps
 ///   ticking on its interval. Set by `WorkerScheduler::pause` /

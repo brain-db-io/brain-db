@@ -1,6 +1,6 @@
 //! `POST /v1/workers/{name}/{action}` — live control plane.
 //!
-//! F-13 (`docs/spec-audit/fix-plan.md`) wired this through to the
+//! F-13 wired this through to the
 //! Scheduler's `pause` / `resume` / `run_now` primitives. The
 //! previous 501 stub is gone.
 

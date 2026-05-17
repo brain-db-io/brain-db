@@ -40,7 +40,7 @@ operator runbook; full acceptance suite.
 **Known limitations** — see
 `spec/30_knowledge_open_questions/00_purpose.md` for OQ-23-A
 through OQ-23-E and the v2 deferrals. Phase-24 v1 scope cuts
-documented in `docs/phases/phase-24-acceptance.md`.
+documented in `docs/development/phases/phase-24-acceptance.md`.
 
 Tags: `v0.9.0-substrate-rc` (substrate gate), `phase-24-complete`
 + `v1.0.0` (this release).

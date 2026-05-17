@@ -93,7 +93,7 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 ### Task 3.5 — Idempotency table with TTL ✅
 **Reads:** `spec/07_metadata_graph/06_idempotency.md`
-**Writes:** `crates/brain-metadata/src/tables/idempotency.rs` (new), `crates/brain-metadata/src/tables/mod.rs` (add `pub mod idempotency;`), `docs/spec-deviations.md` (SD-3.5-1).
+**Writes:** `crates/brain-metadata/src/tables/idempotency.rs` (new), `crates/brain-metadata/src/tables/mod.rs` (add `pub mod idempotency;`), `docs/development/spec-deviations.md` (SD-3.5-1).
 
 **What was built (1 more table — 8 of 13):**
 - `IDEMPOTENCY_TABLE: TableDefinition<[u8; 16], IdempotencyEntry>` — keyed by `RequestId::to_be_bytes()` (16-byte UUIDv7).
@@ -198,7 +198,7 @@ Implement the `redb`-backed metadata store: agents, contexts, memory metadata, e
 
 ### Task 3.11 — `MetadataSink` impl for recovery ✅
 **Reads:** `spec/05_storage_arena_wal/08_recovery.md` (recovery contract); `spec/07_metadata_graph/08_transactions.md` §11; each payload's originating spec section (§09/02 ENCODE, §09/06 FORGET, §07/06 idempotency, §05/09 checkpoints, §04/07 model fingerprints).
-**Writes:** `crates/brain-storage/src/recovery.rs` (trait extension), `crates/brain-metadata/src/sink.rs` (new), `crates/brain-metadata/src/db.rs` (state fields), `crates/brain-metadata/src/lib.rs` (export), `crates/brain-metadata/src/tables/memory.rs` (expose `memory_kind_to_u8` to crate), `docs/spec-deviations.md` (SD-3.11-1, SD-3.11-2).
+**Writes:** `crates/brain-storage/src/recovery.rs` (trait extension), `crates/brain-metadata/src/sink.rs` (new), `crates/brain-metadata/src/db.rs` (state fields), `crates/brain-metadata/src/lib.rs` (export), `crates/brain-metadata/src/tables/memory.rs` (expose `memory_kind_to_u8` to crate), `docs/development/spec-deviations.md` (SD-3.11-1, SD-3.11-2).
 
 **What was built:**
 
