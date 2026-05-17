@@ -196,6 +196,52 @@ fn explicit_override_dedupes_duplicates() {
     assert_eq!(d.retrievers.len(), 2);
 }
 
+#[test]
+fn explicit_override_caps_at_max_retrievers() {
+    // Spec §24/00 §"Limits and budgets": cap is uniform — the
+    // explicit override does NOT bypass MAX_RETRIEVERS. A raw
+    // wire caller submitting 5 distinct retrievers (only 3 exist
+    // but a future variant could push past the cap; simulate by
+    // duplicating the unique ones) must see the result truncated
+    // at MAX_RETRIEVERS.
+    let req = QueryRequest {
+        text: None,
+        retrievers: RetrieverSelection::Explicit(vec![
+            Retriever::Semantic,
+            Retriever::Lexical,
+            Retriever::Graph,
+            Retriever::Semantic, // dedup'd — doesn't count toward the cap.
+            Retriever::Lexical,  // dedup'd.
+        ]),
+        ..Default::default()
+    };
+    let d = route(&req);
+    assert_eq!(
+        d.retrievers.len(),
+        super::MAX_RETRIEVERS,
+        "explicit override must be capped at MAX_RETRIEVERS post-dedup",
+    );
+}
+
+#[test]
+fn explicit_override_preserves_caller_order_on_dedup() {
+    // Lexical first, then Semantic — caller order should survive
+    // the dedup pass (it's a `Vec`-based contains-check, not a
+    // HashSet).
+    let req = QueryRequest {
+        text: None,
+        retrievers: RetrieverSelection::Explicit(vec![
+            Retriever::Lexical,
+            Retriever::Semantic,
+            Retriever::Lexical,
+        ]),
+        ..Default::default()
+    };
+    let d = route(&req);
+    let order: Vec<_> = d.retrievers.iter().map(|i| i.retriever).collect();
+    assert_eq!(order, vec![Retriever::Lexical, Retriever::Semantic]);
+}
+
 // ---------------------------------------------------------------------------
 // Empty / edge cases.
 // ---------------------------------------------------------------------------

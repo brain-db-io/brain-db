@@ -168,19 +168,44 @@ pub fn route(req: &QueryRequest) -> RoutingDecision {
     // Explicit override — honour client choice verbatim, flat
     // weight 1.0 per retriever (per-retriever weight tuning
     // rides in fusion_config; see §23/01).
+    //
+    // Spec §24/00 §"Limits and budgets": "Max retrievers per
+    // query: 3 (all of semantic, lexical, graph if matched)".
+    // The cap applies uniformly — the explicit override does NOT
+    // bypass it. The SDK already enforces this at construction
+    // (`RetrieverSelection::explicit()`), but a raw wire caller
+    // or another-language SDK could submit a longer list. We
+    // dedup + truncate here so the planner's downstream
+    // assumptions (per-retriever slot count, fusion config arity)
+    // hold regardless of caller.
     if let RetrieverSelection::Explicit(list) = &req.retrievers {
         tracing::info!(
             target: "brain_planner::router",
             count = list.len(),
             "retriever override accepted",
         );
-        let mut seen = HashMap::new();
+        // Preserve the caller's order on dedup so trace output is
+        // predictable.
+        let mut seen: Vec<Retriever> = Vec::with_capacity(list.len().min(MAX_RETRIEVERS));
         for r in list {
-            seen.entry(*r).or_insert(1.0_f32);
+            if !seen.contains(r) {
+                seen.push(*r);
+                if seen.len() == MAX_RETRIEVERS {
+                    if list.len() > MAX_RETRIEVERS {
+                        tracing::warn!(
+                            target: "brain_planner::router",
+                            requested = list.len(),
+                            cap = MAX_RETRIEVERS,
+                            "explicit retriever list exceeded cap; truncating",
+                        );
+                    }
+                    break;
+                }
+            }
         }
         let retrievers = seen
             .into_iter()
-            .map(|(retriever, weight)| RetrieverInvocation { retriever, weight })
+            .map(|retriever| RetrieverInvocation { retriever, weight: 1.0 })
             .collect();
         let temporal_pushdown = features.has_time_filter || features.contains_temporal_expression;
         return RoutingDecision {

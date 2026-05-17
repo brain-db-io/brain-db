@@ -43,8 +43,24 @@ pub fn sweep_superseded_statements(
     let cutoff_ns = now_unix_nanos.saturating_sub(retention_seconds * 1_000_000_000);
 
     // Collect victim ids first (statements with `superseded_by` set
-    // AND tombstoned earlier than cutoff). Two-phase scan keeps the
+    // AND retired earlier than cutoff). Two-phase scan keeps the
     // scan-side immutable.
+    //
+    // Retired-at proxy: `valid_to_unix_nanos`. `statement_supersede`
+    // (statement_ops.rs §"Supersede non-Event statements") sets
+    // `valid_to_unix_nanos = Some(new.extracted_at_unix_nanos)` on
+    // the old row when its existing valid_to was None — which is
+    // the universal case for supersession-driven retirement. Events
+    // cannot be superseded, so their None valid_to here is correct:
+    // the loop skips them via the `superseded_by_bytes.is_none()`
+    // guard before this check.
+    //
+    // Operators who explicitly set a Statement's `valid_to` in the
+    // future and THEN supersede it will see this preserved
+    // valid_to drive the sweeper's cutoff — i.e. the sweeper waits
+    // until the operator-declared end-of-validity. That matches
+    // the user's intent (the row is "valid until X"; sweep when
+    // retention past X expires).
     let victims: Vec<[u8; 16]> = {
         let table = wtxn.open_table(STATEMENTS_TABLE)?;
         let mut out = Vec::new();
@@ -55,10 +71,7 @@ pub fn sweep_superseded_statements(
             if row.superseded_by_bytes.is_none() {
                 continue;
             }
-            // Use tombstoned_at as the "retired-at" proxy; spec §25/00
-            // tracks superseded-at via the same field for chain old
-            // entries.
-            let Some(retired_at) = row.tombstoned_at_unix_nanos else {
+            let Some(retired_at) = row.valid_to_unix_nanos else {
                 continue;
             };
             if retired_at > cutoff_ns {

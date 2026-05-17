@@ -128,49 +128,62 @@ pub fn cascade_forget_to_statements(
 
     // Apply mutations. Each affected statement either becomes
     // evidence-shrunk + confidence-recomputed, or tombstoned.
-    for (mut row, remaining) in affected {
-        if remaining.is_empty() {
-            // Empty inline evidence — recompute confidence from the empty set
-            // and decide tombstone vs keep.
-            let new_conf = if !row.evidence_overflow_id_bytes.is_some() {
-                0.0
+    //
+    // The mutation-side table handle is hoisted out of the loop so
+    // we don't pay the open-table cost N times per cascade. We drop
+    // it before any `statement_tombstone` call because that helper
+    // opens the same table itself and redb prefers one handle in
+    // flight.
+    let mut to_tombstone: Vec<brain_core::StatementId> = Vec::new();
+    {
+        let mut table = wtxn.open_table(STATEMENTS_TABLE)?;
+        for (mut row, remaining) in affected {
+            if remaining.is_empty() {
+                // Empty inline evidence — recompute confidence from the empty set
+                // and decide tombstone vs keep.
+                let new_conf = if row.evidence_overflow_id_bytes.is_some() {
+                    // Overflow case: we don't crack open the overflow row in v1,
+                    // so we keep the existing confidence and flag the row stale.
+                    row.confidence
+                } else {
+                    0.0
+                };
+                if new_conf < confidence_threshold && row.evidence_overflow_id_bytes.is_none() {
+                    // Defer to a second loop so we can drop the table handle
+                    // before statement_tombstone re-opens it.
+                    to_tombstone.push(row.statement_id());
+                } else {
+                    row.evidence_inline.clear();
+                    row.confidence = new_conf;
+                    table.insert(&row.statement_id_bytes, &row)?;
+                    summary.kept_stale += 1;
+                }
             } else {
-                // Overflow case: we don't crack open the overflow row in v1,
-                // so we keep the existing confidence and flag the row stale.
-                row.confidence
-            };
-            if new_conf < confidence_threshold && row.evidence_overflow_id_bytes.is_none() {
-                let id = row.statement_id();
-                statement_tombstone(wtxn, id, TombstoneReason::SourceMemoryForgotten, now_unix_nanos)?;
-                summary.tombstoned += 1;
-            } else {
-                row.evidence_inline.clear();
+                // Drop the forgotten memory; recompute confidence as a simple
+                // mean over the surviving inline entries (spec §25/00 formula
+                // takes decay into account; we use the row's stored confidence
+                // values which already reflect per-evidence weighting). Full
+                // §25/00 formula application is post-v1.
+                let new_conf = mean_confidence(&remaining);
+                row.evidence_inline = remaining
+                    .into_iter()
+                    .map(|e| EvidenceEntryRow {
+                        memory_id_bytes: e.memory_id_bytes,
+                        confidence_milli: e.confidence_milli,
+                        timestamp_unix_nanos: e.timestamp_unix_nanos,
+                        extractor_id: e.extractor_id,
+                    })
+                    .collect();
                 row.confidence = new_conf;
-                let mut t = wtxn.open_table(STATEMENTS_TABLE)?;
-                t.insert(&row.statement_id_bytes, &row)?;
-                summary.kept_stale += 1;
+                table.insert(&row.statement_id_bytes, &row)?;
+                summary.evidence_dropped += 1;
             }
-        } else {
-            // Drop the forgotten memory; recompute confidence as a simple
-            // mean over the surviving inline entries (spec §25/00 formula
-            // takes decay into account; we use the row's stored confidence
-            // values which already reflect per-evidence weighting). Full
-            // §25/00 formula application is post-v1.
-            let new_conf = mean_confidence(&remaining);
-            row.evidence_inline = remaining
-                .into_iter()
-                .map(|e| EvidenceEntryRow {
-                    memory_id_bytes: e.memory_id_bytes,
-                    confidence_milli: e.confidence_milli,
-                    timestamp_unix_nanos: e.timestamp_unix_nanos,
-                    extractor_id: e.extractor_id,
-                })
-                .collect();
-            row.confidence = new_conf;
-            let mut t = wtxn.open_table(STATEMENTS_TABLE)?;
-            t.insert(&row.statement_id_bytes, &row)?;
-            summary.evidence_dropped += 1;
         }
+    } // table handle dropped here, before statement_tombstone re-opens.
+
+    for id in to_tombstone {
+        statement_tombstone(wtxn, id, TombstoneReason::SourceMemoryForgotten, now_unix_nanos)?;
+        summary.tombstoned += 1;
     }
 
     Ok(summary)

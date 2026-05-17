@@ -43,11 +43,11 @@ pub async fn handle_recall(
 ) -> Result<RecallResponseFrame, OpError> {
     if ctx.schema_gate.is_declared() && req.txn_id.is_none() {
         match hybrid_recall(&req, ctx).await {
-            Ok(frame) => return Ok(frame),
-            Err(OpError::Internal(msg)) if msg.contains("MissingRetriever") => {
+            Ok(HybridRecallOutcome::Frame(frame)) => return Ok(frame),
+            Ok(HybridRecallOutcome::FallbackToSubstrate { retriever }) => {
                 tracing::warn!(
                     target: "brain_ops::recall",
-                    %msg,
+                    ?retriever,
                     "hybrid recall fell back to substrate (retriever slot empty)",
                 );
                 // Fall through to substrate path.
@@ -235,10 +235,25 @@ fn hit_to_wire(hit: RecallHit) -> MemoryResult {
 // Hybrid path.
 // ---------------------------------------------------------------------------
 
+/// Outcome of the hybrid path that the caller pattern-matches on.
+///
+/// `FallbackToSubstrate` is a typed signal that `handle_recall`
+/// should re-run the substrate path. Previously this was an
+/// `OpError::Internal` with a string marker; matching on a
+/// stringly-typed error is fragile, so we surface the typed
+/// outcome instead. Spec §28/08 §5 + §27/00 §"Idempotency
+/// reminders".
+enum HybridRecallOutcome {
+    Frame(RecallResponseFrame),
+    FallbackToSubstrate {
+        retriever: brain_planner::knowledge::router::Retriever,
+    },
+}
+
 async fn hybrid_recall(
     req: &RecallRequest,
     ctx: &OpsContext,
-) -> Result<RecallResponseFrame, OpError> {
+) -> Result<HybridRecallOutcome, OpError> {
     let planner_req = build_planner_request(req);
 
     let plan = hybrid_plan(&planner_req).map_err(map_plan_error)?;
@@ -248,7 +263,14 @@ async fn hybrid_recall(
         graph: ctx.graph_retriever.clone(),
         metadata: ctx.executor.metadata.clone(),
     };
-    let result = hybrid_execute(&plan, &planner_req, &exec_ctx).map_err(map_execution_error)?;
+    let result = match hybrid_execute(&plan, &planner_req, &exec_ctx) {
+        Ok(r) => r,
+        Err(ExecutionError::MissingRetriever(retriever)) => {
+            // Typed signal — let the caller fall back to substrate.
+            return Ok(HybridRecallOutcome::FallbackToSubstrate { retriever });
+        }
+        Err(e) => return Err(map_execution_error(e)),
+    };
 
     let memory_results = project_memory_results(&result, req, ctx)?;
     let cumulative_count = u32::try_from(memory_results.len()).unwrap_or(u32::MAX);
@@ -257,12 +279,12 @@ async fn hybrid_recall(
         ctx.access_buffer.record(MemoryId::from_raw(r.memory_id));
     }
 
-    Ok(RecallResponseFrame {
+    Ok(HybridRecallOutcome::Frame(RecallResponseFrame {
         results: memory_results,
         is_final: true,
         cumulative_count,
         estimated_remaining: None,
-    })
+    }))
 }
 
 fn build_planner_request(req: &RecallRequest) -> PlannerQueryRequest {
@@ -397,16 +419,18 @@ fn map_plan_error(e: PlanError) -> OpError {
     }
 }
 
+/// Maps every `ExecutionError` variant **except** `MissingRetriever`,
+/// which `hybrid_recall` intercepts and turns into a typed fallback
+/// signal (see `HybridRecallOutcome::FallbackToSubstrate`). If we
+/// ever see `MissingRetriever` here it means a refactor missed the
+/// short-circuit upstream; we still map it to an `Internal` so the
+/// caller doesn't get a panic, but the pattern-matched fallback in
+/// `hybrid_recall` should always catch it first.
 fn map_execution_error(e: ExecutionError) -> OpError {
     match e {
-        ExecutionError::MissingRetriever(r) => {
-            // `handle_recall` intercepts this and falls back to
-            // substrate — the encoded marker "MissingRetriever"
-            // here is what that match arm pattern-matches on.
-            OpError::Internal(format!(
-                "MissingRetriever({r:?}); hybrid retriever slot empty",
-            ))
-        }
+        ExecutionError::MissingRetriever(r) => OpError::Internal(format!(
+            "hybrid retriever slot empty for {r:?} — should have been intercepted by hybrid_recall",
+        )),
         ExecutionError::Filter(inner) => OpError::Internal(format!("hybrid filter: {inner}")),
     }
 }
