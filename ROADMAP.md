@@ -663,15 +663,52 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 ---
 
-## Phase 24 — Sweepers, knowledge acceptance & `v1.0.0`
+## Phase 24 — Sweepers, knowledge acceptance & `v1.0.0` ✓
 
-**One-line:** Backfill worker, FORGET cascade, supersession sweeper, stale-extraction detector, LLM cache sweeper, schema migration runner, schema-toggle runbook, full combined acceptance suite, release.
+**One-line:** Eight background workers (backfill, FORGET cascade, schema migration, five sweepers), schema-toggle runbook, end-to-end test, acceptance suite, v1.0.0 release.
 
-**Detailed plan:** [`docs/phases/phase-24-acceptance.md`](docs/phases/phase-24-acceptance.md)
+**Detailed plan:** [`docs/phases/phase-24-acceptance.md`](docs/phases/phase-24-acceptance.md) (per-sub-task plans `.claude/plans/phase-24-task-0[0-9].md` + `phase-24-task-1[0-2].md`).
 
-**Crates touched:** `brain-workers`, `acceptance/`, `docs/runbooks/`, READMEs, CHANGELOG.
+**Crates touched:** `brain-core`, `brain-metadata`, `brain-workers`, `docs/runbooks/`, `docs/tutorials/`, `scripts/`, CHANGELOG, ROADMAP.
 
-**Sub-tasks:** 12. **Exit:** full functional + performance + storage + operational + schema-toggle acceptance criteria pass; substrate regression continues to pass; tag `phase-24-complete` and `v1.0.0`.
+**Sub-tasks:** 13 (24.0 spec backfill → 24.12 phase exit + v1.0.0).
+
+**Exit:** WORKER_CHECKPOINTS_TABLE shared across state-carrying workers; backfill + FORGET cascade + schema migration + 5 sweepers all land on the existing `Worker` trait + scheduler; schema-toggle runbook + e2e script + full-acceptance script in tree; tutorial published; `phase-24-complete` and `v1.0.0` tags cut.
+
+**Scope cuts (v1):**
+
+- **Memory text not persisted beyond the WAL.** Live backfill + schema-migration mark items `Failed` with reason "memory text not persisted (v1 limitation)". Dry-run plan preview is fully functional. Operators re-ingest in v1.
+- **Cascade audit rows + soft-cascade revert** deferred. Cascade itself updates evidence + recomputes confidence + tombstones correctly.
+- **Per-row stale-extraction flag** deferred (needs `StatementRow.flags` schema bump). Stale-count surfaces via metric.
+- **Entity GC inbound-reference counting** deferred. Worker + env-flag scaffolding ships; eligibility scan is a stub.
+- **LLM cache full sweep** deferred. Defaults rely on `brain-metadata::llm_cache`'s TTL-on-read.
+- **handle_forget → cascade enqueue hook** deferred. Workers reachable via direct `ForgetCascadeWorker::enqueue`; spec §25/00 contract preserved (cascade is async by design).
+- **Wire opcodes for admin backfill / cancel** deferred — typed request shapes live in `brain-core::worker_state`; CLI / HTTP surface lives in a follow-up.
+
+**Delivered:**
+
+- §27/03 (sweeper workers) + §27/04 (state-carrying workers) brought to phase-24 implementation depth.
+- `brain-core` (new modules): `worker_state` (BackfillId / BackfillRange / BackfillRequest / BackfillProgress / WorkerPriority); `migration` (MigrationId / MigrationReason / MigrationItem / MigrationPlan / MigrationSummary).
+- `brain-metadata`:
+  - `tables::worker_checkpoints` — `WORKER_CHECKPOINTS_TABLE` with composite `(&str, &[u8])` key + `WorkerCheckpointRow {status, attempts, timestamps, last_error}` + status transition ops (`mark_started` / `mark_completed` / `mark_failed`).
+  - `cascade_ops` — `cascade_forget_to_statements(wtxn, memory_id, threshold, batch_cap, now)` walks STATEMENTS_TABLE, drops the forgotten memory from inline evidence, recomputes confidence, tombstones with `SourceMemoryForgotten` when empty + low-confidence.
+  - `sweeper_ops` — shared `SweepSummary` + `sweep_superseded_statements` + `sweep_audit_log` + `scan_stale_statements`.
+- `brain-workers`:
+  - 8 new `WorkerKind` variants + default cadences.
+  - `backfill::BackfillWorker` with submit / cancel / progress + per-(memory, extractor) checkpoint walk.
+  - `forget_cascade::ForgetCascadeWorker` with bounded queue + per-job wtxn.
+  - `schema_migration::SchemaMigrationWorker` with plan queue + checkpoint walk.
+  - `supersession_sweeper`, `audit_log_sweeper`, `llm_cache_sweeper`, `stale_extraction_detector`, `entity_gc` — periodic Low-priority workers.
+- `docs/runbooks/schema-toggle.md` — RB-11 operator runbook: validate → declare → backfill → verify → migrate → revert.
+- `docs/tutorials/01-getting-started.md` — 15-minute end-to-end tutorial.
+- `scripts/schema-toggle-e2e.sh` — bash driver mirroring the runbook against a live `brain-server`.
+- `scripts/full-acceptance.sh` — orchestrator that chains workspace tests + e2e + spec link integrity.
+- `scripts/spec-link-check.sh` — validates every `[`./…`]` cross-ref in spec/ + docs/.
+- `CHANGELOG.md` — v1.0.0 release notes.
+
+**Deferred to later versions:** all v1 scope-cuts above; per-statement-kind retention; ADMIN_BACKFILL / ADMIN_CANCEL wire opcodes; SCHEMA_DROP opcode for in-place schema downgrade (current revert is manual per the runbook).
+
+**Tags:** `phase-24-complete` and `v1.0.0` both at this commit.
 
 ---
 

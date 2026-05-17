@@ -10,6 +10,41 @@ from `v1.0.0` onward.
 Pending the operator-run 48 h soak result and the
 `phase-13-complete` + `phase-14-complete` + `v1.0.0` tags.
 
+## v1.0.0 — Brain v1.0 release (knowledge layer complete)
+
+First stable release tagging the knowledge layer.
+
+**Substrate (phases 0–14):** wire protocol with rkyv frames;
+arena + WAL storage with O_DIRECT group commit; redb metadata;
+HNSW ANN; BGE-small embedding via candle; planner + executor;
+ENCODE / RECALL / PLAN / REASON / FORGET; 12 substrate
+background workers; Glommio per-shard executor; Rust SDK + CLI;
+HTTP / WS / SSE transport; OpenTelemetry + Prometheus +
+structured logging; chaos + acceptance gate at
+`tag v0.9.0-substrate-rc`.
+
+**Knowledge layer (phases 15–24):** knowledge storage (entities
++ statements + relations + LLM cache); three-tier resolver;
+Fact / Preference / Event statements with supersession chains;
+relation layer with cardinality enforcement; schema DSL + parser
++ validator; three-tier extractors (pattern / classifier / LLM);
+tantivy lexical retrieval; hybrid query engine (semantic +
+lexical + graph with RRF fusion) with rule-based router +
+EXPLAIN/TRACE + transparent RECALL routing on schema-declared
+deployments; FORGET cascade worker; periodic sweepers
+(supersession, audit, LLM cache, stale extraction detector,
+entity GC); admin-triggered backfill + schema migration workers
+sharing a `worker_checkpoints` redb table; schema-toggle
+operator runbook; full acceptance suite.
+
+**Known limitations** — see
+`spec/30_knowledge_open_questions/00_purpose.md` for OQ-23-A
+through OQ-23-E and the v2 deferrals. Phase-24 v1 scope cuts
+documented in `docs/phases/phase-24-acceptance.md`.
+
+Tags: `v0.9.0-substrate-rc` (substrate gate), `phase-24-complete`
++ `v1.0.0` (this release).
+
 ## v1.0.0 — TBD
 
 The first stable release. Spec §16/08's 10 acceptance gates pass on

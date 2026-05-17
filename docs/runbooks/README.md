@@ -16,6 +16,7 @@ operator-edit-friendly version that lives outside the spec.
 | RB-8  | [Substrate becoming unresponsive](unresponsive.md) | (composite) |
 | RB-9  | [Mass FORGET aftermath](mass-forget.md) | `BrainHighTombstoneRatio` |
 | RB-10 | [Network partition (v2)](network-partition.md) | (v2 only) |
+| RB-11 | [Schema toggle (declare / migrate / revert)](schema-toggle.md) | (operator-triggered) |
 
 ## When to use a runbook
 
