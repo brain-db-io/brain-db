@@ -17,6 +17,7 @@
 pub mod audit_ops;
 pub mod cascade_ops;
 pub mod db;
+pub mod sweeper_ops;
 pub mod entity_merge_ops;
 pub mod entity_ops;
 pub mod entity_type_ops;

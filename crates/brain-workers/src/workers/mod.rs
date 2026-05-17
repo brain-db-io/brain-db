@@ -2,16 +2,21 @@
 //! module here; the crate root re-exports the public surface.
 
 pub mod access_boost;
+pub mod audit_log_sweeper;
 pub mod backfill;
 pub mod cache_evict;
-pub mod forget_cascade;
 pub mod consolidation;
 pub mod counter_reconcile;
 pub mod decay;
 pub mod edge_scrub;
+pub mod entity_gc;
+pub mod forget_cascade;
 pub mod hnsw_maint;
 pub mod idempotency_cleanup;
+pub mod llm_cache_sweeper;
 pub mod slot_reclaim;
 pub mod snapshot;
+pub mod stale_extraction_detector;
 pub mod statistics;
+pub mod supersession_sweeper;
 pub mod wal_retention;
