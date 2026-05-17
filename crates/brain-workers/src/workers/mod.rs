@@ -4,6 +4,7 @@
 pub mod access_boost;
 pub mod backfill;
 pub mod cache_evict;
+pub mod forget_cascade;
 pub mod consolidation;
 pub mod counter_reconcile;
 pub mod decay;

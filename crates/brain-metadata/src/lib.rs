@@ -15,6 +15,7 @@
 #![forbid(unsafe_code)]
 
 pub mod audit_ops;
+pub mod cascade_ops;
 pub mod db;
 pub mod entity_merge_ops;
 pub mod entity_ops;
