@@ -15,7 +15,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use brain_extractors::{ClassifierConfig, ExtractorRegistry};
-use brain_index::{LexicalRetriever, SemanticRetriever, TantivyShard};
+use brain_index::{GraphRetriever, LexicalRetriever, SemanticRetriever, TantivyShard};
 use brain_metadata::LlmCacheDb;
 use brain_planner::{ExecutorContext, PlannerContext};
 use parking_lot::{Mutex, RwLock};
@@ -91,6 +91,11 @@ pub struct OpsContext {
     /// HNSW. Phase 23's hybrid query consumes this slot
     /// alongside [`lexical_retriever`].
     pub semantic_retriever: Option<Arc<dyn SemanticRetriever>>,
+    /// Per-shard graph retriever (phase 23.2). Reads the
+    /// entity / relation / statement redb tables. Phase 23's
+    /// hybrid query consumes this slot alongside the lexical
+    /// + semantic retrievers.
+    pub graph_retriever: Option<Arc<dyn GraphRetriever>>,
 }
 
 impl OpsContext {
@@ -114,6 +119,7 @@ impl OpsContext {
             statement_text_dispatcher: None,
             lexical_retriever: None,
             semantic_retriever: None,
+            graph_retriever: None,
         }
     }
 
@@ -236,6 +242,14 @@ impl OpsContext {
         retriever: Option<Arc<dyn SemanticRetriever>>,
     ) -> Self {
         self.semantic_retriever = retriever;
+        self
+    }
+
+    /// Install (or clear) the graph retriever (phase 23.2).
+    /// Phase 23's hybrid query path reads through this slot.
+    #[must_use]
+    pub fn with_graph_retriever(mut self, retriever: Option<Arc<dyn GraphRetriever>>) -> Self {
+        self.graph_retriever = retriever;
         self
     }
 }

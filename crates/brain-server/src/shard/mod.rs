@@ -822,6 +822,14 @@ pub fn spawn_shard(
                 );
                 Some(Arc::new(retriever))
             };
+            // 23.2: per-shard graph retriever. Reads from the
+            // entity / relation / statement redb tables.
+            let graph_retriever_for_ops: Option<Arc<dyn brain_index::GraphRetriever>> = {
+                let retriever = brain_ops::ops::graph_retriever::BrainGraphRetriever::new(
+                    metadata.clone(),
+                );
+                Some(Arc::new(retriever))
+            };
             // Per-shard writer wraps metadata + hnsw_writer.
             let writer: Arc<dyn WriterHandle> =
                 Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
@@ -992,7 +1000,8 @@ pub fn spawn_shard(
                     .with_memory_text_dispatcher(memory_text_dispatcher_for_ops)
                     .with_statement_text_dispatcher(statement_text_dispatcher_for_ops)
                     .with_lexical_retriever(lexical_retriever_for_ops)
-                    .with_semantic_retriever(semantic_retriever_for_ops),
+                    .with_semantic_retriever(semantic_retriever_for_ops)
+                    .with_graph_retriever(graph_retriever_for_ops),
             );
 
             // Spawn the per-shard fanout task: drains the in-process

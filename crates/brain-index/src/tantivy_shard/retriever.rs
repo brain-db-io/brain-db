@@ -11,7 +11,7 @@ use std::ops::{Bound, RangeInclusive};
 use std::sync::Arc;
 
 use brain_core::knowledge::StatementKind;
-use brain_core::{AgentId, MemoryId, MemoryKind, StatementId};
+use brain_core::{AgentId, EntityId, MemoryId, MemoryKind, RelationId, StatementId};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, RangeQuery, TermQuery};
 use tantivy::schema::{IndexRecordOption, Value};
@@ -90,6 +90,10 @@ pub struct RankedItem {
 pub enum RankedItemId {
     Memory(MemoryId),
     Statement(StatementId),
+    /// Graph retrieval emits entities (§23/04 §1).
+    Entity(EntityId),
+    /// Graph retrieval emits relations (§23/04 §1).
+    Relation(RelationId),
 }
 
 #[derive(Debug, Error)]
