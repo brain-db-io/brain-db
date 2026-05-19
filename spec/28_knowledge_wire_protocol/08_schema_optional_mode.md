@@ -61,7 +61,7 @@ The cutover is the redb commit, not the response emission. The connection layer 
 
 Declaring a schema does not change the retrieval mode; it adds typed entity-anchored graph traversal as an additional path that the planner may select for the graph retriever. The `RecallResponseFrame` shape is identical in both modes.
 
-Clients that want to bypass the hybrid path can pass `RecallStrategy::SubstrateOnly`. Clients that require it can pass `RecallStrategy::HybridOnly`; if a required retriever is not currently servable, the server returns `HybridUnavailable` (0x0083). See [`../03_wire_protocol/07_request_frames.md`](../03_wire_protocol/07_request_frames.md).
+RECALL is one verb with no client-side strategy switch. A request that carries a `txn_id` runs the substrate path internally (read-your-writes requires it); every other RECALL runs the hybrid path. Clients always observe the same `RecallResponseFrame` shape; the `contributing_retrievers` field is populated for hybrid responses and empty for the transactional case. See [`../03_wire_protocol/07_request_frames.md`](../03_wire_protocol/07_request_frames.md).
 
 ## 6. Multi-shard schema state
 

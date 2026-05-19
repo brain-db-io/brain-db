@@ -162,7 +162,7 @@ The query planner is a **pure function** from `(operation, query parameters, cur
 For `RECALL`, the planner chooses among:
 
 - **Hybrid** (default) — runs ANN, lexical (tantivy), and memory-edge graph retrievers in parallel and fuses ranks via RRF.
-- **Substrate-only** — pure ANN over the memory HNSW, no fusion. Selected for `RecallStrategy::SubstrateOnly`, inside transactions, or as the planner's fallback when a hybrid component is unavailable.
+- **Substrate-only** — pure ANN over the memory HNSW, no fusion. Selected automatically when the request carries a `txn_id`: read-your-writes requires the per-txn buffer overlay, which the lexical and graph retrievers (working off committed indexes) cannot see. Not selectable from the wire — RECALL is one verb. A shard with an unwired retriever refuses to spawn, so the planner never picks substrate as a degraded fallback at query time.
 
 For `PLAN`, the planner chooses among A* and MCTS. For `REASON`, the planner constructs an inference DAG.
 
@@ -199,7 +199,7 @@ The execution engine consists of four parallel implementations, one per executio
 
 Wraps the HNSW index. The hot loop is SIMD-accelerated dot products against candidate vectors. Reads are lock-free under [crossbeam-epoch](https://github.com/crossbeam-rs/crossbeam/tree/master/crossbeam-epoch) reclamation; writes are funneled through a single writer per shard.
 
-The ANN executor is the substrate's vector arm of every `RECALL` (always contributes to the hybrid fusion; sole contributor when `SubstrateOnly` is forced). See [06. ANN Index](../06_ann_index/).
+The ANN executor is the substrate's vector arm of every `RECALL` — it always contributes to the hybrid fusion, and is the sole contributor for the transactional substrate path (the only case where the lexical and graph retrievers are skipped). See [06. ANN Index](../06_ann_index/).
 
 #### Lexical executor
 

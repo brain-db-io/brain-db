@@ -136,7 +136,7 @@ A more specific error code accompanies each category. The complete table:
 | `Overloaded` | Server temporarily overloaded |
 | `Restarting` | Server is restarting (drain mode) |
 | `Maintenance` | Server is in maintenance mode |
-| `HybridUnavailable` (0x0083) | The request asked for `HybridOnly` (or implicit hybrid via the knowledge `QUERY` opcode) but a required retriever component (lexical index, statement HNSW, graph store) is not currently servable — for example inside a transaction, during index rebuild, or on a substrate-only deployment that has not initialised the optional retrievers. Clients may downgrade to `SubstrateOnly` or retry once the capability returns. |
+| `HybridUnavailable` (0x0083) | Reserved for admin and diagnostic surfaces (`/health`, `ADMIN_STATUS`) when a shard reports a degraded retriever set — e.g. a tantivy segment corruption or a graph-store `pwritev2` failure observed after spawn. Never returned to a normal RECALL: shards refuse to spawn if a required retriever is unwired, so a wired retriever failing at query time propagates as an internal error rather than a downgrade signal. There is no client-visible recovery action; the remedy is operator intervention. |
 
 ## 4. ErrorDetails
 

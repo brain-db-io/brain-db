@@ -87,9 +87,9 @@ The agent asks for memories relevant to a cue.
 
 ### 2.2 Strategy selection
 
-The planner's strategy choice is invisible to the client by default. The agent says "recall things similar to this cue"; the substrate decides whether to do straight ANN or run a more expensive operation. This is the SQL-like abstraction: declarative query, the planner picks the algorithm.
+The planner's strategy choice is invisible to the client. The agent says "recall things similar to this cue"; the substrate decides which path to run. This is the SQL-like abstraction: declarative query, the planner picks the algorithm.
 
-A `strategy_hint` parameter exists for advanced users who want to override the planner. Its use is discouraged for normal operation.
+For RECALL specifically there are exactly two paths and one selection rule: a request carrying a `txn_id` runs the substrate path so read-your-writes works against the per-txn buffer overlay; every other request runs the hybrid path (semantic + lexical + memory-edge graph, fused via RRF). The selection is server-side; no wire field controls it.
 
 ### 2.3 Confidence calibration
 

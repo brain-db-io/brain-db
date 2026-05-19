@@ -74,18 +74,17 @@ struct RecallRequest {
     age_bound_unix_nanos: Option<u64>,       // results must be newer than this
     kind_filter: Option<Vec<MemoryKind>>,    // None = all kinds
     salience_floor: f32,                     // [0, 1]; default 0
-    strategy_hint: Option<RecallStrategy>,   // override planner
     include_vectors: bool,                   // include vectors in results
     include_edges: bool,                     // include edges in results
     request_id: Option<RequestId>,           // optional; for tracing
 }
-
-enum RecallStrategy {
-    Auto,                // server picks substrate-only vs hybrid (txn → always substrate)
-    SubstrateOnly,       // force HNSW vector search only
-    HybridOnly,          // require hybrid; HybridUnavailable (0x0083) if any required retriever is missing or request is in a txn
-}
 ```
+
+RECALL is one verb with one server-side path-selection rule: a request that
+carries a `txn_id` runs the substrate path (read-your-writes requires the
+per-txn buffer overlay, which the lexical and graph retrievers do not see);
+every other request runs the hybrid path (semantic + lexical + memory-edge
+graph, fused via RRF). The client cannot select between paths.
 
 Fields:
 
@@ -95,7 +94,6 @@ Fields:
 - `age_bound_unix_nanos` — only return memories created after this time.
 - `kind_filter` — restrict to specific kinds. None means all kinds.
 - `salience_floor` — minimum salience for inclusion. Default 0.0.
-- `strategy_hint` — override the planner's strategy choice. `Auto` (default) lets the server pick substrate-only vs hybrid; `SubstrateOnly` forces vector-only HNSW; `HybridOnly` requires the hybrid path and returns `HybridUnavailable` (0x0083) if any required retriever is missing or the request runs inside a transaction.
 - `include_vectors` — if true, response carries vector data. Default false (saves bandwidth).
 - `include_edges` — if true, response includes each result's outgoing edges. Default false.
 - `request_id` — optional; for tracing/logging only, not for idempotency.

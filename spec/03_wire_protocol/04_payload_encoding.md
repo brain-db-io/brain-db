@@ -184,12 +184,9 @@ struct RecallRequestPayload {
     context_filter: Option<Vec<ContextId>>,
     age_bound_unix_nanos: Option<u64>,
     kind_filter: Option<Vec<MemoryKind>>,
-    strategy_hint: Option<RecallStrategy>,
     request_id: Option<RequestId>,
 }
 ```
-
-`RecallStrategy` is encoded as a `u8` tag: `Auto = 0`, `SubstrateOnly = 1`, `HybridOnly = 2`. See [`07_request_frames.md`](07_request_frames.md) §3 for semantics.
 
 Followed by no raw vector data.
 

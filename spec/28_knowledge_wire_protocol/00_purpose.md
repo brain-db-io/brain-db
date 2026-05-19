@@ -172,7 +172,7 @@ Cardinality violations, unknown-qname rejections, and hybrid-capability gaps sur
 | 0x004B | `PredicateNotInSchema` — STATEMENT_CREATE / QUERY named a predicate not in the active schema (strict mode). |
 | 0x004C | `RelationTypeNotInSchema` — RELATION_CREATE / QUERY named a relation type not in the active schema (strict mode). |
 | 0x0065 | `CardinalityViolation` — RELATION_CREATE would violate the declared cardinality of a schema-declared relation type. |
-| 0x0083 | `HybridUnavailable` — `HybridOnly` or knowledge `QUERY` requested but a required retriever component is not currently servable. |
+| 0x0083 | `HybridUnavailable` — Reserved for admin/diagnostic surfaces when a knowledge `QUERY` cannot run because a required retriever component became unservable after spawn (e.g. tantivy segment corruption). Shards refuse to spawn with unwired retrievers, so this is never a routine client-facing error. |
 
 Error responses include human-readable detail in the body. Mapping into the substrate ERROR frame's `ErrorCodeWire` / `ErrorCategoryWire` enums and retry semantics are specified in [`03_errors.md`](./03_errors.md). Per-opcode validation rules and the field caps that produce these errors are in [`04_validation.md`](./04_validation.md).
 
