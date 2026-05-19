@@ -159,7 +159,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
 async fn complete_handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     let hello = HelloPayload {
         client_id: "tester".into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,

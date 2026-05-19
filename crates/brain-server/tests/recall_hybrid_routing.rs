@@ -1,29 +1,20 @@
 //! Hybrid-default RECALL routing.
 //!
-//! Hybrid retrieval is the default for every deployment after
-//! the Phase A flip. These tests pin the four routing outcomes:
+//! Hybrid retrieval is the default for every deployment. These
+//! tests pin the three routing outcomes:
 //!
-//! 1. **Schemaless, default strategy** — hybrid runs. Encoded
-//!    memories show up with `contributing_retrievers` populated
-//!    by the semantic + lexical retrievers (graph contributes
-//!    when substrate edges are present) and `fused_score > 0`.
-//! 2. **Schema declared, default strategy** — hybrid runs (same
-//!    path, the schema is now strictness-only).
-//! 3. **Txn attached** — substrate path, no matter the strategy
-//!    or schema state, because hybrid retrievers can't see the
-//!    txn buffer.
-//! 4. **`SubstrateOnly` strategy** — substrate path, explicit
-//!    opt-out. `contributing_retrievers` empty, `fused_score 0`.
-//! 5. **`HybridOnly` strategy + missing retriever slot** —
-//!    surfaces `HybridUnavailable` instead of degrading.
+//! 1. **Schemaless** — hybrid runs. Encoded memories show up with
+//!    `contributing_retrievers` populated by the semantic +
+//!    lexical retrievers (graph contributes when substrate edges
+//!    are present) and `fused_score > 0`.
+//! 2. **Schema declared** — hybrid runs (same path; the schema
+//!    is strictness-only, not a retrieval gate).
+//! 3. **Txn attached** — substrate path, because hybrid
+//!    retrievers can't see the txn buffer and would silently miss
+//!    pending writes.
 
 #![cfg(target_os = "linux")]
-// TODO(commit-e): several tests in this file are stubbed pending the
-// plan §7.5 rewrite; helpers below are retained for that rewrite.
-#![allow(dead_code)]
-#![allow(unused_imports)]
 
-use brain_protocol::error::ErrorCode;
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
@@ -31,7 +22,6 @@ use brain_protocol::knowledge::SchemaUploadRequest;
 use brain_protocol::opcode::Opcode;
 use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
 use brain_protocol::response::{RecallResponseFrame, ResponseBody};
-use brain_protocol::responses::types::ErrorCodeWire;
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -105,7 +95,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
 async fn complete_handshake(client: &mut TcpStream) {
     let hello = HelloPayload {
         client_id: "recall-router".into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,
@@ -363,14 +353,6 @@ async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
     server.stop().await;
 }
 
-#[tokio::test(flavor = "current_thread")]
-async fn recall_substrate_only_strategy_skips_hybrid() {
-    // TODO(commit-e): rewrite per plan §7.5 — `SubstrateOnly` is no
-    // longer a client-visible strategy; the substrate path is
-    // selected automatically when a txn is attached. The
-    // txn-attached substrate routing is already covered above.
-}
-
 // ---------------------------------------------------------------------------
 // E2 — cold-start safety. A hybrid recall against a server with zero
 // memories must return an empty result, not an error or a hang. tantivy
@@ -449,25 +431,117 @@ async fn unicode_cue_text_roundtrips_through_hybrid_recall() {
 }
 
 // ---------------------------------------------------------------------------
-// P3 — SubstrateOnly invariant proptest. For varied request parameters,
-// every result returned by `SubstrateOnly` strategy must have
-// `contributing_retrievers.is_empty()` and `fused_score == 0.0`.
-// One shared server across iterations keeps wall time bounded; each
-// recall is idempotent given a fresh request_id, so reuse is safe.
+// P3 — txn-vs-non-txn routing invariant. For varied request shapes
+// (cue text, top_k, salience floor), the per-hit signature must match
+// the request's txn attachment: a recall with `txn_id` set must
+// produce empty `contributing_retrievers` and zero `fused_score`
+// (substrate); a recall without it must produce populated
+// `contributing_retrievers` and a non-zero `fused_score` on at least
+// one hit (hybrid). One shared server across iterations keeps wall
+// time bounded; each recall is idempotent given a fresh request_id,
+// so reuse is safe.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "current_thread")]
-async fn substrate_only_invariants_hold_across_request_shapes() {
-    // TODO(commit-e): rewrite per plan §7.5 — the P3 proptest used
-    // to vary `RecallStrategy`. Replacement: vary `txn_id` and
-    // assert `contributing_retrievers` is populated iff
-    // `txn_id.is_none()`.
-}
+async fn txn_recall_invariants_hold_across_request_shapes() {
+    use proptest::strategy::{Strategy, ValueTree};
+    use proptest::test_runner::{Config, TestRunner};
 
-#[tokio::test(flavor = "current_thread")]
-async fn recall_hybrid_only_errors_when_inside_txn() {
-    // TODO(commit-e): rewrite per plan §7.5 — `HybridOnly` is no
-    // longer a client-visible strategy. The txn-attached substrate
-    // routing is already covered above; this test's "contradiction
-    // surface" no longer exists on the wire.
+    let server = start(1).await;
+    let mut client = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect");
+    complete_handshake(&mut client).await;
+    seed_fixture(&mut client).await;
+
+    // 16 cases — heavy fixture (server + handshake reused via
+    // outer scope). We can't use TestRunner::run because its `Fn`
+    // closure forbids awaits; instead we manually draw value-trees
+    // from the strategy and await each round-trip inline.
+    let mut runner = TestRunner::new(Config {
+        cases: 16,
+        ..Config::default()
+    });
+    let strategy = (
+        proptest::collection::vec("[a-z]{1,8}", 1..=20),
+        1u32..=10,
+        proptest::num::f32::POSITIVE | proptest::num::f32::ZERO,
+        proptest::bool::ANY,
+    );
+    let bounded_strategy = strategy.prop_map(|(tokens, top_k, salience_raw, attach_txn)| {
+        let salience = if salience_raw.is_finite() {
+            salience_raw.clamp(0.0, 1.0)
+        } else {
+            0.0
+        };
+        (tokens.join(" "), top_k, salience, attach_txn)
+    });
+
+    let mut sid: u32 = 1001;
+    let mut txn_count: usize = 0;
+    let mut hybrid_count: usize = 0;
+    for _ in 0..16 {
+        let tree = bounded_strategy
+            .new_tree(&mut runner)
+            .expect("strategy must produce a value tree");
+        let (cue, top_k, salience, attach_txn) = tree.current();
+
+        let txn_id = if attach_txn {
+            let id = *uuid::Uuid::now_v7().as_bytes();
+            let (opcode, _body) = round_trip(
+                &mut client,
+                sid,
+                RequestBody::TxnBegin(TxnBeginRequest {
+                    txn_id: id,
+                    timeout_seconds: 30,
+                }),
+            )
+            .await;
+            assert_eq!(opcode, Opcode::TxnBeginResp.as_u16());
+            sid += 2;
+            Some(id)
+        } else {
+            None
+        };
+
+        let mut req = recall_request(txn_id);
+        req.cue_text = cue;
+        req.top_k = top_k;
+        req.salience_floor = salience;
+        let (opcode, body) = round_trip(&mut client, sid, RequestBody::Recall(req)).await;
+        sid += 2;
+        assert_eq!(
+            opcode,
+            Opcode::RecallResp.as_u16(),
+            "expected RecallResp; got opcode {opcode}",
+        );
+        match body {
+            ResponseBody::Recall(r) => {
+                if attach_txn {
+                    txn_count += 1;
+                    // Txn path is substrate-shaped; every hit
+                    // (when any) must carry the substrate
+                    // signature.
+                    assert_substrate(&r);
+                } else {
+                    hybrid_count += 1;
+                    // Empty fixtures or strict salience floors
+                    // can legitimately return zero hits; only
+                    // assert the hybrid shape when there's
+                    // something to inspect.
+                    if !r.results.is_empty() {
+                        assert_hybrid(&r);
+                    }
+                }
+            }
+            other => panic!("expected RecallResp, got {other:?}"),
+        }
+    }
+    assert_eq!(
+        txn_count + hybrid_count,
+        16,
+        "must execute exactly 16 proptest-drawn cases; ran txn={txn_count} hybrid={hybrid_count}",
+    );
+
+    server.stop().await;
 }

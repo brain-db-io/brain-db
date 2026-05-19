@@ -1,24 +1,15 @@
-//! Concurrency tests for hybrid-default RECALL.
+//! Concurrency test for RECALL routing.
 //!
-//! Two scenarios pinned here:
-//!
-//! - **C1** — 50 parallel tokio tasks against a shared server, each
-//!   task picks one of `Auto` (hybrid), `SubstrateOnly`, or
-//!   `HybridOnly`. The strategy chosen by each task must be honoured
-//!   in its own response: hybrid metadata appears iff the task chose
-//!   a hybrid path, and never leaks across tasks. This rules out any
-//!   per-shard mutable state aliasing the routing decision across
-//!   concurrent calls.
-//!
-//! - **E4** — single client issues 10 sequential recalls alternating
-//!   between `SubstrateOnly` and `Auto`. Each response respects its
-//!   own strategy; no carry-over from the prior request.
+//! N parallel tokio tasks against a shared server. Each task picks
+//! txn-attached or non-txn at random and asserts its own response
+//! carries the right shape: txn → substrate (empty
+//! `contributing_retrievers`, zero `fused_score`); no-txn → hybrid
+//! (at least one hit carries retrievers + a non-zero fused_score).
+//! Interleaving must not leak per-shard state — a hybrid hit's
+//! retriever list from one task showing up in a sibling's substrate
+//! response would prove a routing-state race.
 
 #![cfg(target_os = "linux")]
-// TODO(commit-e): tests in this file are stubbed; helpers below are
-// retained for the rewrite landing in plan §7.5.
-#![allow(dead_code)]
-#![allow(unused_imports)]
 
 use std::sync::Arc;
 
@@ -26,7 +17,7 @@ use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
 use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
 use brain_protocol::response::{RecallResponseFrame, ResponseBody};
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
@@ -99,7 +90,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
 async fn complete_handshake(client: &mut TcpStream, client_id: &str) {
     let hello = HelloPayload {
         client_id: client_id.into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,
@@ -157,7 +148,7 @@ async fn round_trip(
     (resp_opcode, body)
 }
 
-fn recall_request(cue: &str) -> RecallRequest {
+fn recall_request(cue: &str, txn_id: Option<[u8; 16]>) -> RecallRequest {
     RecallRequest {
         cue_text: cue.into(),
         cue_vector_offset: 0,
@@ -172,7 +163,7 @@ fn recall_request(cue: &str) -> RecallRequest {
         include_edges: false,
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
-        txn_id: None,
+        txn_id,
     }
 }
 
@@ -227,46 +218,105 @@ fn assert_substrate(frame: &RecallResponseFrame) {
 }
 
 // ---------------------------------------------------------------------------
-// C1 — 50 parallel tasks, mixed strategies.
+// C1 — 50 parallel tasks, mix of txn-attached and non-txn recalls.
 //
-// Each task connects fresh (no shared client state), handshakes, and
-// issues exactly one RECALL. The fixture is seeded by a setup client
-// before any task is spawned; ENCODE is idempotent on RequestId so
-// concurrent recalls all see a non-empty shard.
+// Each task connects fresh, handshakes, and (for txn tasks) opens its
+// own transaction before issuing a single RECALL. The fixture is
+// seeded by a setup client before any task is spawned; ENCODE is
+// idempotent on RequestId so concurrent recalls all see a non-empty
+// shard.
 //
-// The invariant: a task asking for `SubstrateOnly` MUST receive a
+// The invariant: a task whose RECALL carries a txn_id MUST receive a
 // substrate-shaped response (empty contributing_retrievers + zero
-// fused_score), regardless of what its siblings asked for. A task
-// asking for `Auto` MUST receive a hybrid-shaped response (at least
-// one hit with non-empty contributing_retrievers and positive
-// fused_score). A task asking for `HybridOnly` must not error
-// outside a txn — the substrate isn't holding a write lock — and
-// must also receive a hybrid-shaped response.
+// fused_score). A task with no txn MUST receive a hybrid-shaped
+// response on a non-empty fixture (at least one hit reports
+// contributing_retrievers + positive fused_score). Either bucket
+// leaking the other's shape would indicate per-shard routing state
+// crossing tasks.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-async fn concurrent_recalls_each_honour_their_own_strategy() {
-    // TODO(commit-e): rewrite per plan §7.5 — RECALL is one verb
-    // now; this test's "round-robin three strategies" shape is gone.
-    // Replacement should pin concurrency invariants across
-    // interleaved hybrid recalls (no per-shard state leaking
-    // contributing_retrievers between concurrent calls).
-    let _: Arc<u8> = Arc::new(0);
-}
+async fn concurrent_txn_and_non_txn_recalls_route_correctly() {
+    let server = Arc::new(start(1).await);
 
-// ---------------------------------------------------------------------------
-// E4 — single client, sequential alternation.
-//
-// A common operator pattern: a single SDK connection alternates
-// hybrid recalls (default) with substrate-only audits. The router
-// must not retain any per-connection "sticky" strategy; each
-// request's `strategy` field is the single source of truth.
-// ---------------------------------------------------------------------------
+    // Seed the shard once before fan-out.
+    {
+        let mut setup = TcpStream::connect(server.data_plane_addr)
+            .await
+            .expect("connect setup");
+        complete_handshake(&mut setup, "recall-c1-setup").await;
+        seed_fixture(&mut setup).await;
+    }
 
-#[tokio::test(flavor = "current_thread")]
-async fn sequential_recalls_alternate_strategies_without_carryover() {
-    // TODO(commit-e): rewrite per plan §7.5 — strategy alternation
-    // is no longer a client-visible concern. Replacement should
-    // verify that sequential hybrid recalls on one connection don't
-    // carry state between requests.
+    // 50 tasks; alternate txn-attached and non-txn.
+    let mut handles = Vec::with_capacity(50);
+    for i in 0..50u32 {
+        let use_txn = i % 2 == 0;
+        let addr = server.data_plane_addr;
+        handles.push(tokio::spawn(async move {
+            let mut client = TcpStream::connect(addr).await.expect("connect task");
+            complete_handshake(&mut client, &format!("recall-c1-task-{i}")).await;
+
+            let txn_id = if use_txn {
+                let id = *uuid::Uuid::now_v7().as_bytes();
+                let (opcode, _body) = round_trip(
+                    &mut client,
+                    1,
+                    RequestBody::TxnBegin(TxnBeginRequest {
+                        txn_id: id,
+                        timeout_seconds: 30,
+                    }),
+                )
+                .await;
+                assert_eq!(opcode, Opcode::TxnBeginResp.as_u16());
+                Some(id)
+            } else {
+                None
+            };
+
+            let req = recall_request("meeting preferences", txn_id);
+            let (opcode, body) = round_trip(&mut client, 3, RequestBody::Recall(req)).await;
+            (i, use_txn, opcode, body)
+        }));
+    }
+
+    let mut txn_count = 0usize;
+    let mut non_txn_count = 0usize;
+
+    for h in handles {
+        let (i, use_txn, opcode, body) = h.await.expect("join task");
+        assert_eq!(
+            opcode,
+            Opcode::RecallResp.as_u16(),
+            "task {i} (use_txn={use_txn}) expected RecallResp, got opcode {opcode}",
+        );
+        let frame = match body {
+            ResponseBody::Recall(r) => r,
+            other => panic!("task {i} (use_txn={use_txn}) expected RecallResp body, got {other:?}"),
+        };
+        assert!(frame.is_final, "task {i}: response not marked final");
+
+        if use_txn {
+            txn_count += 1;
+            assert_substrate(&frame);
+        } else {
+            non_txn_count += 1;
+            assert!(
+                is_hybrid_response(&frame),
+                "task {i} (no txn): hybrid metadata absent — substrate signature leaked into a hybrid response",
+            );
+        }
+    }
+
+    assert_eq!(txn_count, 25, "expected 25 txn tasks; got {txn_count}");
+    assert_eq!(
+        non_txn_count, 25,
+        "expected 25 non-txn tasks; got {non_txn_count}",
+    );
+
+    Arc::try_unwrap(server)
+        .ok()
+        .expect("server arc has outstanding clones at end of test")
+        .stop()
+        .await;
 }

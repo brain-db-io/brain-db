@@ -176,7 +176,7 @@ async fn complete_handshake(
 ) -> (WelcomePayload, AuthOkPayload) {
     let hello = HelloPayload {
         client_id: "tester/0.1".to_owned(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,
@@ -287,7 +287,7 @@ async fn ops_before_auth_are_rejected() {
     // Send HELLO, get WELCOME — but DON'T send AUTH.
     let hello = HelloPayload {
         client_id: "tester".into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,

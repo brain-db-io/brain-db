@@ -634,7 +634,7 @@ mod tests {
         for body in [
             RequestBody::Hello(HelloPayload {
                 client_id: "brain-rust-sdk/0.5.0".into(),
-                supported_versions: vec![1],
+                supported_versions: vec![crate::VERSION],
                 capabilities: HelloCapabilities {
                     streaming: true,
                     compression_zstd: false,

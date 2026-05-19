@@ -94,7 +94,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
 async fn complete_handshake(client: &mut TcpStream) {
     let hello = HelloPayload {
         client_id: "phase-exit-statement".into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,

@@ -8,14 +8,23 @@
 //! first, then runs RECALL against it.
 
 use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 
+use brain_core::MemoryId;
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
-use brain_index::{IndexParams, SharedHnsw};
+use brain_index::{
+    GraphError, GraphQuery, GraphRetriever, GraphRetrieverConfig, IndexParams, LexicalError,
+    LexicalQuery, LexicalRetriever, LexicalRetrieverConfig, LexicalScope, RankedItem, RankedItemId,
+    SemanticError, SemanticQuery, SemanticRetriever, SemanticRetrieverConfig, SemanticScope,
+    SharedHnsw,
+};
 use brain_metadata::MetadataDb;
 use brain_ops::test_support::run_in_glommio;
 use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, RequestBody};
+use brain_protocol::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, RequestBody, TxnBeginRequest,
+};
 use brain_protocol::response::{EncodeResponse, RecallResponseFrame, ResponseBody};
 use parking_lot::Mutex;
 
@@ -400,24 +409,6 @@ fn recall_include_text_true_returns_stored_text() {
 }
 
 // ---------------------------------------------------------------------------
-// Hybrid retriever wiring — TODO(commit-e): rewrite per plan §7.5
-// ---------------------------------------------------------------------------
-
-#[test]
-fn recall_hybrid_only_errors_when_retriever_missing() {
-    // TODO(commit-e): rewrite per plan §7.5 — the old test asserted
-    // a client-visible HybridOnly strategy. RECALL is now one verb
-    // with one server-side rule, so this test needs to be replaced
-    // by "shard spawn fails when a required retriever isn't wired"
-    // in crates/brain-server/tests/shard_startup.rs.
-    let _ = (
-        std::any::type_name::<OpError>(),
-        std::any::type_name::<ErrorCode>(),
-        std::any::type_name::<MemoryKindWire>(),
-    );
-}
-
-// ---------------------------------------------------------------------------
 // 8. Real-embedder gated test. Skips when env var is unset.
 // ---------------------------------------------------------------------------
 
@@ -463,6 +454,191 @@ fn recall_with_real_embedder_end_to_end() {
         assert_eq!(
             frame.results[0].memory_id, cats_id,
             "the cat memory must rank higher than the physics memory"
+        );
+    })
+}
+
+// ---------------------------------------------------------------------------
+// 9. handle_recall routing — txn_id determines substrate vs hybrid.
+//
+// RECALL is one verb with one server-side rule: a txn forces the
+// substrate path (read-your-writes), everything else fuses through the
+// hybrid retrievers. These tests pin both branches with a context
+// that has all three retrievers wired, so the cold-start fallback at
+// `recall.rs::handle_recall` doesn't mask a regression in the txn
+// gate.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct CannedSemantic {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
+}
+
+impl SemanticRetriever for CannedSemantic {
+    fn retrieve(
+        &self,
+        _query: &SemanticQuery,
+        _scope: SemanticScope,
+        _config: &SemanticRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, SemanticError> {
+        Ok(self.items.lock().expect("canned semantic lock").clone())
+    }
+}
+
+#[derive(Clone)]
+struct CannedLexical {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
+}
+
+impl LexicalRetriever for CannedLexical {
+    fn retrieve(
+        &self,
+        _query: &LexicalQuery,
+        _scope: LexicalScope,
+        _config: &LexicalRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, LexicalError> {
+        Ok(self.items.lock().expect("canned lexical lock").clone())
+    }
+}
+
+#[derive(Clone)]
+struct CannedGraph {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
+}
+
+impl GraphRetriever for CannedGraph {
+    fn retrieve(
+        &self,
+        _query: &GraphQuery,
+        _config: &GraphRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, GraphError> {
+        Ok(self.items.lock().expect("canned graph lock").clone())
+    }
+}
+
+/// Build a fixture whose `OpsContext` has all three hybrid retrievers
+/// wired with canned hits for `memory_id`. With all three slots
+/// populated, `handle_recall` exits the cold-start branch and picks
+/// the production route: `substrate_recall` when a txn is attached,
+/// `hybrid_recall` otherwise.
+fn build_fixture_with_hybrid_mocks(memory_id: u128) -> Fixture {
+    let mut fix = build_fixture();
+    let mid = MemoryId::from_raw(memory_id);
+    let item = RankedItem {
+        id: RankedItemId::Memory(mid),
+        rank: 1,
+        score: 0.95,
+        snippet: None,
+    };
+
+    let semantic = CannedSemantic {
+        items: Arc::new(StdMutex::new(vec![item.clone()])),
+    };
+    let lexical = CannedLexical {
+        items: Arc::new(StdMutex::new(vec![item.clone()])),
+    };
+    let graph = CannedGraph {
+        items: Arc::new(StdMutex::new(vec![item])),
+    };
+
+    fix.ctx = fix
+        .ctx
+        .with_semantic_retriever(Some(Arc::new(semantic) as Arc<dyn SemanticRetriever>))
+        .with_lexical_retriever(Some(Arc::new(lexical) as Arc<dyn LexicalRetriever>))
+        .with_graph_retriever(Some(Arc::new(graph) as Arc<dyn GraphRetriever>));
+    fix
+}
+
+#[test]
+fn handle_recall_routes_to_substrate_when_txn_present() {
+    // A txn forces the substrate path: hybrid retrievers can't see
+    // the per-txn buffer, so RYW would silently miss pending
+    // writes. Returned hits must carry the substrate signature —
+    // no `contributing_retrievers`, `fused_score` left at zero.
+    run_in_glommio(|| async {
+        let fix0 = build_fixture();
+        let mid = encode(&fix0, [0x90; 16], "alpha", MemoryKindWire::Episodic).await;
+        drop(fix0);
+
+        let fix = build_fixture_with_hybrid_mocks(mid);
+        // Re-encode against the new fixture so the row actually
+        // exists in this fixture's metadata DB. Same request_id
+        // yields a deterministic memory id under the fixture's
+        // mock embedder, but we don't rely on that — instead, re-
+        // encode and use the returned id, which is what the txn
+        // gate validates against.
+        let mid = encode(&fix, [0x90; 16], "alpha", MemoryKindWire::Episodic).await;
+
+        let txn_id = *uuid::Uuid::now_v7().as_bytes();
+        brain_ops::txn::handle_txn_begin(
+            TxnBeginRequest {
+                txn_id,
+                timeout_seconds: 30,
+            },
+            &fix.ctx,
+        )
+        .await
+        .expect("txn_begin");
+
+        let mut req = recall_req("alpha", 5);
+        req.txn_id = Some(txn_id);
+        let frame = brain_ops::recall::handle_recall(req, &fix.ctx)
+            .await
+            .expect("substrate recall inside txn");
+
+        assert!(frame.is_final, "txn recall must mark response final");
+        assert!(
+            !frame.results.is_empty(),
+            "expected at least one hit; encoded id was {mid}",
+        );
+        for r in &frame.results {
+            assert!(
+                r.contributing_retrievers.is_empty(),
+                "substrate path leaked contributing_retrievers: {:?}",
+                r.contributing_retrievers,
+            );
+            assert_eq!(
+                r.fused_score, 0.0,
+                "substrate path leaked fused_score: {}",
+                r.fused_score,
+            );
+        }
+    })
+}
+
+#[test]
+fn handle_recall_routes_to_hybrid_when_no_txn() {
+    // No txn → hybrid runs. The canned retrievers all return the
+    // same memory id, so RRF fusion produces one hit with three
+    // contributors and a non-zero fused score. A regression that
+    // re-routed to substrate would zero `fused_score` and clear
+    // `contributing_retrievers`.
+    run_in_glommio(|| async {
+        let fix0 = build_fixture();
+        let mid = encode(&fix0, [0xA0; 16], "beta", MemoryKindWire::Episodic).await;
+        drop(fix0);
+
+        let fix = build_fixture_with_hybrid_mocks(mid);
+        let _ = encode(&fix, [0xA0; 16], "beta", MemoryKindWire::Episodic).await;
+
+        let frame = brain_ops::recall::handle_recall(recall_req("beta", 5), &fix.ctx)
+            .await
+            .expect("hybrid recall");
+
+        assert!(frame.is_final);
+        assert!(!frame.results.is_empty(), "hybrid recall returned no hits",);
+        let any_with_retrievers = frame
+            .results
+            .iter()
+            .any(|r| !r.contributing_retrievers.is_empty());
+        let any_nonzero_fused = frame.results.iter().any(|r| r.fused_score > 0.0);
+        assert!(
+            any_with_retrievers,
+            "hybrid path must populate contributing_retrievers on at least one hit",
+        );
+        assert!(
+            any_nonzero_fused,
+            "hybrid path must produce a non-zero fused_score on at least one hit",
         );
     })
 }

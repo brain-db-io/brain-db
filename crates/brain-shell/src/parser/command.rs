@@ -901,12 +901,6 @@ mod tests {
     }
 
     #[test]
-    fn recall_accepts_strategy_flag() {
-        // TODO(commit-e): rewrite per plan §7.5
-        return;
-    }
-
-    #[test]
     fn link_takes_positional_edge_kind() {
         let cli = parse(&[
             "link",

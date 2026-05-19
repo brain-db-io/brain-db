@@ -88,7 +88,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) -> std::io::Result<()>
 async fn complete_handshake(client: &mut TcpStream) {
     let hello = HelloPayload {
         client_id: "recall-chaos".into(),
-        supported_versions: vec![1],
+        supported_versions: vec![brain_protocol::VERSION],
         capabilities: HelloCapabilities {
             streaming: true,
             compression_zstd: false,

@@ -215,9 +215,9 @@ pub struct ServerCapabilities {
 }
 
 impl ServerCapabilities {
-    /// A reasonable v1 default: supports only `VERSION = 1`, streaming
-    /// only, no compression / push. 16 MiB max payload, 1024 concurrent
-    /// streams, 5 min idle timeout. Convenient for tests.
+    /// A reasonable default: supports only the current wire `VERSION`,
+    /// streaming only, no compression / push. 16 MiB max payload, 1024
+    /// concurrent streams, 5 min idle timeout. Convenient for tests.
     #[must_use]
     pub fn v1_default(server_id: impl Into<String>, auth_methods: Vec<AuthMethod>) -> Self {
         Self {
@@ -405,7 +405,7 @@ mod tests {
     fn hello_payload_round_trips_without_session_token() {
         let original = HelloPayload {
             client_id: "client".into(),
-            supported_versions: vec![1],
+            supported_versions: vec![crate::VERSION],
             capabilities: v1_caps(),
             client_session_token: None,
         };
@@ -508,7 +508,7 @@ mod tests {
     fn negotiate_one_overlap() {
         let client = HelloPayload {
             client_id: "c".into(),
-            supported_versions: vec![1],
+            supported_versions: vec![crate::VERSION],
             capabilities: v1_caps(),
             client_session_token: None,
         };

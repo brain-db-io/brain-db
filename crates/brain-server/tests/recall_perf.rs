@@ -1,14 +1,15 @@
-//! Recall latency floor — `#[ignore]`-gated p95 regression gate.
+//! Recall latency floor — `#[ignore]`-gated p95 regression gates.
 //!
-//! **PERF1** measures end-to-end client-observed RECALL latency on
-//! the dev workstation. Two strategies, 100 iterations each:
+//! Two budgets pinned independently against `brain-ops::recall`
+//! (not the wire — wire latency is bench-driven, not test-gated):
 //!
-//! - **Auto (hybrid default)** — must hold p95 ≤ 12 ms. RECALL is
-//!   what users feel most, and hybrid is the default path: a 12 ms
-//!   p95 keeps interactive flows responsive at K=10 without text.
-//! - **SubstrateOnly** — must hold p95 ≤ 1 ms. The substrate path
-//!   over a 5-doc fixture has no HNSW pressure and no tantivy
-//!   round-trip; this is the cache-warm floor.
+//! - **Substrate path** — must hold p95 ≤ 1 ms. The substrate
+//!   path over a 5-doc fixture has no HNSW pressure beyond the
+//!   substrate memory index and no tantivy round-trip; this is
+//!   the cache-warm floor reachable from RECALL inside a txn.
+//! - **Hybrid path** — must hold p95 ≤ 12 ms. Hybrid is the
+//!   default for every wire RECALL; a 12 ms p95 keeps interactive
+//!   flows responsive at K=10 without text.
 //!
 //! Gated behind `#[ignore]` because:
 //!
@@ -22,155 +23,192 @@
 //! --ignored --test-threads=1`.
 
 #![cfg(target_os = "linux")]
-// TODO(commit-e): rewrite per plan §7.5 — split into two
-// internal-entry-point tests (substrate / hybrid), drop `--ignored`
-// gate, and target `brain-ops` rather than the wire.
-#![allow(dead_code)]
-#![allow(unused_imports)]
 
+use std::sync::Arc;
+use std::sync::Mutex as StdMutex;
 use std::time::{Duration, Instant};
 
-use brain_protocol::handshake::{
-    AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
+use brain_core::MemoryId;
+use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
+use brain_index::{
+    GraphError, GraphQuery, GraphRetriever, GraphRetrieverConfig, IndexParams, LexicalError,
+    LexicalQuery, LexicalRetriever, LexicalRetrieverConfig, LexicalScope, RankedItem, RankedItemId,
+    SemanticError, SemanticQuery, SemanticRetriever, SemanticRetrieverConfig, SemanticScope,
+    SharedHnsw,
 };
-use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest};
-use brain_protocol::response::ResponseBody;
-use brain_protocol::Frame;
-use brain_protocol::RequestBody;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::net::TcpStream;
+use brain_metadata::MetadataDb;
+use brain_ops::test_support::run_in_glommio;
+use brain_ops::{OpsContext, RealWriterHandle};
+use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
+use parking_lot::Mutex;
 
-#[allow(dead_code)]
-#[path = "../src/admin/mod.rs"]
-mod admin;
-#[allow(dead_code)]
-#[path = "../src/config/mod.rs"]
-mod config;
-#[allow(dead_code)]
-#[path = "../src/network/connection.rs"]
-mod connection;
-#[path = "../src/network/dispatch.rs"]
-mod dispatch;
-#[path = "../src/metrics/mod.rs"]
-mod metrics;
-#[allow(dead_code)]
-#[path = "../src/network/routing.rs"]
-mod routing;
-#[allow(dead_code)]
-#[path = "../src/shard/mod.rs"]
-mod shard;
-#[path = "../src/network/subscribe.rs"]
-mod subscribe;
-#[allow(dead_code)]
-#[path = "../src/bootstrap/tls.rs"]
-mod tls;
-
-mod support_harness;
-
-use support_harness::start;
-
-const FLAG_EOS: u8 = 1 << 7;
 const ITERATIONS: usize = 100;
 const WARMUP_ITERATIONS: usize = 10;
 
 // ---------------------------------------------------------------------------
-// Wire helpers.
+// Mock dispatcher: same deterministic shape as the brain-ops fixture.
 // ---------------------------------------------------------------------------
 
-async fn read_one_frame<S>(stream: &mut S) -> Frame
-where
-    S: tokio::io::AsyncRead + Unpin,
-{
-    let mut header = [0u8; brain_protocol::HEADER_SIZE];
-    stream.read_exact(&mut header).await.expect("header");
-    let payload_len = u32::from_be_bytes([0, header[16], header[17], header[18]]) as usize;
-    let mut buf = Vec::with_capacity(brain_protocol::HEADER_SIZE + payload_len);
-    buf.extend_from_slice(&header);
-    if payload_len > 0 {
-        buf.resize(brain_protocol::HEADER_SIZE + payload_len, 0);
-        stream
-            .read_exact(&mut buf[brain_protocol::HEADER_SIZE..])
-            .await
-            .expect("payload");
+struct MockDispatcher;
+
+impl Dispatcher for MockDispatcher {
+    fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+        let mut v = [0.0f32; VECTOR_DIM];
+        for (i, byte) in text.as_bytes().iter().enumerate() {
+            v[i % VECTOR_DIM] += f32::from(*byte) / 255.0;
+        }
+        Ok(v)
     }
-    let (frame, _) =
-        Frame::decode_with_max(&buf, brain_protocol::MAX_PAYLOAD_BYTES as u32).expect("decode");
-    frame
+
+    fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+        texts.iter().map(|t| self.embed(t)).collect()
+    }
+
+    fn fingerprint(&self) -> [u8; 16] {
+        [0xAB; 16]
+    }
 }
 
-async fn send_frame(client: &mut TcpStream, frame: Frame) {
-    client.write_all(&frame.encode()).await.expect("send");
-    client.flush().await.expect("flush");
+// ---------------------------------------------------------------------------
+// Canned retrievers — return one hit each so the hybrid path
+// exercises the full RRF + projection codepath. Production deployments
+// hit real tantivy and HNSW shards; this measurement is the in-process
+// floor, not an upper bound.
+// ---------------------------------------------------------------------------
+
+#[derive(Clone)]
+struct CannedSemantic {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
-    let hello = HelloPayload {
-        client_id: "recall-perf".into(),
-        supported_versions: vec![1],
-        capabilities: HelloCapabilities {
-            streaming: true,
-            compression_zstd: false,
-            server_push: false,
-        },
-        client_session_token: None,
+impl SemanticRetriever for CannedSemantic {
+    fn retrieve(
+        &self,
+        _query: &SemanticQuery,
+        _scope: SemanticScope,
+        _config: &SemanticRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, SemanticError> {
+        Ok(self.items.lock().expect("canned semantic lock").clone())
+    }
+}
+
+#[derive(Clone)]
+struct CannedLexical {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
+}
+
+impl LexicalRetriever for CannedLexical {
+    fn retrieve(
+        &self,
+        _query: &LexicalQuery,
+        _scope: LexicalScope,
+        _config: &LexicalRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, LexicalError> {
+        Ok(self.items.lock().expect("canned lexical lock").clone())
+    }
+}
+
+#[derive(Clone)]
+struct CannedGraph {
+    items: Arc<StdMutex<Vec<RankedItem>>>,
+}
+
+impl GraphRetriever for CannedGraph {
+    fn retrieve(
+        &self,
+        _query: &GraphQuery,
+        _config: &GraphRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, GraphError> {
+        Ok(self.items.lock().expect("canned graph lock").clone())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Fixture.
+// ---------------------------------------------------------------------------
+
+struct Fixture {
+    ctx: OpsContext,
+    _tempdir: tempfile::TempDir,
+}
+
+fn build_fixture() -> Fixture {
+    let tempdir = tempfile::tempdir().expect("tempdir");
+    let db_path = tempdir.path().join("metadata.redb");
+    let metadata: SharedMetadataDb = Arc::new(Mutex::new(
+        MetadataDb::open(&db_path).expect("open metadata"),
+    ));
+
+    let (shared, hnsw_writer) =
+        SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).expect("hnsw");
+    let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
+
+    let executor = ExecutorContext::new(
+        Arc::new(MockDispatcher) as Arc<dyn Dispatcher>,
+        shared,
+        metadata,
+        writer as Arc<dyn WriterHandle>,
+    );
+
+    Fixture {
+        ctx: OpsContext::new(executor),
+        _tempdir: tempdir,
+    }
+}
+
+fn attach_hybrid_mocks(fix: &mut Fixture, memory_id: u128) {
+    let item = RankedItem {
+        id: RankedItemId::Memory(MemoryId::from_raw(memory_id)),
+        rank: 1,
+        score: 0.95,
+        snippet: None,
     };
-    send_frame(
-        client,
-        Frame::new(
-            Opcode::Hello.as_u16(),
-            FLAG_EOS,
-            0,
-            RequestBody::Hello(hello).encode(),
-        ),
-    )
-    .await;
-    let welcome = read_one_frame(client).await;
-    assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
-
-    let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+    let semantic = CannedSemantic {
+        items: Arc::new(StdMutex::new(vec![item.clone()])),
     };
-    send_frame(
-        client,
-        Frame::new(
-            Opcode::Auth.as_u16(),
-            FLAG_EOS,
-            0,
-            RequestBody::Auth(auth).encode(),
-        ),
-    )
-    .await;
-    let auth_ok = read_one_frame(client).await;
-    assert_eq!(auth_ok.header.opcode_u16(), Opcode::AuthOk.as_u16());
+    let lexical = CannedLexical {
+        items: Arc::new(StdMutex::new(vec![item.clone()])),
+    };
+    let graph = CannedGraph {
+        items: Arc::new(StdMutex::new(vec![item])),
+    };
+    fix.ctx = fix
+        .ctx
+        .clone()
+        .with_semantic_retriever(Some(Arc::new(semantic) as Arc<dyn SemanticRetriever>))
+        .with_lexical_retriever(Some(Arc::new(lexical) as Arc<dyn LexicalRetriever>))
+        .with_graph_retriever(Some(Arc::new(graph) as Arc<dyn GraphRetriever>));
 }
 
-async fn encode_text(client: &mut TcpStream, stream_id: u32, text: &str) {
+async fn encode(fix: &Fixture, request_id: [u8; 16], text: &str) -> u128 {
+    use brain_protocol::request::RequestBody;
+    use brain_protocol::response::{EncodeResponse, ResponseBody};
+
     let req = EncodeRequest {
         text: text.into(),
         context_id: 0,
         kind: MemoryKindWire::Episodic,
         salience_hint: 0.5,
         edges: Vec::new(),
-        request_id: *uuid::Uuid::now_v7().as_bytes(),
+        request_id,
         txn_id: None,
         deduplicate: false,
     };
-    let body = RequestBody::Encode(req);
-    let opcode = body.opcode().as_u16();
-    let payload = body.encode();
-    send_frame(client, Frame::new(opcode, FLAG_EOS, stream_id, payload)).await;
-    let resp = read_one_frame(client).await;
-    assert_eq!(
-        resp.header.opcode_u16(),
-        Opcode::EncodeResp.as_u16(),
-        "encode failed",
-    );
+    let body = brain_ops::dispatch(
+        RequestBody::Encode(req),
+        brain_ops::RequestCaller::anonymous(),
+        &fix.ctx,
+    )
+    .await
+    .expect("encode");
+    match body {
+        ResponseBody::Encode(EncodeResponse { memory_id, .. }) => memory_id,
+        other => panic!("expected Encode response, got {other:?}"),
+    }
 }
 
-async fn seed_fixture(client: &mut TcpStream) {
+async fn seed(fix: &Fixture) -> u128 {
     let phrases = [
         "Priya prefers async meetings over standups",
         "Async-first communication reduces context-switching",
@@ -178,12 +216,19 @@ async fn seed_fixture(client: &mut TcpStream) {
         "Document driven design helps async teams",
         "Team prefers structured documents over live calls",
     ];
+    let mut first = 0u128;
     for (i, p) in phrases.iter().enumerate() {
-        encode_text(client, 101 + (i as u32) * 2, p).await;
+        let mut req_id = [0u8; 16];
+        req_id[0] = 0xC0 + i as u8;
+        let id = encode(fix, req_id, p).await;
+        if i == 0 {
+            first = id;
+        }
     }
+    first
 }
 
-fn recall_request() -> RecallRequest {
+fn recall_req(txn_id: Option<[u8; 16]>) -> RecallRequest {
     RecallRequest {
         cue_text: "meeting preferences".into(),
         cue_vector_offset: 0,
@@ -198,35 +243,8 @@ fn recall_request() -> RecallRequest {
         include_edges: false,
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
-        txn_id: None,
+        txn_id,
     }
-}
-
-async fn one_recall(client: &mut TcpStream, stream_id: u32) -> Duration {
-    let body = RequestBody::Recall(recall_request());
-    let opcode = body.opcode().as_u16();
-    let payload = body.encode();
-    let start = Instant::now();
-    send_frame(client, Frame::new(opcode, FLAG_EOS, stream_id, payload)).await;
-    let resp = read_one_frame(client).await;
-    let elapsed = start.elapsed();
-    let resp_opcode = resp.header.opcode_u16();
-    assert_eq!(
-        resp_opcode,
-        Opcode::RecallResp.as_u16(),
-        "recall failed: opcode={resp_opcode}",
-    );
-    let decoded = ResponseBody::decode(
-        Opcode::from_u16(resp_opcode).expect("known opcode"),
-        &resp.payload,
-    )
-    .expect("decode resp");
-    if let ResponseBody::Recall(r) = decoded {
-        assert!(r.is_final, "non-final recall in perf loop");
-    } else {
-        panic!("expected RecallResp body");
-    }
-    elapsed
 }
 
 fn percentile(sorted_ns: &[u128], p: f64) -> Duration {
@@ -235,40 +253,81 @@ fn percentile(sorted_ns: &[u128], p: f64) -> Duration {
     Duration::from_nanos(sorted_ns[rank.min(sorted_ns.len() - 1)] as u64)
 }
 
-async fn measure(client: &mut TcpStream, base_stream_id: u32) -> (Duration, Duration) {
-    // Warm up: embedder cache, HNSW heuristics, allocator. A
-    // production warm-up runs for minutes; here a brief loop is
-    // enough because the workload is a 5-doc fixture and the
-    // embedder is the only cold cache.
-    let mut sid = base_stream_id;
+async fn measure(fix: &Fixture, txn_id: Option<[u8; 16]>) -> (Duration, Duration) {
+    // Warm the embedder cache, HNSW heuristics, and allocator
+    // pools before the measured loop.
     for _ in 0..WARMUP_ITERATIONS {
-        let _ = one_recall(client, sid).await;
-        sid += 2;
+        let _ = brain_ops::recall::handle_recall(recall_req(txn_id), &fix.ctx)
+            .await
+            .expect("warmup recall");
     }
 
     let mut samples_ns: Vec<u128> = Vec::with_capacity(ITERATIONS);
     for _ in 0..ITERATIONS {
-        let d = one_recall(client, sid).await;
-        sid += 2;
-        samples_ns.push(d.as_nanos());
+        let start = Instant::now();
+        let _ = brain_ops::recall::handle_recall(recall_req(txn_id), &fix.ctx)
+            .await
+            .expect("measured recall");
+        samples_ns.push(start.elapsed().as_nanos());
     }
     samples_ns.sort_unstable();
-    let p50 = percentile(&samples_ns, 0.50);
-    let p95 = percentile(&samples_ns, 0.95);
-    (p50, p95)
+    (percentile(&samples_ns, 0.50), percentile(&samples_ns, 0.95))
 }
 
 // ---------------------------------------------------------------------------
-// PERF1.
+// PERF1A — substrate-only path. Reached by `handle_recall` when a
+// txn is attached; gated at 1 ms p95 because there's no fusion, no
+// tantivy round-trip, no graph traversal — just the substrate HNSW.
 // ---------------------------------------------------------------------------
 
-#[tokio::test(flavor = "current_thread")]
+#[test]
 #[ignore = "perf gate: workstation-tuned thresholds, run explicitly"]
-async fn recall_p95_meets_substrate_and_hybrid_targets() {
-    // TODO(commit-e): rewrite per plan §7.5 — split into two
-    // internal-entry-point tests against brain-ops directly
-    // (substrate path: 1 ms p95, hybrid path: 12 ms p95). The
-    // wire-driven dual-strategy shape is gone.
-    let _ = measure;
-    let _ = seed_fixture;
+fn recall_p95_substrate_via_internal_entry_point() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let _ = seed(&fix).await;
+
+        // Attach a txn so handle_recall takes the substrate branch.
+        let txn_id = *uuid::Uuid::now_v7().as_bytes();
+        brain_ops::txn::handle_txn_begin(
+            TxnBeginRequest {
+                txn_id,
+                timeout_seconds: 60,
+            },
+            &fix.ctx,
+        )
+        .await
+        .expect("txn_begin");
+
+        let (p50, p95) = measure(&fix, Some(txn_id)).await;
+        let budget = Duration::from_millis(1);
+        assert!(
+            p95 <= budget,
+            "substrate p95 {p95:?} exceeds budget {budget:?} (p50 {p50:?})",
+        );
+    })
+}
+
+// ---------------------------------------------------------------------------
+// PERF1B — hybrid path. Reached by `handle_recall` when no txn is
+// attached and all three retrievers are wired. Gated at 12 ms p95;
+// canned retrievers keep this an in-process floor measurement, not
+// an end-to-end wire test.
+// ---------------------------------------------------------------------------
+
+#[test]
+#[ignore = "perf gate: workstation-tuned thresholds, run explicitly"]
+fn recall_p95_hybrid_via_handle_recall() {
+    run_in_glommio(|| async {
+        let mut fix = build_fixture();
+        let first = seed(&fix).await;
+        attach_hybrid_mocks(&mut fix, first);
+
+        let (p50, p95) = measure(&fix, None).await;
+        let budget = Duration::from_millis(12);
+        assert!(
+            p95 <= budget,
+            "hybrid p95 {p95:?} exceeds budget {budget:?} (p50 {p50:?})",
+        );
+    })
 }
