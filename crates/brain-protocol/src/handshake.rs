@@ -544,7 +544,7 @@ mod tests {
     fn negotiate_intersects_capabilities() {
         let client = HelloPayload {
             client_id: "c".into(),
-            supported_versions: vec![1],
+            supported_versions: vec![VERSION],
             capabilities: HelloCapabilities {
                 streaming: true,
                 compression_zstd: true, // client supports
@@ -571,7 +571,7 @@ mod tests {
     fn negotiate_streaming_always_true_in_v1() {
         let client = HelloPayload {
             client_id: "c".into(),
-            supported_versions: vec![1],
+            supported_versions: vec![VERSION],
             capabilities: v1_caps(),
             client_session_token: None,
         };

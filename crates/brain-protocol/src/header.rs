@@ -31,7 +31,7 @@ use crate::error::ProtocolError;
 use crate::{MAGIC, MAX_PAYLOAD_BYTES};
 
 /// Wire protocol version. See spec §03/03 §3.2.
-pub const VERSION: u8 = 1;
+pub const VERSION: u8 = 2;
 
 /// 32-byte frame header. Layout matches spec §03/03 §1 exactly.
 ///
@@ -284,7 +284,7 @@ mod tests {
             h.validate(),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 1
+                expected: 2
             })
         ));
     }
@@ -354,7 +354,7 @@ mod tests {
         // Spec §03/03 §1: bytes 5-6 = opcode (BE u16), byte 7 = flags (u8).
         let h = Header::new(0x0130, 0x80, 0, 0);
         let bytes: [u8; 32] = bytemuck::cast(h);
-        assert_eq!(bytes[4], 1, "version");
+        assert_eq!(bytes[4], VERSION, "version");
         assert_eq!(bytes[5], 0x01, "opcode high byte (knowledge namespace)");
         assert_eq!(bytes[6], 0x30, "opcode low byte (ENTITY_CREATE)");
         assert_eq!(bytes[7], 0x80, "flags = EOS");
