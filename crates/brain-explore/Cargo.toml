@@ -1,0 +1,42 @@
+[package]
+name = "brain-explore"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Terminal UI/UX layer for Brain — rendering primitives and (later) the interactive explorer TUI."
+
+[lib]
+name = "brain_explore"
+path = "src/lib.rs"
+
+# The `tui` feature gates the interactive Ratatui explorer + its binary.
+# Both arrive in a later commit; the feature exists today so consumers can
+# already opt out of the not-yet-pulled-in ratatui/crossterm dep weight.
+[features]
+default = []
+tui = []
+
+[dependencies]
+# brain-protocol is declared today even though no symbols are referenced
+# yet: the format + render commits land directly on top of this scaffold
+# and they bind to the protocol's response shapes. Declaring it once here
+# keeps subsequent diffs focused on real code rather than dep churn.
+brain-core = { path = "../brain-core" }
+brain-protocol = { path = "../brain-protocol" }
+
+# Terminal primitives. comfy-table for tables, owo-colors for the theme
+# painter, termtree for graph neighborhoods, supports-hyperlinks +
+# terminal_size for capability detection.
+comfy-table = "7"
+owo-colors = "4"
+termtree = "0.5"
+supports-hyperlinks = "3"
+terminal_size = "0.4"
+
+serde = { workspace = true, features = ["derive"] }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+thiserror = { workspace = true }
+tracing = { workspace = true }

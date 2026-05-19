@@ -21,6 +21,7 @@ members = [
     "crates/brain-sdk-rust",
     "crates/brain-cli",
     "crates/brain-shell",
+    "crates/brain-explore",
     "crates/brain-http",
 ]
 exclude = ["fuzz"]
