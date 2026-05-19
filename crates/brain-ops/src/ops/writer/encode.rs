@@ -61,8 +61,9 @@ pub(super) async fn do_encode(
                     hex_short(&request_id_bytes)
                 )));
             }
-            let (memory_id, edge_outcomes) = decode_encode_payload(&prior.response_payload)
-                .map_err(|e| WriterError::Internal(format!("decode encode payload: {e}")))?;
+            let (memory_id, edge_outcomes, was_deduplicated) =
+                decode_encode_payload(&prior.response_payload)
+                    .map_err(|e| WriterError::Internal(format!("decode encode payload: {e}")))?;
             let inserted = edge_outcomes
                 .iter()
                 .filter(|o| matches!(o, EdgeOutcome::Inserted))
@@ -71,14 +72,7 @@ pub(super) async fn do_encode(
                 memory_id,
                 edge_results: edge_outcomes,
                 replayed: true,
-                // Idempotency replay never sets dedup. Same response
-                // shape as the original; if the original was a dedup
-                // hit, the cached payload would have recorded that
-                // (Phase 8.dedup will roundtrip the dedup state via
-                // the cached payload too — for now the simpler
-                // contract: dedup signal lives only on the fresh
-                // path).
-                was_deduplicated: false,
+                was_deduplicated,
                 // Replay surfaces the durable LSN the original commit
                 // stamped on the cached entry. Clients chaining
                 // `encode → subscribe --start-lsn` need the original
@@ -131,7 +125,7 @@ pub(super) async fn do_encode(
             // request returns the same response (without re-doing
             // the fingerprint lookup or risking a different MemoryId
             // if the fingerprint table changed between attempts).
-            let response_payload = encode_encode_payload(memory_id, &[]);
+            let response_payload = encode_encode_payload(memory_id, &[], true);
             let created_at = now_unix_nanos();
             {
                 let mut db = writer.metadata.lock();
@@ -225,7 +219,7 @@ pub(super) async fn do_encode(
     };
 
     // ── Apply: metadata row + idempotency entry + edges in ONE write txn. ─
-    let response_payload = encode_encode_payload(memory_id, &edge_outcomes);
+    let response_payload = encode_encode_payload(memory_id, &edge_outcomes, false);
 
     // ── WAL append (spec §05/07 durability barrier). ─────────────
     // Build the typed payload once we have everything: response
@@ -503,8 +497,6 @@ pub(super) async fn do_encode(
         memory_id,
         edge_results: edge_outcomes,
         replayed: false,
-        // Wired by task #52 — placeholder false keeps the build
-        // green while the lookup-then-insert path is added.
         was_deduplicated: false,
         lsn: wal_lsn.map(|l| l.raw()),
         edges_out_count,

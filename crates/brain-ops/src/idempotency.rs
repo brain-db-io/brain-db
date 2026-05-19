@@ -141,11 +141,22 @@ fn forget_mode_byte(m: ForgetMode) -> u8 {
 /// - bytes 0..16 — `memory_id` (big-endian)
 /// - byte 16     — version (= 1)
 /// - bytes 17..19 — `edge_count` (u16, little-endian)
-/// - bytes 19..  — `edge_count × u8` outcome discriminants
+/// - bytes 19..19+edge_count — `edge_count × u8` outcome discriminants
+/// - trailing byte — `was_deduplicated` (0 / 1)
+///
+/// The `was_deduplicated` flag rides along so an idempotency replay
+/// returns the exact same shape the caller saw on the first attempt.
+/// Without it, a retry of a request that hit the fingerprint dedup
+/// index would see `was_deduplicated: false` — same params, different
+/// response, violating the idempotency invariant.
 #[must_use]
-pub fn encode_encode_payload(memory_id: MemoryId, outcomes: &[EdgeOutcome]) -> Vec<u8> {
+pub fn encode_encode_payload(
+    memory_id: MemoryId,
+    outcomes: &[EdgeOutcome],
+    was_deduplicated: bool,
+) -> Vec<u8> {
     let edge_count = u16::try_from(outcomes.len()).unwrap_or(u16::MAX);
-    let mut out = Vec::with_capacity(19 + outcomes.len());
+    let mut out = Vec::with_capacity(20 + outcomes.len());
     out.extend_from_slice(&memory_id.to_be_bytes());
     out.push(PAYLOAD_VERSION_V1);
     out.extend_from_slice(&edge_count.to_le_bytes());
@@ -155,11 +166,14 @@ pub fn encode_encode_payload(memory_id: MemoryId, outcomes: &[EdgeOutcome]) -> V
             EdgeOutcome::TargetMissing => EDGE_OUTCOME_TARGET_MISSING,
         });
     }
+    out.push(u8::from(was_deduplicated));
     out
 }
 
-pub fn decode_encode_payload(bytes: &[u8]) -> Result<(MemoryId, Vec<EdgeOutcome>), DecodeError> {
-    if bytes.len() < 19 {
+pub fn decode_encode_payload(
+    bytes: &[u8],
+) -> Result<(MemoryId, Vec<EdgeOutcome>, bool), DecodeError> {
+    if bytes.len() < 20 {
         return Err(DecodeError::Malformed("encode payload too short"));
     }
     let mid_bytes: [u8; 16] = bytes[..16]
@@ -174,20 +188,25 @@ pub fn decode_encode_payload(bytes: &[u8]) -> Result<(MemoryId, Vec<EdgeOutcome>
             .try_into()
             .map_err(|_| DecodeError::Malformed("encode edge_count"))?,
     ) as usize;
-    if bytes.len() != 19 + edge_count {
+    if bytes.len() != 20 + edge_count {
         return Err(DecodeError::Malformed(
             "encode edge_count vs payload length",
         ));
     }
     let mut outcomes = Vec::with_capacity(edge_count);
-    for &b in &bytes[19..] {
+    for &b in &bytes[19..19 + edge_count] {
         outcomes.push(match b {
             EDGE_OUTCOME_INSERTED => EdgeOutcome::Inserted,
             EDGE_OUTCOME_TARGET_MISSING => EdgeOutcome::TargetMissing,
             _ => return Err(DecodeError::Malformed("encode unknown edge outcome")),
         });
     }
-    Ok((MemoryId::from_be_bytes(mid_bytes), outcomes))
+    let was_deduplicated = match bytes[19 + edge_count] {
+        0 => false,
+        1 => true,
+        _ => return Err(DecodeError::Malformed("encode unknown dedup flag")),
+    };
+    Ok((MemoryId::from_be_bytes(mid_bytes), outcomes, was_deduplicated))
 }
 
 /// Encode a FORGET outcome.
@@ -376,20 +395,43 @@ mod tests {
             EdgeOutcome::TargetMissing,
             EdgeOutcome::Inserted,
         ];
-        let bytes = encode_encode_payload(mid, &outcomes);
-        let (decoded_mid, decoded_outcomes) = decode_encode_payload(&bytes).unwrap();
+        let bytes = encode_encode_payload(mid, &outcomes, false);
+        let (decoded_mid, decoded_outcomes, dedup) = decode_encode_payload(&bytes).unwrap();
         assert_eq!(decoded_mid, mid);
         assert_eq!(decoded_outcomes, outcomes);
+        assert!(!dedup);
     }
 
     #[test]
     fn encode_payload_zero_edges_round_trips() {
         let mid = brain_core::MemoryId::from(7u128);
-        let bytes = encode_encode_payload(mid, &[]);
-        assert_eq!(bytes.len(), 19);
-        let (decoded_mid, decoded_outcomes) = decode_encode_payload(&bytes).unwrap();
+        let bytes = encode_encode_payload(mid, &[], false);
+        assert_eq!(bytes.len(), 20);
+        let (decoded_mid, decoded_outcomes, dedup) = decode_encode_payload(&bytes).unwrap();
         assert_eq!(decoded_mid, mid);
         assert!(decoded_outcomes.is_empty());
+        assert!(!dedup);
+    }
+
+    #[test]
+    fn encode_payload_carries_was_deduplicated_true() {
+        let mid = brain_core::MemoryId::from(0xABCDu128);
+        let bytes = encode_encode_payload(mid, &[], true);
+        let (decoded_mid, decoded_outcomes, dedup) = decode_encode_payload(&bytes).unwrap();
+        assert_eq!(decoded_mid, mid);
+        assert!(decoded_outcomes.is_empty());
+        assert!(dedup, "was_deduplicated=true must round-trip");
+    }
+
+    #[test]
+    fn encode_payload_carries_was_deduplicated_with_edges() {
+        let mid = brain_core::MemoryId::from(99u128);
+        let outcomes = vec![EdgeOutcome::Inserted, EdgeOutcome::TargetMissing];
+        let bytes = encode_encode_payload(mid, &outcomes, true);
+        let (decoded_mid, decoded_outcomes, dedup) = decode_encode_payload(&bytes).unwrap();
+        assert_eq!(decoded_mid, mid);
+        assert_eq!(decoded_outcomes, outcomes);
+        assert!(dedup);
     }
 
     #[test]

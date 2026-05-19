@@ -683,6 +683,102 @@ fn encode_dedup_hit_does_not_clobber_original_text_row() {
 }
 
 // ---------------------------------------------------------------------------
+// 6b. was_deduplicated round-trips through idempotency replay.
+// ---------------------------------------------------------------------------
+//
+// The two flags (`replayed` and `was_deduplicated`) are orthogonal.
+// Idempotency replay (spec §09/02 §4) is transparent — clients see the
+// same shape on retry as on first attempt. If the first attempt was a
+// fingerprint dedup hit, the cached response carries that signal; a
+// retry MUST surface it too. Otherwise the same `request_id` returns
+// two different response shapes, breaking the "same params → cached
+// response" invariant in CLAUDE.md §5.
+
+#[test]
+fn encode_dedup_then_replay_returns_was_deduplicated_true() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+
+        // First: dedup=true with no existing memory → miss, fresh slot.
+        let first = unwrap_encode_resp(
+            dispatch(
+                RequestBody::Encode(encode_req_with_dedup([0x80; 16], "round-trip me", 11, true)),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(!first.was_deduplicated, "first encode is a fresh slot");
+
+        // Second: same text, dedup=true, different request_id → dedup hit.
+        let second_req = encode_req_with_dedup([0x81; 16], "round-trip me", 11, true);
+        let second = unwrap_encode_resp(
+            dispatch(
+                RequestBody::Encode(second_req.clone()),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(second.was_deduplicated, "second encode hits the fingerprint");
+        assert_eq!(first.memory_id, second.memory_id);
+
+        // Third: retry the SAME request_id as `second` → idempotency
+        // replay must surface `was_deduplicated: true`.
+        let third = unwrap_encode_resp(
+            dispatch(
+                RequestBody::Encode(second_req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(third.memory_id, second.memory_id);
+        assert!(
+            third.was_deduplicated,
+            "idempotency replay must round-trip was_deduplicated=true",
+        );
+    })
+}
+
+#[test]
+fn encode_fresh_then_replay_returns_was_deduplicated_false() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let req = encode_req([0x82; 16], "fresh-then-replay");
+
+        let first = unwrap_encode_resp(
+            dispatch(
+                RequestBody::Encode(req.clone()),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        assert!(!first.was_deduplicated);
+
+        let second = unwrap_encode_resp(
+            dispatch(
+                RequestBody::Encode(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        assert_eq!(first.memory_id, second.memory_id);
+        assert!(
+            !second.was_deduplicated,
+            "fresh-write replay must surface was_deduplicated=false",
+        );
+    })
+}
+
+// ---------------------------------------------------------------------------
 // 7. Real-embedder gated test. Skips when env var is unset.
 // ---------------------------------------------------------------------------
 

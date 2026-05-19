@@ -560,7 +560,7 @@ async fn do_submit_batch(
             // an idempotency retry after a crash mid-batch would
             // return an empty edge_results vector instead of the
             // original. Worst case the caller re-issues edges.
-            let response_payload = encode_encode_payload(enc.memory_id, &[]);
+            let response_payload = encode_encode_payload(enc.memory_id, &[], false);
             let wal_edges: Vec<WalEdgePayload> = enc
                 .edges
                 .iter()
@@ -832,7 +832,7 @@ async fn do_submit_batch(
                 // (or 0 when no WAL sink is wired) so a retry replays
                 // the original durable position to clients chaining
                 // subscribe.
-                let payload = encode_encode_payload(enc.memory_id, &edge_outcomes);
+                let payload = encode_encode_payload(enc.memory_id, &edge_outcomes, false);
                 let entry = IdempotencyEntry::new(
                     crate::idempotency::RESPONSE_KIND_ENCODE,
                     Some(enc.memory_id.to_be_bytes()),
