@@ -212,7 +212,6 @@ async fn recall_round_trip(client: &mut TcpStream, stream_id: u32, cue: &str) ->
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy: None,
         include_vectors: false,
         include_edges: false,
         include_text: false,

@@ -79,14 +79,16 @@ pub(super) async fn do_encode(
                 // contract: dedup signal lives only on the fresh
                 // path).
                 was_deduplicated: false,
-                // Idempotency replay path doesn't know the original
-                // LSN — that lived in the WAL record we already
-                // committed. Recovery rebuilds the cache from those
-                // WAL records, so a same-id retry post-restart can
-                // surface the real LSN; until then, the replay path
-                // returns 0 and clients re-issue subscribe with the
-                // tail LSN.
-                lsn: None,
+                // Replay surfaces the durable LSN the original commit
+                // stamped on the cached entry. Clients chaining
+                // `encode → subscribe --start-lsn` need the original
+                // position; a missing LSN forces them to subscribe
+                // from the tail and miss the very event they came for.
+                lsn: if prior.lsn != 0 {
+                    Some(prior.lsn)
+                } else {
+                    None
+                },
                 edges_out_count: inserted,
                 created_at_unix_nanos: prior.created_at_unix_nanos,
             });
@@ -170,8 +172,29 @@ pub(super) async fn do_encode(
     }
 
     // ── Mint slot + MemoryId. ─────────────────────────────────────
+    // Slot reuse changes the version stamped into the id so stale
+    // references to the prior occupant return `NotFound` from the
+    // slot-version check on every read path. Fresh slots have no
+    // counter row → version 1; reclaimed slots picked up the bumped
+    // value when their tombstone was reaped, so reading it here
+    // mints with the post-reclaim version.
     let slot = writer.next_slot.fetch_add(1, Ordering::Relaxed);
-    let memory_id = MemoryId::pack(writer.shard_id, slot, /* version */ 1);
+    let slot_version: u32 = {
+        let db = writer.metadata.lock();
+        let rtxn = db
+            .read_txn()
+            .map_err(|e| WriterError::Internal(format!("slot_version read_txn: {e:?}")))?;
+        match rtxn.open_table(brain_metadata::tables::slot_version::SLOT_VERSIONS_TABLE) {
+            Ok(table) => table
+                .get(&slot)
+                .map_err(|e| WriterError::Internal(format!("slot_version get: {e:?}")))?
+                .map_or(1, |a| a.value()),
+            // Table not yet materialised on a fresh shard — version 1.
+            Err(redb::TableError::TableDoesNotExist(_)) => 1,
+            Err(e) => return Err(WriterError::Internal(format!("slot_version open: {e:?}"))),
+        }
+    };
+    let memory_id = MemoryId::pack(writer.shard_id, slot, slot_version);
     let created_at = now_unix_nanos();
 
     // ── Compute edge outcomes against existing memories. ──────────
@@ -259,6 +282,18 @@ pub(super) async fn do_encode(
         None
     };
 
+    // ── HNSW insert (before redb commit). ─────────────────────────
+    // Failure here aborts the encode before any redb mutation lands.
+    // The WAL record stays — recovery scans redb to find which records
+    // need replay, so the absent metadata row makes this WAL record a
+    // harmless no-op. Idempotency stays correct: a retry sees no
+    // cached entry (we never committed one) and runs cleanly.
+    writer
+        .hnsw_writer
+        .lock()
+        .insert(memory_id, &op.vector)
+        .map_err(|e| WriterError::Internal(format!("hnsw insert: {e:?}")))?;
+
     {
         let mut db = writer.metadata.lock();
         let wtxn = db
@@ -333,7 +368,7 @@ pub(super) async fn do_encode(
                 op.agent_id,
                 op.context_id,
                 slot,
-                /* slot_version */ 1,
+                slot_version,
                 op.kind,
                 op.fingerprint,
                 op.salience_initial,
@@ -407,13 +442,6 @@ pub(super) async fn do_encode(
             .map_err(|e| WriterError::Internal(format!("commit: {e:?}")))?;
     }
 
-    // ── HNSW insert (after the durability barrier). ───────────────
-    writer
-        .hnsw_writer
-        .lock()
-        .insert(memory_id, &op.vector)
-        .map_err(|e| WriterError::Internal(format!("hnsw insert: {e:?}")))?;
-
     // ── AutoEdgeWorker enqueue (post-durability + post-HNSW). ────
     // The worker derives SimilarTo edges off the band; failing to
     // enqueue (channel full / disconnected) is best-effort, never an
@@ -427,6 +455,24 @@ pub(super) async fn do_encode(
     // best-effort contract as auto-edge: a dropped enqueue does not
     // fail the encode.
     super::try_enqueue_extractor(writer, memory_id, &op.text);
+
+    // ── Memory tantivy dispatch (post-durability + post-HNSW). ──
+    // The lexical indexer needs every committed memory to land in
+    // tantivy so RECALL --lexical and the hybrid path stay aligned
+    // with HNSW + redb. Lives on the writer so the TXN-batch path
+    // (do_submit_batch) automatically dispatches too — no chance
+    // for batched encodes to silently skip lexical indexing.
+    if let Some(dispatcher) = writer.memory_text_dispatcher() {
+        dispatcher
+            .dispatch(crate::ops::text_indexer::MemoryTextOp::Upsert {
+                id: memory_id,
+                text: op.text.clone(),
+                agent: op.agent_id,
+                kind: op.kind,
+                created_at_unix_ms: created_at / 1_000_000,
+            })
+            .await;
+    }
 
     // ── Change-feed (sub-task 7.10). ─────────────────────────────
     // When the WAL stamped the record, the published event carries

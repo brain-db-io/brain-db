@@ -260,7 +260,6 @@ fn base_request(cue: &str, top_k: u32) -> RecallRequest {
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy: None,
         include_vectors: false,
         include_edges: false,
         include_text: false,

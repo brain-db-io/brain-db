@@ -1,23 +1,18 @@
 //! RECALL handler.
 //!
-//! Hybrid retrieval (semantic + lexical + graph fused via RRF) is
-//! the default for every deployment. A schema upload no longer
-//! gates retrieval — it only narrows what STATEMENT_CREATE /
-//! RELATION_CREATE / predicate filters accept. RECALL routing
-//! looks at two inputs:
+//! RECALL is one verb with one server-side routing rule:
 //!
-//! 1. The wire `RecallStrategy` — `Auto` (default), `HybridOnly`,
-//!    or `SubstrateOnly`. Clients pick the escape hatch when
-//!    they need raw HNSW latency or want the hybrid path to fail
-//!    loud rather than silently degrade.
-//! 2. Whether a txn is attached. Transactional read-your-writes
-//!    only works on the substrate path (the hybrid retrievers
-//!    don't see the per-txn buffer), so a txn forces the
-//!    substrate route regardless of strategy.
+//! - `txn_id` present → substrate path. Transactional
+//!   read-your-writes requires the per-txn buffer overlay, and the
+//!   lexical + graph retrievers only see committed state, so they
+//!   can't honour a pending write.
+//! - otherwise → hybrid (semantic + lexical + graph fused via RRF).
 //!
-//! Substrate path: plan + execute against committed state, layer
-//! the txn buffer on top for read-your-writes, sort, filter,
-//! truncate.
+//! Hybrid is the default for every deployment. A schema upload does
+//! not gate retrieval — it only narrows what STATEMENT_CREATE /
+//! RELATION_CREATE / predicate filters accept. The substrate code
+//! path stays internal so transactional recalls keep working, but it
+//! is not selectable from the wire.
 
 use std::collections::HashSet;
 
@@ -31,7 +26,7 @@ use brain_planner::knowledge::executor::{
 use brain_planner::knowledge::planner::{plan as hybrid_plan, PlanError};
 use brain_planner::knowledge::router::{QueryRequest as PlannerQueryRequest, RetrieverSelection};
 use brain_planner::{execute_recall, plan_recall_inner, RecallHit};
-use brain_protocol::request::{MemoryKindWire, RecallRequest, RecallStrategy};
+use brain_protocol::request::{MemoryKindWire, RecallRequest};
 use brain_protocol::response::{MemoryResult, RecallResponseFrame};
 use brain_protocol::responses::types::RetrieverNameWire;
 
@@ -43,52 +38,29 @@ pub async fn handle_recall(
     req: RecallRequest,
     ctx: &OpsContext,
 ) -> Result<RecallResponseFrame, OpError> {
-    let strategy = req.strategy.unwrap_or_default();
-
-    // Txn always forces substrate so read-your-writes works
-    // against the buffered ops. HybridOnly inside a txn is a
-    // contradiction the client can't satisfy; fail loud with a
-    // typed error rather than silently route to substrate.
     if req.txn_id.is_some() {
-        if matches!(strategy, RecallStrategy::HybridOnly) {
-            return Err(OpError::HybridUnavailable(
-                "HybridOnly is incompatible with a transactional recall (txn requires substrate for read-your-writes)".into(),
-            ));
-        }
         return substrate_recall(req, ctx).await;
     }
-
-    match strategy {
-        RecallStrategy::SubstrateOnly => substrate_recall(req, ctx).await,
-        RecallStrategy::HybridOnly => {
-            // Caller wants hybrid or nothing. If a retriever slot
-            // is empty surface HybridUnavailable; never fall
-            // back to substrate.
-            match hybrid_recall(&req, ctx).await {
-                Ok(HybridRecallOutcome::Frame(frame)) => Ok(frame),
-                Ok(HybridRecallOutcome::FallbackToSubstrate { retriever }) => Err(
-                    OpError::HybridUnavailable(format!("retriever slot empty for {retriever:?}",)),
-                ),
-                Err(e) => Err(e),
-            }
-        }
-        RecallStrategy::Auto => match hybrid_recall(&req, ctx).await {
-            Ok(HybridRecallOutcome::Frame(frame)) => Ok(frame),
-            Ok(HybridRecallOutcome::FallbackToSubstrate { retriever }) => {
-                tracing::warn!(
-                    target: "brain_ops::recall",
-                    ?retriever,
-                    "hybrid recall fell back to substrate (retriever slot empty)",
-                );
-                substrate_recall(req, ctx).await
-            }
-            Err(e) => Err(e),
-        },
+    // Cold-start posture: a context with zero retrievers wired is
+    // either a unit-test fixture that bypasses shard spawn, or a
+    // shard whose tantivy + HNSW slots haven't been populated yet.
+    // The substrate path is the only thing it can serve. Production
+    // shards wire all three at spawn; reaching the hybrid path with
+    // any individual slot missing is still a real internal error
+    // (see `map_execution_error`).
+    if ctx.semantic_retriever.is_none()
+        && ctx.lexical_retriever.is_none()
+        && ctx.graph_retriever.is_none()
+    {
+        return substrate_recall(req, ctx).await;
     }
+    let HybridRecallOutcome::Frame(frame) = hybrid_recall(&req, ctx).await?;
+    Ok(frame)
 }
 
 // ---------------------------------------------------------------------------
-// Substrate path (the pre-23.11 logic, refactored out unchanged).
+// Substrate path. Reachable only from inside this module (transactional
+// recalls). Never selectable from the wire.
 // ---------------------------------------------------------------------------
 
 async fn substrate_recall(
@@ -136,9 +108,8 @@ async fn substrate_recall(
     }
     hits.truncate(req.top_k as usize);
 
-    // Sub-task 8.3 — record returned hits in the access-boost buffer.
-    // Spec §11/02 §7, §16: every memory returned by RECALL is a
-    // candidate for the next boost cycle.
+    // Every memory returned by RECALL is a candidate for the next
+    // access-boost cycle.
     for h in &hits {
         ctx.access_buffer.record(h.memory_id);
     }
@@ -288,19 +259,12 @@ fn hit_to_wire(hit: RecallHit) -> MemoryResult {
 // Hybrid path.
 // ---------------------------------------------------------------------------
 
-/// Outcome of the hybrid path that the caller pattern-matches on.
-///
-/// `FallbackToSubstrate` is a typed signal that `handle_recall`
-/// should re-run the substrate path. Previously this was an
-/// `OpError::Internal` with a string marker; matching on a
-/// stringly-typed error is fragile, so we surface the typed
-/// outcome instead. Spec §28/08 §5 + §27/00 §"Idempotency
-/// reminders".
+/// Outcome of the hybrid path. Single-variant today; kept as an enum
+/// because every other production result-shape on this hot path is an
+/// enum, and a future "deferred to background" outcome (the planned
+/// async-fusion mode) lands here without churning the call site.
 enum HybridRecallOutcome {
     Frame(RecallResponseFrame),
-    FallbackToSubstrate {
-        retriever: brain_planner::knowledge::router::Retriever,
-    },
 }
 
 async fn hybrid_recall(
@@ -316,14 +280,7 @@ async fn hybrid_recall(
         graph: ctx.graph_retriever.clone(),
         metadata: ctx.executor.metadata.clone(),
     };
-    let result = match hybrid_execute(&plan, &planner_req, &exec_ctx) {
-        Ok(r) => r,
-        Err(ExecutionError::MissingRetriever(retriever)) => {
-            // Typed signal — let the caller fall back to substrate.
-            return Ok(HybridRecallOutcome::FallbackToSubstrate { retriever });
-        }
-        Err(e) => return Err(map_execution_error(e)),
-    };
+    let result = hybrid_execute(&plan, &planner_req, &exec_ctx).map_err(map_execution_error)?;
 
     let memory_results = project_memory_results(&result, req, ctx)?;
     let cumulative_count = u32::try_from(memory_results.len()).unwrap_or(u32::MAX);
@@ -517,17 +474,16 @@ fn map_plan_error(e: PlanError) -> OpError {
     }
 }
 
-/// Maps every `ExecutionError` variant **except** `MissingRetriever`,
-/// which `hybrid_recall` intercepts and turns into a typed fallback
-/// signal (see `HybridRecallOutcome::FallbackToSubstrate`). If we
-/// ever see `MissingRetriever` here it means a refactor missed the
-/// short-circuit upstream; we still map it to an `Internal` so the
-/// caller doesn't get a panic, but the pattern-matched fallback in
-/// `hybrid_recall` should always catch it first.
+/// A retriever slot being empty on a shard that accepted a RECALL is
+/// a real internal error: shard spawn is responsible for wiring every
+/// required retriever, and a recall reaching the handler means spawn
+/// succeeded. If we see `MissingRetriever` here, somebody downgraded
+/// a sink to `None` after spawn — flag it loud rather than silently
+/// degrading.
 fn map_execution_error(e: ExecutionError) -> OpError {
     match e {
         ExecutionError::MissingRetriever(r) => OpError::Internal(format!(
-            "hybrid retriever slot empty for {r:?} — should have been intercepted by hybrid_recall",
+            "hybrid retriever slot empty for {r:?} after shard spawn",
         )),
         ExecutionError::Filter(inner) => OpError::Internal(format!("hybrid filter: {inner}")),
     }

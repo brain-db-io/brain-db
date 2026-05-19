@@ -667,7 +667,7 @@ mod tests {
     fn build_hello_frame() -> Frame {
         let hello = HelloPayload {
             client_id: "tester/0.1".to_owned(),
-            supported_versions: vec![1],
+            supported_versions: vec![brain_protocol::VERSION],
             capabilities: HelloCapabilities {
                 streaming: true,
                 compression_zstd: false,

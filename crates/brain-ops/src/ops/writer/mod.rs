@@ -101,17 +101,20 @@ pub struct RealWriterHandle {
     /// `(memory_id, vector)` post-fsync + post-commit + post-HNSW; the
     /// worker drains the channel and writes SimilarTo edges back into
     /// the unified edge tables. `None` means the worker isn't wired
-    /// (substrate-only test fixtures); enqueue becomes a no-op.
+    /// for this build (gated by config); enqueue becomes a no-op.
+    // TODO(part-3): make non-optional when auto-edge is unconditionally
+    // wired at shard spawn.
     auto_edge_tx: Option<flume::Sender<AutoEdgeEnqueue>>,
     /// Optional non-blocking sender feeding the per-shard
     /// ExtractorWorker. Each successful ENCODE enqueues
     /// `(memory_id, text)` post-WAL-fsync + post-commit + post-HNSW;
     /// the worker drains the channel and runs the three-tier
     /// extractor pipeline against the text. `None` means the worker
-    /// isn't wired (substrate-only test fixtures); enqueue becomes
-    /// a no-op. The `Arc<str>` keeps the payload cheap to push and
-    /// avoids the worker re-reading text from the metadata DB on a
-    /// hot path.
+    /// isn't wired (gated by config); enqueue becomes a no-op. The
+    /// `Arc<str>` keeps the payload cheap to push and avoids the
+    /// worker re-reading text from the metadata DB on a hot path.
+    // TODO(part-3): make non-optional when extractor pool is unconditionally
+    // wired at shard spawn (entity HNSW + statement HNSW dependencies land then).
     extractor_tx: Option<flume::Sender<ExtractorEnqueue>>,
     /// Shared metric handle for the AutoEdgeWorker family. When
     /// wired (production), `try_enqueue_auto_edge` bumps `drops_total`
@@ -123,6 +126,14 @@ pub struct RealWriterHandle {
     /// pipeline. Writer bumps `drops_total`; worker publishes the
     /// rest.
     extractor_metrics: Option<Arc<crate::worker_metrics::ExtractorMetrics>>,
+    /// Optional memory tantivy dispatcher. Wired by the shard's
+    /// spawn path when the deployment has a tantivy handle. After
+    /// each successful ENCODE (single op or TXN batch) the writer
+    /// dispatches a `MemoryTextOp::Upsert` so lexical search sees
+    /// the new memory in the same coordinate system as HNSW + redb.
+    /// Lives on the writer (not the outer handler) so the batch
+    /// path doesn't have to know about lexical indexing.
+    memory_text_dispatcher: Option<Arc<crate::ops::text_indexer::MemoryTextDispatcher>>,
 }
 
 /// What the writer pushes into the AutoEdgeWorker's channel after a
@@ -171,6 +182,7 @@ impl RealWriterHandle {
             extractor_tx: None,
             auto_edge_metrics: None,
             extractor_metrics: None,
+            memory_text_dispatcher: None,
         }
     }
 
@@ -214,8 +226,8 @@ impl RealWriterHandle {
     /// successful ENCODE enqueues `(memory_id, vector)` into the
     /// channel post-fsync + post-commit + post-HNSW. Without this call
     /// the enqueue path is a no-op and no auto-derived edges are
-    /// produced — operators using a substrate-only deployment skip
-    /// this step.
+    /// produced — used by unit-test fixtures and by builds that have
+    /// the worker disabled in config.
     ///
     /// The channel must be bounded; on `Full` the writer logs a warn
     /// and drops the enqueue (encode still succeeds — auto-edges are
@@ -234,8 +246,9 @@ impl RealWriterHandle {
     /// Wire the ExtractorWorker's feed channel. After this call every
     /// successful ENCODE enqueues `(memory_id, text)` post-fsync +
     /// post-commit + post-HNSW. Without this call the enqueue path is
-    /// a no-op and no auto-extraction happens — operators running a
-    /// substrate-only deployment skip this step.
+    /// a no-op and no auto-extraction happens — used by unit-test
+    /// fixtures and by builds that have the worker disabled in
+    /// config.
     ///
     /// Channel must be bounded; on `Full` the writer logs a warn and
     /// drops the enqueue (encode still succeeds — extraction is best-
@@ -272,6 +285,25 @@ impl RealWriterHandle {
         &self,
     ) -> Option<&Arc<crate::worker_metrics::ExtractorMetrics>> {
         self.extractor_metrics.as_ref()
+    }
+
+    /// Install the memory text dispatcher. After this call, every
+    /// successful ENCODE (single-op or TXN batch) enqueues a
+    /// `MemoryTextOp::Upsert` to the dispatcher so the lexical
+    /// indexer worker picks it up. Without this call the writer
+    /// skips lexical dispatch — used by tests that don't open
+    /// tantivy.
+    pub fn set_memory_text_dispatcher(
+        &mut self,
+        dispatcher: Arc<crate::ops::text_indexer::MemoryTextDispatcher>,
+    ) {
+        self.memory_text_dispatcher = Some(dispatcher);
+    }
+
+    pub(super) fn memory_text_dispatcher(
+        &self,
+    ) -> Option<&Arc<crate::ops::text_indexer::MemoryTextDispatcher>> {
+        self.memory_text_dispatcher.as_ref()
     }
 
     /// Publish an event. When a WAL sink is wired, callers pass
@@ -333,7 +365,29 @@ impl WriterHandle for RealWriterHandle {
     ) -> Pin<Box<dyn Future<Output = Result<MemoryId, WriterError>> + 'a>> {
         Box::pin(async move {
             let slot = self.next_slot.fetch_add(1, Ordering::Relaxed);
-            Ok(MemoryId::pack(self.shard_id, slot, 1))
+            // Lookup the persisted version for this slot — fresh slots
+            // have no row (mint as version 1); recycled slots carry
+            // the post-reclaim bumped version. Stale references to the
+            // prior occupant then mismatch on every read path.
+            let version: u32 = {
+                let db = self.metadata.lock();
+                let rtxn = db
+                    .read_txn()
+                    .map_err(|e| WriterError::Internal(format!("reserve slot ver read: {e:?}")))?;
+                match rtxn.open_table(brain_metadata::tables::slot_version::SLOT_VERSIONS_TABLE) {
+                    Ok(table) => table
+                        .get(&slot)
+                        .map_err(|e| WriterError::Internal(format!("reserve slot ver get: {e:?}")))?
+                        .map_or(1, |a| a.value()),
+                    Err(redb::TableError::TableDoesNotExist(_)) => 1,
+                    Err(e) => {
+                        return Err(WriterError::Internal(format!(
+                            "reserve slot ver open: {e:?}"
+                        )))
+                    }
+                }
+            };
+            Ok(MemoryId::pack(self.shard_id, slot, version))
         })
     }
 
@@ -746,13 +800,15 @@ async fn do_submit_batch(
                     }
                 }
 
-                // Build the metadata row.
+                // Build the metadata row. Version comes from the
+                // minted id — `reserve_memory_id` already consulted
+                // `slot_versions` to pick up any post-reclaim bump.
                 let mut meta = MemoryMetadata::new_active(
                     enc.memory_id,
                     enc.agent_id,
                     enc.context_id,
                     enc.memory_id.slot(),
-                    /* slot_version */ 1,
+                    enc.memory_id.version(),
                     enc.kind,
                     enc.fingerprint,
                     enc.salience_initial,
@@ -1048,22 +1104,25 @@ async fn do_submit_batch(
                 });
             }
         }
+        // HNSW inserts BEFORE redb commit. Failure here aborts the
+        // whole batch — dropping `wtxn` without commit rolls back the
+        // memory rows, edge rows, and idempotency entries we just
+        // staged. The WAL prologue records stay, but recovery only
+        // applies records whose redb row exists, so the absent rows
+        // make those WAL records inert no-ops.
+        {
+            let mut hnsw = writer.hnsw_writer.lock();
+            for (id, vector) in &hnsw_inserts {
+                hnsw.insert(*id, vector)
+                    .map_err(|e| WriterError::Internal(format!("batch hnsw insert: {e:?}")))?;
+            }
+            for id in &hnsw_tombstones {
+                hnsw.mark_tombstoned(*id)
+                    .map_err(|e| WriterError::Internal(format!("batch hnsw tombstone: {e:?}")))?;
+            }
+        }
         wtxn.commit()
             .map_err(|e| WriterError::Internal(format!("batch commit: {e:?}")))?;
-    }
-
-    // Post-wtxn: HNSW. Failures here are logged; the redb state is
-    // already durable. Same hazard as the non-txn ENCODE path.
-    {
-        let mut hnsw = writer.hnsw_writer.lock();
-        for (id, vector) in &hnsw_inserts {
-            hnsw.insert(*id, vector)
-                .map_err(|e| WriterError::Internal(format!("batch hnsw insert: {e:?}")))?;
-        }
-        for id in &hnsw_tombstones {
-            hnsw.mark_tombstoned(*id)
-                .map_err(|e| WriterError::Internal(format!("batch hnsw tombstone: {e:?}")))?;
-        }
     }
     // Auto-edge enqueue once HNSW catches up to redb — the worker
     // searches the same shared index after this point and would see
@@ -1076,6 +1135,23 @@ async fn do_submit_batch(
     // straight from the batch entry — no metadata re-read.
     for enc in &batch.memories {
         try_enqueue_extractor(writer, enc.memory_id, &enc.text);
+    }
+    // Memory tantivy dispatch for batched encodes. Without this loop
+    // TXN_COMMIT-encoded memories are invisible to lexical search
+    // until a manual rebuild; the writer is the single dispatch
+    // point for both single-encode and batch paths.
+    if let Some(dispatcher) = writer.memory_text_dispatcher() {
+        for enc in &batch.memories {
+            dispatcher
+                .dispatch(crate::ops::text_indexer::MemoryTextOp::Upsert {
+                    id: enc.memory_id,
+                    text: enc.text.clone(),
+                    agent: enc.agent_id,
+                    kind: enc.kind,
+                    created_at_unix_ms: enc.created_at_unix_nanos / 1_000_000,
+                })
+                .await;
+        }
     }
     {
         let mut tombstoned = writer.tombstoned.lock();

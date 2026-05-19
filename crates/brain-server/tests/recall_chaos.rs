@@ -23,7 +23,7 @@ use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
 use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, RecallStrategy};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest};
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -180,7 +180,6 @@ fn recall_request() -> RecallRequest {
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy: Some(RecallStrategy::Auto),
         include_vectors: false,
         include_edges: false,
         include_text: false,

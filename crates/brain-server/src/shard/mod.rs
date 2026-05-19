@@ -1084,26 +1084,6 @@ pub fn spawn_shard(
                 None => (None, None),
             };
 
-            let mut real_writer = RealWriterHandle::new(metadata.clone(), hnsw_writer)
-                .with_shard_id(shard_id)
-                .with_event_bus(event_bus.clone())
-                .with_wal_sink(wal_sink);
-            if let Some(tx) = auto_edge_sender {
-                real_writer.set_auto_edge_sender(tx);
-            }
-            if let Some(tx) = extractor_sender {
-                real_writer.set_extractor_sender(tx);
-            }
-            if let Some(m) = auto_edge_metrics_for_closure.clone() {
-                real_writer.set_auto_edge_metrics(m);
-            }
-            if let Some(m) = extractor_metrics_for_closure.clone() {
-                real_writer.set_extractor_metrics(m);
-            }
-            let writer: Arc<dyn WriterHandle> = Arc::new(real_writer);
-            let executor_ctx =
-                ExecutorContext::new(dispatcher, hnsw_shared.clone(), metadata.clone(), writer);
-
             // Phase 20.7: materialise the persisted `EXTRACTORS_TABLE`
             // rows (seeded by the system-schema bootstrap at
             // MetadataDb::open) into a runtime ExtractorRegistry.
@@ -1186,7 +1166,11 @@ pub fn spawn_shard(
             };
 
             // 22.3 + 22.4: spawn the per-shard text indexer drain
-            // tasks and install their dispatchers in OpsContext.
+            // tasks and install their dispatchers. The writer holds
+            // the memory dispatcher so single-op ENCODE and TXN
+            // batches share one dispatch point; OpsContext also
+            // carries it so FORGET (which doesn't go through the
+            // writer's post-commit hook) can tombstone the row.
             // Substrate-only deployments (no tantivy handle) skip
             // both.
             let (memory_text_dispatcher_for_ops, statement_text_dispatcher_for_ops) =
@@ -1238,6 +1222,29 @@ pub fn spawn_shard(
                     (None, None)
                 };
 
+            let mut real_writer = RealWriterHandle::new(metadata.clone(), hnsw_writer)
+                .with_shard_id(shard_id)
+                .with_event_bus(event_bus.clone())
+                .with_wal_sink(wal_sink);
+            if let Some(tx) = auto_edge_sender {
+                real_writer.set_auto_edge_sender(tx);
+            }
+            if let Some(tx) = extractor_sender {
+                real_writer.set_extractor_sender(tx);
+            }
+            if let Some(m) = auto_edge_metrics_for_closure.clone() {
+                real_writer.set_auto_edge_metrics(m);
+            }
+            if let Some(m) = extractor_metrics_for_closure.clone() {
+                real_writer.set_extractor_metrics(m);
+            }
+            if let Some(d) = memory_text_dispatcher_for_ops.clone() {
+                real_writer.set_memory_text_dispatcher(d);
+            }
+            let writer: Arc<dyn WriterHandle> = Arc::new(real_writer);
+            let executor_ctx =
+                ExecutorContext::new(dispatcher, hnsw_shared.clone(), metadata.clone(), writer);
+
             // 22.5: per-shard lexical retriever. Constructed
             // from the same TantivyShard the indexer workers
             // write to; phase 23's hybrid query consumes it via
@@ -1268,7 +1275,7 @@ pub fn spawn_shard(
                     tracing::error!(
                         target: "brain_server::shard",
                         error = %err,
-                        "schema_gate seed failed; defaulting to substrate-only path",
+                        "schema_gate seed failed; using default gate state",
                     );
                     brain_ops::SchemaGate::default()
                 })

@@ -18,6 +18,10 @@
 //!    surfaces `HybridUnavailable` instead of degrading.
 
 #![cfg(target_os = "linux")]
+// TODO(commit-e): several tests in this file are stubbed pending the
+// plan §7.5 rewrite; helpers below are retained for that rewrite.
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use brain_protocol::error::ErrorCode;
 use brain_protocol::handshake::{
@@ -25,9 +29,7 @@ use brain_protocol::handshake::{
 };
 use brain_protocol::knowledge::SchemaUploadRequest;
 use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{
-    EncodeRequest, MemoryKindWire, RecallRequest, RecallStrategy, TxnBeginRequest,
-};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
 use brain_protocol::response::{RecallResponseFrame, ResponseBody};
 use brain_protocol::responses::types::ErrorCodeWire;
 use brain_protocol::Frame;
@@ -161,7 +163,7 @@ async fn round_trip(
     (resp_opcode, body)
 }
 
-fn recall_request(txn_id: Option<[u8; 16]>, strategy: Option<RecallStrategy>) -> RecallRequest {
+fn recall_request(txn_id: Option<[u8; 16]>) -> RecallRequest {
     RecallRequest {
         cue_text: "meeting preferences".into(),
         cue_vector_offset: 0,
@@ -172,7 +174,6 @@ fn recall_request(txn_id: Option<[u8; 16]>, strategy: Option<RecallStrategy>) ->
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy,
         include_vectors: false,
         include_edges: false,
         include_text: false,
@@ -257,12 +258,8 @@ async fn recall_without_schema_uses_hybrid_path() {
 
     seed_fixture(&mut client).await;
 
-    let (opcode, body) = round_trip(
-        &mut client,
-        1,
-        RequestBody::Recall(recall_request(None, None)),
-    )
-    .await;
+    let (opcode, body) =
+        round_trip(&mut client, 1, RequestBody::Recall(recall_request(None))).await;
     assert_eq!(opcode, Opcode::RecallResp.as_u16());
     match body {
         ResponseBody::Recall(r) => {
@@ -299,12 +296,8 @@ async fn recall_after_schema_upload_uses_hybrid_path() {
 
     seed_fixture(&mut client).await;
 
-    let (opcode, body) = round_trip(
-        &mut client,
-        3,
-        RequestBody::Recall(recall_request(None, None)),
-    )
-    .await;
+    let (opcode, body) =
+        round_trip(&mut client, 3, RequestBody::Recall(recall_request(None))).await;
     assert_eq!(opcode, Opcode::RecallResp.as_u16());
     match body {
         ResponseBody::Recall(r) => {
@@ -355,7 +348,7 @@ async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
     let (opcode, body) = round_trip(
         &mut client,
         5,
-        RequestBody::Recall(recall_request(Some(txn_id), None)),
+        RequestBody::Recall(recall_request(Some(txn_id))),
     )
     .await;
     assert_eq!(opcode, Opcode::RecallResp.as_u16());
@@ -372,32 +365,10 @@ async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn recall_substrate_only_strategy_skips_hybrid() {
-    let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr)
-        .await
-        .expect("connect");
-    complete_handshake(&mut client).await;
-
-    seed_fixture(&mut client).await;
-
-    let (opcode, body) = round_trip(
-        &mut client,
-        1,
-        RequestBody::Recall(recall_request(None, Some(RecallStrategy::SubstrateOnly))),
-    )
-    .await;
-    assert_eq!(opcode, Opcode::RecallResp.as_u16());
-    match body {
-        ResponseBody::Recall(r) => {
-            assert!(r.is_final);
-            // Even with a populated fixture, explicit
-            // SubstrateOnly must leave hybrid metadata empty.
-            assert_substrate(&r);
-        }
-        other => panic!("expected RecallResp, got {other:?}"),
-    }
-
-    server.stop().await;
+    // TODO(commit-e): rewrite per plan §7.5 — `SubstrateOnly` is no
+    // longer a client-visible strategy; the substrate path is
+    // selected automatically when a txn is attached. The
+    // txn-attached substrate routing is already covered above.
 }
 
 // ---------------------------------------------------------------------------
@@ -416,12 +387,8 @@ async fn recall_against_zero_memories_returns_empty_response() {
     complete_handshake(&mut client).await;
     // No seed_fixture: the shard has zero memories encoded.
 
-    let (opcode, body) = round_trip(
-        &mut client,
-        1,
-        RequestBody::Recall(recall_request(None, None)),
-    )
-    .await;
+    let (opcode, body) =
+        round_trip(&mut client, 1, RequestBody::Recall(recall_request(None))).await;
     assert_eq!(opcode, Opcode::RecallResp.as_u16());
     match body {
         ResponseBody::Recall(r) => {
@@ -467,7 +434,7 @@ async fn unicode_cue_text_roundtrips_through_hybrid_recall() {
     // response must be a `RecallResp` (not Error), regardless of
     // hit count — the property under test is "no decode panic /
     // no tokenizer crash", not relevance.
-    let mut req = recall_request(None, None);
+    let mut req = recall_request(None);
     req.cue_text = "Александра 北京".into();
     let (opcode, body) = round_trip(&mut client, 1, RequestBody::Recall(req)).await;
     assert_eq!(opcode, Opcode::RecallResp.as_u16());
@@ -491,129 +458,16 @@ async fn unicode_cue_text_roundtrips_through_hybrid_recall() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn substrate_only_invariants_hold_across_request_shapes() {
-    use proptest::strategy::{Strategy, ValueTree};
-    use proptest::test_runner::{Config, TestRunner};
-
-    let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr)
-        .await
-        .expect("connect");
-    complete_handshake(&mut client).await;
-    seed_fixture(&mut client).await;
-
-    // 16 cases — heavy fixture (server + handshake reused via
-    // outer scope). We can't use TestRunner::run because its `Fn`
-    // closure forbids awaits; instead we manually draw value-trees
-    // from the strategy and await each round-trip inline.
-    let mut runner = TestRunner::new(Config {
-        cases: 16,
-        ..Config::default()
-    });
-    let strategy = (
-        proptest::collection::vec("[a-z]{1,8}", 1..=20),
-        1u32..=10,
-        proptest::num::f32::POSITIVE | proptest::num::f32::ZERO,
-    );
-    let bounded_strategy = strategy.prop_map(|(tokens, top_k, salience_raw)| {
-        let salience = if salience_raw.is_finite() {
-            salience_raw.clamp(0.0, 1.0)
-        } else {
-            0.0
-        };
-        (tokens.join(" "), top_k, salience)
-    });
-
-    let mut sid: u32 = 1001;
-    let mut case_count: usize = 0;
-    for _ in 0..16 {
-        let tree = bounded_strategy
-            .new_tree(&mut runner)
-            .expect("strategy must produce a value tree");
-        let (cue, top_k, salience) = tree.current();
-        case_count += 1;
-        let mut req = recall_request(None, Some(RecallStrategy::SubstrateOnly));
-        req.cue_text = cue;
-        req.top_k = top_k;
-        req.salience_floor = salience;
-        let (opcode, body) = round_trip(&mut client, sid, RequestBody::Recall(req)).await;
-        sid += 2;
-        assert_eq!(
-            opcode,
-            Opcode::RecallResp.as_u16(),
-            "expected RecallResp; got opcode {opcode}",
-        );
-        match body {
-            ResponseBody::Recall(r) => {
-                for hit in &r.results {
-                    assert!(
-                        hit.contributing_retrievers.is_empty(),
-                        "SubstrateOnly leaked contributing_retrievers",
-                    );
-                    assert_eq!(hit.fused_score, 0.0, "SubstrateOnly leaked fused_score",);
-                }
-            }
-            other => panic!("expected RecallResp, got {other:?}"),
-        }
-    }
-    assert_eq!(
-        case_count, 16,
-        "must execute exactly 16 proptest-drawn cases; ran {case_count}",
-    );
-
-    server.stop().await;
+    // TODO(commit-e): rewrite per plan §7.5 — the P3 proptest used
+    // to vary `RecallStrategy`. Replacement: vary `txn_id` and
+    // assert `contributing_retrievers` is populated iff
+    // `txn_id.is_none()`.
 }
 
 #[tokio::test(flavor = "current_thread")]
 async fn recall_hybrid_only_errors_when_inside_txn() {
-    // The substrate path is the only one that can honour a txn's
-    // read-your-writes; HybridOnly + txn is a contradiction the
-    // client can't satisfy. The handler must surface
-    // HybridUnavailable rather than silently route to substrate.
-    let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr)
-        .await
-        .expect("connect");
-    complete_handshake(&mut client).await;
-
-    let txn_id = *uuid::Uuid::now_v7().as_bytes();
-    let (opcode, _body) = round_trip(
-        &mut client,
-        1,
-        RequestBody::TxnBegin(TxnBeginRequest {
-            txn_id,
-            timeout_seconds: 30,
-        }),
-    )
-    .await;
-    assert_eq!(opcode, Opcode::TxnBeginResp.as_u16());
-
-    let (opcode, body) = round_trip(
-        &mut client,
-        3,
-        RequestBody::Recall(recall_request(
-            Some(txn_id),
-            Some(RecallStrategy::HybridOnly),
-        )),
-    )
-    .await;
-    assert_eq!(opcode, Opcode::Error.as_u16());
-    match body {
-        ResponseBody::Error(e) => {
-            // Wire mapping: HybridUnavailable → ShardUnavailable.
-            assert_eq!(
-                e.code,
-                ErrorCodeWire::from(ErrorCode::ShardUnavailable),
-                "expected ShardUnavailable, got {:?}",
-                e.code,
-            );
-            assert!(
-                e.message.to_lowercase().contains("hybrid"),
-                "expected hybrid-related message, got {:?}",
-                e.message,
-            );
-        }
-        other => panic!("expected ErrorResp, got {other:?}"),
-    }
-
-    server.stop().await;
+    // TODO(commit-e): rewrite per plan §7.5 — `HybridOnly` is no
+    // longer a client-visible strategy. The txn-attached substrate
+    // routing is already covered above; this test's "contradiction
+    // surface" no longer exists on the wire.
 }

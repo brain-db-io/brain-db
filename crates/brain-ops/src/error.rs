@@ -116,11 +116,13 @@ pub enum OpError {
     #[error(transparent)]
     ExecError(#[from] ExecError),
 
-    /// Caller requested `RecallStrategy::HybridOnly` but the shard
-    /// is missing a retriever slot (semantic / lexical) needed for
-    /// the hybrid path. We surface this loud instead of silently
-    /// falling back so latency-critical clients that depend on
-    /// hybrid signal-fusion notice the degradation immediately.
+    /// Diagnostic-only: a hybrid retriever degraded after the shard
+    /// spawned (tantivy segment corruption, an HNSW reader going
+    /// stale, etc.). Surfaced only by admin / health surfaces
+    /// (`/health`, `ADMIN_STATUS`) so operators learn about the
+    /// degradation; never returned from `handle_recall` in v1,
+    /// because RECALL is a single verb whose path the server picks
+    /// and whose required sinks shard spawn guarantees.
     #[error("hybrid retrieval unavailable on this shard: {0}")]
     HybridUnavailable(String),
 
@@ -156,10 +158,10 @@ pub enum ErrorCode {
     /// the constraint failure and surface a domain-specific message.
     CardinalityViolation,
     Overloaded,
-    /// Hybrid retrieval is unavailable on this shard. Returned
-    /// only when the client explicitly requested
-    /// `RecallStrategy::HybridOnly`; auto-strategy callers fall
-    /// back transparently and never see this code.
+    /// Hybrid retrieval is unavailable on this shard. Wire code
+    /// reserved for admin / health diagnostics only; a normal
+    /// client RECALL never sees this — the server picks the path
+    /// and shard spawn guarantees the required sinks are wired.
     HybridUnavailable,
     InternalError,
 }

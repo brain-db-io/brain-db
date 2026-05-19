@@ -370,8 +370,7 @@ fn missing_retriever_handle_errors() {
 }
 
 // CH2 — missing lexical handle on a hybrid plan fails loud rather
-// than silently degrading. This is the "fail loud" half of the
-// HybridOnly contract: if a deployment is misconfigured to skip
+// than silently degrading. If a deployment is misconfigured to skip
 // wiring the lexical retriever, the executor must surface that as
 // `MissingRetriever(Lexical)` instead of returning a semantic-only
 // result that looks hybrid to the caller.

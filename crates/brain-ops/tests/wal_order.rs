@@ -372,3 +372,47 @@ fn encode_publish_event_carries_wal_assigned_lsn() {
         std::mem::forget(dir);
     });
 }
+
+/// Idempotency replay surfaces the WAL-assigned LSN of the original
+/// commit. Clients that chain `encode → subscribe --start-lsn=lsn+1`
+/// after a retry must receive the same LSN they would have seen on a
+/// fresh write; a missing LSN forces them to subscribe from the tail
+/// and miss the very event they came for.
+#[test]
+fn idempotent_replay_surfaces_original_wal_lsn() {
+    run_in_glommio(|| async {
+        let sink = Arc::new(RecordingWalSink::new());
+        let sink_for_writer: Arc<dyn WalSink> = sink.clone();
+        let (writer, _metadata) = fixture_with_sink(sink_for_writer);
+
+        // First encode: WAL records to LSN 1; ack carries the same.
+        let first = writer
+            .submit_encode(make_encode_op([13; 16], "lsn-replay"))
+            .await
+            .unwrap();
+        assert!(!first.replayed);
+        let original_lsn = first.lsn.expect("fresh encode must carry a WAL LSN");
+        assert_eq!(original_lsn, 1);
+
+        // Second encode with the SAME request_id replays the cached
+        // entry; the ack must surface the same LSN, not None.
+        let second = writer
+            .submit_encode(make_encode_op([13; 16], "lsn-replay"))
+            .await
+            .unwrap();
+        assert!(second.replayed, "second submit must replay");
+        assert_eq!(
+            second.lsn,
+            Some(original_lsn),
+            "replay LSN must match the original commit's WAL LSN",
+        );
+        assert_eq!(first.memory_id, second.memory_id);
+
+        // And no extra WAL record was written for the replay.
+        assert_eq!(
+            sink.appended().len(),
+            1,
+            "replay must not append a second WAL record",
+        );
+    });
+}

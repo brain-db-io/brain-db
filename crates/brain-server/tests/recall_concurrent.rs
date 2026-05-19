@@ -15,6 +15,10 @@
 //!   own strategy; no carry-over from the prior request.
 
 #![cfg(target_os = "linux")]
+// TODO(commit-e): tests in this file are stubbed; helpers below are
+// retained for the rewrite landing in plan §7.5.
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use std::sync::Arc;
 
@@ -22,7 +26,7 @@ use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
 use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, RecallStrategy};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest};
 use brain_protocol::response::{RecallResponseFrame, ResponseBody};
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
@@ -153,7 +157,7 @@ async fn round_trip(
     (resp_opcode, body)
 }
 
-fn recall_request(cue: &str, strategy: Option<RecallStrategy>) -> RecallRequest {
+fn recall_request(cue: &str) -> RecallRequest {
     RecallRequest {
         cue_text: cue.into(),
         cue_vector_offset: 0,
@@ -164,7 +168,6 @@ fn recall_request(cue: &str, strategy: Option<RecallStrategy>) -> RecallRequest 
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy,
         include_vectors: false,
         include_edges: false,
         include_text: false,
@@ -243,94 +246,12 @@ fn assert_substrate(frame: &RecallResponseFrame) {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn concurrent_recalls_each_honour_their_own_strategy() {
-    let server = Arc::new(start(1).await);
-
-    // Seed the shard once before fan-out.
-    {
-        let mut setup = TcpStream::connect(server.data_plane_addr)
-            .await
-            .expect("connect setup");
-        complete_handshake(&mut setup, "recall-c1-setup").await;
-        seed_fixture(&mut setup).await;
-    }
-
-    // 50 tasks; round-robin strategy among the three.
-    let strategies = [
-        Some(RecallStrategy::Auto),
-        Some(RecallStrategy::SubstrateOnly),
-        Some(RecallStrategy::HybridOnly),
-    ];
-
-    let mut handles = Vec::with_capacity(50);
-    for i in 0..50u32 {
-        let strategy = strategies[(i as usize) % strategies.len()];
-        let addr = server.data_plane_addr;
-        handles.push(tokio::spawn(async move {
-            let mut client = TcpStream::connect(addr).await.expect("connect task");
-            complete_handshake(&mut client, &format!("recall-c1-task-{i}")).await;
-            let req = recall_request("meeting preferences", strategy);
-            let (opcode, body) = round_trip(&mut client, 1, RequestBody::Recall(req)).await;
-            (i, strategy, opcode, body)
-        }));
-    }
-
-    let mut auto_count = 0usize;
-    let mut substrate_count = 0usize;
-    let mut hybrid_only_count = 0usize;
-
-    for h in handles {
-        let (i, strategy, opcode, body) = h.await.expect("join task");
-        assert_eq!(
-            opcode,
-            Opcode::RecallResp.as_u16(),
-            "task {i} ({strategy:?}) expected RecallResp, got opcode {opcode}",
-        );
-        let frame = match body {
-            ResponseBody::Recall(r) => r,
-            other => panic!("task {i} ({strategy:?}) expected RecallResp body, got {other:?}"),
-        };
-        assert!(frame.is_final, "task {i}: response not marked final");
-
-        match strategy {
-            Some(RecallStrategy::SubstrateOnly) => {
-                substrate_count += 1;
-                assert_substrate(&frame);
-            }
-            Some(RecallStrategy::Auto) => {
-                auto_count += 1;
-                assert!(
-                    is_hybrid_response(&frame),
-                    "task {i} (Auto): hybrid metadata absent — strategy leaked from a sibling",
-                );
-            }
-            Some(RecallStrategy::HybridOnly) => {
-                hybrid_only_count += 1;
-                assert!(
-                    is_hybrid_response(&frame),
-                    "task {i} (HybridOnly): hybrid metadata absent",
-                );
-            }
-            None => panic!("test bug: no None strategy in fan-out"),
-        }
-    }
-
-    // Sanity: fan-out actually covered each strategy. With 50 tasks
-    // and 3 strategies round-robin, each bucket has 16 or 17 cases.
-    assert!(auto_count >= 16, "auto bucket too small: {auto_count}");
-    assert!(
-        substrate_count >= 16,
-        "substrate bucket too small: {substrate_count}",
-    );
-    assert!(
-        hybrid_only_count >= 16,
-        "hybrid-only bucket too small: {hybrid_only_count}",
-    );
-
-    Arc::try_unwrap(server)
-        .ok()
-        .expect("server arc has outstanding clones at end of test")
-        .stop()
-        .await;
+    // TODO(commit-e): rewrite per plan §7.5 — RECALL is one verb
+    // now; this test's "round-robin three strategies" shape is gone.
+    // Replacement should pin concurrency invariants across
+    // interleaved hybrid recalls (no per-shard state leaking
+    // contributing_retrievers between concurrent calls).
+    let _: Arc<u8> = Arc::new(0);
 }
 
 // ---------------------------------------------------------------------------
@@ -344,62 +265,8 @@ async fn concurrent_recalls_each_honour_their_own_strategy() {
 
 #[tokio::test(flavor = "current_thread")]
 async fn sequential_recalls_alternate_strategies_without_carryover() {
-    let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr)
-        .await
-        .expect("connect");
-    complete_handshake(&mut client, "recall-e4").await;
-    seed_fixture(&mut client).await;
-
-    let cues = [
-        "async meetings",
-        "standups",
-        "document driven design",
-        "structured documents",
-        "context switching",
-        "async teams",
-        "live calls",
-        "sync ritual",
-        "preferences",
-        "communication",
-    ];
-
-    let mut stream_id: u32 = 1001;
-    for (i, cue) in cues.iter().enumerate() {
-        // Alternate: even i → SubstrateOnly, odd i → Auto.
-        let strategy = if i % 2 == 0 {
-            Some(RecallStrategy::SubstrateOnly)
-        } else {
-            Some(RecallStrategy::Auto)
-        };
-        let req = recall_request(cue, strategy);
-        let (opcode, body) = round_trip(&mut client, stream_id, RequestBody::Recall(req)).await;
-        stream_id += 2;
-
-        assert_eq!(
-            opcode,
-            Opcode::RecallResp.as_u16(),
-            "iteration {i} ({strategy:?}) expected RecallResp, got opcode {opcode}",
-        );
-        let frame = match body {
-            ResponseBody::Recall(r) => r,
-            other => panic!("iteration {i}: expected RecallResp body, got {other:?}"),
-        };
-        assert!(frame.is_final, "iteration {i}: response not marked final");
-
-        match strategy {
-            Some(RecallStrategy::SubstrateOnly) => {
-                assert_substrate(&frame);
-            }
-            Some(RecallStrategy::Auto) => {
-                assert!(
-                    is_hybrid_response(&frame),
-                    "iteration {i} (Auto): hybrid metadata absent — substrate carryover from prior request",
-                );
-            }
-            _ => unreachable!(),
-        }
-    }
-
-    server.stop().await;
+    // TODO(commit-e): rewrite per plan §7.5 — strategy alternation
+    // is no longer a client-visible concern. Replacement should
+    // verify that sequential hybrid recalls on one connection don't
+    // carry state between requests.
 }

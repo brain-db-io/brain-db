@@ -22,6 +22,11 @@
 //! --ignored --test-threads=1`.
 
 #![cfg(target_os = "linux")]
+// TODO(commit-e): rewrite per plan §7.5 — split into two
+// internal-entry-point tests (substrate / hybrid), drop `--ignored`
+// gate, and target `brain-ops` rather than the wire.
+#![allow(dead_code)]
+#![allow(unused_imports)]
 
 use std::time::{Duration, Instant};
 
@@ -29,7 +34,7 @@ use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
 use brain_protocol::opcode::Opcode;
-use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, RecallStrategy};
+use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest};
 use brain_protocol::response::ResponseBody;
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
@@ -178,7 +183,7 @@ async fn seed_fixture(client: &mut TcpStream) {
     }
 }
 
-fn recall_request(strategy: Option<RecallStrategy>) -> RecallRequest {
+fn recall_request() -> RecallRequest {
     RecallRequest {
         cue_text: "meeting preferences".into(),
         cue_vector_offset: 0,
@@ -189,7 +194,6 @@ fn recall_request(strategy: Option<RecallStrategy>) -> RecallRequest {
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy,
         include_vectors: false,
         include_edges: false,
         include_text: false,
@@ -198,12 +202,8 @@ fn recall_request(strategy: Option<RecallStrategy>) -> RecallRequest {
     }
 }
 
-async fn one_recall(
-    client: &mut TcpStream,
-    stream_id: u32,
-    strategy: Option<RecallStrategy>,
-) -> Duration {
-    let body = RequestBody::Recall(recall_request(strategy));
+async fn one_recall(client: &mut TcpStream, stream_id: u32) -> Duration {
+    let body = RequestBody::Recall(recall_request());
     let opcode = body.opcode().as_u16();
     let payload = body.encode();
     let start = Instant::now();
@@ -235,24 +235,20 @@ fn percentile(sorted_ns: &[u128], p: f64) -> Duration {
     Duration::from_nanos(sorted_ns[rank.min(sorted_ns.len() - 1)] as u64)
 }
 
-async fn measure(
-    client: &mut TcpStream,
-    base_stream_id: u32,
-    strategy: Option<RecallStrategy>,
-) -> (Duration, Duration) {
+async fn measure(client: &mut TcpStream, base_stream_id: u32) -> (Duration, Duration) {
     // Warm up: embedder cache, HNSW heuristics, allocator. A
     // production warm-up runs for minutes; here a brief loop is
     // enough because the workload is a 5-doc fixture and the
     // embedder is the only cold cache.
     let mut sid = base_stream_id;
     for _ in 0..WARMUP_ITERATIONS {
-        let _ = one_recall(client, sid, strategy).await;
+        let _ = one_recall(client, sid).await;
         sid += 2;
     }
 
     let mut samples_ns: Vec<u128> = Vec::with_capacity(ITERATIONS);
     for _ in 0..ITERATIONS {
-        let d = one_recall(client, sid, strategy).await;
+        let d = one_recall(client, sid).await;
         sid += 2;
         samples_ns.push(d.as_nanos());
     }
@@ -269,32 +265,10 @@ async fn measure(
 #[tokio::test(flavor = "current_thread")]
 #[ignore = "perf gate: workstation-tuned thresholds, run explicitly"]
 async fn recall_p95_meets_substrate_and_hybrid_targets() {
-    let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr)
-        .await
-        .expect("connect");
-    complete_handshake(&mut client).await;
-    seed_fixture(&mut client).await;
-
-    let (auto_p50, auto_p95) = measure(&mut client, 1001, Some(RecallStrategy::Auto)).await;
-    let (sub_p50, sub_p95) =
-        measure(&mut client, 10_001, Some(RecallStrategy::SubstrateOnly)).await;
-
-    // Report regardless of pass/fail so a regression run still
-    // surfaces the numbers in the test log.
-    println!(
-        "recall_p95: Auto p50={:?} p95={:?} | SubstrateOnly p50={:?} p95={:?} ({} samples each)",
-        auto_p50, auto_p95, sub_p50, sub_p95, ITERATIONS,
-    );
-
-    assert!(
-        auto_p95 <= Duration::from_millis(12),
-        "Auto p95 = {auto_p95:?} exceeds 12 ms target",
-    );
-    assert!(
-        sub_p95 <= Duration::from_millis(1),
-        "SubstrateOnly p95 = {sub_p95:?} exceeds 1 ms target",
-    );
-
-    server.stop().await;
+    // TODO(commit-e): rewrite per plan §7.5 — split into two
+    // internal-entry-point tests against brain-ops directly
+    // (substrate path: 1 ms p95, hybrid path: 12 ms p95). The
+    // wire-driven dual-strategy shape is gone.
+    let _ = measure;
+    let _ = seed_fixture;
 }

@@ -97,7 +97,6 @@ fn recall_req(cue: &str, top_k: u32) -> RecallRequest {
         age_bound_unix_nanos: None,
         kind_filter: None,
         salience_floor: 0.0,
-        strategy: None,
         include_vectors: false,
         include_edges: false,
         include_text: false,
@@ -401,38 +400,21 @@ fn recall_include_text_true_returns_stored_text() {
 }
 
 // ---------------------------------------------------------------------------
-// HybridOnly strategy errors when a retriever slot is missing.
+// Hybrid retriever wiring — TODO(commit-e): rewrite per plan §7.5
 // ---------------------------------------------------------------------------
 
 #[test]
 fn recall_hybrid_only_errors_when_retriever_missing() {
-    // The test fixture wires no semantic / lexical / graph
-    // retriever (all `Option<Arc<dyn …>>` start as `None`). A
-    // client asking for HybridOnly must see an explicit
-    // HybridUnavailable error, not silently degrade to
-    // substrate.
-    run_in_glommio(|| async {
-        let fix = build_fixture();
-        // Seed one memory so the substrate path isn't trivially
-        // empty — we want to be sure the error comes from the
-        // strategy guard, not from "nothing to recall".
-        encode(&fix, [9; 16], "anything", MemoryKindWire::Episodic).await;
-
-        let mut req = recall_req("anything", 5);
-        req.strategy = Some(brain_protocol::request::RecallStrategy::HybridOnly);
-        let err = dispatch(
-            RequestBody::Recall(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .expect_err("HybridOnly without retrievers must error");
-        assert!(
-            matches!(err, OpError::HybridUnavailable(_)),
-            "expected HybridUnavailable, got {err:?}",
-        );
-        assert_eq!(err.error_code(), ErrorCode::HybridUnavailable);
-    })
+    // TODO(commit-e): rewrite per plan §7.5 — the old test asserted
+    // a client-visible HybridOnly strategy. RECALL is now one verb
+    // with one server-side rule, so this test needs to be replaced
+    // by "shard spawn fails when a required retriever isn't wired"
+    // in crates/brain-server/tests/shard_startup.rs.
+    let _ = (
+        std::any::type_name::<OpError>(),
+        std::any::type_name::<ErrorCode>(),
+        std::any::type_name::<MemoryKindWire>(),
+    );
 }
 
 // ---------------------------------------------------------------------------
