@@ -96,8 +96,7 @@ fn start_succeeds_with_valid_model_dir() {
         // The existence check is what the production path runs first;
         // if it fails here, the environment is mis-configured, not
         // the code under test.
-        check_required_files(&dir)
-            .expect("BRAIN_EMBED_MODEL_DIR points at a populated model dir");
+        check_required_files(&dir).expect("BRAIN_EMBED_MODEL_DIR points at a populated model dir");
 
         let embed_cfg = EmbedderConfig::new(dir);
         let handle = ModelHandle::load(&embed_cfg).expect("model loads");
@@ -136,8 +135,7 @@ fn dispatcher_fingerprint_is_consistent_across_clones() {
         // Simulate N shard clones. 8 covers typical small / medium
         // deployments; the count is arbitrary — the invariant holds
         // for any N >= 1.
-        let clones: Vec<Arc<dyn Dispatcher>> =
-            (0..8).map(|_| Arc::clone(&dispatcher)).collect();
+        let clones: Vec<Arc<dyn Dispatcher>> = (0..8).map(|_| Arc::clone(&dispatcher)).collect();
 
         for (i, c) in clones.iter().enumerate() {
             assert_eq!(

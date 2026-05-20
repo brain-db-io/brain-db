@@ -31,7 +31,7 @@ use crate::error::ProtocolError;
 use crate::{MAGIC, MAX_PAYLOAD_BYTES};
 
 /// Wire protocol version. See spec §03/03 §3.2.
-pub const VERSION: u8 = 2;
+pub const VERSION: u8 = 1;
 
 /// 32-byte frame header. Layout matches spec §03/03 §1 exactly.
 ///
@@ -284,7 +284,7 @@ mod tests {
             h.validate(),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 2
+                expected: 1
             })
         ));
     }

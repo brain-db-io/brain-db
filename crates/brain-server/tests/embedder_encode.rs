@@ -118,8 +118,12 @@ fn distinct_texts_embed_to_distinct_vectors() {
     model_dir::with_model_dir(|dir| {
         let dispatcher = build_dispatcher(dir);
 
-        let v1 = dispatcher.embed("the cat sat on the mat").expect("embed v1");
-        let v2 = dispatcher.embed("quantum chromodynamics").expect("embed v2");
+        let v1 = dispatcher
+            .embed("the cat sat on the mat")
+            .expect("embed v1");
+        let v2 = dispatcher
+            .embed("quantum chromodynamics")
+            .expect("embed v2");
 
         // 0.95 is generous; BGE-small typically lands unrelated
         // sentences well below 0.5 cosine. The bound exists to catch
@@ -136,7 +140,9 @@ fn distinct_texts_embed_to_distinct_vectors() {
         // the cache, the fingerprint, and recall stability across
         // sessions; if this regresses, every other guarantee in the
         // embedding layer cracks.
-        let v3 = dispatcher.embed("the cat sat on the mat").expect("embed v3");
+        let v3 = dispatcher
+            .embed("the cat sat on the mat")
+            .expect("embed v3");
         assert_relative_eq(&v1, &v3, 1e-6);
     });
 }

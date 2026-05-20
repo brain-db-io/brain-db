@@ -235,10 +235,12 @@ fn auto_edge_writes_real_edges_with_loaded_model() {
         let _b = submit_encode(&fix.ctx, encode_op(2, vectors[1], texts[1])).await;
         let _c = submit_encode(&fix.ctx, encode_op(3, vectors[2], texts[2])).await;
 
-        let worker =
-            AutoEdgeWorker::new(fix.queue_rx.clone()).with_knobs(high_recall_knobs());
+        let worker = AutoEdgeWorker::new(fix.queue_rx.clone()).with_knobs(high_recall_knobs());
         let drained = run_one_cycle(&worker, fix.ctx.clone()).await.unwrap();
-        assert_eq!(drained, 3, "all three encodes must be drained from the queue");
+        assert_eq!(
+            drained, 3,
+            "all three encodes must be drained from the queue"
+        );
 
         // The headline assertion: at least one SimilarTo row landed.
         // Real BGE vectors for related sentences sit well above the

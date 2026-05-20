@@ -196,7 +196,7 @@ mod tests {
             Frame::decode(&bytes),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 2
+                expected: 1
             })
         ));
     }
