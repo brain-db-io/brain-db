@@ -1,369 +1,79 @@
-# `brain` shell — per-verb command reference
+# `brain` shell — per-verb command index
 
-Authoritative reference for every subcommand of the `brain` binary.
-Companion to the [overview](../brain-shell.md). For *task-oriented*
-how-tos, see [`../../guides/shell/`](../../guides/shell/).
+Every verb the `brain` binary exposes, in depth. Each entry below
+links to a stand-alone reference page. For the overview + quick
+start, see [`../brain-shell.md`](../brain-shell.md); for backslash
+meta-commands, see [`repl-meta.md`](repl-meta.md).
 
-Every verb works in both one-shot and REPL mode unless noted.
-Outputs shown are `--output table`; JSON shapes are in
-[`output-formats.md`](output-formats.md).
-
----
-
-## `encode`
-
-Write a memory. Returns the persistent `memory_id` plus the WAL
-position (`lsn`) you can chain into `subscribe --start-lsn lsn+1`.
-
-```
-brain encode <TEXT>
-        [--context N]                            # context id (default 0)
-        [--kind episodic|semantic|consolidated]
-        [--salience 0.0..1.0]
-        [--deduplicate]                          # skip if fingerprint matches
-        [--txn HEX]                              # bind to active transaction
-```
-
-**Output (table):**
-
-```
-ok  s2/m1/v1  lsn=1
-    agent=00000000… · ctx=7 · episodic · sal=0.700 · fp=00000000… · edges_out=0
-```
-
-| Field | Meaning |
-|---|---|
-| `s2/m1/v1` | Short MemoryId — shard / slot / version. Full hex available in JSON. |
-| `lsn=1` | WAL position. Use `subscribe --start-lsn 2` to follow events from after this encode. |
-| `agent=…` | Authenticated agent (first 4 hex chars). |
-| `ctx=…` | Context the row was filed under. |
-| `episodic` | Memory kind. |
-| `sal=…` | Final salience (may differ from `--salience` hint if backend adjusted). |
-| `fp=…` | Embedding-model fingerprint (first 4 hex chars). |
-| `edges_out=N` | Only shown when N>0 — outgoing edges that actually landed. |
-| `dedup=hit\|miss` | Only shown when `--deduplicate` was passed. `off` is suppressed. |
-
-### Dedup states
-
-| `dedup=` | When |
-|---|---|
-| (not shown) | `--deduplicate` not passed → fresh slot, no fingerprint check. |
-| `miss` | `--deduplicate` passed; no existing memory matched; fresh slot allocated AND fingerprint recorded. |
-| `hit` | `--deduplicate` passed; existing memory matched; returned that id, no new slot. |
-
-**Why dedup is opt-in.** The same text legitimately becomes
-different memories in different episodic contexts ("the build
-broke" said on Monday vs Friday). Dedup is off by default so the
-substrate never silently merges them.
-
-**Dedup scope.** Per `(shard, agent_id, context_id)`. Same text
-under a different agent or `--context` is a miss. Tombstoned
-memories don't count — FORGET evicts the fingerprint in the same
-write transaction as the tombstone.
+Every verb works in both one-shot and REPL mode unless its page
+notes otherwise.
 
 ---
 
-## `recall`
+## Cognitive primitives
 
-Vector-similarity search. Returns ranked `MemoryResult`s.
-
-```
-brain recall <QUERY>
-        [--top-k N]                              # default 10
-        [--confidence FLOAT]                     # similarity threshold
-        [--include-text]                         # default omits text bodies
-        [--filter-context N]...                  # repeatable
-        [--filter-kind K]...                     # repeatable
-```
-
-**Output (table) — two-line per result + footer:**
-
-```
-#1  s2/m1/v1  episodic  ctx=7  sal=0.700  score=0.0164
-    Alice merged the auth-rewrite branch
-
-#2  s2/m2/v1  semantic  ctx=7  sal=0.900  score=0.0161
-    auth tokens now use BLAKE3 instead of SHA-1
-
-2 results  ·  scores tightly clustered (Δ<0.001) — ranking may not be meaningful
-```
-
-| Field | Meaning |
-|---|---|
-| `#N` | Rank (1-indexed). |
-| `s2/m1/v1` | Short MemoryId. |
-| `episodic†` | Kind. `†` marker = consolidated row (summary produced by background worker). |
-| `ctx=…` | Context filter / origin. |
-| `sal=0.700` | Current salience. |
-| `sal=0.500↓0.700` | Decayed since write (current ↓ initial). `↑` for boost. |
-| `score=…` | Similarity score. |
-| `acc=N` | Only shown when N>0 — RECALL hit count. |
-| `edges=Nin/Nout` | Only shown when either side is >0 — denormalised connectivity. |
-
-**Cluster warning:** if every top-K result is within `Δ<0.001` of
-the highest score, the footer reads
-`scores tightly clustered (Δ<0.001) — ranking may not be meaningful`.
-This signals one of:
-
-- The embedder isn't loaded (test mode / NopDispatcher).
-- The query genuinely doesn't discriminate among the results.
-- All results are near-duplicates of the query.
-
-When you see it, **don't trust the order** — treat all results as
-equal-scored.
-
-**Text not shown.** Without `--include-text`, the text line reads
-`(text not fetched — re-run with --include-text)`. Defaults to
-omission to keep RECALL cheap.
-
----
-
-## `plan`
-
-Stepwise causal/temporal path from one state to another.
-
-```
-brain plan <FROM> <TO>
-        [--max-steps N]
-        [--max-wall-time-ms N]
-```
-
-Returns `Vec<PlanStep>` plus a `plan_status` footer:
-
-- `GoalReached` — the goal was reached.
-- `BudgetExhausted` — hit `--max-steps` or `--max-wall-time-ms`.
-- `NoPathFound` — search terminated without a path.
-- `Timeout` — server-side timeout.
-
-When status ≠ `GoalReached`, the table footer surfaces it
-explicitly so you don't misread a partial result as a complete one.
-
----
-
-## `reason`
-
-Inference chain from observed evidence.
-
-```
-brain reason <OBSERVATION>
-        [--depth N]
-        [--confidence FLOAT]
-        [--max-inferences N]
-```
-
-Returns `Vec<InferenceStep>` plus a `reason_status` footer
-(`Complete` / `BudgetExhausted` / `DepthLimitReached` / `Cancelled`).
-
----
-
-## `forget`
-
-Tombstone a memory.
-
-```
-brain forget <ID>
-        [--mode soft|hard]                       # default soft
-```
-
-`<ID>` accepts either:
-
-- Short form: `s2/m1/v1` (shard/slot/version)
-- Long form: `0x` + 32 hex chars
-- Decimal `u128`
-
-**Soft forget** marks the memory `HARD_FORGOTTEN`, evicts the
-FINGERPRINTS entry (if dedup-on), and emits a `Forgotten`
-subscribe event. The slot is reclaimed by the background worker
-after the tombstone grace period (default 7 days).
-
-**Hard forget** additionally zeroes the vector in the arena
-immediately.
-
----
-
-## `link`
-
-Add a typed edge between two memories.
-
-```
-brain link <SRC> <KIND> <TGT> [--weight 0.95] [--txn HEX]
-```
-
-`<KIND>` is one of: `derived-from`, `followed-by`, `caused-by`,
-`causes`, `contradicts`, `supports`, `analogous`, `same-as`,
-`mentions`, `summarises`, `references`, `part-of`.
-
-`already_existed=true` in the response means the edge was already
-there (the weight was overwritten); `false` means it was inserted.
-
----
-
-## `unlink`
-
-Remove an edge. Non-existent edge → `removed=false`, not an error
-(idempotent).
-
-```
-brain unlink <SRC> <KIND> <TGT> [--txn HEX]
-```
-
----
-
-## `txn`
-
-Multi-op atomic batch. Three subcommands.
-
-```
-brain txn begin                                  # returns a new txn_id (hex)
-brain txn commit <ID>
-brain txn abort  <ID>
-```
-
-**REPL behaviour:** inside the REPL, `txn begin` makes the txn
-**sticky** for the session — subsequent `encode`/`forget`/`link`/
-`unlink` calls auto-attach `--txn` unless overridden. The prompt
-switches to `brain*> ` while a txn is active. `txn commit`/`txn
-abort` clears it; `\unset txn` clears it locally without issuing
-an op.
-
-**One-shot mode:** no session state — `--txn` must always be
-explicit.
-
-**TXN_COMMIT semantics:** the writer applies the buffered ops in
-one redb write transaction (all-or-nothing) and one WAL bracket
-(`TxnBegin` → ops → `TxnCommit`). A crash between op buffering
-and commit drops the whole batch.
-
----
-
-## `subscribe`
-
-Live + replay event stream.
-
-```
-brain subscribe [--context N]... [--kind K]... [--agents ID]...
-                [--start-lsn N]
-                [--collect N]
-```
-
-### Modes
-
-| Mode | When | Behaviour |
+| Verb | What it does | Reference |
 |---|---|---|
-| Streaming (default) | No `--collect` | Renders events as they arrive; Ctrl-C cleans up via UNSUBSCRIBE RPC. |
-| Batch | `--collect N` | Blocks until N events arrive, then prints them as a table and exits. Useful in tests/scripts. |
+| `encode` | Write a memory; return id + WAL `lsn`. | [`commands/encode.md`](commands/encode.md) |
+| `recall` | Vector-similarity search; ranked `MemoryResult`s. | [`commands/recall.md`](commands/recall.md) |
+| `plan` | Stepwise causal/temporal path from one state to another. | [`commands/plan.md`](commands/plan.md) |
+| `reason` | Inference chain from an observation. | [`commands/reason.md`](commands/reason.md) |
+| `forget` | Tombstone a memory (soft or hard). | [`commands/forget.md`](commands/forget.md) |
+| `link` | Add a typed edge between two memories. | [`commands/link.md`](commands/link.md) |
+| `unlink` | Remove an edge. Idempotent. | [`commands/unlink.md`](commands/unlink.md) |
 
-### `--start-lsn` (subscribe + replay)
+## Transactions + streams
 
-`--start-lsn N` makes the server replay any historical events with
-`lsn >= N` from the WAL before joining the live tail. The cutover
-is invisible to the client (no gap, no dupes).
+| Verb | What it does | Reference |
+|---|---|---|
+| `txn begin\|commit\|abort` | Multi-op atomic batch with REPL sticky behavior. | [`commands/txn.md`](commands/txn.md) |
+| `subscribe` | Live + replay change-feed stream. `--start-lsn`, `--collect`. | [`commands/subscribe.md`](commands/subscribe.md) |
 
-| `--start-lsn` value | Behaviour |
-|---|---|
-| (omitted) | Live tail only — no historical replay. |
-| `0` | "Everything still in the WAL" — sugar for the oldest available. |
-| `N > current_tail` | No replay, transitions straight to live. |
-| `N < oldest_available_lsn` | Server errors with `SubscriptionLsnTooOld`; the message includes the actual oldest LSN. |
+## Knowledge layer (active when a schema is declared)
 
-Pair with `recall.lsn` to follow a specific memory's downstream
-events — see [`../../guides/shell/subscribe-and-replay.md`](../../guides/shell/subscribe-and-replay.md).
+| Verb | What it does | Reference |
+|---|---|---|
+| `entity list\|show\|neighbors` | Browse entities written by the extractor pipeline. | [`commands/entity.md`](commands/entity.md) |
+| `statement list\|show` | Browse Fact / Preference / Event statements. | [`commands/statement.md`](commands/statement.md) |
+| `relation list` | Browse typed relations. | [`commands/relation.md`](commands/relation.md) |
+| `mention list` | Inspect Mentions edges (memory ↔ entity provenance). | [`commands/mention.md`](commands/mention.md) |
+| `extract status\|backfill` | Extraction audit + admin backfill. | [`commands/extract.md`](commands/extract.md) |
 
-### Filters
+## Session + admin
 
-- `--context N` — repeatable; intersect with the event's `context_id`.
-- `--kind K` — repeatable; intersect with the event's `kind`.
-- `--agents UUID` — repeatable; only events from these agents. **The single most useful filter on a shared shard** — without it you see every other agent's events too. See [`../../guides/shell/named-agents.md`](../../guides/shell/named-agents.md).
-
-### Streaming output
-
-One line per event, flushed:
-
-```
-     1  Encoded     0x00020000000000010000000100000000  ctx=7    Episodic     Alice merged the auth-rewrite branch
-     2  Encoded     0x00020000000000020000000100000000  ctx=7    Semantic     auth tokens now use BLAKE3 instead of SHA-1
-```
-
-Ctrl-C prints `closing stream…` to stderr (so you know the signal
-landed), then cleans up via UNSUBSCRIBE with a 2-second cap. A
-second Ctrl-C bails immediately.
-
-### Footer (streaming)
-
-| Footer | Meaning |
-|---|---|
-| `(unsubscribed; N events)` | Clean Ctrl-C exit. |
-| `(stream closed by server; N events)` | Server-side close (EOS frame). |
-| `(stream error; N events delivered)` | Stream errored mid-flight. |
+| Verb | What it does | Reference |
+|---|---|---|
+| `config list\|get\|set\|path\|edit` | Persistent shell settings. | [`commands/config.md`](commands/config.md) |
+| `agent list\|show\|create\|rename\|delete\|import\|set-default` | Named-agent CRUD. | [`commands/agent.md`](commands/agent.md) |
+| `info` | One-shot diagnostic card (server + agent + connection + session). | [`commands/info.md`](commands/info.md) |
+| `shell` | Explicit REPL entry. Same as bare `brain`. | [`commands/shell.md`](commands/shell.md) |
+| `generate-completion <SHELL>` | Emit a bash/zsh/fish/powershell/elvish completion script. | [`commands/generate-completion.md`](commands/generate-completion.md) |
 
 ---
 
-## `agent`
+## Global options (apply to every verb)
 
-Named-agent CRUD. See [`configuration.md`](configuration.md) for
-the persistent file shape; this section is the command list.
+| Option | Default | Notes |
+|---|---|---|
+| `--server <host:port>` | `127.0.0.1:9090` | Also reads `BRAIN_SERVER`. |
+| `--agent <name>` | — | Named agent from `~/.config/brain/config.toml`. Reads `BRAIN_AGENT`. |
+| `--agent-id <UUID>` | random UUIDv7 (ephemeral) | Raw id; skips config lookup. Reads `BRAIN_AGENT_ID`. |
+| `--output / -o <FORMAT>` | `auto` (table on TTY, ndjson piped) | `auto\|table\|wide\|json\|ndjson\|yaml\|jsonpath=<EXPR>`. |
+| `--color {auto\|always\|never}` | `auto` | Honours `NO_COLOR` / `CLICOLOR` / isatty. |
+| `--hyperlinks {auto\|always\|never}` | `auto` | OSC 8 hyperlink policy. |
+| `--timeout <SECS>` | `30` | Per-op wall-clock budget. |
+| `--token <VALUE>` | — | Reserved for v2 auth (parsed and ignored in v1). |
 
-```
-brain agent list
-brain agent show [<NAME>]
-brain agent create <NAME> [--note <TEXT>]
-brain agent rename <OLD> <NEW>
-brain agent delete <NAME>
-brain agent import <NAME> <ULID>
-brain agent use <NAME>                           # REPL only
-```
-
-`brain agent list` marks the currently-bound agent for this
-invocation with `*` (or `<ephemeral>` if no name was selected).
-
----
-
-## `config`
-
-Persistent shell settings. See [`configuration.md`](configuration.md)
-for the file schema.
-
-```
-brain config list                                # effective merged settings
-brain config get <KEY>
-brain config set <KEY> <VALUE>
-brain config path                                # print config path
-brain config edit                                # $EDITOR → $VISUAL → vi
-```
-
-Known settings keys: `output`, `timing`, `sticky_context`, `server`.
-Unknown keys are rejected with a "did you mean…" hint.
-
-`\config set X Y` inside the REPL **also** mutates the live
-session, not just the file (mongosh-style).
-
----
-
-## `shell`
-
-Explicit REPL entry. Equivalent to running `brain` with no
-subcommand. Useful for clarity in shell scripts that conditionally
-drop into the REPL.
-
----
-
-## `generate-completion`
-
-```
-brain generate-completion bash > /etc/bash_completion.d/brain
-brain generate-completion zsh  > "${fpath[1]}/_brain"
-brain generate-completion fish > ~/.config/fish/completions/brain.fish
-brain generate-completion powershell > brain.ps1
-```
-
-Emits a `clap_complete`-generated completion script.
+**Conflicts:** `--agent` + `--agent-id` together → error; `BRAIN_AGENT` + `BRAIN_AGENT_ID` together → error.
 
 ---
 
 ## See also
 
 - [`../brain-shell.md`](../brain-shell.md) — overview
-- [`repl-meta.md`](repl-meta.md) — `\agent`, `\config`, `\set`, …
-- [`output-formats.md`](output-formats.md) — table + JSON schemas
-- [`configuration.md`](configuration.md) — config file + agents
+- [`repl-meta.md`](repl-meta.md) — backslash meta-commands
+- [`output-formats.md`](output-formats.md) — table + JSON + ndjson + yaml + jsonpath shapes
+- [`configuration.md`](configuration.md) — `~/.config/brain/config.toml` + agent resolution
 - [`errors.md`](errors.md) — error codes + exit codes
+- [`../../guides/shell/`](../../guides/shell/) — task-oriented playbooks
+- [`../../tutorials/03-shell-deep-dive.md`](../../tutorials/03-shell-deep-dive.md) — 20-minute guided tour

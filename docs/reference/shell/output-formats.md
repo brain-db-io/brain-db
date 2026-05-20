@@ -60,7 +60,9 @@ ok  s2/m1/v1  lsn=1
 
 Fields are surfaced on demand:
 
-- `dedup=…` appears only when `--deduplicate` was passed (`hit` or `miss`).
+- `dedup=…` appears only when dedup ran (`hit` or `miss`) — i.e. the
+  default path; pass `--allow-duplicate` to opt out and the field is
+  omitted. The legacy `--deduplicate` / `--no-dedup` flags are gone.
 - `edges_out=N` appears only when N>0.
 
 ### JSON

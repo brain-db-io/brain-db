@@ -1,102 +1,75 @@
-# `brain` shell — REPL meta-commands
+# `brain` shell — REPL meta-command index
 
-Backslash-prefixed commands and a few un-prefixed aliases. These
-are intercepted *before* `clap` parses, so they never round-trip
-to the server. Companion to [`commands.md`](commands.md) (server
-verbs) and [`configuration.md`](configuration.md) (persistent
-state).
+Backslash-prefixed commands (and a few un-prefixed aliases) intercepted
+**before** `clap` parses, so they never round-trip to the server. Each
+entry below links to a stand-alone reference page. For server-verbs, see
+[`commands.md`](commands.md); for the overview, see
+[`../brain-shell.md`](../brain-shell.md).
+
+All meta-commands are REPL-only — they don't work in one-shot mode.
+For their one-shot equivalents (where one exists), see
+[`commands/config.md`](commands/config.md) and
+[`commands/agent.md`](commands/agent.md).
+
+---
 
 ## Session control
 
-| Command | What it does |
-|---|---|
-| `quit`, `exit`, `\q`, `\quit`, Ctrl-D | Exit the shell cleanly. |
-| `help [VERB]`, `? [VERB]`, `\?`, `\help` | In-REPL help (psql aliases). With `<VERB>`, shows that verb's flags. |
-| `\connect <host:port>` | Reconnect to a different server. Drops the current session (incl. any active txn locally; the server-side txn is left to time out). |
+| Command | What it does | Reference |
+|---|---|---|
+| `quit`, `exit`, `\q`, Ctrl-D | Exit the shell cleanly. | — |
+| `help [VERB]`, `? [VERB]`, `\?`, `\help` | In-REPL help (psql aliases). | [`meta/help.md`](meta/help.md) |
+| `\connect <host:port>` | Reconnect to a different server. | [`meta/connect.md`](meta/connect.md) |
 
-## Settings — live session
+## Live-session settings
 
-These mutate the **live session only**. They do not touch
-`~/.config/brain/config.toml`. For persistence, use
-`\config set …` (see below) or the one-shot `brain config set …`.
+These mutate the **live session only** — they don't touch
+`~/.config/brain/config.toml`. For persistence, see
+[`meta/config.md`](meta/config.md).
 
-| Command | What it does |
-|---|---|
-| `\set output json\|table` | Toggle output format for this session. |
-| `\set context <N>` | Sticky `--context` default — auto-applied to subsequent `encode`/`recall` unless overridden. Prompt shows `brain[ctx=7]> `. |
-| `\unset context` | Clear sticky context. |
-| `\unset txn` | Clear sticky txn (does **not** abort it on the server — the txn ages out on its own timeout). |
-| `\timing on\|off` | Show per-op wall time after each command. |
+| Command | What it does | Reference |
+|---|---|---|
+| `\set output {auto\|json\|table\|wide\|ndjson\|yaml}` | Output format for this session. | [`meta/set.md`](meta/set.md) |
+| `\set context <N>` | Sticky `--context` default; prompt updates to `brain[ctx=N]> `. | [`meta/set.md`](meta/set.md) |
+| `\unset txn` | Drop the sticky txn locally (does **not** abort it on the server). | [`meta/unset.md`](meta/unset.md) |
+| `\timing on\|off` | Show per-op wall time. | [`meta/timing.md`](meta/timing.md) |
 
-## Settings — persistent
+## Persistent settings (also mutate live session)
 
-`\config` and `\agent` mirror the one-shot `brain config` / `brain
-agent` subcommands, but `\config set` *also* mutates the live
-session (mongosh-style "set + persist").
-
-| Command | What it does |
-|---|---|
-| `\config list` | Print effective merged settings (file + defaults). |
-| `\config get <KEY>` | Print one value. |
-| `\config set <KEY> <VALUE>` | Validate, write `~/.config/brain/config.toml`, AND mutate the live session. |
-| `\config path` | Print the config file path. |
-| `\config edit` | Open the file in `$EDITOR` (→ `$VISUAL` → `vi`). |
+| Command | What it does | Reference |
+|---|---|---|
+| `\config list\|get\|set\|path\|edit` | mongosh-style "set + persist" — writes the file AND updates the live session. | [`meta/config.md`](meta/config.md) |
 
 ## Named agents
 
-| Command | What it does |
-|---|---|
-| `\agent` | Print the **current binding** — agent id + source (named / id-flag / env / ephemeral). |
-| `\agent list` | Table of all configured agents with `*` on the current one. |
-| `\agent show [<NAME>]` | Full record (name, id, created_at, note). Omit `<NAME>` for the current binding. |
-| `\agent create <NAME> [--note <TEXT>]` | Mint a fresh ULID, write `[agents.<name>]` in the config file. |
-| `\agent rename <OLD> <NEW>` | Atomic rename. Refuses on name collision. |
-| `\agent delete <NAME>` | Remove the entry. Blocks if `<NAME>` is the agent the current session is bound to. |
-| `\agent import <NAME> <ULID>` | For sharing — colleague gives you a ULID, you give it a local name. |
-| `\agent use <NAME>` | **Rebind the live session** to `<NAME>`. Refuses if `active_txn.is_some()` (commit/abort first). Does **not** write to the config file — use `BRAIN_AGENT=<name>` in your shell rc for sticky cross-session selection. |
+| Command | What it does | Reference |
+|---|---|---|
+| `\agent` (bare) | Current binding — agent id + resolution source. | [`meta/agent.md`](meta/agent.md) |
+| `\agent list\|show\|use\|create\|set-default` | Named-agent surface available in the REPL. `rename`/`delete`/`import` are one-shot only. | [`meta/agent.md`](meta/agent.md) |
 
-See [`configuration.md`](configuration.md) for the named-agent
-file shape and the resolution-precedence rules.
+## Diagnostics
+
+| Command | What it does | Reference |
+|---|---|---|
+| `\info`, `info` | Stacked diagnostic card (server + agent + connection + session). | [`meta/info.md`](meta/info.md) |
+
+---
 
 ## Prompt encoding
 
-The REPL prompt reflects state at a glance:
+The REPL prompt reflects session state at a glance:
 
 | Prompt | Meaning |
 |---|---|
 | `brain> ` | No active txn, no sticky context. |
-| `brain*> ` | Active transaction (sticky txn_id). |
+| `brain*> ` | Active transaction. |
 | `brain[ctx=7]> ` | Sticky context = 7. |
 | `brain*[ctx=7]> ` | Both. |
 
-The connection banner at REPL entry also shows the bound agent:
+The connection banner at REPL entry also shows the bound agent + its
+resolution source — see [`configuration.md`](configuration.md).
 
-```
-brain shell — connected to 127.0.0.1:9090 as 019e3d1f-bd66-7890-a4bc-947ab6ca9c3e (via --agent demo).
-Type `help` for commands, `quit` to exit.
-```
-
-The "via …" suffix indicates the **resolution source**:
-
-| Suffix | Meaning |
-|---|---|
-| `via --agent <name>` | `--agent` flag. |
-| `via --agent-id <ulid>` | `--agent-id` flag. |
-| `via BRAIN_AGENT` env | Env variable. |
-| `via BRAIN_AGENT_ID` env | Env variable (raw id). |
-| `ephemeral` | No selection; minted a fresh UUID for this session. |
-
-## History
-
-Persistent history at:
-
-```
-$XDG_DATA_HOME/brain/history          # or
-~/.local/share/brain/history          # XDG default
-~/.brain_history                      # fallback
-```
-
-Loaded on REPL start; appended after each entered line.
+---
 
 ## Completion (REPL)
 
@@ -107,13 +80,25 @@ Tab cycles through:
 3. **Enum values** after an enum-flag — `encode "x" --kind <TAB>` →
    `episodic | semantic | consolidated`.
 
-For tab completion in **non-REPL** shells (bash/zsh/fish), use
-`brain generate-completion <SHELL>` — see
-[`commands.md#generate-completion`](commands.md#generate-completion).
+For tab completion in **non-REPL** shells (bash/zsh/fish), see
+[`commands/generate-completion.md`](commands/generate-completion.md).
+
+## History
+
+```
+$XDG_DATA_HOME/brain/history          # primary
+~/.local/share/brain/history          # XDG default
+~/.brain_history                      # fallback
+```
+
+Loaded on REPL start; appended after each entered line.
+
+---
 
 ## See also
 
 - [`commands.md`](commands.md) — server verbs
-- [`configuration.md`](configuration.md) — config file + agent CRUD
-- [`output-formats.md`](output-formats.md) — table vs JSON
+- [`configuration.md`](configuration.md) — config file + agent resolution
+- [`output-formats.md`](output-formats.md) — table + JSON shapes
+- [`errors.md`](errors.md) — error codes + exit codes
 - [`../../guides/shell/named-agents.md`](../../guides/shell/named-agents.md) — task-oriented walkthrough
