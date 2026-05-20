@@ -66,6 +66,7 @@ pub async fn format(snap: &Snapshot<'_>) -> String {
     emit_auto_edge_metrics(&mut s, snap.shards);
     emit_extractor_metrics(&mut s, snap.shards);
     emit_temporal_edge_metrics(&mut s, snap.shards);
+    emit_causal_edge_metrics(&mut s, snap.shards);
 
     s
 }
@@ -545,6 +546,105 @@ fn emit_temporal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
                 "brain_temporal_edge_gap_seconds",
                 &inner,
                 &m.snapshot().gap_seconds,
+            );
+        }
+    }
+}
+
+/// Phase C: per-shard CausalEdgeWorker metric family. Mirrors the
+/// temporal-edge emitter; adds a `predicate_whitelist_resolved` gauge
+/// for operator triage on substrate-only deployments where the worker
+/// runs but never finds a causal predicate.
+fn emit_causal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
+    emit_header(
+        out,
+        "brain_causal_edge_drops_total",
+        "Extractor-side enqueues dropped because the causal-edge channel was full.",
+        "counter",
+    );
+    for shard in shards {
+        if let Some(m) = shard.causal_edge_metrics() {
+            let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+            let _ = writeln!(
+                out,
+                "brain_causal_edge_drops_total{labels} {}",
+                m.snapshot().drops_total
+            );
+        }
+    }
+
+    emit_header(
+        out,
+        "brain_causal_edge_edges_written_total",
+        "Logical Caused edges persisted by the CausalEdgeWorker.",
+        "counter",
+    );
+    for shard in shards {
+        if let Some(m) = shard.causal_edge_metrics() {
+            let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+            let _ = writeln!(
+                out,
+                "brain_causal_edge_edges_written_total{labels} {}",
+                m.snapshot().edges_written_total
+            );
+        }
+    }
+
+    emit_header(
+        out,
+        "brain_causal_edge_skipped_total",
+        "CausalEdgeWorker enqueues that produced no edge, broken out by reason.",
+        "counter",
+    );
+    for shard in shards {
+        if let Some(m) = shard.causal_edge_metrics() {
+            let snap = m.snapshot();
+            for (reason, value) in [
+                ("non_causal_predicate", snap.skipped_non_causal_predicate),
+                ("low_confidence", snap.skipped_low_confidence),
+                ("no_evidence", snap.skipped_no_evidence),
+                ("object_not_entity", snap.skipped_object_not_entity),
+                ("no_related_statement", snap.skipped_no_related_statement),
+                ("statement_missing", snap.skipped_statement_missing),
+            ] {
+                let labels = format!("{{shard=\"{}\",reason=\"{reason}\"}}", shard.shard_id());
+                let _ = writeln!(out, "brain_causal_edge_skipped_total{labels} {value}");
+            }
+        }
+    }
+
+    emit_header(
+        out,
+        "brain_causal_edge_predicate_whitelist_resolved",
+        "Count of causal predicates actually resolved against the active schema on this shard. \
+         0 means the worker has no causal vocabulary and every drained enqueue no-ops.",
+        "gauge",
+    );
+    for shard in shards {
+        if let Some(m) = shard.causal_edge_metrics() {
+            let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+            let _ = writeln!(
+                out,
+                "brain_causal_edge_predicate_whitelist_resolved{labels} {}",
+                m.snapshot().predicate_whitelist_resolved
+            );
+        }
+    }
+
+    emit_header(
+        out,
+        "brain_causal_edge_cycle_duration_seconds",
+        "Wall-clock duration of one CausalEdgeWorker cycle.",
+        "histogram",
+    );
+    for shard in shards {
+        if let Some(m) = shard.causal_edge_metrics() {
+            let inner = format!("shard=\"{}\"", shard.shard_id());
+            emit_worker_histogram(
+                out,
+                "brain_causal_edge_cycle_duration_seconds",
+                &inner,
+                &m.snapshot().cycle_duration_seconds,
             );
         }
     }

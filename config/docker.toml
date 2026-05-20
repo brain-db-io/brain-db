@@ -126,6 +126,17 @@ weight_min                       = 0.1
 channel_capacity                 = 1024
 cross_context                    = false
 
+[workers.causal_edge]
+enabled                                  = true
+interval_ms                              = 200
+batch_size                               = 64
+min_confidence                           = 0.6
+whitelist_qnames                         = ["brain:caused_by", "brain:triggered", "brain:led_to", "brain:resulted_in", "brain:because_of"]
+max_effect_memories_per_statement        = 3
+max_cause_memories_per_statement         = 3
+max_related_statements_per_entity        = 5
+channel_capacity                         = 1024
+
 [summarizer]
 # Consolidation worker is a no-op until an LLM backend is wired.
 # Spec §11/03 §6. See docs/guides/configure.md "Summarizer" for

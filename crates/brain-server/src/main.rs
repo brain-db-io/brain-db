@@ -147,8 +147,8 @@ mod linux_main {
     };
     use crate::routing::RoutingTable;
     use crate::shard::{
-        spawn_shard, AutoEdgeSpawnConfig, ExtractorSpawnConfig, ShardHandle, ShardJoiner,
-        ShardSpawnConfig, TemporalEdgeSpawnConfig,
+        spawn_shard, AutoEdgeSpawnConfig, CausalEdgeSpawnConfig, ExtractorSpawnConfig, ShardHandle,
+        ShardJoiner, ShardSpawnConfig, TemporalEdgeSpawnConfig,
     };
 
     /// Errors surfaced by [`build_dispatcher`]. Hand-rolled `Display`
@@ -457,6 +457,49 @@ mod linux_main {
                 weight_min: cfg.workers.temporal_edge.weight_min,
                 channel_capacity: cfg.workers.temporal_edge.channel_capacity,
                 cross_context: cfg.workers.temporal_edge.cross_context,
+            };
+            // Phase C: ferry the operator's `[workers.causal_edge]`
+            // overrides. The whitelist strings are split into
+            // (namespace, name) pairs here so the spawn config never
+            // carries unparsed qnames. Malformed entries (missing or
+            // extra `:`) are dropped with a warn — the worker resolver
+            // also tolerates this on its side via the validator.
+            let causal_whitelist: Vec<(String, String)> = cfg
+                .workers
+                .causal_edge
+                .whitelist_qnames
+                .iter()
+                .filter_map(|s| {
+                    let (ns, name) = s.split_once(':')?;
+                    if ns.is_empty() || name.is_empty() {
+                        tracing::warn!(
+                            qname = %s,
+                            "causal_edge whitelist entry is not in `namespace:name` form; skipping",
+                        );
+                        return None;
+                    }
+                    Some((ns.to_string(), name.to_string()))
+                })
+                .collect();
+            spawn_cfg.causal_edge = CausalEdgeSpawnConfig {
+                enabled: cfg.workers.causal_edge.enabled,
+                interval_ms: cfg.workers.causal_edge.interval_ms,
+                batch_size: cfg.workers.causal_edge.batch_size,
+                min_confidence: cfg.workers.causal_edge.min_confidence,
+                whitelist_qnames: causal_whitelist,
+                max_effect_memories_per_statement: cfg
+                    .workers
+                    .causal_edge
+                    .max_effect_memories_per_statement,
+                max_cause_memories_per_statement: cfg
+                    .workers
+                    .causal_edge
+                    .max_cause_memories_per_statement,
+                max_related_statements_per_entity: cfg
+                    .workers
+                    .causal_edge
+                    .max_related_statements_per_entity,
+                channel_capacity: cfg.workers.causal_edge.channel_capacity,
             };
             match spawn_shard(shard_id as u16, spawn_cfg) {
                 Ok((h, j)) => {

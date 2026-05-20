@@ -270,6 +270,10 @@ pub struct ShardSpawnConfig {
     /// Phase T: per-shard temporal-edge worker knobs. Same shape as
     /// `auto_edge`; `enabled=false` skips registration entirely.
     pub temporal_edge: TemporalEdgeSpawnConfig,
+    /// Phase C: per-shard causal-edge worker knobs. Extractor-driven;
+    /// `enabled=false` skips registration entirely (no worker, no
+    /// channel, the extractor's enqueue path stays `None`).
+    pub causal_edge: CausalEdgeSpawnConfig,
     /// Text → vector dispatcher used inside the shard's executor.
     ///
     /// The same `Arc` is cloned into every shard at process startup so
@@ -360,6 +364,43 @@ impl Default for TemporalEdgeSpawnConfig {
     }
 }
 
+/// Knobs ferried from `Config.workers.causal_edge` into the spawn
+/// path. Mirrors `TemporalEdgeSpawnConfig` but with causal-specific
+/// fields (whitelist, per-statement fan-out caps, confidence floor).
+#[derive(Clone, Debug)]
+pub struct CausalEdgeSpawnConfig {
+    pub enabled: bool,
+    pub interval_ms: u64,
+    pub batch_size: usize,
+    pub min_confidence: f32,
+    /// `(namespace, name)` pairs. Empty list → worker still spawns
+    /// but produces no edges (no causal vocabulary).
+    pub whitelist_qnames: Vec<(String, String)>,
+    pub max_effect_memories_per_statement: usize,
+    pub max_cause_memories_per_statement: usize,
+    pub max_related_statements_per_entity: usize,
+    pub channel_capacity: usize,
+}
+
+impl Default for CausalEdgeSpawnConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            interval_ms: 200,
+            batch_size: 64,
+            min_confidence: 0.6,
+            whitelist_qnames: brain_workers::DEFAULT_WHITELIST_QNAMES
+                .iter()
+                .map(|(ns, name)| ((*ns).to_owned(), (*name).to_owned()))
+                .collect(),
+            max_effect_memories_per_statement: brain_workers::DEFAULT_MAX_EFFECT_MEMORIES,
+            max_cause_memories_per_statement: brain_workers::DEFAULT_MAX_CAUSE_MEMORIES,
+            max_related_statements_per_entity: brain_workers::DEFAULT_MAX_RELATED_STATEMENTS,
+            channel_capacity: 1024,
+        }
+    }
+}
+
 impl ShardSpawnConfig {
     /// Construct with arena under `data_dir`, every other knob
     /// defaulted. The caller supplies the embedding `dispatcher`
@@ -377,6 +418,7 @@ impl ShardSpawnConfig {
             auto_edge: AutoEdgeSpawnConfig::default(),
             extractor: ExtractorSpawnConfig::default(),
             temporal_edge: TemporalEdgeSpawnConfig::default(),
+            causal_edge: CausalEdgeSpawnConfig::default(),
             dispatcher,
         }
     }
@@ -491,6 +533,8 @@ pub struct ShardHandle {
     extractor_metrics: Option<Arc<brain_ops::ExtractorMetrics>>,
     /// Phase T (TemporalEdgeWorker) metrics. Same shape.
     temporal_edge_metrics: Option<Arc<brain_ops::TemporalEdgeMetrics>>,
+    /// Phase C (CausalEdgeWorker) metrics. Same shape.
+    causal_edge_metrics: Option<Arc<brain_ops::CausalEdgeMetrics>>,
 }
 
 impl ShardHandle {
@@ -519,6 +563,13 @@ impl ShardHandle {
     #[must_use]
     pub fn temporal_edge_metrics(&self) -> Option<Arc<brain_ops::TemporalEdgeMetrics>> {
         self.temporal_edge_metrics.clone()
+    }
+
+    /// Read-only handle to the Phase C (CausalEdgeWorker) metric
+    /// state for this shard.
+    #[must_use]
+    pub fn causal_edge_metrics(&self) -> Option<Arc<brain_ops::CausalEdgeMetrics>> {
+        self.causal_edge_metrics.clone()
     }
 
     /// Per-shard event feed. Cloning the Receiver shares the underlying
@@ -1006,6 +1057,7 @@ pub fn spawn_shard(
     let auto_edge_spawn_cfg_for_closure = cfg.auto_edge.clone();
     let extractor_spawn_cfg_for_closure = cfg.extractor.clone();
     let temporal_edge_spawn_cfg_for_closure = cfg.temporal_edge.clone();
+    let causal_edge_spawn_cfg_for_closure = cfg.causal_edge.clone();
     // Construct the Phase B / Phase E metric handles up-front so we
     // can both stash them on `ShardHandle` (for /metrics exposition)
     // and inject them into the writer + worker (so both sides bump
@@ -1029,9 +1081,16 @@ pub fn spawn_shard(
         } else {
             None
         };
+    let causal_edge_metrics_for_handle: Option<Arc<brain_ops::CausalEdgeMetrics>> =
+        if cfg.causal_edge.enabled {
+            Some(Arc::new(brain_ops::CausalEdgeMetrics::new()))
+        } else {
+            None
+        };
     let auto_edge_metrics_for_closure = auto_edge_metrics_for_handle.clone();
     let extractor_metrics_for_closure = extractor_metrics_for_handle.clone();
     let temporal_edge_metrics_for_closure = temporal_edge_metrics_for_handle.clone();
+    let causal_edge_metrics_for_closure = causal_edge_metrics_for_handle.clone();
     // Clone the process-wide dispatcher Arc into the executor closure.
     // The CachingDispatcher<CpuDispatcher> built once in main.rs is
     // shared across every shard so the BERT weights live in memory
@@ -1141,6 +1200,24 @@ pub fn spawn_shard(
                 None
             };
             let (temporal_edge_sender, temporal_edge_receiver) = match &temporal_edge_channel {
+                Some((tx, rx)) => (Some(tx.clone()), Some(rx.clone())),
+                None => (None, None),
+            };
+
+            // Phase C: per-shard CausalEdgeWorker channel. Driven by
+            // the ExtractorWorker (statement-create post-commit), not
+            // the encode-time writer. The channel is created here so
+            // the extractor can be stamped with the sender before
+            // worker registration moves the receiver into the worker.
+            let causal_edge_spawn_cfg = causal_edge_spawn_cfg_for_closure.clone();
+            let causal_edge_channel = if causal_edge_spawn_cfg.enabled {
+                Some(flume::bounded::<brain_ops::CausalEdgeEnqueue>(
+                    causal_edge_spawn_cfg.channel_capacity.max(1),
+                ))
+            } else {
+                None
+            };
+            let (causal_edge_sender, causal_edge_receiver) = match &causal_edge_channel {
                 Some((tx, rx)) => (Some(tx.clone()), Some(rx.clone())),
                 None => (None, None),
             };
@@ -1576,9 +1653,62 @@ pub fn spawn_shard(
                 if let Some(m) = extractor_metrics_for_closure.clone() {
                     extractor_worker = extractor_worker.with_metrics(m);
                 }
+                // Phase C: when the CausalEdgeWorker is also enabled
+                // we hand the extractor its sender + the qname
+                // whitelist so post-commit causal statements fan out.
+                // Without this wire, the extractor never enqueues onto
+                // the causal channel even if the worker is spawned.
+                if let (Some(tx), Some(metrics)) = (
+                    causal_edge_sender.clone(),
+                    causal_edge_metrics_for_closure.clone(),
+                ) {
+                    use std::collections::HashSet;
+                    let whitelist: HashSet<(String, String)> =
+                        causal_edge_spawn_cfg.whitelist_qnames.iter().cloned().collect();
+                    let feed = brain_workers::extractor::CausalEdgeFeed {
+                        sender: tx,
+                        metrics,
+                        whitelist_qnames: whitelist,
+                    };
+                    extractor_worker = extractor_worker.with_causal_edge_feed(feed);
+                }
                 scheduler
                     .register(Arc::new(extractor_worker), ops.clone())
                     .expect("register ExtractorWorker");
+            }
+
+            // Phase C: register the CausalEdgeWorker when its channel
+            // was created above. The worker drains the extractor's
+            // post-commit channel, walks the cause/effect mapping, and
+            // writes `Caused` edges between memories.
+            if let Some(rx) = causal_edge_receiver {
+                let worker_cfg = WorkerConfig {
+                    enabled: causal_edge_spawn_cfg.enabled,
+                    interval: std::time::Duration::from_millis(
+                        causal_edge_spawn_cfg.interval_ms.max(1),
+                    ),
+                    batch_size: causal_edge_spawn_cfg.batch_size,
+                    max_runtime: std::time::Duration::from_secs(5),
+                };
+                let knobs = brain_workers::CausalEdgeKnobs {
+                    whitelist_qnames: causal_edge_spawn_cfg.whitelist_qnames.clone(),
+                    min_confidence: causal_edge_spawn_cfg.min_confidence,
+                    max_effect_memories_per_statement: causal_edge_spawn_cfg
+                        .max_effect_memories_per_statement,
+                    max_cause_memories_per_statement: causal_edge_spawn_cfg
+                        .max_cause_memories_per_statement,
+                    max_related_statements_per_entity: causal_edge_spawn_cfg
+                        .max_related_statements_per_entity,
+                };
+                let mut causal_edge_worker = brain_workers::CausalEdgeWorker::new(rx)
+                    .with_config(worker_cfg)
+                    .with_knobs(knobs);
+                if let Some(m) = causal_edge_metrics_for_closure.clone() {
+                    causal_edge_worker = causal_edge_worker.with_metrics(m);
+                }
+                scheduler
+                    .register(Arc::new(causal_edge_worker), ops.clone())
+                    .expect("register CausalEdgeWorker");
             }
 
             info!(
@@ -1610,6 +1740,7 @@ pub fn spawn_shard(
         auto_edge_metrics: auto_edge_metrics_for_handle,
         extractor_metrics: extractor_metrics_for_handle,
         temporal_edge_metrics: temporal_edge_metrics_for_handle,
+        causal_edge_metrics: causal_edge_metrics_for_handle,
     };
     let joiner = ShardJoiner {
         shard_id,

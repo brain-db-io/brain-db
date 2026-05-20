@@ -108,6 +108,36 @@ channel_capacity = 1024
 # Allow FollowedBy edges across context boundaries.
 cross_context = false
 
+# Phase C: per-shard CausalEdgeWorker. Drains the ExtractorWorker's post-
+# commit channel and writes `Caused` edges from cause-side memories to
+# effect-side memories, anchored on extractor-asserted causal statements
+# (`brain:caused_by`, `brain:triggered`, …). Worker still spawns on
+# substrate-only deployments but resolves an empty predicate whitelist
+# and no-ops.
+[workers.causal_edge]
+# Master switch.
+enabled = true
+# Scheduler tick.
+interval_ms = 200
+# Max statements drained per cycle.
+batch_size = 64
+# Minimum statement confidence. Below this, no edge.
+min_confidence = 0.6
+# Predicate qnames whose presence triggers causal-edge derivation.
+whitelist_qnames = [
+    "brain:caused_by",
+    "brain:triggered",
+    "brain:led_to",
+    "brain:resulted_in",
+    "brain:because_of",
+]
+# Per-statement caps on edge fan-out.
+max_effect_memories_per_statement = 3
+max_cause_memories_per_statement = 3
+max_related_statements_per_entity = 5
+# Extractor→worker queue depth.
+channel_capacity = 1024
+
 [logging]
 level = "info"
 output = "stdout"

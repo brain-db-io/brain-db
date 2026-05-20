@@ -180,6 +180,13 @@ pub struct WorkersConfig {
     /// section is omitted from TOML.
     #[serde(default)]
     pub temporal_edge: TemporalEdgeWorkerConfig,
+    /// Phase C: substrate auto-derived `Caused` edges, sourced from
+    /// extractor-asserted causal statements (`brain:caused_by` etc).
+    /// Substrate-only deployments resolve an empty whitelist and the
+    /// worker no-ops; setting `enabled = false` skips registration
+    /// entirely.
+    #[serde(default)]
+    pub causal_edge: CausalEdgeWorkerConfig,
 }
 
 /// `[workers.auto_edge]` TOML section. Controls the substrate
@@ -320,6 +327,97 @@ fn default_temporal_edge_channel_capacity() -> usize {
 }
 fn default_temporal_edge_cross_context() -> bool {
     false
+}
+
+/// `[workers.causal_edge]` TOML section. Controls extractor-driven
+/// `Caused` derivation. Every field defaults so an existing `dev.toml`
+/// keeps working without edits.
+#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct CausalEdgeWorkerConfig {
+    /// Master switch. `false` skips registration entirely.
+    #[serde(default = "default_causal_edge_enabled")]
+    pub enabled: bool,
+    /// Scheduler tick in milliseconds.
+    #[serde(default = "default_causal_edge_interval_ms")]
+    pub interval_ms: u64,
+    /// Max statements drained per cycle.
+    #[serde(default = "default_causal_edge_batch_size")]
+    pub batch_size: usize,
+    /// Minimum statement confidence. Below this, no causal edge —
+    /// inferring causality at low confidence produces more noise than
+    /// signal.
+    #[serde(default = "default_causal_edge_min_confidence")]
+    pub min_confidence: f32,
+    /// Predicate qnames whose presence triggers causal derivation.
+    /// Each entry is `"namespace:name"`. Substrate-only deployments
+    /// inherit the brain defaults but resolve to an empty set against
+    /// their predicate table.
+    #[serde(default = "default_causal_edge_whitelist")]
+    pub whitelist_qnames: Vec<String>,
+    /// Per-statement cap on effect-side memories drawn from the
+    /// causal statement's own evidence.
+    #[serde(default = "default_causal_edge_max_effect_memories")]
+    pub max_effect_memories_per_statement: usize,
+    /// Per-related-statement cap on cause-side memories drawn from
+    /// the object entity's statement evidence.
+    #[serde(default = "default_causal_edge_max_cause_memories")]
+    pub max_cause_memories_per_statement: usize,
+    /// Cap on related statements walked back from the cause-side
+    /// entity. Net per causal statement: max_effect × max_cause ×
+    /// max_related edges.
+    #[serde(default = "default_causal_edge_max_related_statements")]
+    pub max_related_statements_per_entity: usize,
+    /// Extractor → worker queue depth.
+    #[serde(default = "default_causal_edge_channel_capacity")]
+    pub channel_capacity: usize,
+}
+
+impl Default for CausalEdgeWorkerConfig {
+    fn default() -> Self {
+        Self {
+            enabled: default_causal_edge_enabled(),
+            interval_ms: default_causal_edge_interval_ms(),
+            batch_size: default_causal_edge_batch_size(),
+            min_confidence: default_causal_edge_min_confidence(),
+            whitelist_qnames: default_causal_edge_whitelist(),
+            max_effect_memories_per_statement: default_causal_edge_max_effect_memories(),
+            max_cause_memories_per_statement: default_causal_edge_max_cause_memories(),
+            max_related_statements_per_entity: default_causal_edge_max_related_statements(),
+            channel_capacity: default_causal_edge_channel_capacity(),
+        }
+    }
+}
+
+fn default_causal_edge_enabled() -> bool {
+    true
+}
+fn default_causal_edge_interval_ms() -> u64 {
+    200
+}
+fn default_causal_edge_batch_size() -> usize {
+    64
+}
+fn default_causal_edge_min_confidence() -> f32 {
+    0.6
+}
+fn default_causal_edge_whitelist() -> Vec<String> {
+    brain_workers::DEFAULT_WHITELIST_QNAMES
+        .iter()
+        .map(|(ns, name)| format!("{ns}:{name}"))
+        .collect()
+}
+fn default_causal_edge_max_effect_memories() -> usize {
+    brain_workers::DEFAULT_MAX_EFFECT_MEMORIES
+}
+fn default_causal_edge_max_cause_memories() -> usize {
+    brain_workers::DEFAULT_MAX_CAUSE_MEMORIES
+}
+fn default_causal_edge_max_related_statements() -> usize {
+    brain_workers::DEFAULT_MAX_RELATED_STATEMENTS
+}
+fn default_causal_edge_channel_capacity() -> usize {
+    1024
 }
 
 /// `[workers.extractor]` TOML section. Defaults registered every
