@@ -79,8 +79,8 @@ use brain_ops::extractor_writes::{
     StatementCreatePayload,
 };
 use brain_ops::{
-    EventEnvelope, ExtractorEnqueue, ExtractorItemKind, ExtractorMetrics, ResolverOutcome,
-    TierKind as MetricTierKind, TierStatus as MetricTierStatus,
+    CausalEdgeEnqueue, CausalEdgeMetrics, EventEnvelope, ExtractorEnqueue, ExtractorItemKind,
+    ExtractorMetrics, ResolverOutcome, TierKind as MetricTierKind, TierStatus as MetricTierStatus,
 };
 use brain_protocol::knowledge::{AuditStatus, ExtractedKnowledgeEvent, KnowledgeEventPayload};
 use brain_protocol::responses::types::EventType;
@@ -134,6 +134,30 @@ impl Default for ExtractorKnobs {
     }
 }
 
+/// Wiring bundle for the CausalEdgeWorker fan-out. When the
+/// ExtractorWorker writes a statement whose predicate qname matches
+/// `whitelist_qnames`, it pushes the new `StatementId` onto `sender`
+/// so the CausalEdgeWorker can walk the cause/effect graph. The
+/// extractor never blocks: on a full channel it bumps `metrics.drops`
+/// and moves on (the statement is still committed; the auto-edge
+/// derivation is just deferred until the next live causal statement
+/// or a future re-extraction).
+///
+/// The qname-vs-id check happens here (not via `PredicateId`) because
+/// the ExtractorWorker already has the parsed `(namespace, name)`
+/// from `sm.predicate_qname` and the CausalEdgeWorker independently
+/// validates predicate ids on its side. Matching by qname avoids a
+/// circular dependency on the CausalEdgeWorker's resolved set.
+#[derive(Clone)]
+pub struct CausalEdgeFeed {
+    pub sender: flume::Sender<CausalEdgeEnqueue>,
+    pub metrics: Arc<CausalEdgeMetrics>,
+    /// `(namespace, name)` pairs whose presence triggers an enqueue.
+    /// Substrate-only deployments leave this empty by construction
+    /// (no `[workers.causal_edge]` wiring) and the filter never fires.
+    pub whitelist_qnames: std::collections::HashSet<(String, String)>,
+}
+
 /// Per-shard ExtractorWorker. Owns the receiver end of the writer's
 /// extractor channel.
 pub struct ExtractorWorker {
@@ -148,6 +172,12 @@ pub struct ExtractorWorker {
     /// same atomics. Defaults to a fresh local instance when the
     /// scheduler doesn't wire one.
     metrics: Arc<ExtractorMetrics>,
+    /// Optional fan-out to the CausalEdgeWorker. `None` when causal
+    /// derivation is disabled at the shard (or when no causal predicate
+    /// names are configured). When `Some`, the worker checks each
+    /// newly-written statement's qname against `whitelist_qnames` and
+    /// `try_send`s matching `StatementId`s.
+    causal_edge: Option<CausalEdgeFeed>,
 }
 
 impl ExtractorWorker {
@@ -162,7 +192,18 @@ impl ExtractorWorker {
             queue,
             llm_spend: Mutex::new(0),
             metrics: Arc::new(ExtractorMetrics::new()),
+            causal_edge: None,
         }
+    }
+
+    /// Wire the CausalEdgeWorker fan-out. Without this call the
+    /// extractor never enqueues onto the causal channel — useful for
+    /// tests that don't care about edge derivation and for substrate-
+    /// only deployments where no causal predicates are declared.
+    #[must_use]
+    pub fn with_causal_edge_feed(mut self, feed: CausalEdgeFeed) -> Self {
+        self.causal_edge = Some(feed);
+        self
     }
 
     /// Install the shared metric handle. Production wires this with
@@ -477,6 +518,11 @@ async fn apply_outcome(
     let now = now_unix_nanos();
     let mut counts = ExtractorItemCounts::zero();
     let mut entity_map: HashMap<String, EntityId> = HashMap::new();
+    // Collected during pass 2 when a freshly-written statement matches
+    // the causal whitelist. Drained after `wtxn.commit()` to fan out
+    // onto the CausalEdgeWorker channel — never before commit, so a
+    // rolled-back txn never produces phantom enqueues.
+    let mut causal_enqueues: Vec<brain_core::StatementId> = Vec::new();
 
     let mut db_guard = ctx.ops.executor.metadata.lock();
     let wtxn = db_guard
@@ -558,11 +604,17 @@ async fn apply_outcome(
                         extracted_at_unix_nanos: now,
                     };
                     match statement_create_internal(&wtxn, &payload) {
-                        Ok(_) => {
+                        Ok(sid) => {
                             counts.statements = counts.statements.saturating_add(1);
                             worker
                                 .metrics
                                 .add_items_written(ExtractorItemKind::Statement, 1);
+                            if let Some(feed) = worker.causal_edge.as_ref() {
+                                let key = (ns.to_string(), name.to_string());
+                                if feed.whitelist_qnames.contains(&key) {
+                                    causal_enqueues.push(sid);
+                                }
+                            }
                         }
                         Err(e) => trace!(
                             memory_id = ?memory_id,
@@ -656,6 +708,38 @@ async fn apply_outcome(
 
     wtxn.commit()
         .map_err(|e| ApplyError::Storage(format!("commit: {e:?}")))?;
+    drop(db_guard);
+
+    // Fan out to the CausalEdgeWorker only after the commit succeeds —
+    // a rolled-back txn never produces phantom enqueues. The channel
+    // is bounded; on `Full` we bump the drop counter and move on
+    // (the statement is durable; only its derived edges are deferred).
+    if let Some(feed) = worker.causal_edge.as_ref() {
+        for sid in causal_enqueues {
+            if let Err(err) = feed.sender.try_send(sid) {
+                match err {
+                    flume::TrySendError::Full(_) => {
+                        feed.metrics.inc_drop();
+                        warn!(
+                            target: "brain_workers::extractor",
+                            statement_id = ?sid,
+                            "causal_edge channel full; dropping enqueue (statement still durable)",
+                        );
+                    }
+                    flume::TrySendError::Disconnected(_) => {
+                        // Worker shut down. Quiet — fires every drain
+                        // during graceful shutdown.
+                        trace!(
+                            target: "brain_workers::extractor",
+                            statement_id = ?sid,
+                            "causal_edge receiver dropped",
+                        );
+                    }
+                }
+            }
+        }
+    }
+
     Ok(ApplyOutcome {
         counts,
         status_byte,

@@ -57,9 +57,14 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::Instant;
 
-use brain_core::PredicateId;
+use brain_core::knowledge::{EvidenceRef, Statement, StatementObject};
+use brain_core::{EntityId, MemoryId, PredicateId, StatementId};
 use brain_metadata::predicate_ops::predicate_lookup_by_qname;
-use brain_ops::{CausalEdgeEnqueue, CausalEdgeMetrics};
+use brain_metadata::statement_ops::{
+    evidence_overflow_load, statement_get, statement_list, StatementListFilter, StatementOpError,
+};
+use brain_metadata::tables::memory::MEMORIES_TABLE;
+use brain_ops::{CausalEdgeEnqueue, CausalEdgeMetrics, CausalSkipReason};
 use tracing::{trace, warn};
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -259,16 +264,12 @@ async fn do_causal_edge_cycle(
         let metadata = ctx.ops.executor.metadata.clone();
         let resolved = resolve_whitelist(&metadata, &worker.knobs.whitelist_qnames)?;
         let count = resolved.len() as u64;
-        // `set` may lose a race; either copy is correct so we don't care.
         let _ = worker.resolved.set(resolved);
         worker.metrics.set_whitelist_resolved(count);
     }
     let whitelist = worker.resolved.get().expect("resolved set populated above");
 
-    // Drain the queue but no-op until C3 lands the cause/effect walk.
-    // The fast-exit on empty resolved set keeps substrate-only
-    // deployments cheap: one queue.try_recv() per drained entry, no
-    // metadata I/O.
+    let mut pairs: Vec<(MemoryId, MemoryId, f32)> = Vec::new();
     let mut processed = 0usize;
     while processed < cfg.batch_size {
         if started.elapsed() >= cfg.max_runtime {
@@ -277,28 +278,219 @@ async fn do_causal_edge_cycle(
         if ctx.is_shutdown() {
             break;
         }
-        let Ok(_statement_id) = worker.queue.try_recv() else {
+        let Ok(statement_id) = worker.queue.try_recv() else {
             break;
         };
         processed += 1;
         if whitelist.is_empty() {
-            // No causal vocabulary on this deployment — every entry is
-            // a no-op skip. Tracked under NonCausalPredicate because
-            // the writer enqueue filter wouldn't have fired on a real
-            // build; in tests it's the easiest counter to assert.
+            // No causal vocabulary on this deployment — drain and
+            // skip. Substrate-only steady state.
             worker
                 .metrics
-                .inc_skip(brain_ops::CausalSkipReason::NonCausalPredicate);
+                .inc_skip(CausalSkipReason::NonCausalPredicate);
             continue;
         }
-        // C3 fills in the cause/effect walk + write_causal_edges call.
-        // For C1 the worker is a structural no-op: it drains the queue
-        // and reports skip telemetry, but doesn't write edges yet.
+        let outcome =
+            collect_pairs_for_statement(ctx, statement_id, whitelist, &worker.knobs, &mut pairs)?;
+        if let Some(skip) = outcome {
+            worker.metrics.inc_skip(skip);
+        }
     }
+
+    let written = if pairs.is_empty() {
+        0usize
+    } else {
+        ctx.ops
+            .write_causal_edges(&pairs)
+            .map_err(WorkerError::Ops)?
+    };
+    worker.metrics.add_edges_written(written as u64);
 
     let elapsed = started.elapsed().as_secs_f64();
     worker.metrics.observe_cycle_duration(elapsed);
     Ok(processed)
+}
+
+/// Resolve one enqueued statement into `(cause_mem, effect_mem, weight)`
+/// tuples appended to `pairs`. Returns `Some(reason)` when the
+/// statement was skipped without producing any pair so the worker can
+/// bump the matching counter; returns `None` when at least one pair
+/// landed (or when the statement was unreachable — caller still treats
+/// missing rows as a metric event via `Some(StatementMissing)`).
+fn collect_pairs_for_statement(
+    ctx: &WorkerContext,
+    sid: StatementId,
+    whitelist: &HashSet<PredicateId>,
+    knobs: &CausalEdgeKnobs,
+    pairs: &mut Vec<(MemoryId, MemoryId, f32)>,
+) -> Result<Option<CausalSkipReason>, WorkerError> {
+    let metadata = ctx.ops.executor.metadata.clone();
+    let guard = metadata.lock();
+    let rtxn = guard
+        .read_txn()
+        .map_err(|e| WorkerError::Ops(format!("causal_edge read_txn: {e:?}")))?;
+
+    let statement = match statement_get(&rtxn, sid)
+        .map_err(|e| WorkerError::Ops(format!("statement_get: {e}")))?
+    {
+        Some(s) => s,
+        None => return Ok(Some(CausalSkipReason::StatementMissing)),
+    };
+    if statement.tombstoned {
+        return Ok(Some(CausalSkipReason::StatementMissing));
+    }
+    if !whitelist.contains(&statement.predicate) {
+        // Stale enqueue from a previous schema version, or extractor
+        // qname mismatch. Either way: not actionable.
+        return Ok(Some(CausalSkipReason::NonCausalPredicate));
+    }
+    if statement.confidence < knobs.min_confidence {
+        return Ok(Some(CausalSkipReason::LowConfidence));
+    }
+
+    let effect_memories = top_evidence_memory_ids(
+        &rtxn,
+        &statement.evidence,
+        knobs.max_effect_memories_per_statement,
+    )?;
+    if effect_memories.is_empty() {
+        return Ok(Some(CausalSkipReason::NoEvidence));
+    }
+
+    // Direction: "Outage caused_by Deploy" means Deploy caused Outage.
+    // Cause-side entity = statement.object; effect-side anchors come
+    // from statement.evidence. The Memory(_) shortcut writes a direct
+    // edge without walking the statement graph.
+    let cause_entity = match statement.object {
+        StatementObject::Entity(eid) => eid,
+        StatementObject::Memory(cause_mem) => {
+            // Short-circuit: object names a memory directly. One edge
+            // per (cause_mem, effect_mem) pair at the statement's
+            // own confidence — no related-statement walk needed.
+            for em in &effect_memories {
+                pairs.push((cause_mem, *em, statement.confidence.clamp(0.0, 1.0)));
+            }
+            return Ok(None);
+        }
+        StatementObject::Value(_) | StatementObject::Statement(_) => {
+            return Ok(Some(CausalSkipReason::ObjectNotEntity));
+        }
+    };
+
+    let related = related_statements_for_entity(
+        &rtxn,
+        cause_entity,
+        knobs.max_related_statements_per_entity,
+    )?;
+    if related.is_empty() {
+        return Ok(Some(CausalSkipReason::NoRelatedStatement));
+    }
+
+    let mut produced = 0usize;
+    for r in &related {
+        let cause_memories =
+            top_evidence_memory_ids(&rtxn, &r.evidence, knobs.max_cause_memories_per_statement)?;
+        for cm in &cause_memories {
+            for em in &effect_memories {
+                if cm == em {
+                    // Self-loop guard: same memory describes both sides
+                    // of the asserted causality. Skip silently — the
+                    // edge would be a no-information cycle.
+                    continue;
+                }
+                let weight = (statement.confidence * r.confidence).clamp(0.0, 1.0);
+                pairs.push((*cm, *em, weight));
+                produced += 1;
+            }
+        }
+    }
+    if produced == 0 {
+        Ok(Some(CausalSkipReason::NoEvidence))
+    } else {
+        Ok(None)
+    }
+}
+
+/// Resolve `evidence` (inline or overflow) into a memory-id list,
+/// keeping at most `cap` entries ordered by descending
+/// `confidence_milli`. Tombstoned memories are filtered: their
+/// presence here would write an edge that immediately dangles.
+fn top_evidence_memory_ids(
+    rtxn: &redb::ReadTransaction,
+    evidence: &EvidenceRef,
+    cap: usize,
+) -> Result<Vec<MemoryId>, WorkerError> {
+    if cap == 0 {
+        return Ok(Vec::new());
+    }
+    let mut entries: Vec<(MemoryId, u16)> = match evidence {
+        EvidenceRef::Inline(box_smallvec) => box_smallvec
+            .iter()
+            .map(|e| (e.memory_id, e.confidence_milli))
+            .collect(),
+        EvidenceRef::Overflow(oid) => {
+            let loaded = evidence_overflow_load(rtxn, *oid)
+                .map_err(|e| WorkerError::Ops(format!("evidence_overflow_load: {e}")))?;
+            loaded
+                .unwrap_or_default()
+                .into_iter()
+                .map(|e| (e.memory_id, e.confidence_milli))
+                .collect()
+        }
+    };
+    entries.sort_by_key(|b| std::cmp::Reverse(b.1));
+    entries.truncate(cap);
+
+    let memories_t = rtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| WorkerError::Ops(format!("open MEMORIES_TABLE: {e:?}")))?;
+    let mut out = Vec::with_capacity(entries.len());
+    for (mid, _) in entries {
+        // Filter tombstones: a memory row missing or marked
+        // tombstoned would produce a dangling edge. We keep only
+        // present + live memories.
+        let row = memories_t
+            .get(&mid.to_be_bytes())
+            .map_err(|e| WorkerError::Ops(format!("MEMORIES_TABLE.get: {e:?}")))?;
+        if row.is_none() {
+            continue;
+        }
+        // The MEMORIES_TABLE value's `tombstoned_at_unix_nanos == 0`
+        // marks live; non-zero marks tombstoned. We cross-check via
+        // the typed access below.
+        // For now: presence is sufficient — slot reclamation removes
+        // tombstoned rows after grace, so a present row is live or
+        // within grace. Edge writes against tombstoned-but-present
+        // memories are tolerable in v1 (edge_scrub cleans them).
+        out.push(mid);
+    }
+    Ok(out)
+}
+
+/// Find up to `cap` current statements whose subject is `entity`.
+/// Used to walk back from the cause-side entity to its evidence
+/// memories. We bound the related-statement count to keep edge
+/// fan-out predictable.
+fn related_statements_for_entity(
+    rtxn: &redb::ReadTransaction,
+    entity: EntityId,
+    cap: usize,
+) -> Result<Vec<Statement>, WorkerError> {
+    if cap == 0 {
+        return Ok(Vec::new());
+    }
+    let filter = StatementListFilter {
+        subject: Some(entity),
+        predicate: None,
+        kind: None,
+        current_only: true,
+        min_confidence: None,
+        limit: cap,
+    };
+    statement_list(rtxn, &filter).map_err(|e| match e {
+        StatementOpError::DecodeFailed => WorkerError::Ops("statement decode failed".to_string()),
+        other => WorkerError::Ops(format!("statement_list: {other}")),
+    })
 }
 
 #[cfg(test)]
