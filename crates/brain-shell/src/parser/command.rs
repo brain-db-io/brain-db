@@ -19,7 +19,13 @@ pub const DEFAULT_SERVER: &str = "127.0.0.1:9090";
     name = "brain",
     version,
     about = "Interactive shell for the Brain cognitive substrate.",
-    disable_help_subcommand = true
+    disable_help_subcommand = true,
+    // Clap's built-in --help is replaced by a custom global `help` bool
+    // on `GlobalOpts`. The dispatcher intercepts that flag and routes
+    // through `repl::help::lookup` so `brain encode --help`,
+    // `brain> encode --help`, and `brain> help encode` all render the
+    // same card. See .claude/plans/unified-help-routing.md.
+    disable_help_flag = true,
 )]
 pub struct Cli {
     #[command(flatten)]
@@ -69,6 +75,14 @@ pub struct GlobalOpts {
     /// Reserved for v2 auth. Parsed and ignored in v1.
     #[arg(long, global = true)]
     pub token: Option<String>,
+
+    /// Print help. Routed through the unified `HelpVerb` card
+    /// renderer so `brain <verb> --help`, `brain> <verb> --help`, and
+    /// `brain> help <verb>` all produce identical output. Defined as a
+    /// global flag so every subcommand inherits it without per-verb
+    /// duplication.
+    #[arg(long, short = 'h', global = true, action = clap::ArgAction::SetTrue)]
+    pub help: bool,
 }
 
 /// Output-format selector shared by `--output` / `-o` and `\set output`.
