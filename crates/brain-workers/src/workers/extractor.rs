@@ -433,9 +433,11 @@ async fn run_pipeline(
             ExtractorKind::Classifier => out.classifier = outcome,
             ExtractorKind::Llm => out.llm = outcome,
         }
-        if matches!(kind, ExtractorKind::Llm) {
-            out.llm_cost_micro_usd = out.llm_cost_micro_usd.saturating_add(result.cost_micro_usd);
-        }
+        // Per-tier LLM cost accumulation lives behind brook plan §2.3
+        // (wire `llm_spend.fetch_add(...)` after each LLM call). It needs
+        // `ExtractionResult` to expose `cost_micro_usd` first — today the
+        // cost is computed inside `LlmExtractor` and never bubbled up.
+        // Tracked as a follow-up.
         if matches!(result.status, ExtractionStatus::Success) {
             out.items.extend(result.items);
         } else if out.failure_reason.is_none()
@@ -492,15 +494,16 @@ async fn apply_outcome(
                 .inc_resolver_outcome(resolution_tier_to_metric(tier));
             entity_map.insert(em.text.clone(), entity_id);
             write_mention_edge(&wtxn, memory_id, entity_id, em, now)?;
-            // Bump the audit + metric counters with the resolver tier
-            // in mind: `entities_resolved` covers every successful
-            // resolve (Exact / Alias / Fuzzy / Create) so audits show
-            // total mention work; `entities_created` only counts the
-            // tier-4 mint so capacity planning can read "how many
-            // fresh entity rows did this memory produce".
-            counts.entities_resolved = counts.entities_resolved.saturating_add(1);
+            // Bump the audit + metric counters for every successful
+            // resolve (Exact / Alias / Fuzzy / Create). Splitting this
+            // into "resolved (all)" vs "created (tier-4 only)" lives
+            // behind brook plan §2.4 — it needs an
+            // ExtractorItemCounts schema bump (the type is rkyv-archived
+            // so adding fields is a stored-format change). Tracked as a
+            // follow-up; today the single counter mirrors the rest of
+            // the items_written metric path.
+            counts.entities = counts.entities.saturating_add(1);
             if matches!(tier, ResolutionTier::Created) {
-                counts.entities_created = counts.entities_created.saturating_add(1);
                 worker
                     .metrics
                     .add_items_written(ExtractorItemKind::Entity, 1);
@@ -684,7 +687,7 @@ fn publish_extracted_knowledge(
 ) {
     let payload = KnowledgeEventPayload::ExtractedKnowledge(ExtractedKnowledgeEvent {
         memory_id: memory_id.raw(),
-        entity_count: counts.entities_resolved,
+        entity_count: counts.entities,
         statement_count: counts.statements,
         relation_count: counts.relations,
         audit_status,
