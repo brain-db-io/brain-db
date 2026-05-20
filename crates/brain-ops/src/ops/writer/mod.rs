@@ -515,6 +515,10 @@ impl WriterHandle for RealWriterHandle {
         self.agent_id
     }
 
+    fn as_any(&self) -> &dyn std::any::Any {
+        self
+    }
+
     fn enqueue_for_extraction(&self, memory_id: MemoryId, text: &str) -> bool {
         let Some(sender) = self.extractor_sender() else {
             return false;

@@ -1,6 +1,8 @@
 //! LINK / UNLINK handlers (sub-task 7.8 + 7.9 transactional path).
 
-use brain_core::{EdgeKind, MemoryId, RequestId};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use brain_core::{EdgeKind, EdgeKindRef, MemoryId, NodeRef, RequestId};
 use brain_planner::{LinkOp, UnlinkOp, WriterError};
 use brain_protocol::request::{EdgeKindWire, LinkRequest, UnlinkRequest};
 use brain_protocol::response::{LinkResponse, UnlinkResponse};
@@ -8,7 +10,9 @@ use brain_protocol::response::{LinkResponse, UnlinkResponse};
 use crate::context::OpsContext;
 use crate::error::OpError;
 use crate::idempotency::{hash_link_request, hash_unlink_request};
+use crate::ops::writer::RealWriterHandle;
 use crate::txn::{BufferedLink, BufferedReplay, BufferedUnlink};
+use crate::write::{Phase, PhaseAck, Write, WriteId};
 
 pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkResponse, OpError> {
     validate_weight(req.weight, EdgeKind::from(req.kind))?;
@@ -17,28 +21,118 @@ pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkRespo
         return handle_link_in_txn(req, txn_id, ctx).await;
     }
 
-    let op = LinkOp {
-        request_id: RequestId::from(req.request_id),
-        source: MemoryId::from(req.source),
-        target: MemoryId::from(req.target),
-        kind: req.kind.into(),
+    let source = MemoryId::from(req.source);
+    let target = MemoryId::from(req.target);
+    let kind = EdgeKind::from(req.kind);
+
+    // Validate endpoints + compute already_existed in one rtxn. The
+    // unified submit(Write) path doesn't surface these on its own —
+    // the legacy submit_link folded them into its ack; we replicate
+    // by reading before submit.
+    let (src_exists, tgt_exists, already_existed) = peek_link_state(ctx, source, target, kind)?;
+    if !src_exists {
+        return Err(OpError::NotFound {
+            what: "memory",
+            detail: format!("LINK source memory {} not found", source.raw()),
+        });
+    }
+    if !tgt_exists {
+        return Err(OpError::NotFound {
+            what: "memory",
+            detail: format!("LINK target memory {} not found", target.raw()),
+        });
+    }
+
+    let real_writer = downcast_writer(ctx)?;
+    let created_at = now_unix_nanos();
+    let phase = Phase::Link {
+        from: NodeRef::Memory(source),
+        to: NodeRef::Memory(target),
+        kind: EdgeKindRef::Builtin(kind),
         weight: req.weight,
-        agent_id: ctx.executor.caller_agent,
+        origin: brain_metadata::tables::edge::origin::EXPLICIT,
+        derived_by: brain_metadata::tables::edge::derived_by::CLIENT,
+        disambiguator: brain_metadata::tables::edge::zero_disambiguator(),
+        created_at_unix_nanos: created_at,
     };
-    let ack = ctx
-        .executor
-        .writer
-        .submit_link(op)
+    let write = Write::single(
+        WriteId::from_request(RequestId::from(req.request_id)),
+        ctx.executor.caller_agent,
+        phase,
+    );
+    let ack = real_writer
+        .submit(write)
         .await
         .map_err(map_writer_err_for_link)?;
+
+    // Project the single PhaseAck back into the wire shape.
+    debug_assert!(matches!(ack.single_phase(), PhaseAck::Linked));
     Ok(LinkResponse {
-        source: ack.source.into(),
-        target: ack.target.into(),
-        kind: EdgeKindWire::from(ack.kind),
-        weight: ack.weight,
-        created_at_unix_nanos: ack.created_at_unix_nanos,
-        already_existed: ack.already_existed,
+        source: source.into(),
+        target: target.into(),
+        kind: EdgeKindWire::from(kind),
+        weight: req.weight,
+        created_at_unix_nanos: created_at,
+        already_existed,
     })
+}
+
+/// Read MEMORIES_TABLE for source + target existence and EDGES_TABLE
+/// for the (source, kind, target) tuple. Returns
+/// `(src_exists, tgt_exists, already_existed)` in one rtxn. Failure
+/// of any of these reads becomes `OpError::ExecError(MetadataReadFailed)`.
+fn peek_link_state(
+    ctx: &OpsContext,
+    source: MemoryId,
+    target: MemoryId,
+    kind: EdgeKind,
+) -> Result<(bool, bool, bool), OpError> {
+    let db_guard = ctx.executor.metadata.lock();
+    let rtxn = db_guard.read_txn().map_err(|e| {
+        OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+    })?;
+    let mem_t = rtxn
+        .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+    let src_exists = mem_t.get(source.to_be_bytes()).ok().flatten().is_some();
+    let tgt_exists = mem_t.get(target.to_be_bytes()).ok().flatten().is_some();
+    drop(mem_t);
+
+    let edges_t = rtxn
+        .open_table(brain_metadata::tables::edge::EDGES_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+    let key = brain_metadata::tables::edge::EdgeKey {
+        from: NodeRef::Memory(source),
+        kind: EdgeKindRef::Builtin(kind),
+        to: NodeRef::Memory(target),
+        disambiguator: brain_metadata::tables::edge::zero_disambiguator(),
+    }
+    .encode();
+    let already_existed = edges_t.get(key.as_slice()).ok().flatten().is_some();
+
+    Ok((src_exists, tgt_exists, already_existed))
+}
+
+/// Downcast `ctx.executor.writer` to the concrete [`RealWriterHandle`]
+/// so we can call its `submit(Write)` method. Wire handlers that
+/// migrate to the unified path go through this helper.
+fn downcast_writer(ctx: &OpsContext) -> Result<&RealWriterHandle, OpError> {
+    ctx.executor
+        .writer
+        .as_any()
+        .downcast_ref::<RealWriterHandle>()
+        .ok_or_else(|| OpError::Internal("unified path requires RealWriterHandle".into()))
+}
+
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 pub async fn handle_unlink(

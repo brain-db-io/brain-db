@@ -85,6 +85,19 @@ pub trait WriterHandle {
     fn enqueue_for_extraction(&self, _memory_id: MemoryId, _text: &str) -> bool {
         false
     }
+
+    /// Downcast hook for the unified write path. Handlers that want
+    /// to call the concrete [`RealWriterHandle::submit`] (which takes
+    /// the brain-ops `Write` value type that brain-planner cannot
+    /// import without a dep cycle) do so via
+    /// `ctx.executor.writer.as_any().downcast_ref::<RealWriterHandle>()`.
+    ///
+    /// Default implementation is a no-op (`&()`) — sufficient for
+    /// test fakes that don't exercise the unified path. The real
+    /// production impl returns `self`.
+    fn as_any(&self) -> &dyn std::any::Any {
+        &()
+    }
 }
 
 /// Encode operation payload submitted to the writer. Carries
