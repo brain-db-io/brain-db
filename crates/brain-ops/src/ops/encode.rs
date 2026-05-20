@@ -1,20 +1,24 @@
 //! ENCODE handler (sub-task 7.3 + 7.9 transactional path).
 //!
-//! Without `txn_id`: plan + execute + wire the response immediately.
-//! With `txn_id`: validate the txn is Active, embed + reserve a
-//! `MemoryId`, push to the buffer, return a preview response. The
-//! actual redb + HNSW writes happen at TXN_COMMIT time.
+//! Without `txn_id`: validate + embed + reserve id + dedup check +
+//! build a multi-phase Write (UpsertMemory + N × Link) and submit.
+//! With `txn_id`: validate + embed + reserve a `MemoryId`, push to
+//! the buffer, return a preview response. Writes happen at TXN_COMMIT.
 
-use brain_core::{ContextId, EdgeKind, MemoryId, MemoryKind};
+use std::time::{SystemTime, UNIX_EPOCH};
+
+use brain_core::{ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef, Salience};
 use brain_metadata::tables::memory::MemoryMetadata;
-use brain_planner::{execute_encode, plan_encode_inner, EdgeOutcome};
+use brain_planner::{plan_encode_inner, EdgeOutcome};
 use brain_protocol::request::EncodeRequest;
 use brain_protocol::response::EncodeResponse;
 
 use crate::context::OpsContext;
 use crate::error::OpError;
 use crate::idempotency::hash_encode_request;
+use crate::ops::link::downcast_writer_pub;
 use crate::txn::{BufferedEdgeSpec, BufferedEncode, BufferedReplay};
+use crate::write::{Phase, PhaseAck, Write, WriteId};
 
 pub async fn handle_encode(
     req: EncodeRequest,
@@ -24,45 +28,191 @@ pub async fn handle_encode(
         return handle_encode_in_txn(req, txn_id, ctx).await;
     }
 
-    // Non-txn path: plan → execute → wire. Extraction and lexical
-    // indexing happen off the band: the writer's post-commit hooks
-    // enqueue the new memory onto the ExtractorWorker queue and the
-    // tantivy dispatcher, so the encode handler only blocks on the
-    // writer barrier (WAL + HNSW + redb), not on extraction.
+    // 1. Input validation via the existing planner check.
     let plan = plan_encode_inner(&req, &ctx.planner_ctx)?;
     let salience = plan.wal_append.salience_initial;
-    let result = execute_encode(plan, &ctx.executor).await?;
-    let auto_edges_added = result
-        .edge_results
+
+    // 2. Embed text → vector.
+    let vector = ctx
+        .executor
+        .embedder
+        .embed(&req.text)
+        .map_err(|e| OpError::ExecError(brain_planner::ExecError::EmbedFailed(e)))?;
+    let content_hash = *blake3::hash(req.text.as_bytes()).as_bytes();
+    let context_id = ContextId::from(req.context_id);
+    let kind = MemoryKind::from(req.kind);
+    let embedding_model_fp = ctx.executor.embedder.fingerprint();
+
+    // 3. Dedup check (spec §07/07 §6) — when opted in, look up
+    // (agent, context, content_hash). On hit, return the existing
+    // memory id without submitting a Write.
+    if req.deduplicate {
+        if let Some(existing) = lookup_fingerprint(ctx, content_hash, context_id)? {
+            return Ok(EncodeResponse {
+                memory_id: existing.raw(),
+                was_deduplicated: true,
+                salience,
+                auto_edges_added: 0,
+                lsn: 0,
+                agent_id: ctx.executor.caller_agent.into(),
+                context_id: req.context_id,
+                kind: req.kind,
+                created_at_unix_nanos: 0,
+                edges_out_count: 0,
+                embedding_model_fp,
+            });
+        }
+    }
+
+    // 4. Reserve a fresh MemoryId via the writer's slot allocator.
+    let memory_id = ctx
+        .executor
+        .writer
+        .reserve_memory_id()
+        .await
+        .map_err(|e| OpError::ExecError(brain_planner::ExecError::WriterFailed(e)))?;
+    let created_at = now_unix_nanos();
+
+    // 5. Compute per-edge outcomes: an edge whose target doesn't
+    // exist is `TargetMissing` (skipped, not an error). Read once
+    // through a single rtxn.
+    let edge_outcomes = compute_edge_outcomes(ctx, &req)?;
+    let auto_edges_added = edge_outcomes
         .iter()
         .filter(|o| matches!(o, EdgeOutcome::Inserted))
         .count() as u32;
 
+    // 6. Build the multi-phase Write: UpsertMemory + N × Link.
+    let mut phases: Vec<Phase> = Vec::with_capacity(1 + req.edges.len());
+    phases.push(Phase::UpsertMemory {
+        id: memory_id,
+        text: req.text.clone(),
+        vector: Box::new(vector),
+        kind,
+        salience: Salience::new(salience),
+        context: context_id,
+        created_at_unix_nanos: created_at,
+        arena_slot: memory_id.slot(),
+        embedding_model_fp,
+        content_hash: if req.deduplicate {
+            Some(content_hash)
+        } else {
+            None
+        },
+        deduplicate: req.deduplicate,
+    });
+    for (edge, outcome) in req.edges.iter().zip(edge_outcomes.iter()) {
+        if !matches!(outcome, EdgeOutcome::Inserted) {
+            continue;
+        }
+        phases.push(Phase::Link {
+            from: NodeRef::Memory(memory_id),
+            to: NodeRef::Memory(MemoryId::from(edge.target)),
+            kind: EdgeKindRef::Builtin(EdgeKind::from(edge.kind)),
+            weight: edge.weight,
+            origin: brain_metadata::tables::edge::origin::EXPLICIT,
+            derived_by: brain_metadata::tables::edge::derived_by::CLIENT,
+            disambiguator: brain_metadata::tables::edge::zero_disambiguator(),
+            created_at_unix_nanos: created_at,
+        });
+    }
+
+    // 7. Submit.
+    let real_writer = downcast_writer_pub(ctx)?;
+    let write = Write::from_phases(
+        WriteId::from_request(brain_core::RequestId::from(req.request_id)),
+        ctx.executor.caller_agent,
+        phases,
+    );
+    let ack = real_writer
+        .submit(write)
+        .await
+        .map_err(|e| OpError::ExecError(brain_planner::ExecError::WriterFailed(e)))?;
+    debug_assert!(matches!(ack.phase_acks[0], PhaseAck::UpsertedMemory(_)));
+
     Ok(EncodeResponse {
-        memory_id: result.memory_id.into(),
-        // Fingerprint dedup hit (spec §07/07 §6) — NOT idempotency
-        // replay. Idempotency replay is transparent to the caller;
-        // see spec §09/02 §4 + §4a.
-        was_deduplicated: result.was_deduplicated,
+        memory_id: memory_id.into(),
+        was_deduplicated: false,
         salience,
         auto_edges_added,
-        lsn: result.lsn.unwrap_or(0),
-        // Stamp the CALLER's agent (auth-time UUID, threaded through
-        // by dispatch::dispatch into ctx.executor.caller_agent) on the
-        // response, NOT the writer's per-shard field. The writer's
-        // agent_id is shard-level state that's set at spawn and is
-        // unrelated to which agent owns the encode — leaving it on
-        // the response surface meant every EncodeResponse echoed nil
-        // (the writer's default) regardless of how the client
-        // authenticated. brain-shell's wide-mode render then read that
-        // nil and helpfully said "agent default," masking the bug.
+        lsn: ack.lsn_first.raw(),
         agent_id: ctx.executor.caller_agent.into(),
         context_id: req.context_id,
         kind: req.kind,
-        created_at_unix_nanos: result.created_at_unix_nanos,
-        edges_out_count: result.edges_out_count,
-        embedding_model_fp: ctx.executor.embedder.fingerprint(),
+        created_at_unix_nanos: created_at,
+        edges_out_count: auto_edges_added,
+        embedding_model_fp,
     })
+}
+
+/// Look up a content-hash fingerprint to deduplicate against an
+/// existing memory (spec §07/07 §6). Returns `Some(MemoryId)` if a
+/// row exists for `(caller_agent, context, content_hash)`.
+fn lookup_fingerprint(
+    ctx: &OpsContext,
+    content_hash: [u8; 32],
+    context_id: ContextId,
+) -> Result<Option<MemoryId>, OpError> {
+    let db_guard = ctx.executor.metadata.lock();
+    let rtxn = db_guard.read_txn().map_err(|e| {
+        OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+    })?;
+    let t = rtxn
+        .open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+    let key = brain_metadata::tables::fingerprint::fingerprint_key(
+        ctx.executor.caller_agent,
+        context_id,
+        &content_hash,
+    );
+    Ok(t.get(&key).ok().flatten().map(|g| g.value().memory_id()))
+}
+
+/// For each edge in the request, classify the outcome:
+/// `Inserted` when the target memory exists, `TargetMissing` otherwise.
+/// Matches the legacy execute_encode pre-write check.
+fn compute_edge_outcomes(
+    ctx: &OpsContext,
+    req: &EncodeRequest,
+) -> Result<Vec<EdgeOutcome>, OpError> {
+    if req.edges.is_empty() {
+        return Ok(Vec::new());
+    }
+    let db_guard = ctx.executor.metadata.lock();
+    let rtxn = db_guard.read_txn().map_err(|e| {
+        OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+    })?;
+    let mems_table = rtxn
+        .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+    Ok(req
+        .edges
+        .iter()
+        .map(|edge| {
+            let target = MemoryId::from(edge.target);
+            if mems_table
+                .get(target.to_be_bytes())
+                .ok()
+                .flatten()
+                .is_some()
+            {
+                EdgeOutcome::Inserted
+            } else {
+                EdgeOutcome::TargetMissing
+            }
+        })
+        .collect())
+}
+
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 async fn handle_encode_in_txn(
