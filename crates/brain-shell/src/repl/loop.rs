@@ -104,34 +104,35 @@ pub async fn run(
         match Cli::try_parse_from(&argv) {
             Ok(cli) => {
                 match cli.subcommand {
-                None | Some(Command::Shell) => {
-                    eprintln!("(already in the shell)");
-                }
-                Some(Command::GenerateCompletion(_)) => {
-                    eprintln!("generate-completion is only available as a one-shot subcommand");
-                }
-                Some(Command::Info) => {
-                    // Mirror the `\info` meta — the bare verb is here so
-                    // users who type `info` (no backslash) get the same
-                    // diagnostic instead of a clap parse error.
-                    let card =
-                        commands::info::collect(&client, &session, agent_id, &agent_source).await;
-                    let ctx = render_ctx(
-                        cli.global
-                            .output
-                            .clone()
-                            .unwrap_or_else(|| session.output.clone()),
-                        cli.global.color,
-                        cli.global.hyperlinks,
-                    );
-                    let mut stdout = std::io::stdout();
-                    if let Err(e) = brain_explore::dispatch(&card, &ctx, &mut stdout) {
-                        eprintln!("output error: {e}");
+                    None | Some(Command::Shell) => {
+                        eprintln!("(already in the shell)");
                     }
-                }
-                Some(cmd) => {
-                    run_one(&client, &mut session, cmd, &cli.global).await;
-                }
+                    Some(Command::GenerateCompletion(_)) => {
+                        eprintln!("generate-completion is only available as a one-shot subcommand");
+                    }
+                    Some(Command::Info) => {
+                        // Mirror the `\info` meta — the bare verb is here so
+                        // users who type `info` (no backslash) get the same
+                        // diagnostic instead of a clap parse error.
+                        let card =
+                            commands::info::collect(&client, &session, agent_id, &agent_source)
+                                .await;
+                        let ctx = render_ctx(
+                            cli.global
+                                .output
+                                .clone()
+                                .unwrap_or_else(|| session.output.clone()),
+                            cli.global.color,
+                            cli.global.hyperlinks,
+                        );
+                        let mut stdout = std::io::stdout();
+                        if let Err(e) = brain_explore::dispatch(&card, &ctx, &mut stdout) {
+                            eprintln!("output error: {e}");
+                        }
+                    }
+                    Some(cmd) => {
+                        run_one(&client, &mut session, cmd, &cli.global).await;
+                    }
                 }
             }
             Err(e) => {

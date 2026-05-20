@@ -110,12 +110,7 @@ mod tests {
 
     #[test]
     fn other_flags_dont_confuse_verb_detection() {
-        let got = detect_help_intent(&argv(&[
-            "--server",
-            "localhost:9090",
-            "encode",
-            "--help",
-        ]));
+        let got = detect_help_intent(&argv(&["--server", "localhost:9090", "encode", "--help"]));
         // `--server` takes a value (`localhost:9090`); the verb scan
         // treats both tokens as flag-like (the value starts with a
         // digit, but the previous token was a flag). For the purposes
