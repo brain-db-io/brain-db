@@ -88,4 +88,4 @@ Spec deviations logged in `docs/development/spec-deviations.md`:
 
 ## Notes
 
-The model file is large (~150 MB for BGE-small). Don't check it into git. Document the download/install process in `docs/notes/embedding-model-install.md`.
+The model file is large (~130 MB for BGE-small). Don't check it into git. Operators run `scripts/bootstrap-model.sh` to download it into the XDG default path; see [`docs/notes/embedding-model-install.md`](../../notes/embedding-model-install.md) for path resolution, manual install, air-gapped options, and the fingerprint flow.

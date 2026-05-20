@@ -34,7 +34,22 @@ Or, on Linux (recommended — Glommio + io_uring), use a
 cross-compiled binary from your `target/x86_64-unknown-linux-gnu`
 directory after `cargo zigbuild --release`.
 
-## 2. Start the server
+## 2. Install the embedding model
+
+Brain owns its embedder; clients send text and the substrate runs
+the model in-process. Download BGE-small (~130 MiB) into the
+default location:
+
+```bash
+./scripts/bootstrap-model.sh
+```
+
+The server refuses to start without the model. See
+[`docs/notes/embedding-model-install.md`](../notes/embedding-model-install.md)
+for the path resolution rules, manual install, and air-gapped
+options.
+
+## 3. Start the server
 
 ```bash
 brain-server --data-dir /tmp/brain-tutorial --listen 127.0.0.1:7332
@@ -43,7 +58,7 @@ brain-server --data-dir /tmp/brain-tutorial --listen 127.0.0.1:7332
 Leave it running in one terminal. The data directory is created
 on first start; it's empty until you encode.
 
-## 3. Encode three memories
+## 4. Encode three memories
 
 In another terminal, use the `brain` shell:
 
@@ -66,7 +81,7 @@ in tantivy.
 > you into a REPL prompt where every line above runs without the
 > `brain --server …` prefix. See [`../reference/brain-shell.md`](../reference/brain-shell.md).
 
-## 4. Substrate recall (no schema yet)
+## 5. Substrate recall (no schema yet)
 
 ```bash
 brain --server 127.0.0.1:7332 recall "budget pushback" --include-text
@@ -77,7 +92,7 @@ similarity scores. With no schema declared, `contributing_retrievers`
 is empty and `fused_score` is `0.0` — this is the substrate's
 pure-semantic recall path.
 
-## 5. Declare a schema
+## 6. Declare a schema
 
 Schema upload (`SCHEMA_UPLOAD_REQ`, spec §21/08) doesn't yet have a
 shell or CLI surface — for now, upload it through the SDK:
@@ -94,7 +109,7 @@ The server's per-shard `SchemaGate` flips from `false` to
 `true`. Substrate `RECALL_REQ` now routes through the hybrid
 pipeline transparently (spec §28/08 §5).
 
-## 6. Hybrid query
+## 7. Hybrid query
 
 Once a schema is declared, the existing `recall` verb routes through
 the hybrid path automatically. Re-run:
