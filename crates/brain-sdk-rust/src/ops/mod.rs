@@ -21,7 +21,7 @@ pub mod unlink;
 
 pub use stream::FrameStream;
 
-pub use encode::EncodeBuilder;
+pub use encode::{EncodeBuilder, EncodeResponseExt};
 pub use forget::ForgetBuilder;
 pub use link::LinkBuilder;
 pub use plan::{PlanBuilder, PlanOutcome};

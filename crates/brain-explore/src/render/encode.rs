@@ -40,7 +40,15 @@ impl Render for EncodeRendered {
         let id_short = fmt_short_id(r.memory_id);
         let id_cell = theme.paint(Token::MemoryId, &id_short, policy);
         let ok = theme.paint(Token::Success, "ok", policy);
-        writeln!(w, "{ok}  {id_cell}  lsn={}", r.lsn)?;
+        // `lsn == 0` is the wire sentinel for "no LSN" (dedup hit or
+        // cached replay of one). Show it as an em-dash so operators
+        // don't read it as a real position-zero LSN.
+        let lsn_text: String = if r.lsn == 0 {
+            theme.paint(Token::Muted, "—", policy).into_owned()
+        } else {
+            r.lsn.to_string()
+        };
+        writeln!(w, "{ok}  {id_cell}  lsn={lsn_text}")?;
         let kind = format!("{:?}", r.kind).to_lowercase();
         let mut parts: Vec<String> = vec![
             format!("agent={}", fmt_short_hex_16(&r.agent_id)),
@@ -142,5 +150,36 @@ mod tests {
         let id = v["memory_id"].as_str().unwrap();
         assert!(id.starts_with("0x"));
         assert_eq!(v["dedup"], "miss");
+    }
+
+    #[test]
+    fn render_table_shows_dash_when_lsn_is_zero() {
+        let mut r = sample();
+        r.response.lsn = 0;
+        let mut buf = Vec::new();
+        r.render_table(&ctx(), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("lsn=—"), "expected em-dash sentinel, got: {s}");
+        assert!(!s.contains("lsn=0"));
+    }
+
+    #[test]
+    fn render_table_shows_value_when_lsn_is_nonzero() {
+        let mut buf = Vec::new();
+        sample().render_table(&ctx(), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("lsn=17"));
+        assert!(!s.contains("lsn=—"));
+    }
+
+    #[test]
+    fn render_json_shows_zero_literally() {
+        // JSON is the machine-readable view; clients apply the
+        // sentinel convention themselves, so we MUST NOT swap `0`
+        // for a string here.
+        let mut r = sample();
+        r.response.lsn = 0;
+        let v = r.render_json(&ctx());
+        assert_eq!(v["lsn"], 0);
     }
 }

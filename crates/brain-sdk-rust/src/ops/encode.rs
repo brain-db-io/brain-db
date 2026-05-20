@@ -21,6 +21,44 @@ use crate::client::Client;
 use crate::error::ClientError;
 use crate::ops::common::{send_and_read_one, FLAG_EOS};
 
+/// Extension trait giving [`EncodeResponse`] a pattern-matchable LSN
+/// accessor.
+///
+/// The wire field `EncodeResponse.lsn: u64` overloads `0` as a
+/// "no LSN" sentinel — emitted when the request hit the fingerprint
+/// dedup index (no fresh WAL record was appended) or when an
+/// idempotency replay returned a cached dedup hit. Callers that chain
+/// `encode → subscribe --start-lsn` need to distinguish that case from
+/// a legitimate LSN of zero, so this trait lifts the sentinel into an
+/// `Option<u64>` rather than forcing every call site to compare against
+/// the magic number.
+///
+/// ```no_run
+/// # use brain_sdk_rust::EncodeResponseExt;
+/// # async fn ex(client: brain_sdk_rust::Client) -> Result<(), brain_sdk_rust::ClientError> {
+/// let resp = client.encode("hello").send().await?;
+/// match resp.lsn() {
+///     Some(lsn) => println!("subscribe from {}", lsn + 1),
+///     None => println!("no fresh LSN; subscribe from tail"),
+/// }
+/// # Ok(()) }
+/// ```
+pub trait EncodeResponseExt {
+    /// Returns the WAL LSN this ENCODE was committed at, or `None`
+    /// when the wire reported the `0` sentinel.
+    fn lsn(&self) -> Option<u64>;
+}
+
+impl EncodeResponseExt for EncodeResponse {
+    fn lsn(&self) -> Option<u64> {
+        if self.lsn == 0 {
+            None
+        } else {
+            Some(self.lsn)
+        }
+    }
+}
+
 /// Builder for `client.encode(text)`. Required: `text`.
 /// Optional: context, kind, salience, edges, txn, request_id,
 /// deduplicate.
@@ -155,5 +193,40 @@ impl<'a> EncodeBuilder<'a> {
                 }
             })
             .await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_core::MemoryId;
+    use brain_protocol::request::MemoryKindWire;
+
+    fn response_with_lsn(lsn: u64) -> EncodeResponse {
+        EncodeResponse {
+            memory_id: MemoryId::pack(0, 1, 1).raw(),
+            was_deduplicated: false,
+            salience: 0.5,
+            auto_edges_added: 0,
+            lsn,
+            agent_id: [0; 16],
+            context_id: 0,
+            kind: MemoryKindWire::Episodic,
+            created_at_unix_nanos: 0,
+            edges_out_count: 0,
+            embedding_model_fp: [0; 16],
+        }
+    }
+
+    #[test]
+    fn lsn_helper_returns_none_for_zero() {
+        let resp = response_with_lsn(0);
+        assert_eq!(resp.lsn(), None);
+    }
+
+    #[test]
+    fn lsn_helper_returns_some_for_nonzero() {
+        let resp = response_with_lsn(42);
+        assert_eq!(resp.lsn(), Some(42));
     }
 }
