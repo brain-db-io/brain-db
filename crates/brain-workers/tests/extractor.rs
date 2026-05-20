@@ -603,6 +603,64 @@ fn worker_kind_name_is_stable() {
     assert_eq!(WorkerKind::Extractor.name(), "extractor");
 }
 
+/// The worker publishes one `ExtractedKnowledge` event per processed
+/// memory, carrying the counts that landed and the audit verdict. A
+/// subscriber on the shard's `EventBus` should receive it after one
+/// cycle drain. This is the signal a client uses to know "extraction
+/// for memory M is done; safe to RECALL typed knowledge now."
+#[test]
+fn worker_publishes_extracted_knowledge_event_on_success() {
+    use brain_protocol::knowledge::{AuditStatus, KnowledgeEventPayload};
+    use brain_protocol::response::types::EventType;
+
+    glommio_run(|| async {
+        let fix = build_fixture();
+        let text = "Priya works at Acme";
+        let mut items = HashMap::new();
+        items.insert(
+            text.to_string(),
+            vec![
+                em("Priya", "brain:Person", 0.9),
+                em("Acme", "brain:Organization", 0.9),
+                sm("Priya", "test:works_at", "Acme", 0.85),
+                rm("Priya", "test:works_at", "Acme", 0.95),
+            ],
+        );
+        install_registry(&fix.ctx, items);
+
+        // Tap the bus before the writer publishes Encoded so we see
+        // every later event in order.
+        let mut rx = fix.ctx.events.receiver();
+
+        let memory_id = submit_encode(&fix.ctx, encode_op(1, text)).await;
+        let worker = fast_worker(fix.queue_rx.clone());
+        let drained = run_one_cycle(&worker, fix.ctx.clone()).await.unwrap();
+        assert_eq!(drained, 1);
+
+        // Drain the broadcast channel; find the first
+        // `ExtractedKnowledge` event for the memory we encoded.
+        let mut seen = None;
+        while let Ok(env) = rx.try_recv() {
+            if matches!(env.event_type, EventType::ExtractedKnowledge) && env.memory_id == memory_id
+            {
+                seen = Some(env);
+                break;
+            }
+        }
+        let env = seen.expect("ExtractedKnowledge event was not published");
+        match env.knowledge_payload {
+            Some(KnowledgeEventPayload::ExtractedKnowledge(p)) => {
+                assert_eq!(p.memory_id, memory_id.raw());
+                assert_eq!(p.entity_count, 2);
+                assert!(p.statement_count >= 1);
+                assert!(p.relation_count >= 1);
+                assert!(matches!(p.audit_status, AuditStatus::Succeeded));
+            }
+            other => panic!("unexpected knowledge_payload: {other:?}"),
+        }
+    });
+}
+
 /// Predicate qname in a namespace with an active schema that doesn't
 /// declare that predicate gets dropped (without breaking the rest of
 /// the extraction). The system "brain" namespace is schema-active

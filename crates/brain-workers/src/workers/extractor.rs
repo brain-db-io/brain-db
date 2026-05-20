@@ -79,9 +79,11 @@ use brain_ops::extractor_writes::{
     StatementCreatePayload,
 };
 use brain_ops::{
-    ExtractorEnqueue, ExtractorItemKind, ExtractorMetrics, ResolverOutcome,
+    EventEnvelope, ExtractorEnqueue, ExtractorItemKind, ExtractorMetrics, ResolverOutcome,
     TierKind as MetricTierKind, TierStatus as MetricTierStatus,
 };
+use brain_protocol::knowledge::{AuditStatus, ExtractedKnowledgeEvent, KnowledgeEventPayload};
+use brain_protocol::response::types::EventType;
 use parking_lot::Mutex;
 use redb::ReadableTable;
 use tracing::{trace, warn};
@@ -271,15 +273,56 @@ async fn do_extractor_cycle(
             reg.iter_enabled().cloned().collect()
         };
 
-        let result = run_pipeline(extractors, memory_id, text.clone()).await;
+        // Spend-so-far snapshot drives the LLM-skip-when-overspent
+        // gate inside `run_pipeline`. Reading + writing through a
+        // single per-cycle counter keeps cross-memory accounting
+        // honest without holding the mutex across `.await`.
+        let cycle_budget = worker.knobs.llm_budget_per_cycle_micro_usd;
+        let spent_so_far = { *worker.llm_spend.lock() };
+        let skip_llm_budget_exhausted = cycle_budget > 0 && spent_so_far >= cycle_budget;
+        let result = run_pipeline(
+            extractors,
+            memory_id,
+            text.clone(),
+            skip_llm_budget_exhausted,
+        )
+        .await;
+        // Fold the per-memory cost into the per-cycle counter so the
+        // next memory sees the updated total. Also surface the
+        // running total via the metrics handle so /metrics tracks
+        // per-cycle spend even when no LLM call happens.
+        if result.llm_cost_micro_usd > 0 {
+            let mut spend = worker.llm_spend.lock();
+            *spend = spend.saturating_add(result.llm_cost_micro_usd);
+            worker.metrics.add_llm_micro_usd(result.llm_cost_micro_usd);
+        }
         publish_tier_run_metrics(&worker.metrics, &result);
-        if let Err(e) = apply_outcome(worker, ctx, memory_id, &result).await {
-            warn!(
-                memory_id = ?memory_id,
-                error = %e,
-                "extractor apply failed; auditing as FAILURE so it isn't retried",
-            );
-            audit_failure(ctx, memory_id, e.to_string())?;
+        match apply_outcome(worker, ctx, memory_id, &result).await {
+            Ok(applied) => {
+                publish_extracted_knowledge(
+                    ctx,
+                    memory_id,
+                    applied.counts,
+                    audit_status_from_byte(applied.status_byte),
+                );
+            }
+            Err(e) => {
+                warn!(
+                    memory_id = ?memory_id,
+                    error = %e,
+                    "extractor apply failed; auditing as FAILURE so it isn't retried",
+                );
+                audit_failure(ctx, memory_id, e.to_string())?;
+                // Publish a Failed event with zero counts so subscribers
+                // unblock from `wait-for-extraction` even when the apply
+                // path errored before any items landed.
+                publish_extracted_knowledge(
+                    ctx,
+                    memory_id,
+                    ExtractorItemCounts::zero(),
+                    AuditStatus::Failed,
+                );
+            }
         }
 
         // Cooperative yield every few drains so the scheduler stays
@@ -328,12 +371,16 @@ struct PipelineOutcome {
     classifier: u8,
     llm: u8,
     failure_reason: Option<String>,
+    /// Actual LLM cost in dollar-micro-units for this pipeline run.
+    /// Non-LLM tiers always contribute zero.
+    llm_cost_micro_usd: u64,
 }
 
 async fn run_pipeline(
     extractors: Vec<Arc<dyn Extractor>>,
     memory_id: MemoryId,
     text: Arc<str>,
+    skip_llm_budget_exhausted: bool,
 ) -> PipelineOutcome {
     use brain_core::knowledge::ExtractorKind;
 
@@ -366,16 +413,28 @@ async fn run_pipeline(
         classifier: tier_status::ABSENT,
         llm: tier_status::ABSENT,
         failure_reason: None,
+        llm_cost_micro_usd: 0,
     };
 
     for extractor in extractors {
         let kind = extractor.kind();
+        // Cycle-budget gate: when prior memories in this cycle have
+        // already consumed the LLM budget, skip the LLM tier here.
+        // Pattern + classifier still run so cheap-tier output keeps
+        // landing under load.
+        if matches!(kind, ExtractorKind::Llm) && skip_llm_budget_exhausted {
+            out.llm = tier_status::SKIPPED;
+            continue;
+        }
         let result = extractor.run(&ext_ctx, &mem).await;
         let outcome = tier_outcome_for(&result);
         match kind {
             ExtractorKind::Pattern => out.pattern = outcome,
             ExtractorKind::Classifier => out.classifier = outcome,
             ExtractorKind::Llm => out.llm = outcome,
+        }
+        if matches!(kind, ExtractorKind::Llm) {
+            out.llm_cost_micro_usd = out.llm_cost_micro_usd.saturating_add(result.cost_micro_usd);
         }
         if matches!(result.status, ExtractionStatus::Success) {
             out.items.extend(result.items);
@@ -399,12 +458,20 @@ fn tier_outcome_for(result: &ExtractionResult) -> u8 {
     }
 }
 
+/// Summary of a successful `apply_outcome` commit. The cycle uses it
+/// to populate the `ExtractedKnowledge` SUBSCRIBE event so clients
+/// know exactly how many entities / statements / relations landed.
+struct ApplyOutcome {
+    counts: ExtractorItemCounts,
+    status_byte: u8,
+}
+
 async fn apply_outcome(
     worker: &ExtractorWorker,
     ctx: &WorkerContext,
     memory_id: MemoryId,
     outcome: &PipelineOutcome,
-) -> Result<(), ApplyError> {
+) -> Result<ApplyOutcome, ApplyError> {
     let now = now_unix_nanos();
     let mut counts = ExtractorItemCounts::zero();
     let mut entity_map: HashMap<String, EntityId> = HashMap::new();
@@ -425,16 +492,20 @@ async fn apply_outcome(
                 .inc_resolver_outcome(resolution_tier_to_metric(tier));
             entity_map.insert(em.text.clone(), entity_id);
             write_mention_edge(&wtxn, memory_id, entity_id, em, now)?;
-            // Count one fresh entity row only on a tier-4 create — the
-            // resolver currently doesn't surface that distinction
-            // through the worker's API, so we track every successful
-            // resolve here. A future tweak can count Created vs.
-            // Existing separately.
-            counts.entities = counts.entities.saturating_add(1);
+            // Bump the audit + metric counters with the resolver tier
+            // in mind: `entities_resolved` covers every successful
+            // resolve (Exact / Alias / Fuzzy / Create) so audits show
+            // total mention work; `entities_created` only counts the
+            // tier-4 mint so capacity planning can read "how many
+            // fresh entity rows did this memory produce".
+            counts.entities_resolved = counts.entities_resolved.saturating_add(1);
+            if matches!(tier, ResolutionTier::Created) {
+                counts.entities_created = counts.entities_created.saturating_add(1);
+                worker
+                    .metrics
+                    .add_items_written(ExtractorItemKind::Entity, 1);
+            }
             counts.mention_edges = counts.mention_edges.saturating_add(1);
-            worker
-                .metrics
-                .add_items_written(ExtractorItemKind::Entity, 1);
             worker
                 .metrics
                 .add_items_written(ExtractorItemKind::Mention, 1);
@@ -561,7 +632,10 @@ async fn apply_outcome(
     // row + the writes commit atomically. A crash between commit and
     // audit insert would re-extract on next drain, which the resolver
     // would deduplicate but at the cost of an extra LLM call.
-    let llm_spent = *worker.llm_spend.lock();
+    //
+    // The audit row records this pipeline run's LLM cost (so per-row
+    // forensics show "this memory cost N µ$"); the worker's per-cycle
+    // accumulator drives the cross-memory budget gate separately.
     let (status_byte, reason) = decide_status(outcome, counts);
     let audit = ExtractorPipelineAuditEntry::new(
         memory_id,
@@ -572,14 +646,63 @@ async fn apply_outcome(
         outcome.classifier,
         outcome.llm,
         counts,
-        llm_spent,
+        outcome.llm_cost_micro_usd,
     );
     record_extracted(&wtxn, &audit)
         .map_err(|e| ApplyError::Audit(format!("record_extracted: {e}")))?;
 
     wtxn.commit()
         .map_err(|e| ApplyError::Storage(format!("commit: {e:?}")))?;
-    Ok(())
+    Ok(ApplyOutcome {
+        counts,
+        status_byte,
+    })
+}
+
+/// Translate the worker's `pipeline_status` byte into the wire
+/// [`AuditStatus`] carried on the `ExtractedKnowledge` event. Unknown
+/// bytes round to `Failed`; the worker's `decide_status` only ever
+/// emits one of the four documented constants, so the fallback is
+/// strictly defensive.
+fn audit_status_from_byte(byte: u8) -> AuditStatus {
+    match byte {
+        pipeline_status::SUCCESS => AuditStatus::Succeeded,
+        pipeline_status::PARTIAL_FAILURE => AuditStatus::PartiallyApplied,
+        pipeline_status::SKIPPED => AuditStatus::Skipped,
+        _ => AuditStatus::Failed,
+    }
+}
+
+/// Publish the `ExtractedKnowledge` SUBSCRIBE event onto the per-shard
+/// bus. A no-op when no subscriber is listening — `events.publish`
+/// still mints an LSN for the bus's own bookkeeping.
+fn publish_extracted_knowledge(
+    ctx: &WorkerContext,
+    memory_id: MemoryId,
+    counts: ExtractorItemCounts,
+    audit_status: AuditStatus,
+) {
+    let payload = KnowledgeEventPayload::ExtractedKnowledge(ExtractedKnowledgeEvent {
+        memory_id: memory_id.raw(),
+        entity_count: counts.entities_resolved,
+        statement_count: counts.statements,
+        relation_count: counts.relations,
+        audit_status,
+    });
+    let envelope = EventEnvelope {
+        lsn: 0,
+        event_type: EventType::ExtractedKnowledge,
+        memory_id,
+        context_id: ContextId::default(),
+        kind: MemoryKind::Episodic,
+        salience: 0.0,
+        timestamp_unix_nanos: now_unix_nanos(),
+        text: None,
+        knowledge_payload: Some(payload),
+        edge_payload: None,
+        agent_id: AgentId::default(),
+    };
+    let _ = ctx.ops.events.publish(envelope);
 }
 
 fn decide_status(outcome: &PipelineOutcome, counts: ExtractorItemCounts) -> (u8, String) {

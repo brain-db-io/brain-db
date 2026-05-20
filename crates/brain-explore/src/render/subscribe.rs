@@ -7,6 +7,8 @@
 
 use std::io::{self, Write};
 
+use brain_protocol::knowledge::{AuditStatus, KnowledgeEventPayload};
+use brain_protocol::response::types::EventType;
 use brain_protocol::response::SubscriptionEvent;
 use comfy_table::Cell;
 use serde_json::{json, Value};
@@ -68,18 +70,23 @@ fn push_header(table: &mut comfy_table::Table, ctx: &RenderCtx) {
 
 fn push_event_row(table: &mut comfy_table::Table, ctx: &RenderCtx, e: &SubscriptionEvent) {
     let (theme, policy) = (&ctx.theme, ctx.policy);
+    let text = if matches!(e.event_type, EventType::ExtractedKnowledge) {
+        extracted_knowledge_summary(e).unwrap_or_else(|| e.text.clone())
+    } else {
+        e.text.clone()
+    };
     table.add_row(vec![
         Cell::new(e.lsn),
         Cell::new(format!("{:?}", e.event_type)),
         Cell::new(theme.paint(Token::MemoryId, &fmt_short_id(e.memory_id), policy)),
         Cell::new(e.context_id),
         Cell::new(fmt_kind(e.kind)),
-        Cell::new(&e.text),
+        Cell::new(text),
     ]);
 }
 
 fn event_to_json(e: &SubscriptionEvent) -> Value {
-    json!({
+    let mut out = json!({
         "lsn": e.lsn,
         "event_type": format!("{:?}", e.event_type),
         "memory_id": fmt_id(e.memory_id),
@@ -88,7 +95,52 @@ fn event_to_json(e: &SubscriptionEvent) -> Value {
         "salience": e.salience,
         "timestamp_unix_nanos": e.timestamp_unix_nanos,
         "text": e.text,
-    })
+    });
+    if let Some(payload) = extracted_knowledge_payload(e) {
+        if let Some(map) = out.as_object_mut() {
+            map.insert("entity_count".into(), json!(payload.entity_count));
+            map.insert("statement_count".into(), json!(payload.statement_count));
+            map.insert("relation_count".into(), json!(payload.relation_count));
+            map.insert(
+                "audit_status".into(),
+                json!(audit_status_str(payload.audit_status)),
+            );
+        }
+    }
+    out
+}
+
+/// Format the `ExtractedKnowledge` knowledge_payload as a short text
+/// summary for table rendering. Returns `None` if the event isn't an
+/// `ExtractedKnowledge` carrying its payload — falls back to the
+/// substrate `text` field.
+fn extracted_knowledge_summary(e: &SubscriptionEvent) -> Option<String> {
+    let p = extracted_knowledge_payload(e)?;
+    Some(format!(
+        "{} entities, {} statements, {} relations ({})",
+        p.entity_count,
+        p.statement_count,
+        p.relation_count,
+        audit_status_str(p.audit_status),
+    ))
+}
+
+fn extracted_knowledge_payload(
+    e: &SubscriptionEvent,
+) -> Option<&brain_protocol::knowledge::ExtractedKnowledgeEvent> {
+    match &e.knowledge_payload {
+        Some(KnowledgeEventPayload::ExtractedKnowledge(p)) => Some(p),
+        _ => None,
+    }
+}
+
+fn audit_status_str(s: AuditStatus) -> &'static str {
+    match s {
+        AuditStatus::Succeeded => "succeeded",
+        AuditStatus::PartiallyApplied => "partially_applied",
+        AuditStatus::Failed => "failed",
+        AuditStatus::Skipped => "skipped",
+    }
 }
 
 #[cfg(test)]
@@ -133,6 +185,51 @@ mod tests {
         assert!(s.contains("42"));
         assert!(s.contains("Encoded"));
         assert!(s.contains("hello"));
+    }
+
+    #[test]
+    fn extracted_knowledge_renders_counts_and_status() {
+        use brain_protocol::knowledge::{ExtractedKnowledgeEvent, KnowledgeEventPayload};
+
+        let ev = SubscriptionEvent {
+            event_type: EventType::ExtractedKnowledge,
+            memory_id: MemoryId::pack(0, 17, 1).raw(),
+            context_id: 0,
+            text: String::new(),
+            kind: MemoryKindWire::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: 0,
+            lsn: 99,
+            knowledge_payload: Some(KnowledgeEventPayload::ExtractedKnowledge(
+                ExtractedKnowledgeEvent {
+                    memory_id: MemoryId::pack(0, 17, 1).raw(),
+                    entity_count: 3,
+                    statement_count: 5,
+                    relation_count: 2,
+                    audit_status: AuditStatus::Succeeded,
+                },
+            )),
+            edge_payload: None,
+        };
+
+        let r = SubscriptionEventRendered(ev.clone());
+        let mut buf = Vec::new();
+        r.render_table(&ctx(), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        // comfy_table may wrap the summary across cells on a narrow
+        // policy; assert the individual count tokens land somewhere in
+        // the output and that the audit-status verb is present.
+        assert!(s.contains("ExtractedKnowledge"), "rendered: {s}");
+        assert!(s.contains("entities") && s.contains('3'), "rendered: {s}");
+        assert!(s.contains("statements") && s.contains('5'), "rendered: {s}");
+        assert!(s.contains("relations") && s.contains('2'), "rendered: {s}");
+        assert!(s.contains("succeeded"), "rendered: {s}");
+
+        let json = r.render_json(&ctx());
+        assert_eq!(json["entity_count"], 3);
+        assert_eq!(json["statement_count"], 5);
+        assert_eq!(json["relation_count"], 2);
+        assert_eq!(json["audit_status"], "succeeded");
     }
 
     #[test]

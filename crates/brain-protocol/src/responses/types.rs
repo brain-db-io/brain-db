@@ -136,6 +136,14 @@ pub enum EventType {
     EdgeAdded = 31,
     EdgeRemoved = 32,
     EdgeSuperseded = 33,
+
+    // Extractor-completion signal. Published by `ExtractorWorker` after
+    // the per-memory entity / statement / relation writes commit (or
+    // after the audit row records a failure). Lets SUBSCRIBE clients
+    // wait for extraction to land before they RECALL typed knowledge
+    // for a freshly-encoded memory. `knowledge_payload` carries the
+    // `ExtractedKnowledge` variant with the counts + audit status.
+    ExtractedKnowledge = 34,
 }
 
 /// Spec §08 §18 — `IntegrityIssue::IntegrityIssueType`.
