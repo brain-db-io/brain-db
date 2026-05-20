@@ -837,9 +837,8 @@ mod tests {
             // label and its padding gap, the value lands at column
             // BODY_INDENT.len() + LABEL_COL_WIDTH + 2 = 12.
             let chars: Vec<char> = line.chars().collect();
-            assert_eq!(
+            assert!(
                 chars.get(12).copied().is_some(),
-                true,
                 "row `{label}` too short to reach col 12: {line}"
             );
         }

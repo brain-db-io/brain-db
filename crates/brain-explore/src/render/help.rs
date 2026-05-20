@@ -215,7 +215,7 @@ impl Render for HelpVerb {
         // No leading blank: content sits flush against the rule so
         // the card reads as a single visual unit (matches banner +
         // encode card discipline).
-        let width = policy.width.min(CARD_MAX_WIDTH).max(40);
+        let width = policy.width.clamp(40, CARD_MAX_WIDTH);
         let rule: String = "─".repeat(width);
         writeln!(w, "{}", muted(&rule))?;
 

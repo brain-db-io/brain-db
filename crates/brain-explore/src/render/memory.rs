@@ -248,7 +248,10 @@ mod tests {
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
-        assert!(!s.contains("retrievers="), "substrate row should not show retrievers count: {s}");
+        assert!(
+            !s.contains("retrievers="),
+            "substrate row should not show retrievers count: {s}"
+        );
     }
 
     #[test]
@@ -267,10 +270,7 @@ mod tests {
 
         // Multi-retriever consensus.
         let mut hit = make_hit("strong hit", 0.9);
-        hit.contributing_retrievers = vec![
-            RetrieverNameWire::Semantic,
-            RetrieverNameWire::Lexical,
-        ];
+        hit.contributing_retrievers = vec![RetrieverNameWire::Semantic, RetrieverNameWire::Lexical];
         let r = RecallResults(vec![hit]);
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();

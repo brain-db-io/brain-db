@@ -80,7 +80,7 @@ impl Render for WelcomeBanner {
         // No leading blank line: content sits flush against the rule
         // so the card framing reads as a unit, not as "rule then
         // padding then content."
-        let width = policy.width.min(80).max(40);
+        let width = policy.width.clamp(40, 80);
         let rule: String = "─".repeat(width);
         writeln!(w, "{}", muted(&rule))?;
 

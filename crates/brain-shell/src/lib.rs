@@ -31,7 +31,30 @@
 //! - [`cli`] — one-shot dispatch.
 
 #![forbid(unsafe_code)]
-#![allow(clippy::missing_errors_doc, clippy::missing_panics_doc)]
+#![allow(
+    clippy::missing_errors_doc,
+    clippy::missing_panics_doc,
+    // The closure in cli/args.rs::dispatch_argv carries a multi-arm
+    // `match` that isn't reducible to a simple value, so `unwrap_or`
+    // (eager) isn't equivalent to `unwrap_or_else` (lazy). Clippy's
+    // newer heuristic mis-flags it.
+    clippy::unnecessary_lazy_evaluations,
+    // The pre-existing rustyline-Context API uses `&mut Context`; the
+    // call site doesn't actually mutate, but the API requires the
+    // reference shape. Can't be changed without bumping rustyline.
+    clippy::unnecessary_mut_passed,
+    // PromotionNote's two variants share the `Promoted` prefix because
+    // they're both promotion outcomes; the prefix is meaningful in the
+    // domain, not redundant.
+    clippy::enum_variant_names,
+    // AgentEntry::Default implementation is intentionally hand-rolled
+    // — defaults are non-trivial (empty strings; bool false) and the
+    // hand-rolled form anchors the contract for a reader.
+    clippy::derivable_impls,
+    // commands/info.rs uses a closure for clarity at the call site
+    // even when clippy would prefer the bare function reference.
+    clippy::redundant_closure,
+)]
 
 use std::process::ExitCode;
 
