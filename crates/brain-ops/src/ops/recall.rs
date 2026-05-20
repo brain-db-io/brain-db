@@ -24,7 +24,9 @@ use brain_planner::knowledge::executor::{
     execute as hybrid_execute, ExecutionError, HybridExecutorContext, QueryResult,
 };
 use brain_planner::knowledge::planner::{plan as hybrid_plan, PlanError};
-use brain_planner::knowledge::router::{QueryRequest as PlannerQueryRequest, RetrieverSelection};
+use brain_planner::knowledge::router::{
+    QueryRequest as PlannerQueryRequest, Retriever, RetrieverSelection,
+};
 use brain_planner::{execute_recall, plan_recall_inner, RecallHit};
 use brain_protocol::request::{MemoryKindWire, RecallRequest};
 use brain_protocol::response::{MemoryResult, RecallResponseFrame};
@@ -426,10 +428,30 @@ fn project_memory_results(
             String::new()
         };
 
+        // similarity_score on the hybrid path is the semantic
+        // retriever's raw cosine — the same quantity the substrate
+        // path returns in this field. This keeps the field's meaning
+        // stable across paths so the client-side cluster-warning
+        // heuristic and any user-facing threshold reasoning don't
+        // need to know which path produced the row. If the semantic
+        // retriever didn't contribute (lexical-only or graph-only
+        // hit), report 0.0 — the contributing_retrievers list tells
+        // the renderer which retrievers actually ran.
+        let semantic_score = fused
+            .contributing
+            .iter()
+            .find(|c| matches!(c.retriever, Retriever::Semantic))
+            .map(|c| c.raw_score)
+            .unwrap_or(0.0);
         out.push(MemoryResult {
             memory_id: memory_id.raw(),
             text,
-            similarity_score: fused.fused_score as f32,
+            similarity_score: semantic_score,
+            // `confidence` carries the score the --confidence threshold
+            // is compared against. On hybrid that's the RRF-fused
+            // score (matching the server-side filter in
+            // brain-planner::recall). On substrate it equals
+            // similarity_score (set in hit_to_wire).
             confidence: fused.fused_score as f32,
             salience: row.salience,
             kind: wire_kind,
