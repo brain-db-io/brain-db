@@ -2,11 +2,20 @@
 
 In-shell quick reference. Lists the cognitive verbs, knowledge-browsing
 verbs, meta commands, and agent commands the REPL recognises — or, with
-an argument, prints flag-level help for one verb. Use it instead of
-quitting the shell to read `brain <verb> --help`.
+an argument, prints flag-level help for one verb.
 
-**REPL only.** Outside the shell there is no `help` verb — use
-`brain --help` or `brain <verb> --help`.
+**Unified across three entry points.** The same card output is produced
+by all of:
+
+| Form | Where |
+|---|---|
+| `help <verb>` (or `?` / `\?` / `\help`) | inside the REPL |
+| `<verb> --help` / `<verb> -h` | inside the REPL |
+| `brain <verb> --help` / `brain <verb> -h` | from your OS shell |
+
+Same renderer, same content, same wrap — pick whichever feels natural.
+The clap-generated help that older `<verb> --help` invocations produced
+is gone; one source of truth lives in `repl::help::lookup`.
 
 ---
 
@@ -27,15 +36,22 @@ because users coming from psql / mongosh type it by reflex; `?` and
 
 ## Behavior
 
-- **Bare form** (`help`, `?`, `\?`, `\help`) — prints the top-level
-  cheat sheet: cognitive verbs, knowledge-browsing verbs, meta
-  commands, persisted-config commands, agent commands, and a note on
-  first-run agent auto-mint.
-- **With argument** (`help encode`, `? recall`, `\? meta`) — prints
-  the verb-specific blurb. Case-insensitive; unknown verbs fall back
-  to `no help for '<arg>'. Try \`help\` for the list.`.
+- **Bare form** (`help`, `?`, `\?`, `\help`, `brain --help`) — prints
+  the top-level cheat sheet: cognitive verbs, knowledge-browsing
+  verbs, meta commands, persisted-config commands, agent commands,
+  and a note on first-run agent auto-mint.
+- **With argument** (`help encode`, `? recall`, `encode --help`,
+  `brain encode -h`) — prints the verb-specific card with Flags,
+  Sources, Notes, Example, and Reference sections. Case-insensitive;
+  unknown verbs fall back to `no help for '<arg>'. Try \`help\` for
+  the list.`.
 - The text is built by `repl::help::lookup` and shipped inline in the
-  binary — no network round-trip, no `--help` parser invocation.
+  binary — no network round-trip, no clap auto-help invocation.
+  `<verb> --help` short-circuits before clap parsing so missing
+  positional arguments (e.g. `recall --help`) don't block the card.
+- `brain encode -- --help` opts out of the interception: the `--`
+  escape tells the parser "everything after this is positional," so
+  the literal text `--help` is encoded as the memory body.
 
 Recognised argument values:
 

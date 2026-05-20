@@ -180,6 +180,9 @@ brain> encode "Alex pushed the deadline to next Friday"
   × no fresh write — nothing to do
 ```
 
+`brain <verb> --help`, `brain> <verb> --help`, and `brain> help <verb>`
+all render the same per-verb help card — pick whichever feels natural.
+
 ## The knowledge layer
 
 When a schema is declared, the substrate exposes typed cognition. Three layers, ten decisions, one set of guarantees.
