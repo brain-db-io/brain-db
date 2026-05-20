@@ -22,7 +22,7 @@ fn one_shot_encode_with_all_flags() {
         "semantic",
         "--salience",
         "0.8",
-        "--deduplicate",
+        "--allow-duplicate",
     ]);
     match cli.subcommand {
         Some(Command::Encode(a)) => {
@@ -30,7 +30,7 @@ fn one_shot_encode_with_all_flags() {
             assert_eq!(a.context, Some(7));
             assert_eq!(a.kind, Some(KindArg::Semantic));
             assert_eq!(a.salience, Some(0.8));
-            assert!(a.deduplicate);
+            assert!(a.allow_duplicate);
         }
         other => panic!("expected Encode, got {other:?}"),
     }

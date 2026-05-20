@@ -22,7 +22,7 @@ pub fn lookup(verb: Option<&str>) -> String {
 fn top_level() -> String {
     let mut s = String::new();
     s.push_str("Cognitive verbs:\n");
-    s.push_str("  encode <TEXT> [--context N] [--kind ...] [--salience F] [--deduplicate]\n");
+    s.push_str("  encode <TEXT> [--context N] [--kind ...] [--salience F] [--allow-duplicate]\n");
     s.push_str("         [--edge KIND:ID]... [--request-id UUID] [--from-file PATH]\n");
     s.push_str("         [--from-stdin] [--vector CSV] [--wait-for-extraction]\n");
     s.push_str("  recall <QUERY> [--top-k N] [--confidence F] [--filter-context N]...\n");
@@ -68,10 +68,16 @@ fn top_level() -> String {
 }
 
 const ENCODE: &str = "encode <TEXT> [--context N] [--kind episodic|semantic|consolidated]\n\
-                     [--salience F] [--deduplicate] [--txn HEX]\n\
+                     [--salience F] [--allow-duplicate] [--txn HEX]\n\
 \n\
 Store text as a memory. Inherits the session's sticky --context and\n\
-active transaction when those flags are omitted.";
+active transaction when those flags are omitted. ENCODE happens against\n\
+the current agent (use `\\agent` to see the binding).\n\
+\n\
+Deduplication is ON by default — encoding the same text twice in the\n\
+same context returns the existing memory rather than creating a duplicate.\n\
+Pass --allow-duplicate to force a fresh write (use this for episodic\n\
+memory where the same content is a genuinely distinct event).";
 
 const RECALL: &str = "recall <QUERY> [--top-k N] [--confidence F]\n\
                      [--filter-context N]... [--filter-kind K]... [--txn HEX]\n\

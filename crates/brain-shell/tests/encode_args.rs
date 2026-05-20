@@ -1,5 +1,5 @@
 //! New `encode` flags: `--edge`, `--request-id`, `--from-file`,
-//! `--from-stdin`, `--wait-for-extraction`, `--no-dedup`, `--vector`.
+//! `--from-stdin`, `--wait-for-extraction`, `--allow-duplicate`, `--vector`.
 //! Verifies parse, plus the mutual-exclusivity matrix clap enforces.
 
 use brain_shell::parser::{Cli, Command, EdgeKindArg};
@@ -87,13 +87,37 @@ fn encode_wait_for_extraction_parses() {
 }
 
 #[test]
-fn encode_no_dedup_conflicts_with_deduplicate() {
-    let err = parse(&["encode", "hello", "--deduplicate", "--no-dedup"]).unwrap_err();
-    let msg = err.to_string();
+fn encode_dedup_is_on_by_default() {
+    // Without --allow-duplicate, deduplication is ON. The CLI struct
+    // exposes the opt-out; the handler converts to the wire bool.
+    let cli = parse_ok(&["encode", "hello world that is plenty long enough"]);
+    let Some(Command::Encode(a)) = cli.subcommand else {
+        panic!("expected Encode")
+    };
     assert!(
-        msg.contains("cannot be used with") || msg.contains("not allowed"),
-        "expected mutual-exclusivity error, got: {msg}"
+        !a.allow_duplicate,
+        "default should be allow_duplicate=false (dedup on)"
     );
+}
+
+#[test]
+fn encode_allow_duplicate_flag_parses() {
+    let cli = parse_ok(&[
+        "encode",
+        "hello world that is plenty long enough",
+        "--allow-duplicate",
+    ]);
+    let Some(Command::Encode(a)) = cli.subcommand else {
+        panic!("expected Encode")
+    };
+    assert!(a.allow_duplicate);
+}
+
+#[test]
+fn encode_legacy_deduplicate_flag_rejected() {
+    // No compat shim: the old --deduplicate / --no-dedup flags are gone.
+    assert!(parse(&["encode", "hello", "--deduplicate"]).is_err());
+    assert!(parse(&["encode", "hello", "--no-dedup"]).is_err());
 }
 
 #[test]

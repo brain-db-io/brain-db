@@ -56,10 +56,12 @@ pub async fn run(
     let txn = session.effective_txn(explicit_txn);
     let context_id = session.effective_context(args.context);
 
-    // The `--deduplicate` / `--no-dedup` pair is mutually exclusive at
-    // the parser layer. `--no-dedup` forces off regardless of any
-    // persisted default the SDK may have eventually wired up.
-    let deduplicate = args.deduplicate && !args.no_dedup;
+    // Deduplication is on by default — encoding the same text twice in
+    // the same (agent, context) should return the existing memory, not
+    // create a duplicate. `--allow-duplicate` is the explicit opt-out
+    // for episodic memory where the same content really is a second
+    // distinct event.
+    let deduplicate = !args.allow_duplicate;
 
     let mut b = client
         .encode(text.clone())

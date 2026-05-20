@@ -600,13 +600,14 @@ pub struct EncodeArgs {
     /// Salience hint in `[0.0, 1.0]`.
     #[arg(long)]
     pub salience: Option<f32>,
-    /// Ask the server to deduplicate by fingerprint.
-    #[arg(long, conflicts_with = "no_dedup")]
-    pub deduplicate: bool,
-    /// Explicit "deduplicate off" — for cases where the persisted
-    /// default has been flipped on.
-    #[arg(long = "no-dedup")]
-    pub no_dedup: bool,
+    /// Force a fresh write even when an identical memory already exists
+    /// in this (agent, context). By default `encode` deduplicates by
+    /// content hash — encoding the same text twice returns the existing
+    /// memory rather than creating a duplicate. Pass `--allow-duplicate`
+    /// for episodic memory where the same content really is a second
+    /// distinct event.
+    #[arg(long = "allow-duplicate")]
+    pub allow_duplicate: bool,
     /// Bind to an active transaction (hex bytes).
     #[arg(long)]
     pub txn: Option<String>,
