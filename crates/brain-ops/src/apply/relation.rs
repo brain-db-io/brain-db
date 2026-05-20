@@ -1,17 +1,16 @@
 //! Apply functions for relation-shaped phases.
 //!
-//! P2b implementation. UpsertRelation + Tombstone(Relation) port
-//! straight to brain_metadata::relation_ops helpers. Supersede deferred
-//! — same reason as the statement-supersede stub: the helper takes a
-//! full Relation value (not just id), so resolving needs a Phase shape
-//! change carrying the new Relation inline.
+//! Full P2c coverage: UpsertRelation, Tombstone(Relation),
+//! Supersede(Relation) all real.
 
 use brain_core::knowledge::Relation;
-use brain_metadata::relation_ops::{relation_create, relation_tombstone};
+use brain_metadata::relation_ops::{relation_create, relation_supersede, relation_tombstone};
 use redb::WriteTransaction;
 
 use super::ApplyError;
-use crate::write::{Phase, PhaseAck, TombstoneTarget, Write};
+use crate::write::{
+    Phase, PhaseAck, SupersedeReplacement, SupersedeTarget, TombstoneTarget, Write,
+};
 
 pub fn apply_upsert_relation(
     wtxn: &WriteTransaction,
@@ -49,11 +48,29 @@ pub fn apply_upsert_relation(
 }
 
 pub fn apply_supersede_relation(
-    _wtxn: &WriteTransaction,
-    _phase: &Phase,
+    wtxn: &WriteTransaction,
+    phase: &Phase,
     _write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
-    Err(ApplyError::NotYetImplemented("Supersede(Relation)"))
+    let Phase::Supersede {
+        target,
+        replacement,
+        at_unix_nanos,
+    } = phase
+    else {
+        return Err(ApplyError::PhaseMisShape("expected Supersede"));
+    };
+    let SupersedeTarget::Relation(old_id) = target else {
+        return Err(ApplyError::PhaseMisShape("expected Supersede(Relation)"));
+    };
+    let SupersedeReplacement::Relation(new_relation) = replacement else {
+        return Err(ApplyError::PhaseMisShape(
+            "expected Supersede with Relation replacement",
+        ));
+    };
+    relation_supersede(wtxn, *old_id, new_relation.as_ref(), *at_unix_nanos)
+        .map_err(|e| ApplyError::Metadata(format!("relation_supersede: {e}")))?;
+    Ok(PhaseAck::Superseded(*target, replacement.id()))
 }
 
 pub fn apply_tombstone_relation(

@@ -17,8 +17,8 @@
 
 use brain_core::knowledge::{
     EntityAttributes, EntityId, EntityTypeId, EvidenceEntry, EvidenceOverflowId, ExtractorId,
-    PredicateId, RelationId, RelationTypeId, StatementId, StatementKind, StatementObject,
-    SubjectRef,
+    PredicateId, Relation, RelationId, RelationTypeId, Statement, StatementId, StatementKind,
+    StatementObject, SubjectRef,
 };
 use brain_core::{ContextId, EdgeKindRef, MemoryId, MemoryKind, NodeRef, Salience};
 use brain_embed::VECTOR_DIM;
@@ -250,8 +250,36 @@ pub enum SupersedeTarget {
     Relation(RelationId),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+/// The replacement value carried inside [`Phase::Supersede`].
+///
+/// Carries the FULL value (boxed to keep the Phase enum size in check)
+/// because the brain-metadata `statement_supersede` / `relation_supersede`
+/// helpers take a `&Statement` / `&Relation` — they insert the new row
+/// and flip the chain in one txn. Carrying just the id would force the
+/// apply function to re-load the new row out of the wtxn, which is
+/// awkward when supersession happens in the same write that inserts it.
+#[derive(Clone, Debug, PartialEq)]
 pub enum SupersedeReplacement {
+    Statement(Box<Statement>),
+    Relation(Box<Relation>),
+}
+
+impl SupersedeReplacement {
+    /// Lightweight id reference — what the [`PhaseAck::Superseded`]
+    /// carries back to the caller.
+    #[must_use]
+    pub fn id(&self) -> SupersedeReplacementId {
+        match self {
+            Self::Statement(s) => SupersedeReplacementId::Statement(s.id),
+            Self::Relation(r) => SupersedeReplacementId::Relation(r.id),
+        }
+    }
+}
+
+/// Lightweight id form of [`SupersedeReplacement`] — used in
+/// [`PhaseAck::Superseded`] so the ack stays cheap to clone.
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum SupersedeReplacementId {
     Statement(StatementId),
     Relation(RelationId),
 }
@@ -328,7 +356,7 @@ pub enum PhaseAck {
     Linked,
     Unlinked,
     Tombstoned(TombstoneTarget),
-    Superseded(SupersedeTarget, SupersedeReplacement),
+    Superseded(SupersedeTarget, SupersedeReplacementId),
     SalienceUpdated,
     KindUpdated,
     ContextUpdated,

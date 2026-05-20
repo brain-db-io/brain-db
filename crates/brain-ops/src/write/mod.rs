@@ -22,7 +22,7 @@ pub mod trigger;
 pub use id::{AllocatedId, IdKind, WriteId};
 pub use phase::{
     AttributeTarget, EntityAttributesUpdate, EvidenceRefPhase, Phase, PhaseAck, ResolveContext,
-    SupersedeTarget, TombstoneTarget,
+    SupersedeReplacement, SupersedeReplacementId, SupersedeTarget, TombstoneTarget,
 };
 pub use transaction::{Write, WriteAck};
 pub use trigger::{TriggerEvent, TriggerKind, TriggerMask};

@@ -70,8 +70,8 @@ pub use worker_metrics::{
 };
 pub use write::{
     AllocatedId, AttributeTarget, EntityAttributesUpdate, EvidenceRefPhase, IdKind, Phase,
-    PhaseAck, ResolveContext, SupersedeTarget, TombstoneTarget, TriggerEvent, TriggerKind,
-    TriggerMask, Write, WriteAck, WriteId,
+    PhaseAck, ResolveContext, SupersedeReplacement, SupersedeReplacementId, SupersedeTarget,
+    TombstoneTarget, TriggerEvent, TriggerKind, TriggerMask, Write, WriteAck, WriteId,
 };
 
 #[cfg(test)]

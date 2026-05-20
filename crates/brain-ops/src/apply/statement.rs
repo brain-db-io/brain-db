@@ -1,22 +1,19 @@
 //! Apply functions for statement-shaped phases.
 //!
-//! P2b implementation. UpsertStatement + Tombstone(Statement) port
-//! straight to brain_metadata::statement_ops helpers.
-//!
-//! Supersede(Statement) is deferred — the brain-metadata helper takes
-//! the full new Statement value (not just its id), but Phase::Supersede
-//! today carries only the replacement id. Resolving this needs a Phase
-//! shape change: SupersedeReplacement should carry Statement / Relation
-//! values inline. Tracked as a follow-up slice; for now the stub
-//! returns NotYetImplemented.
+//! Full P2c coverage: UpsertStatement, Tombstone(Statement),
+//! Supersede(Statement) all real. Each ports to a brain-metadata
+//! helper that runs inside the wtxn.
 
 use brain_core::knowledge::{EvidenceRef, Statement, TombstoneReason};
-use brain_metadata::statement_ops::{statement_create, statement_tombstone};
+use brain_metadata::statement_ops::{statement_create, statement_supersede, statement_tombstone};
 use redb::WriteTransaction;
 use smallvec::SmallVec;
 
 use super::ApplyError;
-use crate::write::{EvidenceRefPhase, Phase, PhaseAck, TombstoneTarget, Write};
+use crate::write::{
+    EvidenceRefPhase, Phase, PhaseAck, SupersedeReplacement, SupersedeTarget, TombstoneTarget,
+    Write,
+};
 
 pub fn apply_upsert_statement(
     wtxn: &WriteTransaction,
@@ -60,11 +57,29 @@ pub fn apply_upsert_statement(
 }
 
 pub fn apply_supersede_statement(
-    _wtxn: &WriteTransaction,
-    _phase: &Phase,
+    wtxn: &WriteTransaction,
+    phase: &Phase,
     _write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
-    Err(ApplyError::NotYetImplemented("Supersede(Statement)"))
+    let Phase::Supersede {
+        target,
+        replacement,
+        at_unix_nanos,
+    } = phase
+    else {
+        return Err(ApplyError::PhaseMisShape("expected Supersede"));
+    };
+    let SupersedeTarget::Statement(old_id) = target else {
+        return Err(ApplyError::PhaseMisShape("expected Supersede(Statement)"));
+    };
+    let SupersedeReplacement::Statement(new_statement) = replacement else {
+        return Err(ApplyError::PhaseMisShape(
+            "expected Supersede with Statement replacement",
+        ));
+    };
+    statement_supersede(wtxn, *old_id, new_statement.as_ref(), *at_unix_nanos)
+        .map_err(|e| ApplyError::Metadata(format!("statement_supersede: {e}")))?;
+    Ok(PhaseAck::Superseded(*target, replacement.id()))
 }
 
 pub fn apply_tombstone_statement(
