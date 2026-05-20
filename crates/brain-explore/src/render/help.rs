@@ -245,22 +245,54 @@ impl Render for HelpVerb {
             }
         }
 
-        // ── Description ──
+        // ── Flags block ──
+        // Per-section col-1 width keeps short-flag verbs (forget) tight
+        // while still accommodating long flags (--wait-for-extraction).
+        if !self.flags.is_empty() {
+            writeln!(w)?;
+            let flags_label = lbl(&pad_verb_label("Flags"));
+            writeln!(w, "  {flags_label}")?;
+            write_flag_rows(w, theme, policy, width, &self.flags)?;
+        }
+
+        // ── Sources block ──
+        // Same row shape as Flags; separate section because "alternate
+        // ways to supply the verb's main argument" is a distinct mental
+        // category from "knobs that tweak behaviour."
+        if !self.sources.is_empty() {
+            writeln!(w)?;
+            let sources_label = lbl(&pad_verb_label("Sources"));
+            writeln!(w, "  {sources_label}")?;
+            write_flag_rows(w, theme, policy, width, &self.sources)?;
+        }
+
+        // ── Notes (prose) ──
+        // Renamed from "Description" because the description shape moved
+        // out into Flags + Sources tables; what's left is genuine notes.
         if !self.description.is_empty() {
             writeln!(w)?;
-            let desc_label = lbl(&pad_verb_label("Description"));
-            // Description paragraphs sit indented under the label —
-            // not painted Value (no value token) since description
-            // is prose, not data.
-            writeln!(w, "  {desc_label}")?;
+            let notes_label = lbl(&pad_verb_label("Notes"));
+            writeln!(w, "  {notes_label}")?;
+            // Body wraps to card width minus the 4-char hanging indent.
+            let body_width = width.saturating_sub(4).max(20);
             for (idx, para) in self.description.iter().enumerate() {
                 if idx > 0 {
                     writeln!(w)?;
                 }
-                // Two-space indent past the label column so the
-                // paragraph reads as a block, not as misaligned rows.
-                writeln!(w, "    {para}")?;
+                for line in wrap_lines(para, body_width) {
+                    writeln!(w, "    {line}")?;
+                }
             }
+        }
+
+        // ── Example ──
+        // One line; sits between prose and pointers because it's the
+        // "show me how to use it" pivot point.
+        if let Some(example) = &self.example {
+            writeln!(w)?;
+            let example_label = lbl(&pad_verb_label("Example"));
+            let example_painted = val(example);
+            writeln!(w, "  {example_label}  {example_painted}")?;
         }
 
         // ── See also ──
@@ -274,6 +306,22 @@ impl Render for HelpVerb {
                 .collect();
             let joined = links.join(&muted("  ·  "));
             writeln!(w, "  {label}  {joined}")?;
+        }
+
+        // ── Reference (clap + markdown deep dive) ──
+        // Goes after See also because it's the "fall through to the
+        // canonical source" pointer — clap is authoritative on syntax,
+        // the markdown doc is authoritative on the deep dive.
+        if let Some(reference) = &self.reference {
+            writeln!(w)?;
+            let ref_label = lbl(&pad_verb_label("Reference"));
+            let clap_painted = muted(&reference.clap_command);
+            writeln!(w, "  {ref_label}  {clap_painted}")?;
+            if let Some(path) = &reference.doc_path {
+                let blank_label: String = " ".repeat(VERB_LABEL_WIDTH);
+                let path_painted = muted(path);
+                writeln!(w, "  {blank_label}  {path_painted}")?;
+            }
         }
 
         // ── Bottom rule ──
@@ -315,6 +363,103 @@ impl Render for HelpVerb {
 
 fn pad_verb_label(label: &str) -> String {
     format!("{label:<VERB_LABEL_WIDTH$}")
+}
+
+/// Per-section signature column width is the longest signature in
+/// the section, clamped to this range. The lower bound keeps short-flag
+/// verbs from collapsing the description column against the flag column;
+/// the upper bound prevents a single absurdly long flag from pushing the
+/// description column off the right edge of the card.
+const FLAG_SIG_MIN_WIDTH: usize = 12;
+const FLAG_SIG_MAX_WIDTH: usize = 24;
+
+/// Render a Flags / Sources block. Computes the column-1 width from
+/// the rows themselves (so each card pays only for what it needs);
+/// signatures that exceed the cap drop their description to the next
+/// line, indented to column 2.
+fn write_flag_rows(
+    w: &mut dyn Write,
+    theme: &crate::theme::Theme,
+    policy: crate::TermPolicy,
+    card_width: usize,
+    rows: &[HelpFlagRow],
+) -> io::Result<()> {
+    let sig_col = rows
+        .iter()
+        .map(|r| r.signature.len())
+        .max()
+        .unwrap_or(FLAG_SIG_MIN_WIDTH)
+        .clamp(FLAG_SIG_MIN_WIDTH, FLAG_SIG_MAX_WIDTH);
+
+    // Left indent is 4 (matches the Notes paragraph indent), then sig
+    // column, then a 2-space gap, then description. Wrap budget reserves
+    // those columns so wrapped continuation lines line up under col-2.
+    let row_indent = 4;
+    let col_gap = 2;
+    let desc_budget = card_width
+        .saturating_sub(row_indent + sig_col + col_gap)
+        .max(20);
+
+    let pad = |s: &str, w: usize| -> String {
+        if s.len() < w {
+            format!("{s:<w$}")
+        } else {
+            s.to_string()
+        }
+    };
+
+    for row in rows {
+        let sig_padded = pad(&row.signature, sig_col);
+        let sig_painted = theme.paint(Token::Label, &sig_padded, policy);
+        let mut lines = wrap_lines(&row.description, desc_budget).into_iter();
+        let first = lines.next().unwrap_or_default();
+        let first_painted = theme.paint(Token::Value, &first, policy);
+        if row.signature.len() > FLAG_SIG_MAX_WIDTH {
+            // Long signature: print it alone, drop description to the
+            // continuation column on the next line.
+            writeln!(w, "    {sig_painted}")?;
+            let cont_indent = " ".repeat(row_indent + sig_col + col_gap);
+            writeln!(w, "{cont_indent}{first_painted}")?;
+        } else {
+            writeln!(w, "    {sig_painted}  {first_painted}")?;
+        }
+        let cont_indent = " ".repeat(row_indent + sig_col + col_gap);
+        for cont in lines {
+            let cont_painted = theme.paint(Token::Value, &cont, policy);
+            writeln!(w, "{cont_indent}{cont_painted}")?;
+        }
+    }
+    Ok(())
+}
+
+/// Greedy word wrap. Splits on whitespace and packs words into lines
+/// of at most `width` characters. Words longer than `width` get their
+/// own line (no hyphenation). Used for Notes paragraphs and the
+/// description column of Flags / Sources rows.
+fn wrap_lines(text: &str, width: usize) -> Vec<String> {
+    if text.is_empty() {
+        return vec![String::new()];
+    }
+    let mut lines: Vec<String> = Vec::new();
+    let mut current = String::new();
+    for word in text.split_whitespace() {
+        if current.is_empty() {
+            current.push_str(word);
+        } else if current.len() + 1 + word.len() <= width {
+            current.push(' ');
+            current.push_str(word);
+        } else {
+            lines.push(std::mem::take(&mut current));
+            current.push_str(word);
+        }
+    }
+    if !current.is_empty() {
+        lines.push(current);
+    }
+    if lines.is_empty() {
+        lines.push(String::new());
+    }
+    lines
 }
 
 // ── HelpUnknown ─────────────────────────────────────────────────────
@@ -506,11 +651,156 @@ mod tests {
     }
 
     #[test]
-    fn verb_render_shows_description_paragraphs() {
+    fn verb_render_shows_notes_paragraphs() {
+        // Prose paragraphs render under the `Notes` label (renamed from
+        // `Description` in H2 — structured Flags/Sources blocks now
+        // carry the description-shaped content).
         let out = render(&sample_verb(), OutputFormat::Table);
-        assert!(out.contains("Description"), "missing Description label");
+        assert!(out.contains("Notes"), "missing Notes label");
         assert!(out.contains("Stores text as a memory"));
         assert!(out.contains("Deduplication is ON by default"));
+    }
+
+    #[test]
+    fn verb_render_omits_blocks_when_empty() {
+        // Empty flags/sources/example/reference must suppress their
+        // entire section — including the label — so cards that only
+        // want Usage + Notes + See also render at the old shape.
+        let out = render(&sample_verb(), OutputFormat::Table);
+        assert!(!out.contains("Flags"), "Flags block must suppress");
+        assert!(!out.contains("Sources"), "Sources block must suppress");
+        assert!(!out.contains("Example"), "Example block must suppress");
+        assert!(!out.contains("Reference"), "Reference block must suppress");
+    }
+
+    #[test]
+    fn verb_render_flags_block_shows_rows() {
+        let mut verb = sample_verb();
+        verb.flags = vec![
+            HelpFlagRow {
+                signature: "--context N".into(),
+                description: "u64; default 0".into(),
+            },
+            HelpFlagRow {
+                signature: "--allow-duplicate".into(),
+                description: "force fresh write".into(),
+            },
+        ];
+        let out = render(&verb, OutputFormat::Table);
+        assert!(out.contains("Flags"), "missing Flags label: {out}");
+        assert!(out.contains("--context N"), "missing flag row: {out}");
+        assert!(out.contains("u64; default 0"), "missing flag desc: {out}");
+        assert!(
+            out.contains("--allow-duplicate"),
+            "missing second flag: {out}"
+        );
+    }
+
+    #[test]
+    fn verb_render_flags_align_descriptions_under_column() {
+        // Two-flag block: the description column-2 must start at the
+        // same screen column on both rows so the eye reads them as a
+        // table, not as misaligned text. Use a fixture with empty
+        // usage to avoid the `lines().find("--x")` ambiguity that
+        // arises when the usage line happens to contain a `--flag`
+        // substring of one of our row signatures.
+        let mut verb = sample_verb();
+        verb.usage.clear();
+        verb.description.clear();
+        verb.flags = vec![
+            HelpFlagRow {
+                signature: "--xx".into(),
+                description: "short".into(),
+            },
+            HelpFlagRow {
+                signature: "--yy".into(),
+                description: "also short".into(),
+            },
+        ];
+        let out = render(&verb, OutputFormat::Table);
+        let a_line = out.lines().find(|l| l.contains("--xx")).expect("xx row");
+        let b_line = out.lines().find(|l| l.contains("--yy")).expect("yy row");
+        let a_desc = a_line.find("short").expect("xx desc");
+        let b_desc = b_line.find("also short").expect("yy desc");
+        assert_eq!(
+            a_desc, b_desc,
+            "description column must line up across rows: {a_line:?} vs {b_line:?}"
+        );
+    }
+
+    #[test]
+    fn verb_render_sources_block_shows_rows() {
+        let mut verb = sample_verb();
+        verb.sources = vec![
+            HelpFlagRow {
+                signature: "<TEXT>".into(),
+                description: "inline string".into(),
+            },
+            HelpFlagRow {
+                signature: "--from-file P".into(),
+                description: "read from file".into(),
+            },
+        ];
+        let out = render(&verb, OutputFormat::Table);
+        assert!(out.contains("Sources"), "missing Sources label: {out}");
+        assert!(out.contains("--from-file P"), "missing source row: {out}");
+        assert!(out.contains("inline string"), "missing source desc: {out}");
+    }
+
+    #[test]
+    fn verb_render_example_block_shows_line() {
+        let mut verb = sample_verb();
+        verb.example = Some(r#"encode "hello" --context 7"#.into());
+        let out = render(&verb, OutputFormat::Table);
+        assert!(out.contains("Example"), "missing Example label: {out}");
+        assert!(
+            out.contains(r#"encode "hello" --context 7"#),
+            "missing example body: {out}"
+        );
+    }
+
+    #[test]
+    fn verb_render_reference_block_shows_clap_and_doc() {
+        let mut verb = sample_verb();
+        verb.reference = Some(HelpReference {
+            clap_command: "encode --help".into(),
+            doc_path: Some("docs/reference/shell/commands/encode.md".into()),
+        });
+        let out = render(&verb, OutputFormat::Table);
+        assert!(out.contains("Reference"), "missing Reference label: {out}");
+        assert!(out.contains("encode --help"), "missing clap pointer: {out}");
+        assert!(
+            out.contains("docs/reference/shell/commands/encode.md"),
+            "missing doc pointer: {out}"
+        );
+    }
+
+    #[test]
+    fn verb_render_reference_block_without_doc_path() {
+        let mut verb = sample_verb();
+        verb.reference = Some(HelpReference {
+            clap_command: "plan --help".into(),
+            doc_path: None,
+        });
+        let out = render(&verb, OutputFormat::Table);
+        assert!(out.contains("plan --help"));
+        // No "docs/" line when doc_path is None.
+        assert!(
+            !out.contains("docs/"),
+            "doc_path None must not render a path line: {out}"
+        );
+    }
+
+    #[test]
+    fn wrap_lines_handles_empty_and_basic_inputs() {
+        assert_eq!(wrap_lines("", 10), vec![String::new()]);
+        assert_eq!(wrap_lines("hello world", 20), vec!["hello world".to_string()]);
+        let wrapped = wrap_lines("one two three four five", 10);
+        assert!(
+            wrapped.iter().all(|l| l.len() <= 10),
+            "wrapped lines must fit budget: {wrapped:?}"
+        );
+        assert!(wrapped.len() > 1, "must wrap: {wrapped:?}");
     }
 
     #[test]
@@ -561,8 +851,12 @@ mod tests {
         assert_eq!(v["name"], "encode");
         assert_eq!(v["tagline"], "write a memory");
         assert!(v["usage"].is_array());
+        assert!(v["flags"].is_array());
+        assert!(v["sources"].is_array());
         assert!(v["description"].is_array());
+        assert!(v["example"].is_null());
         assert!(v["see_also"].is_array());
+        assert!(v["reference"].is_null());
 
         let unknown = HelpUnknown {
             verb: "wibble".into(),
