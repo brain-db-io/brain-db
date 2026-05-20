@@ -87,7 +87,7 @@ pub async fn run(
                     eprintln!("generate-completion is only available as a one-shot subcommand");
                 }
                 Some(cmd) => {
-                    run_one(&client, &mut session, cmd).await;
+                    run_one(&client, &mut session, cmd, &cli.global).await;
                 }
             },
             Err(e) => {
@@ -100,7 +100,12 @@ pub async fn run(
     Ok(())
 }
 
-async fn run_one(client: &Client, session: &mut Session, cmd: Command) {
+async fn run_one(
+    client: &Client,
+    session: &mut Session,
+    cmd: Command,
+    globals: &crate::parser::GlobalOpts,
+) {
     let started = Instant::now();
     let inherited_active_txn = inherits_active_txn(&cmd);
     let result: Result<(String, Box<dyn brain_explore::Render>), ClientError> = match cmd {
@@ -187,20 +192,30 @@ async fn run_one(client: &Client, session: &mut Session, cmd: Command) {
     match result {
         Ok((_op, body)) => {
             let mut stdout = std::io::stdout();
-            // REPL doesn't carry per-line clap flags, so we route the
-            // session-resolved output format through the default
-            // color / hyperlink policy (Auto: honors NO_COLOR / isatty).
-            let ctx = render_ctx(
-                session.output.clone(),
-                crate::parser::ColorMode::Auto,
-                crate::parser::HyperlinkMode::Auto,
-            );
+            // Per-line clap flags win over the session-resolved
+            // default. `--output / -o` and `--color` / `--hyperlinks`
+            // live on `GlobalOpts` (clap globals), so a line like
+            // `encode "foo" -o wide` lands as `globals.output =
+            // Some(Wide)` even though the rest of the REPL session
+            // is at session.output. Falling back to session.output
+            // when the per-line flag is absent preserves
+            // `\output wide`-style session overrides.
+            let output = globals
+                .output
+                .clone()
+                .unwrap_or_else(|| session.output.clone());
+            let ctx = render_ctx(output.clone(), globals.color, globals.hyperlinks);
             if let Err(e) = brain_explore::dispatch(body.as_ref(), &ctx, &mut stdout) {
                 eprintln!("output error: {e}");
             }
             if let Some(ms) = elapsed_ms {
+                // Footer follows the same per-line-override discipline
+                // as the dispatch above — the timing tail is only
+                // useful for human formats, and a per-line `-o json`
+                // would otherwise corrupt structured output with the
+                // stray "(N ms)" line.
                 if matches!(
-                    session.output,
+                    output,
                     OutputFormatArg::Auto | OutputFormatArg::Table | OutputFormatArg::Wide
                 ) {
                     use std::io::Write as _;

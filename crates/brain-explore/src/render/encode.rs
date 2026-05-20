@@ -395,6 +395,45 @@ mod tests {
         );
     }
 
+    // 6b. Wide mode renders the agent / embedder / edges block on
+    //     dedup hits too. Reported 2026-05-20: `encode ... -o wide`
+    //     on a dedup-hit response showed only the heading + content
+    //     + "no fresh write" footer, with no wide block at all. The
+    //     fix is structural (omit the "next:" hint on dedup hits but
+    //     keep the block); this test pins it.
+    #[test]
+    fn render_wide_mode_renders_block_on_dedup_hit() {
+        let mut r = sample();
+        r.response.was_deduplicated = true;
+        r.response.lsn = 0;
+        let out = render(&r, OutputFormat::Wide);
+        // Heading is the dedup-hit variant.
+        assert!(out.contains("↻ dedup hit"), "wide+dedup heading: {out}");
+        // The full wide block is present.
+        assert!(
+            out.contains("agent"),
+            "wide+dedup must surface agent row: {out}"
+        );
+        assert!(
+            out.contains("embedder"),
+            "wide+dedup must surface embedder row: {out}"
+        );
+        assert!(
+            out.contains("edges"),
+            "wide+dedup must surface edges row: {out}"
+        );
+        // No subscribe hint on dedup (no LSN to chain off).
+        assert!(
+            !out.contains("subscribe --start-lsn"),
+            "wide+dedup must not emit subscribe hint: {out}"
+        );
+        // Footer stays the dedup phrasing.
+        assert!(
+            out.contains("no fresh write"),
+            "wide+dedup must keep dedup footer: {out}"
+        );
+    }
+
     // 7. Wide mode shows stub warning for zero fingerprint.
     #[test]
     fn render_table_wide_mode_shows_stub_warning_for_zero_fingerprint() {
