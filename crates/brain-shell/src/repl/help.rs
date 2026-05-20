@@ -257,15 +257,25 @@ fn help_plan() -> HelpVerb {
     HelpVerb {
         name: "plan".into(),
         tagline: "plan a path".into(),
-        usage: vec!["plan <FROM> <TO> [--max-steps N] [--max-wall-time-ms N]".into()],
-        flags: vec![],
+        usage: vec!["plan <FROM> <TO> [flags]".into()],
+        flags: vec![
+            row("--max-steps N", "result cap; default 10"),
+            row(
+                "--max-wall-time-ms N",
+                "wall-time budget in ms; default 5000",
+            ),
+        ],
         sources: vec![],
         description: vec![
-            "Plan a path between two textual states. Returns an ordered list of intermediate memories that bridge the gap.".into(),
+            "Plan a path between two textual states. Returns an ordered list of intermediate memories — each step labelled with a confidence and a heuristic est_to_goal — that bridge the gap.".into(),
+            "The footer surfaces a `status=` line loudly when the result is not `GoalReached` (e.g. `MaxStepsHit`, `BudgetExhausted`) so partial results aren't mistaken for complete ones.".into(),
         ],
-        example: None,
+        example: Some(r#"plan "kickoff" "shipped" --max-steps 5"#.into()),
         see_also: vec!["reason".into(), "recall".into()],
-        reference: None,
+        reference: Some(HelpReference {
+            clap_command: "plan --help".into(),
+            doc_path: Some(doc_for("plan")),
+        }),
     }
 }
 
@@ -273,17 +283,26 @@ fn help_reason() -> HelpVerb {
     HelpVerb {
         name: "reason".into(),
         tagline: "derive inferences".into(),
-        usage: vec![
-            "reason <OBSERVATION> [--depth N] [--confidence F] [--max-inferences N]".into(),
+        usage: vec!["reason <OBSERVATION> [flags]".into()],
+        flags: vec![
+            row("--depth N", "reasoning depth; default 3"),
+            row(
+                "--confidence F",
+                "[0.0, 1.0] confidence threshold; default 0.0",
+            ),
+            row("--max-inferences N", "result cap; default 16"),
         ],
-        flags: vec![],
         sources: vec![],
         description: vec![
-            "Reason about a textual observation; returns a list of inference steps with the chain of supporting memories.".into(),
+            "Reason about a textual observation; returns a list of inference steps, each carrying a confidence and the chain of supporting memories that produced it.".into(),
+            "Depth bounds how many derivation hops the engine will chase; raising it surfaces longer chains at the cost of latency and noise.".into(),
         ],
-        example: None,
+        example: Some(r#"reason "the build broke" --depth 4 --confidence 0.5"#.into()),
         see_also: vec!["recall".into(), "plan".into()],
-        reference: None,
+        reference: Some(HelpReference {
+            clap_command: "reason --help".into(),
+            doc_path: Some(doc_for("reason")),
+        }),
     }
 }
 
@@ -367,7 +386,7 @@ fn help_unlink() -> HelpVerb {
 fn help_txn() -> HelpVerb {
     HelpVerb {
         name: "txn".into(),
-        tagline: "transactions".into(),
+        tagline: "multi-op atomicity".into(),
         usage: vec![
             "txn begin                     open a transaction (sticks to the session)".into(),
             "txn commit <ID>               commit by id".into(),
@@ -376,11 +395,16 @@ fn help_txn() -> HelpVerb {
         flags: vec![],
         sources: vec![],
         description: vec![
-            "Within an active txn, subsequent encode/forget/link/unlink calls inherit the txn id unless --txn is passed explicitly. `\\unset txn` drops the session's active txn without affecting the server-side transaction.".into(),
+            "Within an active txn, subsequent encode/forget/link/unlink calls inherit the txn id unless --txn is passed explicitly. The prompt switches to `brain*>` while a session txn is active so it's visible at a glance.".into(),
+            "`\\unset txn` drops the session's local handle on the txn without sending anything to the server — useful when you want to issue a one-off outside-the-txn read. The server-side transaction stays open until commit/abort.".into(),
+            "Recall reads inside a txn see the txn's pending writes — so encode + recall in one transaction is atomically self-consistent.".into(),
         ],
-        example: None,
-        see_also: vec!["encode".into(), "forget".into()],
-        reference: None,
+        example: Some("txn begin   →   encode \"...\"   →   recall \"...\"   →   txn commit <id>".into()),
+        see_also: vec!["encode".into(), "recall".into(), "forget".into()],
+        reference: Some(HelpReference {
+            clap_command: "txn --help".into(),
+            doc_path: Some(doc_for("txn")),
+        }),
     }
 }
 
@@ -388,17 +412,38 @@ fn help_subscribe() -> HelpVerb {
     HelpVerb {
         name: "subscribe".into(),
         tagline: "live event stream".into(),
-        usage: vec!["subscribe [--context N]... [--kind K]... [--collect N]".into()],
-        flags: vec![],
+        usage: vec!["subscribe [flags]".into()],
+        flags: vec![
+            row(
+                "--context N",
+                "filter to this context id; repeatable, up to 16",
+            ),
+            row(
+                "--kind K",
+                "episodic | semantic | consolidated; repeatable",
+            ),
+            row(
+                "--start-lsn N",
+                "replay history from this LSN before joining the live tail (0 = oldest)",
+            ),
+            row(
+                "--collect N",
+                "batch: wait for exactly N events then exit",
+            ),
+        ],
         sources: vec![],
         description: vec![
-            "Without --collect, streams forever — events render as they arrive, Ctrl-C or SIGTERM cancels cleanly (server-side registry entry is removed). With --collect N, blocks until N events arrive then exits.".into(),
-            "Filters within a kind/context are OR; across (kind AND context) is AND. --start-lsn / WAL replay is not supported in v1.".into(),
+            "Two modes. Streaming (default) tails forever — events flush per-line so `subscribe | jq` sees them as they arrive; Ctrl-C / SIGTERM unsubscribes cleanly. Batch (--collect N) waits for exactly N events and exits with the collected list.".into(),
+            "Structured output auto-downgrades to ndjson while streaming so pretty JSON / YAML don't buffer poorly across event boundaries. Table output stays as table.".into(),
+            "Filters within a kind/context list are OR; across (kind AND context) is AND. --start-lsn below the oldest retained LSN returns SubscriptionLsnTooOld with the actual oldest in the message.".into(),
             "In the REPL, bare `subscribe` blocks the prompt — prefer running it in a second terminal so the writer (encode / forget) can fire events.".into(),
         ],
-        example: None,
-        see_also: vec!["encode".into(), "forget".into()],
-        reference: None,
+        example: Some("subscribe --context 7 --start-lsn 0 --collect 50".into()),
+        see_also: vec!["encode".into(), "forget".into(), "recall".into()],
+        reference: Some(HelpReference {
+            clap_command: "subscribe --help".into(),
+            doc_path: Some(doc_for("subscribe")),
+        }),
     }
 }
 
@@ -591,6 +636,50 @@ mod tests {
         assert!(card.contains("<KIND>"));
         assert!(card.contains("--txn"));
         assert!(card.contains("unlink --help"));
+    }
+
+    #[test]
+    fn help_plan_lists_every_documented_flag() {
+        let card = render_card_table(&help_plan());
+        assert!(card.contains("--max-steps"));
+        assert!(card.contains("--max-wall-time-ms"));
+        assert!(card.contains("plan --help"));
+        // Status footer note is what stops users mistaking partial
+        // results for complete ones — must be in Notes.
+        assert!(card.contains("GoalReached"));
+    }
+
+    #[test]
+    fn help_reason_lists_every_documented_flag() {
+        let card = render_card_table(&help_reason());
+        assert!(card.contains("--depth"));
+        assert!(card.contains("--confidence"));
+        assert!(card.contains("--max-inferences"));
+        assert!(card.contains("reason --help"));
+    }
+
+    #[test]
+    fn help_txn_lists_subcommands_in_usage() {
+        // `txn` has sub-commands instead of flags — Flags block stays
+        // empty by design; Usage carries all three forms.
+        let card = render_card_table(&help_txn());
+        assert!(card.contains("txn begin"));
+        assert!(card.contains("txn commit"));
+        assert!(card.contains("txn abort"));
+        assert!(card.contains("txn --help"));
+    }
+
+    #[test]
+    fn help_subscribe_lists_every_documented_flag() {
+        let card = render_card_table(&help_subscribe());
+        assert!(card.contains("--context"));
+        assert!(card.contains("--kind"));
+        assert!(card.contains("--start-lsn"));
+        assert!(card.contains("--collect"));
+        assert!(card.contains("subscribe --help"));
+        // Notes must mention ndjson auto-downgrade so a scripting
+        // user doesn't get burned by buffered JSON.
+        assert!(card.contains("ndjson"));
     }
 
     #[test]
