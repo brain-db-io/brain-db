@@ -91,6 +91,38 @@ pub struct AgentEntry {
     pub created_at: String,
     #[serde(default, skip_serializing_if = "String::is_none_or_empty")]
     pub note: String,
+    /// At most one entry in the file may have `default = true`. It's
+    /// the fallback the resolver picks when nothing higher in the
+    /// precedence cascade (flag / env / active) fires. Mutated via
+    /// `\agent set-default <name>` or `brain agent set-default`;
+    /// auto-promoted on load when an existing file has no default
+    /// (the first agent ever created — typically the
+    /// freshly-minted-on-first-launch one).
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub default: bool,
+    /// At most one entry may be `active`. Flipped by `\agent use
+    /// <name>` and persisted so the next bare `brain` resumes on the
+    /// same agent. Resolution prefers `active` over `default`; the
+    /// distinction lets the user pin a long-term default while
+    /// session-hopping with `use`.
+    #[serde(default, skip_serializing_if = "is_false")]
+    pub active: bool,
+}
+
+impl Default for AgentEntry {
+    fn default() -> Self {
+        Self {
+            id: String::new(),
+            created_at: String::new(),
+            note: String::new(),
+            default: false,
+            active: false,
+        }
+    }
+}
+
+fn is_false(b: &bool) -> bool {
+    !*b
 }
 
 // Workaround: `String::is_empty` isn't a method-on-Option-of-String,
@@ -157,6 +189,15 @@ pub enum ConfigError {
 
     #[error("agent id is not a valid uuid: {0}")]
     AgentBadId(#[source] uuid::Error),
+
+    #[error("config has multiple agents marked default: {0:?}")]
+    MultipleDefaults(Vec<String>),
+
+    #[error("config has multiple agents marked active: {0:?}")]
+    MultipleActives(Vec<String>),
+
+    #[error("config has agents but none is marked default")]
+    MissingDefault,
 }
 
 // ---------------------------------------------------------------------------
@@ -187,6 +228,46 @@ pub fn path_in(config_dir: &Path) -> PathBuf {
 pub struct Config {
     pub file: ConfigFile,
     pub path: PathBuf,
+    /// Set when `load_or_default_at` had to fill in a missing
+    /// `default = true` / `active = true` marker on an existing file.
+    /// The load path does NOT rewrite the file (read-only by
+    /// convention); the next explicit `save` flushes the promotion.
+    /// The CLI surfaces this as a one-line stderr note alongside any
+    /// `MigrationNote`.
+    pub promotion: Option<PromotionNote>,
+}
+
+/// Side-effect note returned from the load path when an existing
+/// file's default/active flags had to be synthesised. Distinct from
+/// [`MigrationNote`] (which reports a file rewrite of the legacy
+/// `agent_id = ...` shape) because in-memory promotion intentionally
+/// leaves the file untouched until the next save.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PromotionNote {
+    /// No agent was marked `default`; the oldest entry was promoted
+    /// in memory.
+    PromotedDefault { name: String },
+    /// No agent was marked `active`; the default was mirrored to
+    /// `active` in memory.
+    PromotedActive { name: String },
+    /// Both flags were missing; the oldest entry was promoted and
+    /// also marked active.
+    PromotedDefaultAndActive { name: String },
+}
+
+/// Opt-in promotion when creating a new agent. Default is no
+/// promotion, preserving any existing default/active markers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum AgentPromotion {
+    /// Don't touch default/active. Existing markers stay put.
+    #[default]
+    None,
+    /// Mark the new agent as the file's sole default; clear the
+    /// prior default if any.
+    Default,
+    /// Mark the new agent as both default and active; clear any
+    /// prior holders of either flag.
+    DefaultAndActive,
 }
 
 impl Config {
@@ -202,11 +283,13 @@ impl Config {
     pub fn load_or_default_at(path: &Path) -> Result<(Self, Option<MigrationNote>), ConfigError> {
         match fs::read_to_string(path) {
             Ok(contents) => {
-                let (file, note) = parse_or_migrate(&contents, path)?;
+                let (mut file, note) = parse_or_migrate(&contents, path)?;
+                let promotion = promote_if_needed(&mut file);
                 Ok((
                     Self {
                         file,
                         path: path.to_path_buf(),
+                        promotion,
                     },
                     note,
                 ))
@@ -215,6 +298,7 @@ impl Config {
                 Self {
                     file: ConfigFile::default(),
                     path: path.to_path_buf(),
+                    promotion: None,
                 },
                 None,
             )),
@@ -226,9 +310,43 @@ impl Config {
     }
 
     /// Atomically render and rewrite the file. Creates the parent
-    /// directory if missing, chmod 600 on Unix.
+    /// directory if missing, chmod 600 on Unix. Validates the
+    /// default/active invariants first; on failure the file is left
+    /// untouched so the in-memory state stays observable.
     pub fn save(&self) -> Result<(), ConfigError> {
+        self.validate()?;
         save_atomic(&self.path, &self.file)
+    }
+
+    /// Enforce the file-level invariants on default/active. Centralised
+    /// here so every mutation path (typed setters, hand-edits loaded
+    /// off disk later, future syncs) gets the same check at the only
+    /// boundary that touches the filesystem.
+    fn validate(&self) -> Result<(), ConfigError> {
+        let defaults: Vec<String> = self
+            .file
+            .agents
+            .iter()
+            .filter(|(_, e)| e.default)
+            .map(|(n, _)| n.clone())
+            .collect();
+        if defaults.len() > 1 {
+            return Err(ConfigError::MultipleDefaults(defaults));
+        }
+        let actives: Vec<String> = self
+            .file
+            .agents
+            .iter()
+            .filter(|(_, e)| e.active)
+            .map(|(n, _)| n.clone())
+            .collect();
+        if actives.len() > 1 {
+            return Err(ConfigError::MultipleActives(actives));
+        }
+        if !self.file.agents.is_empty() && defaults.is_empty() {
+            return Err(ConfigError::MissingDefault);
+        }
+        Ok(())
     }
 
     pub fn settings(&self) -> &Settings {
@@ -354,30 +472,59 @@ impl Config {
     // ----- agent CRUD --------------------------------------------
 
     /// Insert a fresh agent. Mints a UUIDv7 and stamps `created_at`.
-    /// Errors if the name already exists or is invalid.
-    pub fn create_agent(&mut self, name: &str, note: &str) -> Result<&AgentEntry, ConfigError> {
+    /// Errors if the name already exists or is invalid. `promote`
+    /// selects whether the new entry should also claim default and/or
+    /// active — the caller passes `AgentPromotion::None` for the
+    /// common case where flags don't change. Promotion clears the
+    /// corresponding flag on any prior holder so the file-level
+    /// "at most one" invariant always holds post-insert.
+    pub fn create_agent(
+        &mut self,
+        name: &str,
+        note: &str,
+        promote: AgentPromotion,
+    ) -> Result<&AgentEntry, ConfigError> {
         validate_agent_name(name)?;
         if self.file.agents.contains_key(name) {
             return Err(ConfigError::AgentExists {
                 name: name.to_owned(),
             });
         }
+        let (default, active) = match promote {
+            AgentPromotion::None => (false, false),
+            AgentPromotion::Default => (true, false),
+            AgentPromotion::DefaultAndActive => (true, true),
+        };
+        if default {
+            for entry in self.file.agents.values_mut() {
+                entry.default = false;
+            }
+        }
+        if active {
+            for entry in self.file.agents.values_mut() {
+                entry.active = false;
+            }
+        }
         let entry = AgentEntry {
             id: Uuid::now_v7().to_string(),
             created_at: now_rfc3339(),
             note: note.to_owned(),
+            default,
+            active,
         };
         self.file.agents.insert(name.to_owned(), entry);
         Ok(self.file.agents.get(name).expect("just inserted"))
     }
 
     /// Insert an externally-supplied id under a local name — for
-    /// sharing across machines / teammates.
+    /// sharing across machines / teammates. See [`Self::create_agent`]
+    /// for the `promote` semantics.
     pub fn import_agent(
         &mut self,
         name: &str,
         id: &str,
         note: &str,
+        promote: AgentPromotion,
     ) -> Result<&AgentEntry, ConfigError> {
         validate_agent_name(name)?;
         Uuid::parse_str(id).map_err(ConfigError::AgentBadId)?;
@@ -386,13 +533,80 @@ impl Config {
                 name: name.to_owned(),
             });
         }
+        let (default, active) = match promote {
+            AgentPromotion::None => (false, false),
+            AgentPromotion::Default => (true, false),
+            AgentPromotion::DefaultAndActive => (true, true),
+        };
+        if default {
+            for entry in self.file.agents.values_mut() {
+                entry.default = false;
+            }
+        }
+        if active {
+            for entry in self.file.agents.values_mut() {
+                entry.active = false;
+            }
+        }
         let entry = AgentEntry {
             id: id.to_owned(),
             created_at: now_rfc3339(),
             note: note.to_owned(),
+            default,
+            active,
         };
         self.file.agents.insert(name.to_owned(), entry);
         Ok(self.file.agents.get(name).expect("just inserted"))
+    }
+
+    /// Look up the agent currently marked default, if any.
+    pub fn default_agent(&self) -> Option<(&str, &AgentEntry)> {
+        self.file
+            .agents
+            .iter()
+            .find(|(_, e)| e.default)
+            .map(|(n, e)| (n.as_str(), e))
+    }
+
+    /// Look up the agent currently marked active, if any.
+    pub fn active_agent(&self) -> Option<(&str, &AgentEntry)> {
+        self.file
+            .agents
+            .iter()
+            .find(|(_, e)| e.active)
+            .map(|(n, e)| (n.as_str(), e))
+    }
+
+    /// Flip `active = true` on `name` and clear it on every other
+    /// agent, then persist. Errors (without mutating) if `name` is
+    /// unknown. Used by `\agent use <name>` in commit M3.
+    pub fn set_active(&mut self, name: &str) -> Result<(), ConfigError> {
+        if !self.file.agents.contains_key(name) {
+            return Err(ConfigError::AgentUnknown {
+                name: name.to_owned(),
+                suggestion: closest_agent(name, &self.file.agents),
+            });
+        }
+        for (n, entry) in self.file.agents.iter_mut() {
+            entry.active = n == name;
+        }
+        self.save()
+    }
+
+    /// Flip `default = true` on `name` and clear it on every other
+    /// agent, then persist. Errors (without mutating) if `name` is
+    /// unknown.
+    pub fn set_default(&mut self, name: &str) -> Result<(), ConfigError> {
+        if !self.file.agents.contains_key(name) {
+            return Err(ConfigError::AgentUnknown {
+                name: name.to_owned(),
+                suggestion: closest_agent(name, &self.file.agents),
+            });
+        }
+        for (n, entry) in self.file.agents.iter_mut() {
+            entry.default = n == name;
+        }
+        self.save()
     }
 
     pub fn rename_agent(&mut self, old: &str, new: &str) -> Result<(), ConfigError> {
@@ -484,6 +698,15 @@ fn parse_or_migrate(
                             id: legacy.agent_id,
                             created_at: now_rfc3339(),
                             note: "migrated from legacy singleton".to_owned(),
+                            // The migrated entry is the file's only
+                            // agent; satisfy the file-level "at least
+                            // one default" invariant immediately so the
+                            // rewritten file survives validate() on
+                            // its next save. Mirroring to `active`
+                            // keeps it usable by bare `brain`
+                            // (post-M3) without an extra `\agent use`.
+                            default: true,
+                            active: true,
                         },
                     );
                     let migrated = ConfigFile {
@@ -505,6 +728,64 @@ fn parse_or_migrate(
                 }),
             }
         }
+    }
+}
+
+/// Fill in `default = true` / `active = true` on a freshly-parsed
+/// file that doesn't yet carry them. Does NOT touch disk — the caller
+/// is the load path and load is read-only by convention. The next
+/// explicit `save` flushes the synthesised state.
+fn promote_if_needed(file: &mut ConfigFile) -> Option<PromotionNote> {
+    if file.agents.is_empty() {
+        return None;
+    }
+    let has_default = file.agents.values().any(|e| e.default);
+    let promoted_default = if !has_default {
+        // Oldest wins. RFC3339 lex order matches chronological order
+        // for any sane stamps, and we control the writer so the
+        // assumption holds. Tie-break on name (BTreeMap iteration
+        // order) is deterministic.
+        let oldest = file
+            .agents
+            .iter()
+            .min_by(|(an, ae), (bn, be)| ae.created_at.cmp(&be.created_at).then(an.cmp(bn)))
+            .map(|(n, _)| n.clone());
+        if let Some(name) = oldest {
+            file.agents.get_mut(&name).expect("just found").default = true;
+            Some(name)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    let has_active = file.agents.values().any(|e| e.active);
+    let promoted_active = if !has_active {
+        // Active mirrors the (now-guaranteed) default — the resolver
+        // treats `active` as the steady-state pick and `default` as
+        // the fallback, so an unset `active` on a populated file is a
+        // legacy artefact, not a deliberate "no current session".
+        let default_name = file
+            .agents
+            .iter()
+            .find(|(_, e)| e.default)
+            .map(|(n, _)| n.clone());
+        if let Some(name) = default_name {
+            file.agents.get_mut(&name).expect("just found").active = true;
+            Some(name)
+        } else {
+            None
+        }
+    } else {
+        None
+    };
+    match (promoted_default, promoted_active) {
+        (Some(d), Some(a)) if d == a => Some(PromotionNote::PromotedDefaultAndActive { name: d }),
+        (Some(d), None) => Some(PromotionNote::PromotedDefault { name: d }),
+        (None, Some(a)) => Some(PromotionNote::PromotedActive { name: a }),
+        // (Some(d), Some(a)) with d != a is unreachable: active is
+        // only promoted to mirror the just-set default.
+        _ => None,
     }
 }
 
@@ -682,7 +963,8 @@ mod tests {
         c.set("output", "json").unwrap();
         c.set("timing", "true").unwrap();
         c.set("sticky_context", "7").unwrap();
-        c.create_agent("work", "prod notebook").unwrap();
+        c.create_agent("work", "prod notebook", AgentPromotion::DefaultAndActive)
+            .unwrap();
         c.save().unwrap();
 
         let (re, note) = Config::load_or_default_at(&path).unwrap();
@@ -699,7 +981,8 @@ mod tests {
         let t = TempDir::new().unwrap();
         let path = cfg_path(&t);
         let mut c = Config::load_or_default_at(&path).unwrap().0;
-        c.create_agent("a", "").unwrap();
+        c.create_agent("a", "", AgentPromotion::DefaultAndActive)
+            .unwrap();
         c.save().unwrap();
         #[cfg(unix)]
         {
@@ -794,7 +1077,10 @@ mod tests {
     fn create_agent_writes_uuid_and_timestamp() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        let e = c.create_agent("work", "prod notebook").unwrap().clone();
+        let e = c
+            .create_agent("work", "prod notebook", AgentPromotion::None)
+            .unwrap()
+            .clone();
         Uuid::parse_str(&e.id).expect("id is a uuid");
         assert!(e.created_at.contains('T') && e.created_at.ends_with('Z'));
         assert_eq!(e.note, "prod notebook");
@@ -804,8 +1090,10 @@ mod tests {
     fn create_agent_duplicate_errors() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        c.create_agent("work", "").unwrap();
-        let err = c.create_agent("work", "").unwrap_err();
+        c.create_agent("work", "", AgentPromotion::None).unwrap();
+        let err = c
+            .create_agent("work", "", AgentPromotion::None)
+            .unwrap_err();
         assert!(
             matches!(err, ConfigError::AgentExists { .. }),
             "got {err:?}"
@@ -816,7 +1104,7 @@ mod tests {
     fn rename_agent_atomic() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        c.create_agent("work", "").unwrap();
+        c.create_agent("work", "", AgentPromotion::None).unwrap();
         c.rename_agent("work", "prod").unwrap();
         assert!(c.get_agent("work").is_err());
         assert!(c.get_agent("prod").is_ok());
@@ -826,8 +1114,8 @@ mod tests {
     fn rename_to_existing_target_preserves_source() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        c.create_agent("a", "").unwrap();
-        c.create_agent("b", "").unwrap();
+        c.create_agent("a", "", AgentPromotion::None).unwrap();
+        c.create_agent("b", "", AgentPromotion::None).unwrap();
         let err = c.rename_agent("a", "b").unwrap_err();
         assert!(
             matches!(err, ConfigError::AgentExists { .. }),
@@ -841,7 +1129,11 @@ mod tests {
     fn delete_agent_returns_removed_entry() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        let original = c.create_agent("work", "").unwrap().id.clone();
+        let original = c
+            .create_agent("work", "", AgentPromotion::None)
+            .unwrap()
+            .id
+            .clone();
         let removed = c.delete_agent("work").unwrap();
         assert_eq!(removed.id, original);
         assert!(c.get_agent("work").is_err());
@@ -851,7 +1143,7 @@ mod tests {
     fn delete_unknown_errors_with_hint() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        c.create_agent("work", "").unwrap();
+        c.create_agent("work", "", AgentPromotion::None).unwrap();
         let err = c.delete_agent("wokr").unwrap_err();
         match err {
             ConfigError::AgentUnknown { name, suggestion } => {
@@ -868,7 +1160,7 @@ mod tests {
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
         let id = "019e3b00-0000-7000-8000-000000000001";
         let e = c
-            .import_agent("shared", id, "from teammate")
+            .import_agent("shared", id, "from teammate", AgentPromotion::None)
             .unwrap()
             .clone();
         assert_eq!(e.id, id);
@@ -879,7 +1171,9 @@ mod tests {
     fn import_agent_rejects_bad_uuid() {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
-        let err = c.import_agent("shared", "not-a-uuid", "").unwrap_err();
+        let err = c
+            .import_agent("shared", "not-a-uuid", "", AgentPromotion::None)
+            .unwrap_err();
         assert!(matches!(err, ConfigError::AgentBadId(_)), "got {err:?}");
     }
 
@@ -888,7 +1182,7 @@ mod tests {
         let t = TempDir::new().unwrap();
         let mut c = Config::load_or_default_at(&cfg_path(&t)).unwrap().0;
         for bad in ["", "has space", "has/slash", &"x".repeat(100)] {
-            let err = c.create_agent(bad, "").unwrap_err();
+            let err = c.create_agent(bad, "", AgentPromotion::None).unwrap_err();
             assert!(
                 matches!(err, ConfigError::AgentBadName { .. }),
                 "got {err:?}"
@@ -931,5 +1225,292 @@ mod tests {
         fs::write(&path, "agent_id = \"not-a-uuid\"\n").unwrap();
         let err = Config::load_or_default_at(&path).unwrap_err();
         assert!(matches!(err, ConfigError::AgentBadId(_)), "got {err:?}");
+    }
+
+    // ----- M2: default/active invariants -------------------------
+
+    /// Build a valid populated config (one default+active agent),
+    /// save it, then return path + a reloaded handle the test can
+    /// mutate further. Keeps the per-test fixture noise down.
+    fn seeded(t: &TempDir, names: &[&str]) -> (PathBuf, Config) {
+        let path = cfg_path(t);
+        let mut c = Config::load_or_default_at(&path).unwrap().0;
+        for (i, n) in names.iter().enumerate() {
+            let promote = if i == 0 {
+                AgentPromotion::DefaultAndActive
+            } else {
+                AgentPromotion::None
+            };
+            c.create_agent(n, "", promote).unwrap();
+        }
+        c.save().unwrap();
+        let c = Config::load_or_default_at(&path).unwrap().0;
+        (path, c)
+    }
+
+    #[test]
+    fn save_rejects_two_defaults() {
+        let t = TempDir::new().unwrap();
+        let (path, mut c) = seeded(&t, &["a", "b"]);
+        let original = fs::read_to_string(&path).unwrap();
+        // Force a second default in memory.
+        c.file.agents.get_mut("b").unwrap().default = true;
+        let err = c.save().unwrap_err();
+        match err {
+            ConfigError::MultipleDefaults(names) => {
+                assert!(names.contains(&"a".to_string()));
+                assert!(names.contains(&"b".to_string()));
+            }
+            other => panic!("expected MultipleDefaults, got {other:?}"),
+        }
+        // The on-disk file must be untouched.
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn save_rejects_two_actives() {
+        let t = TempDir::new().unwrap();
+        let (path, mut c) = seeded(&t, &["a", "b"]);
+        let original = fs::read_to_string(&path).unwrap();
+        c.file.agents.get_mut("b").unwrap().active = true;
+        let err = c.save().unwrap_err();
+        assert!(
+            matches!(err, ConfigError::MultipleActives(_)),
+            "got {err:?}"
+        );
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn save_rejects_non_empty_without_default() {
+        let t = TempDir::new().unwrap();
+        let (path, mut c) = seeded(&t, &["a"]);
+        let original = fs::read_to_string(&path).unwrap();
+        c.file.agents.get_mut("a").unwrap().default = false;
+        let err = c.save().unwrap_err();
+        assert!(matches!(err, ConfigError::MissingDefault), "got {err:?}");
+        assert_eq!(fs::read_to_string(&path).unwrap(), original);
+    }
+
+    #[test]
+    fn load_promotes_oldest_to_default_when_none_marked() {
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        // Hand-rolled legacy-shape file: two agents, no default/active,
+        // distinct created_at so the oldest is unambiguous.
+        let body = "\
+            [agents.newer]\n\
+            id = \"019e3b00-0000-7000-8000-000000000002\"\n\
+            created_at = \"2024-02-01T00:00:00Z\"\n\
+            \n\
+            [agents.older]\n\
+            id = \"019e3b00-0000-7000-8000-000000000001\"\n\
+            created_at = \"2024-01-01T00:00:00Z\"\n\
+        ";
+        fs::write(&path, body).unwrap();
+        let (c, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(c.file.agents["older"].default);
+        assert!(!c.file.agents["newer"].default);
+        // Promotion was both default and active because neither was
+        // present originally — the combined variant fires.
+        assert_eq!(
+            c.promotion,
+            Some(PromotionNote::PromotedDefaultAndActive {
+                name: "older".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn load_promotes_default_to_active_when_no_active() {
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = "\
+            [agents.foo]\n\
+            id = \"019e3b00-0000-7000-8000-000000000001\"\n\
+            created_at = \"2024-01-01T00:00:00Z\"\n\
+            default = true\n\
+        ";
+        fs::write(&path, body).unwrap();
+        let (c, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(c.file.agents["foo"].default);
+        assert!(c.file.agents["foo"].active);
+        assert_eq!(
+            c.promotion,
+            Some(PromotionNote::PromotedActive {
+                name: "foo".to_owned()
+            })
+        );
+    }
+
+    #[test]
+    fn load_does_not_rewrite_file_on_promotion() {
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = "\
+            [agents.foo]\n\
+            id = \"019e3b00-0000-7000-8000-000000000001\"\n\
+            created_at = \"2024-01-01T00:00:00Z\"\n\
+        ";
+        fs::write(&path, body).unwrap();
+        let before = fs::read_to_string(&path).unwrap();
+        let _ = Config::load_or_default_at(&path).unwrap();
+        let after = fs::read_to_string(&path).unwrap();
+        assert_eq!(before, after, "load must not touch the file");
+    }
+
+    #[test]
+    fn legacy_file_without_default_or_active_loads_clean() {
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = "\
+            [agents.foo]\n\
+            id = \"019e3b00-0000-7000-8000-000000000001\"\n\
+            created_at = \"2024-01-01T00:00:00Z\"\n\
+            note = \"bar\"\n\
+        ";
+        fs::write(&path, body).unwrap();
+        let (c, migration) = Config::load_or_default_at(&path).unwrap();
+        // No file-rewrite migration, because the schema parsed fine.
+        assert!(migration.is_none());
+        let entry = c.get_agent("foo").unwrap();
+        assert_eq!(entry.id, "019e3b00-0000-7000-8000-000000000001");
+        assert_eq!(entry.note, "bar");
+        // Save survives validation now that promotion synthesised
+        // the default/active flags.
+        c.save().unwrap();
+    }
+
+    #[test]
+    fn legacy_file_with_one_agent_promotes_both_flags() {
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let body = "\
+            [agents.solo]\n\
+            id = \"019e3b00-0000-7000-8000-000000000001\"\n\
+            created_at = \"2024-01-01T00:00:00Z\"\n\
+        ";
+        fs::write(&path, body).unwrap();
+        let (c, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(c.file.agents["solo"].default);
+        assert!(c.file.agents["solo"].active);
+    }
+
+    #[test]
+    fn create_agent_promotion_none_doesnt_change_existing_default() {
+        let t = TempDir::new().unwrap();
+        let (_, mut c) = seeded(&t, &["a"]);
+        c.create_agent("b", "", AgentPromotion::None).unwrap();
+        assert!(c.file.agents["a"].default);
+        assert!(c.file.agents["a"].active);
+        assert!(!c.file.agents["b"].default);
+        assert!(!c.file.agents["b"].active);
+    }
+
+    #[test]
+    fn create_agent_promotion_default_unsets_prior_default() {
+        let t = TempDir::new().unwrap();
+        let (_, mut c) = seeded(&t, &["a"]);
+        c.create_agent("b", "", AgentPromotion::Default).unwrap();
+        assert!(!c.file.agents["a"].default);
+        assert!(c.file.agents["b"].default);
+        // `active` on `a` is left alone — Default doesn't touch active.
+        assert!(c.file.agents["a"].active);
+        assert!(!c.file.agents["b"].active);
+    }
+
+    #[test]
+    fn create_agent_promotion_default_and_active_unsets_both_priors() {
+        let t = TempDir::new().unwrap();
+        let (_, mut c) = seeded(&t, &["a"]);
+        c.create_agent("b", "", AgentPromotion::DefaultAndActive)
+            .unwrap();
+        assert!(!c.file.agents["a"].default);
+        assert!(!c.file.agents["a"].active);
+        assert!(c.file.agents["b"].default);
+        assert!(c.file.agents["b"].active);
+    }
+
+    #[test]
+    fn set_active_flips_flags_and_persists() {
+        let t = TempDir::new().unwrap();
+        let (path, mut c) = seeded(&t, &["a", "b"]);
+        c.set_active("b").unwrap();
+        assert!(!c.file.agents["a"].active);
+        assert!(c.file.agents["b"].active);
+        // Persisted.
+        let (re, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(re.file.agents["b"].active);
+        assert!(!re.file.agents["a"].active);
+    }
+
+    #[test]
+    fn set_active_unknown_name_errors_no_mutation() {
+        let t = TempDir::new().unwrap();
+        let (_, mut c) = seeded(&t, &["a"]);
+        let err = c.set_active("nope").unwrap_err();
+        match err {
+            ConfigError::AgentUnknown { name, .. } => assert_eq!(name, "nope"),
+            other => panic!("expected AgentUnknown, got {other:?}"),
+        }
+        // `a` is still active.
+        assert!(c.file.agents["a"].active);
+    }
+
+    #[test]
+    fn set_default_flips_flags_and_persists() {
+        let t = TempDir::new().unwrap();
+        let (path, mut c) = seeded(&t, &["a", "b"]);
+        c.set_default("b").unwrap();
+        assert!(!c.file.agents["a"].default);
+        assert!(c.file.agents["b"].default);
+        let (re, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(re.file.agents["b"].default);
+        assert!(!re.file.agents["a"].default);
+    }
+
+    #[test]
+    fn default_agent_returns_marked_entry() {
+        let t = TempDir::new().unwrap();
+        let (_, c) = seeded(&t, &["a", "b"]);
+        let (name, entry) = c.default_agent().expect("a is default");
+        assert_eq!(name, "a");
+        assert!(entry.default);
+    }
+
+    #[test]
+    fn active_agent_returns_marked_entry() {
+        let t = TempDir::new().unwrap();
+        let (_, c) = seeded(&t, &["a", "b"]);
+        let (name, entry) = c.active_agent().expect("a is active");
+        assert_eq!(name, "a");
+        assert!(entry.active);
+    }
+
+    #[test]
+    fn legacy_singleton_migration_marks_default_and_active() {
+        // The legacy-file migration path synthesises a `default`
+        // agent; verify the new invariant flags are set so a
+        // subsequent save survives validate().
+        let t = TempDir::new().unwrap();
+        let path = cfg_path(&t);
+        fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let legacy = "019e3b00-0000-7000-8000-000000000001";
+        fs::write(&path, format!("agent_id = \"{legacy}\"\n")).unwrap();
+        let (c, note) = Config::load_or_default_at(&path).unwrap();
+        assert!(note.is_some());
+        let entry = c.get_agent("default").unwrap();
+        assert!(entry.default);
+        assert!(entry.active);
+        // And the file is already saved by parse_or_migrate; reloading
+        // must keep the invariants.
+        let (re, _) = Config::load_or_default_at(&path).unwrap();
+        assert!(re.get_agent("default").unwrap().default);
+        assert!(re.get_agent("default").unwrap().active);
     }
 }

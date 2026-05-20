@@ -5,13 +5,18 @@ use uuid::Uuid;
 
 use super::resolve::*;
 use super::source::*;
-use crate::cli::config::{path_in, Config};
+use crate::cli::config::{path_in, AgentPromotion, Config};
 
 fn seed_config(t: &TempDir, names: &[&str]) -> PathBuf {
     let path = path_in(t.path());
     let mut c = Config::load_or_default_at(&path).unwrap().0;
-    for n in names {
-        c.create_agent(n, "").unwrap();
+    for (i, n) in names.iter().enumerate() {
+        let promote = if i == 0 {
+            AgentPromotion::DefaultAndActive
+        } else {
+            AgentPromotion::None
+        };
+        c.create_agent(n, "", promote).unwrap();
     }
     c.save().unwrap();
     path

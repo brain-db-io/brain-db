@@ -397,7 +397,16 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
             }
         }
         AgentCommand::Create { name, note } => {
-            match config.create_agent(&name, note.as_deref().unwrap_or("")) {
+            // First-ever agent must claim default+active so the file
+            // satisfies the "non-empty implies a default" invariant
+            // on save. Subsequent creates leave the existing default
+            // alone; the user picks via `\agent set-default`.
+            let promote = if config.agents().is_empty() {
+                crate::cli::config::AgentPromotion::DefaultAndActive
+            } else {
+                crate::cli::config::AgentPromotion::None
+            };
+            match config.create_agent(&name, note.as_deref().unwrap_or(""), promote) {
                 Ok(entry) => {
                     let id = entry.id.clone();
                     match config.save() {
@@ -459,7 +468,12 @@ fn run_agent(cmd: AgentCommand, agent_flag: Option<&str>, agent_id_flag: Option<
             }
         }
         AgentCommand::Import { name, id, note } => {
-            match config.import_agent(&name, &id, note.as_deref().unwrap_or("")) {
+            let promote = if config.agents().is_empty() {
+                crate::cli::config::AgentPromotion::DefaultAndActive
+            } else {
+                crate::cli::config::AgentPromotion::None
+            };
+            match config.import_agent(&name, &id, note.as_deref().unwrap_or(""), promote) {
                 Ok(_) => match config.save() {
                     Ok(()) => {
                         println!("imported agent '{name}' ({id})");

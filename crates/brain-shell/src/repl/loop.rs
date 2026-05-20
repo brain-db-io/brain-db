@@ -571,7 +571,14 @@ fn handle_agent_sub(sub: AgentSub, session: &mut Session, agent_source: &AgentId
             }
         }
         AgentSub::Create { name, note } => {
-            match config.create_agent(&name, note.as_deref().unwrap_or("")) {
+            // Mirror the CLI's first-create-promotes invariant fix so
+            // the in-shell create path also keeps the file valid.
+            let promote = if config.agents().is_empty() {
+                crate::cli::config::AgentPromotion::DefaultAndActive
+            } else {
+                crate::cli::config::AgentPromotion::None
+            };
+            match config.create_agent(&name, note.as_deref().unwrap_or(""), promote) {
                 Ok(e) => {
                     let id = e.id.clone();
                     if let Err(err) = config.save() {
