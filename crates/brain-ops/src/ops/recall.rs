@@ -116,7 +116,27 @@ async fn substrate_recall(
         ctx.access_buffer.record(h.memory_id);
     }
 
-    let results: Vec<MemoryResult> = hits.into_iter().map(hit_to_wire).collect();
+    // When include_edges is set, fetch outgoing builtin edges for each
+    // surviving hit. Mentions / typed-relation edges (knowledge layer)
+    // are filtered out — they're answered by separate ops (entity_get,
+    // relation_list), not by the RECALL response. One redb read txn
+    // serves every hit.
+    let edges_per_hit = if req.include_edges {
+        Some(fetch_outgoing_edges_for(&hits, ctx)?)
+    } else {
+        None
+    };
+
+    let results: Vec<MemoryResult> = hits
+        .into_iter()
+        .enumerate()
+        .map(|(i, h)| {
+            let edges = edges_per_hit
+                .as_ref()
+                .and_then(|v| v.get(i).cloned());
+            hit_to_wire(h, edges)
+        })
+        .collect();
     let cumulative_count = u32::try_from(results.len()).unwrap_or(u32::MAX);
 
     Ok(RecallResponseFrame {
@@ -209,6 +229,55 @@ fn merge_with_txn(
     Ok(hits)
 }
 
+/// For each `RecallHit`, walk the unified edge table prefix-scanned at
+/// (NodeRef::Memory(hit.memory_id), *, *) and project to the wire
+/// `EdgeView` shape. One redb read transaction serves every hit so the
+/// cost is amortised. Only `EdgeKindRef::Builtin` edges are included —
+/// memory→entity (`Mentions`) and typed relations belong to the
+/// knowledge-layer ops, not to RECALL.
+fn fetch_outgoing_edges_for(
+    hits: &[brain_planner::RecallHit],
+    ctx: &OpsContext,
+) -> Result<Vec<Vec<brain_protocol::response::EdgeView>>, OpError> {
+    use brain_core::NodeRef;
+    use brain_metadata::tables::edge::walk_outgoing;
+
+    let db_guard = ctx.executor.metadata.lock();
+    let rtxn = db_guard
+        .read_txn()
+        .map_err(|e| OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string())))?;
+    let mut out: Vec<Vec<brain_protocol::response::EdgeView>> = Vec::with_capacity(hits.len());
+    for hit in hits {
+        let rows = walk_outgoing(&rtxn, NodeRef::Memory(hit.memory_id), None).map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+        let edges: Vec<brain_protocol::response::EdgeView> = rows
+            .into_iter()
+            .filter_map(|(kind, to, _disamb, data)| {
+                // Only builtin substrate edges (Caused / FollowedBy /
+                // DerivedFrom / SimilarTo / Contradicts / Supports /
+                // References / PartOf) surface in RECALL. Mentions and
+                // typed relations are knowledge-layer surface.
+                let builtin = match kind {
+                    brain_core::EdgeKindRef::Builtin(k) => k,
+                    _ => return None,
+                };
+                let target = match to {
+                    NodeRef::Memory(mid) => mid,
+                    _ => return None,
+                };
+                Some(brain_protocol::response::EdgeView {
+                    target: target.into(),
+                    kind: builtin.into(),
+                    weight: data.weight,
+                })
+            })
+            .collect();
+        out.push(edges);
+    }
+    Ok(out)
+}
+
 fn cosine(a: &[f32; brain_embed::VECTOR_DIM], b: &[f32; brain_embed::VECTOR_DIM]) -> f32 {
     let mut dot = 0.0_f32;
     let mut na = 0.0_f32;
@@ -226,7 +295,7 @@ fn cosine(a: &[f32; brain_embed::VECTOR_DIM], b: &[f32; brain_embed::VECTOR_DIM]
     }
 }
 
-fn hit_to_wire(hit: RecallHit) -> MemoryResult {
+fn hit_to_wire(hit: RecallHit, edges: Option<Vec<brain_protocol::response::EdgeView>>) -> MemoryResult {
     MemoryResult {
         memory_id: hit.memory_id.into(),
         text: hit.text.unwrap_or_default(),
@@ -237,7 +306,7 @@ fn hit_to_wire(hit: RecallHit) -> MemoryResult {
         context_id: hit.context_id.into(),
         created_at_unix_nanos: hit.created_at_unix_nanos,
         last_accessed_at_unix_nanos: hit.last_accessed_at_unix_nanos,
-        edges: None,
+        edges,
         // Substrate path — no hybrid metadata.
         contributing_retrievers: Vec::new(),
         fused_score: 0.0,
@@ -441,6 +510,42 @@ fn project_memory_results(
             .find(|c| matches!(c.retriever, Retriever::Semantic))
             .map(|c| c.raw_score)
             .unwrap_or(0.0);
+        // Per-hit outgoing-edge projection — only builtin substrate
+        // edges. Knowledge-layer edges (Mentions / Typed) belong to
+        // entity/relation ops, not RECALL. The rtxn opened above
+        // serves every hit; one prefix scan per memory.
+        let edges = if req.include_edges {
+            use brain_core::NodeRef;
+            let rows = brain_metadata::tables::edge::walk_outgoing(
+                &rtxn,
+                NodeRef::Memory(memory_id),
+                None,
+            )
+            .map_err(|e| {
+                OpError::Internal(format!("hybrid recall walk_outgoing: {e}"))
+            })?;
+            Some(
+                rows.into_iter()
+                    .filter_map(|(kind, to, _disamb, data)| {
+                        let builtin = match kind {
+                            brain_core::EdgeKindRef::Builtin(k) => k,
+                            _ => return None,
+                        };
+                        let target = match to {
+                            NodeRef::Memory(mid) => mid,
+                            _ => return None,
+                        };
+                        Some(brain_protocol::response::EdgeView {
+                            target: target.into(),
+                            kind: builtin.into(),
+                            weight: data.weight,
+                        })
+                    })
+                    .collect::<Vec<_>>(),
+            )
+        } else {
+            None
+        };
         out.push(MemoryResult {
             memory_id: memory_id.raw(),
             text,
@@ -456,7 +561,7 @@ fn project_memory_results(
             context_id: ContextId(row.context_id).into(),
             created_at_unix_nanos: row.created_at_unix_nanos,
             last_accessed_at_unix_nanos: row.last_accessed_at_unix_nanos,
-            edges: None,
+            edges,
             contributing_retrievers: fused
                 .contributing
                 .iter()

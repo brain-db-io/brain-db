@@ -35,7 +35,8 @@ pub async fn run(
         .top_k(args.top_k)
         .confidence_threshold(args.confidence)
         .salience_floor(args.salience_floor)
-        .include_text(args.include_text);
+        .include_text(args.include_text)
+        .include_edges(args.include_edges);
     if !args.filter_context.is_empty() {
         b = b.context_filter(args.filter_context);
     }

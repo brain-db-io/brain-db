@@ -88,6 +88,27 @@ impl Render for RecallResults {
                 let max = policy.width.saturating_sub(6);
                 writeln!(w, "    {}", middle_truncate(&r.text, max))?;
             }
+            // Per-hit outgoing edge list — only when --include-edges
+            // populated `r.edges`. `Some(vec![])` means "we asked, got
+            // none"; render the muted "no outgoing edges" line so the
+            // user can tell apart "didn't ask" from "asked, empty".
+            if let Some(edges) = &r.edges {
+                if edges.is_empty() {
+                    let hint = theme.paint(Token::Muted, "    (no outgoing edges)", policy);
+                    writeln!(w, "{hint}")?;
+                } else {
+                    for e in edges {
+                        let tgt = fmt_short_id(e.target);
+                        let kind_label = format!("{:?}", e.kind);
+                        let arrow = theme.paint(Token::Muted, "→", policy);
+                        let line = format!(
+                            "    {arrow} {kind_label}  {tgt}  weight={:.3}",
+                            e.weight
+                        );
+                        writeln!(w, "{line}")?;
+                    }
+                }
+            }
             if idx + 1 < results.len() {
                 writeln!(w)?;
             }
@@ -140,6 +161,11 @@ impl Render for RecallResults {
                     "consolidated_at_unix_nanos": r.consolidated_at_unix_nanos,
                     "edges_out_count": r.edges_out_count,
                     "edges_in_count": r.edges_in_count,
+                    "edges": r.edges.as_ref().map(|es| es.iter().map(|e| json!({
+                        "target": fmt_id(e.target),
+                        "kind": format!("{:?}", e.kind),
+                        "weight": e.weight,
+                    })).collect::<Vec<_>>()),
                     "fused_score": r.fused_score,
                     "text": r.text,
                 })

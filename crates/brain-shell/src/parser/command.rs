@@ -793,6 +793,10 @@ pub struct RecallArgs {
     /// is aggressive.
     #[arg(long = "salience-floor", default_value_t = 0.0f32)]
     pub salience_floor: f32,
+    /// Populate each hit's outgoing-edge list. Costs one prefix
+    /// scan per hit against the unified edge table. Off by default.
+    #[arg(long = "include-edges", default_value_t = false)]
+    pub include_edges: bool,
     /// Drop results created more than this many seconds ago.
     /// Default: no age bound. Server-side filter; cheap.
     #[arg(long = "max-age")]
