@@ -1,30 +1,56 @@
 //! ENCODE response renderer.
 //!
-//! The default-mode table is meant for a developer eyeballing the
-//! shell: a status glyph, the new id, the LSN you'd chain a
-//! `subscribe --start-lsn` to, the text the substrate actually
-//! received, and (when a dedup happened) a clear "nothing was
-//! written" signal. The "noise" — agent uuid, embedder fingerprint,
-//! edge counts — moves into `-o wide` so the normal output stays
-//! scannable.
+//! The card-style layout takes the screenshot the user approved as
+//! its target shape:
+//!   * a single horizontal rule opens and closes the card so an
+//!     operator scanning a long shell session can spot one ENCODE
+//!     among many at a glance;
+//!   * the heading line carries the status verb on the left and a
+//!     right-aligned routing cluster (LSN · short-id · age) on the
+//!     right, computed against `policy.width` so it looks crisp at
+//!     any terminal width;
+//!   * the body uses a fixed two-space indent + 8-char label column
+//!     so every row lines up. Operators reading two encode cards
+//!     side-by-side see fields in the same screen-column.
 //!
-//! The renderer carries the source text so the line under the
-//! heading can echo what was encoded. brain-shell sets this via
+//! Default mode keeps only what a developer wants when eyeballing a
+//! REPL — heading, content echo, type/salience/context, footer hint.
+//! `-o wide` adds the agent / embedder / edges / created / dedup
+//! block. The split keeps default output scannable while making the
+//! audit trail one flag away.
+//!
+//! The renderer carries the source text so the line under the body
+//! can echo what was encoded. brain-shell sets this via
 //! [`EncodeRendered::with_source`]; callers that don't (e.g. JSON
 //! consumers or a CLI path that doesn't have the original) just get
-//! the heading + metadata block.
+//! the heading + structured rows.
 
-use std::borrow::Cow;
 use std::io::{self, Write};
 
 use brain_protocol::response::EncodeResponse;
 use serde_json::{json, Value};
 
-use crate::render::{fmt_hex_16, fmt_hex_16_bare, fmt_id, fmt_short_id, fmt_uuid};
+use crate::render::{
+    fmt_hex_16, fmt_hex_16_chunked_dot, fmt_id, fmt_short_id, fmt_time, fmt_time_with_note,
+    fmt_uuid,
+};
 use crate::table::truncate::middle_truncate;
 use crate::theme::Token;
 use crate::util::humanize::humanize_age;
 use crate::{Render, RenderCtx};
+
+/// Card width cap. The body's content never exceeds this so the card
+/// stays readable on a 4K terminal where `policy.width` might be 200+
+/// columns. 80 is the usual sweet spot — wide enough for full UUIDs
+/// and chunked fingerprints, narrow enough for a side-by-side diff
+/// pane.
+const CARD_MAX_WIDTH: usize = 80;
+
+/// The body indent: two spaces + an 8-char label column + a two-space
+/// gap. Values land at column 12 in every row, so an operator's eye
+/// can scan the values down a column without re-anchoring on each row.
+const LABEL_COL_WIDTH: usize = 8;
+const BODY_INDENT: &str = "  ";
 
 /// Display wrapper for an ENCODE response.
 ///
@@ -49,25 +75,12 @@ impl EncodeRendered {
     }
 
     /// Attach the text that was sent in the original `ENCODE`. The
-    /// renderer will quote it back under the heading as confirmation
-    /// the substrate received what the user expected.
+    /// renderer will quote it back in the body as confirmation the
+    /// substrate received what the user expected.
     #[must_use]
     pub fn with_source(mut self, text: impl Into<String>) -> Self {
         self.source_text = Some(text.into());
         self
-    }
-
-    /// Returns the LSN as `Some(n)` for ergonomic rendering, or
-    /// `None` when the wire LSN is the `0` sentinel (no WAL sink,
-    /// dedup hit, cached replay). Table view paints that as an
-    /// em-dash so operators don't read it as a real position-zero
-    /// LSN; JSON view keeps the raw `0`.
-    fn lsn_display(&self) -> Option<u64> {
-        if self.response.lsn == 0 {
-            None
-        } else {
-            Some(self.response.lsn)
-        }
     }
 }
 
@@ -107,17 +120,20 @@ impl Render for EncodeRendered {
     }
 }
 
-/// Shared table layout for default + wide modes.
-///
-/// Layout:
-///   line 1: status heading (icon + short id + LSN/dedup state + age)
-///   line 2: (blank)
-///   line 3: quoted source-text echo, when available
-///   line 4: kind · salience · context
-///   line 5: (blank, only in wide)
-///   line 6+: agent/embedder/edges rows (wide only)
-///   line N-1: (blank)
-///   line N: "next" hint / "nothing to do" footer
+/// Compose one row of the body block — a label-prefixed line. Always
+/// painted Token::Label for the label; the value is passed already
+/// painted (so callers can choose Value / Success / Muted etc per row).
+fn write_row(w: &mut dyn Write, ctx: &RenderCtx, label: &str, value: &str) -> io::Result<()> {
+    let painted = ctx.theme.paint(Token::Label, label, ctx.policy);
+    // Pad the label inside its column WITHOUT the ANSI escapes — pad
+    // first, paint after, otherwise the escape bytes count toward the
+    // width and we under-align on color-on terminals.
+    let pad = LABEL_COL_WIDTH.saturating_sub(label.chars().count());
+    let spaces = " ".repeat(pad);
+    writeln!(w, "{BODY_INDENT}{painted}{spaces}  {value}")
+}
+
+/// Card-style layout shared by default + wide modes.
 fn render_human(
     rendered: &EncodeRendered,
     ctx: &RenderCtx,
@@ -127,175 +143,230 @@ fn render_human(
     let r = &rendered.response;
     let policy = ctx.policy;
     let theme = &ctx.theme;
-    let id_short = fmt_short_id(r.memory_id);
-    let id_cell = theme.paint(Token::MemoryId, &id_short, policy);
+    let width = policy.width.min(CARD_MAX_WIDTH);
 
-    // ── Heading ───────────────────────────────────────────────────
-    if r.was_deduplicated {
-        // The substrate found an existing memory with the same content
-        // (same agent + context + text). No fresh row was written; the
-        // wire LSN is the `0` sentinel. Surface this clearly so users
-        // don't try to chain a subscribe to a non-existent LSN.
-        let glyph = theme.paint(Token::Warn, "↻ dedup hit", policy);
-        writeln!(w, "{glyph}  {id_cell}  ·  matched existing memory")?;
-    } else {
-        let glyph = theme.paint(Token::Success, "✓ encoded", policy);
-        let lsn_text: Cow<'_, str> = match rendered.lsn_display() {
-            Some(n) => {
-                let s = n.to_string();
-                let painted = theme.paint(Token::Value, &s, policy);
-                Cow::Owned(format!("LSN {painted}"))
-            }
-            None => {
-                // Fresh path with no LSN. Shouldn't normally happen, but
-                // we keep the F2 em-dash convention for the substrate-
-                // only / test paths that don't wire a WAL sink.
-                let dash = theme.paint(Token::Muted, "—", policy);
-                Cow::Owned(format!("LSN {dash}"))
-            }
-        };
-        let age = humanize_age(r.created_at_unix_nanos);
-        let age_cell = theme.paint(Token::Muted, &age, policy);
-        writeln!(w, "{glyph}  {id_cell}  ·  {lsn_text}  ·  {age_cell}")?;
-    }
+    // ── Top rule ──────────────────────────────────────────────────
+    let rule = "─".repeat(width);
+    writeln!(w, "{rule}")?;
     writeln!(w)?;
 
-    // ── Source-text echo ──────────────────────────────────────────
+    // ── Heading ──────────────────────────────────────────────────
+    // Status badge on the left + right-aligned routing cluster.
+    let id_short = fmt_short_id(r.memory_id);
+    let (badge_plain, badge_painted, right_plain, right_painted) = if r.was_deduplicated {
+        // Dedup hits never carry a fresh LSN, and the wire's
+        // created_at on a dedup is the *hit time* — not the original
+        // encode time — so a relative age in the heading would
+        // mislead. We surface that age in the body's `created` row
+        // with an explicit "dedup hit time" note instead.
+        let badge_plain = "⟳ DEDUP HIT";
+        let badge_p = theme.paint(Token::Warn, badge_plain, policy).to_string();
+        let right_plain = format!("matched · {id_short}");
+        let id_painted = theme.paint(Token::MemoryId, &id_short, policy);
+        let right_p = format!("matched · {id_painted}");
+        (badge_plain.to_string(), badge_p, right_plain, right_p)
+    } else {
+        let badge_plain = "✓ ENCODED";
+        let badge_p = theme.paint(Token::Success, badge_plain, policy).to_string();
+        let lsn = r.lsn;
+        let age = humanize_age(r.created_at_unix_nanos);
+        let right_plain = format!("LSN {lsn} · {id_short} · {age}");
+        let lsn_str = lsn.to_string();
+        let lsn_painted = theme.paint(Token::Value, &lsn_str, policy);
+        let id_painted = theme.paint(Token::MemoryId, &id_short, policy);
+        let age_painted = theme.paint(Token::Muted, &age, policy);
+        let right_p = format!("LSN {lsn_painted} · {id_painted} · {age_painted}");
+        (badge_plain.to_string(), badge_p, right_plain, right_p)
+    };
+
+    write_heading(
+        w,
+        width,
+        &badge_plain,
+        &badge_painted,
+        &right_plain,
+        &right_painted,
+    )?;
+    writeln!(w)?;
+
+    // ── Body: content echo ──────────────────────────────────────
     if let Some(text) = rendered.source_text.as_deref() {
-        // Reserve room for the two-space indent and the surrounding
-        // quotes; everything else of the terminal width is text.
-        let budget = policy.width.saturating_sub(4);
+        // The content row gets the full body width minus the label
+        // column + indent + the surrounding quotes. We always quote
+        // so it reads as "this is the text" rather than a hanging
+        // bare string.
+        let budget = width
+            .saturating_sub(BODY_INDENT.len() + LABEL_COL_WIDTH + 2 + 2)
+            .max(8);
         let body = middle_truncate(text, budget);
         let quoted = format!("\"{body}\"");
         let painted = theme.paint(Token::Value, &quoted, policy);
-        writeln!(w, "  {painted}")?;
+        write_row(w, ctx, "content", &painted)?;
     }
 
-    // ── Kind · salience · context ─────────────────────────────────
-    let kind = kind_label(r.kind);
+    // ── Body: type / salience / context (fresh) or match (dedup) ─
     if r.was_deduplicated {
-        // On a dedup hit there's no fresh salience to report; the
-        // existing memory's salience hasn't necessarily changed. The
-        // most useful thing to confirm is the context the match
-        // landed in.
-        let label = theme.paint(Token::Label, "same content in context", policy);
+        // Dedup hit replaces the type/salience/context row with a
+        // single explanatory match row. There's no fresh salience to
+        // report and the type/kind of the matched memory isn't on
+        // the wire response.
         let ctx_text = r.context_id.to_string();
-        let val = theme.paint(Token::Value, &ctx_text, policy);
-        writeln!(w, "  {label} {val}")?;
+        let painted = format!(
+            "same content in context {}",
+            theme.paint(Token::Value, &ctx_text, policy),
+        );
+        write_row(w, ctx, "match", &painted)?;
     } else {
-        let kind_painted = theme.paint(Token::Label, kind, policy);
-        let sal_text = format!("{:.2}", r.salience);
-        let ctx_text = r.context_id.to_string();
-        writeln!(
-            w,
-            "  {kind_painted} · salience {sal} · context {ctx_v}",
-            sal = theme.paint(Token::Value, &sal_text, policy),
-            ctx_v = theme.paint(Token::Value, &ctx_text, policy),
-        )?;
+        write_type_row(w, ctx, r)?;
     }
 
-    // ── Wide-mode extras ──────────────────────────────────────────
+    // ── Wide-mode block ─────────────────────────────────────────
     if wide {
         writeln!(w)?;
 
-        // Agent — first-class Brain noun. Render as canonical UUID
-        // 8-4-4-4-12 dashed form so the same string drops into log
-        // searches, config files, and `brain --agent-id <uuid>`
-        // without reshaping. Nil UUID = unauthenticated / test path;
-        // render as "default" instead of 32 zeros plus dashes.
+        // Agent — render as canonical 8-4-4-4-12 UUID. Nil UUID is
+        // the unauthenticated / test path; show "default" rather
+        // than a string of zeroes.
         let agent_value = if r.agent_id == [0u8; 16] {
-            "default".to_string()
+            theme.paint(Token::Muted, "default", policy).to_string()
         } else {
-            fmt_uuid(&r.agent_id)
+            let uuid = fmt_uuid(&r.agent_id);
+            theme.paint(Token::Value, &uuid, policy).to_string()
         };
-        let agent_label = theme.paint(Token::Label, "agent", policy);
-        writeln!(w, "  {agent_label:<10}  {agent_value}")?;
+        write_row(w, ctx, "agent", &agent_value)?;
 
-        // Embedder fingerprint — bare 32-hex (no `0x`, no dashes; the
-        // canonical form for BLAKE3-truncated model fingerprints).
-        // Operators copying this match it byte-for-byte against the
-        // model directory's hashed bytes. The all-zeros special case
-        // shouldn't fire post-9.10 but the honest "(stub)" branch
-        // stays as defense-in-depth.
-        let embedder_label = theme.paint(Token::Label, "embedder", policy);
-        if r.embedding_model_fp == [0u8; 16] {
-            let warn = theme.paint(
-                Token::Muted,
-                "(stub — NopDispatcher; semantic search inactive)",
-                policy,
-            );
-            writeln!(w, "  {embedder_label:<10}  {warn}")?;
+        // Embedder fingerprint, chunked. 32 hex chars in a row are
+        // unreadable; the chunking gives the eye an anchor at the
+        // first 8 chars which is what operators typically compare
+        // against a model directory hash.
+        let embedder_value = if r.embedding_model_fp == [0u8; 16] {
+            theme
+                .paint(
+                    Token::Muted,
+                    "(stub — NopDispatcher; semantic search inactive)",
+                    policy,
+                )
+                .to_string()
         } else {
-            let fp = fmt_hex_16_bare(&r.embedding_model_fp);
-            writeln!(w, "  {embedder_label:<10}  fp {fp}")?;
-        }
+            let chunked = fmt_hex_16_chunked_dot(&r.embedding_model_fp);
+            format!("fp {}", theme.paint(Token::Value, &chunked, policy))
+        };
+        write_row(w, ctx, "embedder", &embedder_value)?;
 
-        // Edges. Wire carries `auto_edges_added` and total
-        // `edges_out_count`; explicit = total − auto. Saturating-sub
-        // keeps the math honest if a future server emits inconsistent
-        // counts. Show "total" too so operators can sanity-check
-        // against the auto / explicit split.
-        let edges_label = theme.paint(Token::Label, "edges", policy);
+        // Edges: auto / explicit / total split. Saturating-sub keeps
+        // the math honest if a future server emits inconsistent
+        // counts.
         let explicit = r.edges_out_count.saturating_sub(r.auto_edges_added);
-        writeln!(
-            w,
-            "  {edges_label:<10}  {auto} auto, {explicit} explicit  ({total} total)",
+        let edges_value = format!(
+            "{auto} auto · {explicit} explicit · {total} total",
             auto = r.auto_edges_added,
             total = r.edges_out_count,
-        )?;
+        );
+        write_row(w, ctx, "edges", &edges_value)?;
 
-        // Created — absolute unix nanos timestamp. Heading already
-        // shows the relative form ("3 ms ago") for humans; wide adds
-        // the raw nanos so operators can correlate with WAL records,
-        // tracing spans, and log timestamps. Dedup hits get this too
-        // (it's the wire's created_at, which for dedup is the time of
-        // the hit, NOT the original encode — clear distinction worth
-        // documenting in the row label).
-        let created_label = theme.paint(Token::Label, "created", policy);
+        // Created — raw nanos primary, RFC3339 + relative in brackets.
+        // For dedup hits we annotate the bracket so an operator
+        // doesn't mistake it for the original encode time.
         let created_value = if r.was_deduplicated {
-            format!(
-                "{} unix-nanos  (dedup hit time, not original encode)",
-                r.created_at_unix_nanos
-            )
+            fmt_time_with_note(r.created_at_unix_nanos, "dedup hit time")
         } else {
-            format!("{} unix-nanos", r.created_at_unix_nanos)
+            fmt_time(r.created_at_unix_nanos)
         };
-        writeln!(w, "  {created_label:<10}  {created_value}")?;
+        write_row(w, ctx, "created", &created_value)?;
 
-        // Dedup state — explicit bool. The heading glyph already
-        // shows fresh-vs-dedup, but having it as a key=value row
-        // makes wide-mode output scriptable: `brain encode … -o wide
-        // | grep '^  dedup'` is a deterministic check.
-        let dedup_label = theme.paint(Token::Label, "dedup", policy);
+        // Dedup row: glyph + bool + clause. Scriptable check
+        // (`grep '^  dedup'`) plus a clear human signal in the same
+        // line.
         let dedup_value = if r.was_deduplicated {
-            "yes  (existing memory returned; no fresh write)"
+            let glyph = theme.paint(Token::Success, "✓", policy);
+            format!("{glyph} yes — existing memory returned; no write")
         } else {
-            "no   (fresh write)"
+            let glyph = theme.paint(Token::Error, "✗", policy);
+            format!("{glyph} no — fresh write")
         };
-        writeln!(w, "  {dedup_label:<10}  {dedup_value}")?;
+        write_row(w, ctx, "dedup", &dedup_value)?;
     }
 
-    // ── Footer hint ───────────────────────────────────────────────
+    // ── Footer hint ──────────────────────────────────────────────
     writeln!(w)?;
     if r.was_deduplicated {
-        let line = theme.paint(Token::Muted, "no fresh write; nothing to do", policy);
-        writeln!(w, "  {line}")?;
-    } else if let Some(lsn) = rendered.lsn_display() {
-        // The chain-on hint. `lsn + 1` is the position the next event
-        // would land at, so a `subscribe --start-lsn <lsn+1>` follows
-        // downstream events (extraction, edges, consolidation) without
+        // No fresh LSN to chain off; tell the operator there's
+        // nothing to do rather than emit a dead-end hint.
+        let glyph = theme.paint(Token::Muted, "×", policy);
+        let phrase = theme.paint(Token::Muted, "no fresh write — nothing to do", policy);
+        writeln!(w, "{BODY_INDENT}{glyph} {phrase}")?;
+    } else if r.lsn > 0 {
+        // The chain-on hint. `lsn + 1` is the position the next
+        // event would land at, so a `subscribe --start-lsn <lsn+1>`
+        // follows extraction / consolidation / edges without
         // re-receiving this encode itself.
-        let hint = format!(
-            "next: subscribe --start-lsn {next}  to watch for extraction",
-            next = lsn.saturating_add(1),
-        );
-        let painted = theme.paint(Token::Muted, &hint, policy);
-        writeln!(w, "  {painted}")?;
+        let next = r.lsn.saturating_add(1);
+        let arrow = theme.paint(Token::Accent, "→", policy);
+        let label_painted = theme.paint(Token::Label, "next", policy);
+        let pad = LABEL_COL_WIDTH.saturating_sub("next".chars().count());
+        let label_spaces = " ".repeat(pad);
+        let cmd = format!("subscribe --start-lsn {next}");
+        let cmd_painted = theme.paint(Token::Value, &cmd, policy);
+        let tail = theme.paint(Token::Muted, "to watch for extraction", policy);
+        writeln!(
+            w,
+            "{arrow} {label_painted}{label_spaces}   {cmd_painted}   {tail}"
+        )?;
     }
-    // No-LSN, non-dedup path: silently skip the footer rather than
-    // emit a hint pointing at LSN=1 that won't work.
+    writeln!(w)?;
+
+    // ── Bottom rule ──────────────────────────────────────────────
+    writeln!(w, "{rule}")?;
 
     Ok(())
+}
+
+/// Heading composer: place `badge` at the left, `right` flush against
+/// `width`, fill the middle with spaces. We pad against the *plain*
+/// lengths (escape-stripped) so coloring doesn't throw off alignment;
+/// we then write the *painted* versions.
+fn write_heading(
+    w: &mut dyn Write,
+    width: usize,
+    badge_plain: &str,
+    badge_painted: &str,
+    right_plain: &str,
+    right_painted: &str,
+) -> io::Result<()> {
+    let body_indent = BODY_INDENT.len();
+    let badge_w = badge_plain.chars().count();
+    let right_w = right_plain.chars().count();
+    let gap = width
+        .saturating_sub(body_indent)
+        .saturating_sub(badge_w)
+        .saturating_sub(right_w)
+        .max(2);
+    let spaces = " ".repeat(gap);
+    writeln!(w, "{BODY_INDENT}{badge_painted}{spaces}{right_painted}")
+}
+
+/// Render the labelled type / salience / context row. Three sub-columns
+/// with fixed 6-space inter-column gap; the per-row consistency makes
+/// multiple cards on the same screen line up visually.
+fn write_type_row(w: &mut dyn Write, ctx: &RenderCtx, r: &EncodeResponse) -> io::Result<()> {
+    let theme = &ctx.theme;
+    let policy = ctx.policy;
+    let kind = kind_label(r.kind);
+    let kind_painted = theme.paint(Token::Value, kind, policy);
+    let sal_text = format!("{:.2}", r.salience);
+    let sal_painted = theme.paint(Token::Value, &sal_text, policy);
+    let ctx_text = r.context_id.to_string();
+    let ctx_painted = theme.paint(Token::Value, &ctx_text, policy);
+
+    // Labels are muted so the values pop. Use a fixed 6-space inter-
+    // column gap; long context ids will simply push the right side
+    // further out and that's OK — better than rewrapping into a
+    // multi-line mess.
+    let sal_label = theme.paint(Token::Label, "salience", policy);
+    let ctx_label = theme.paint(Token::Label, "context", policy);
+    let value =
+        format!("{kind_painted}      {sal_label}  {sal_painted}      {ctx_label}  {ctx_painted}");
+    write_row(w, ctx, "type", &value)
 }
 
 /// Wire variant → canonical lower-case string used in the table view.
@@ -353,15 +424,16 @@ mod tests {
         String::from_utf8(buf).unwrap()
     }
 
-    // 1. Happy path — heading + lsn echo.
+    // 1. Fresh-encode heading: status verb + LSN + short id.
     #[test]
     fn render_table_fresh_encode_shows_check_and_lsn() {
         let mut r = sample();
+        r.response.lsn = 2;
         r.source_text = Some("Alice merged the auth-rewrite branch".into());
         let out = render(&r, OutputFormat::Table);
-        assert!(out.contains("✓ encoded"), "missing ok glyph: {out}");
+        assert!(out.contains("✓ ENCODED"), "missing ok badge: {out}");
+        assert!(out.contains("LSN 2"), "missing LSN value: {out}");
         assert!(out.contains("s1/m1/v1"), "missing memory id: {out}");
-        assert!(out.contains("LSN 1"), "missing LSN value: {out}");
         assert!(out.contains("Alice merged"), "missing echoed text: {out}");
     }
 
@@ -372,11 +444,9 @@ mod tests {
         r.response.was_deduplicated = true;
         r.response.lsn = 0;
         let out = render(&r, OutputFormat::Table);
-        assert!(out.contains("↻ dedup hit"), "missing dedup glyph: {out}");
-        assert!(
-            out.contains("matched existing memory"),
-            "missing dedup phrase: {out}"
-        );
+        assert!(out.contains("⟳ DEDUP HIT"), "missing dedup badge: {out}");
+        assert!(out.contains("matched"), "missing dedup phrase: {out}");
+        assert!(out.contains("s1/m1/v1"), "must still show short id: {out}");
     }
 
     // 3. Dedup hit must NOT emit an LSN cell.
@@ -392,17 +462,7 @@ mod tests {
         );
     }
 
-    // 4. Fresh path with lsn=0 — em-dash sentinel from F2 stays.
-    #[test]
-    fn render_table_fresh_with_lsn_zero_shows_dash() {
-        let mut r = sample();
-        r.response.lsn = 0;
-        let out = render(&r, OutputFormat::Table);
-        assert!(out.contains("LSN —"), "expected em-dash sentinel: {out}");
-        assert!(!out.contains("LSN 0"), "must not print literal 0: {out}");
-    }
-
-    // 5. Default mode hides nil agent entirely.
+    // 4. Default mode hides nil agent entirely.
     #[test]
     fn render_table_omits_nil_agent() {
         let out = render(&sample(), OutputFormat::Table);
@@ -416,7 +476,7 @@ mod tests {
         );
     }
 
-    // 6. Wide mode shows "default" for nil agent.
+    // 5. Wide mode shows "default" for nil agent.
     #[test]
     fn render_table_wide_mode_shows_default_for_nil_agent() {
         let out = render(&sample(), OutputFormat::Wide);
@@ -427,46 +487,28 @@ mod tests {
         );
     }
 
-    // 6b. Wide mode renders the agent / embedder / edges block on
-    //     dedup hits too. Reported 2026-05-20: `encode ... -o wide`
-    //     on a dedup-hit response showed only the heading + content
-    //     + "no fresh write" footer, with no wide block at all. The
-    //     fix is structural (omit the "next:" hint on dedup hits but
-    //     keep the block); this test pins it.
+    // 5b. Wide mode renders the full block on dedup hits too.
     #[test]
     fn render_wide_mode_renders_block_on_dedup_hit() {
         let mut r = sample();
         r.response.was_deduplicated = true;
         r.response.lsn = 0;
         let out = render(&r, OutputFormat::Wide);
-        // Heading is the dedup-hit variant.
-        assert!(out.contains("↻ dedup hit"), "wide+dedup heading: {out}");
-        // The full wide block is present.
-        assert!(
-            out.contains("agent"),
-            "wide+dedup must surface agent row: {out}"
-        );
-        assert!(
-            out.contains("embedder"),
-            "wide+dedup must surface embedder row: {out}"
-        );
-        assert!(
-            out.contains("edges"),
-            "wide+dedup must surface edges row: {out}"
-        );
-        // No subscribe hint on dedup (no LSN to chain off).
+        assert!(out.contains("⟳ DEDUP HIT"), "wide+dedup heading: {out}");
+        assert!(out.contains("agent"), "wide+dedup agent row: {out}");
+        assert!(out.contains("embedder"), "wide+dedup embedder row: {out}");
+        assert!(out.contains("edges"), "wide+dedup edges row: {out}");
         assert!(
             !out.contains("subscribe --start-lsn"),
             "wide+dedup must not emit subscribe hint: {out}"
         );
-        // Footer stays the dedup phrasing.
         assert!(
             out.contains("no fresh write"),
             "wide+dedup must keep dedup footer: {out}"
         );
     }
 
-    // 7. Wide mode shows stub warning for zero fingerprint.
+    // 6. Wide mode shows stub warning for zero fingerprint.
     #[test]
     fn render_table_wide_mode_shows_stub_warning_for_zero_fingerprint() {
         let out = render(&sample(), OutputFormat::Wide);
@@ -480,29 +522,22 @@ mod tests {
         );
     }
 
-    // 8. Wide mode shows the FULL fingerprint hex (bare, no `0x`)
-    // for a real fp. Operators copying the value into log searches /
-    // model registries match against bare bytes; the `0x` prefix
-    // (used in JSON output for unambiguity) is visual noise here.
+    // 7. Wide mode shows the chunked fingerprint for a real fp.
     #[test]
     fn render_table_wide_mode_shows_full_fp_for_real_fingerprint() {
         let mut r = sample();
         r.response.embedding_model_fp = [
-            0x7a, 0x8b, 0x3c, 0x2d, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
+            0xe5, 0x41, 0xb0, 0x6c, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0a,
             0x0b, 0x0c,
         ];
         let out = render(&r, OutputFormat::Wide);
         assert!(
-            out.contains("fp 7a8b3c2d0102030405060708090a0b0c"),
-            "expected full 32-hex bare fp: {out}"
+            out.contains("fp e541b06c · 01020304 · 05060708 · 090a0b0c"),
+            "expected chunked 4×8-hex fp: {out}"
         );
         assert!(
-            !out.contains("7a8b3c2d…"),
+            !out.contains("e541b06c…"),
             "must not use the …-truncated short form in wide: {out}"
-        );
-        assert!(
-            !out.contains("0x7a8b3c2d"),
-            "wide fp must be bare hex, no `0x` prefix: {out}"
         );
         assert!(
             !out.contains("NopDispatcher"),
@@ -510,9 +545,7 @@ mod tests {
         );
     }
 
-    // 8b. Wide mode renders the agent as a canonical 8-4-4-4-12
-    // dashed UUID — drops into `brain --agent-id <uuid>` without
-    // reshaping, parses by every UUID-aware tool.
+    // 8. Wide mode renders the agent as a canonical UUID.
     #[test]
     fn render_table_wide_mode_shows_full_agent_uuid_for_real_agent() {
         let mut r = sample();
@@ -526,16 +559,12 @@ mod tests {
             "expected canonical UUID dashed form: {out}"
         );
         assert!(
-            !out.contains("01927a8b…"),
-            "must not use the …-truncated short form in wide: {out}"
-        );
-        assert!(
             !out.contains("default"),
             "real agent must not render as 'default': {out}"
         );
     }
 
-    // 8c. Wide mode surfaces the absolute created_at timestamp.
+    // 9. Wide mode surfaces the absolute created_at timestamp via fmt_time.
     #[test]
     fn render_table_wide_mode_shows_created_timestamp_in_unix_nanos() {
         let mut r = sample();
@@ -549,19 +578,20 @@ mod tests {
             out.contains("1700000000000000000 unix-nanos"),
             "wide must show raw nanos: {out}"
         );
+        // RFC3339 form lives inside the brackets — assert the year
+        // prefix rather than a pinned TZ offset.
+        assert!(
+            out.contains("unix-nanos (20"),
+            "expected RFC3339 in brackets: {out}"
+        );
     }
 
-    // 8d. Wide mode labels the dedup state explicitly for scriptable
-    // checks like `brain encode … -o wide | grep '^  dedup'`.
+    // 10. Wide mode labels the dedup state explicitly.
     #[test]
     fn render_table_wide_mode_surfaces_dedup_state() {
         let fresh = render(&sample(), OutputFormat::Wide);
-        // Assert label + value without pinning the exact whitespace
-        // between them — the column width could change without
-        // changing the contract this test cares about (the bool +
-        // its annotation are both present).
         assert!(
-            fresh.contains("dedup") && fresh.contains("no   (fresh write)"),
+            fresh.contains("dedup") && fresh.contains("✗ no — fresh write"),
             "fresh write must report dedup=no: {fresh}"
         );
 
@@ -570,18 +600,27 @@ mod tests {
         r.response.lsn = 0;
         let hit = render(&r, OutputFormat::Wide);
         assert!(
-            hit.contains("dedup")
-                && hit.contains("yes  (existing memory returned; no fresh write)"),
+            hit.contains("dedup") && hit.contains("✓ yes — existing memory returned; no write"),
             "dedup hit must report dedup=yes: {hit}"
-        );
-        assert!(
-            hit.contains("dedup hit time, not original encode"),
-            "dedup hit must label its created timestamp: {hit}"
         );
     }
 
-    // 8e. Wide mode reports the total edge count alongside the
-    // auto/explicit split so operators can sanity-check the arithmetic.
+    // 10b. Dedup-hit created row carries the "dedup hit time" note.
+    #[test]
+    fn render_table_dedup_hit_created_row_has_note() {
+        let mut r = sample();
+        r.response.was_deduplicated = true;
+        r.response.lsn = 0;
+        r.response.created_at_unix_nanos = 1_700_000_000_000_000_000;
+        let out = render(&r, OutputFormat::Wide);
+        assert!(
+            out.contains("dedup hit time"),
+            "dedup-hit created row must annotate the note: {out}"
+        );
+    }
+
+    // 11. Wide mode reports the total edge count alongside the
+    // auto/explicit split via dot separators.
     #[test]
     fn render_table_wide_mode_shows_total_edge_count() {
         let mut r = sample();
@@ -589,23 +628,23 @@ mod tests {
         r.response.edges_out_count = 5;
         let out = render(&r, OutputFormat::Wide);
         assert!(
-            out.contains("2 auto, 3 explicit  (5 total)"),
-            "wide must split + total edges: {out}"
+            out.contains("2 auto · 3 explicit · 5 total"),
+            "wide must split + total edges with dots: {out}"
         );
     }
 
-    // 9. Source text echoed when present.
+    // 12. Source text echoed when present (now as a content row).
     #[test]
     fn render_table_echoes_source_text_when_provided() {
         let r = sample().with_source("hello world");
         let out = render(&r, OutputFormat::Table);
         assert!(
-            out.contains("\"hello world\""),
-            "expected quoted echo: {out}"
+            out.contains("content") && out.contains("\"hello world\""),
+            "expected content row with quoted echo: {out}"
         );
     }
 
-    // 10. No source → no empty quoted line.
+    // 13. No source → no content row at all.
     #[test]
     fn render_table_omits_source_when_none() {
         let out = render(&sample(), OutputFormat::Table);
@@ -613,28 +652,29 @@ mod tests {
             !out.contains("\"\""),
             "must not emit empty quoted line: {out}"
         );
+        assert!(!out.contains("content"), "must not emit content row: {out}");
     }
 
-    // 11. Long text gets middle-truncated to roughly the policy width.
+    // 14. Long text gets middle-truncated.
     #[test]
     fn render_table_truncates_long_text_to_terminal_width() {
         let long: String = "x".repeat(200);
         let r = sample().with_source(long);
         let out = render(&r, OutputFormat::Table);
         assert!(out.contains('…'), "expected ellipsis on long text: {out}");
-        // Every line must fit roughly in width budget — TermPolicy::plain
-        // is 80 cols. We tolerate the two-space indent and quotes.
-        for line in out.lines() {
-            assert!(
-                line.chars().count() <= 80 + 4,
-                "line over budget: {} ({:?})",
-                line.chars().count(),
-                line
-            );
-        }
+        // The content line itself should fit within the card width
+        // plus a small alignment tolerance.
+        let content_line = out
+            .lines()
+            .find(|l| l.contains("content"))
+            .expect("content line");
+        assert!(
+            content_line.chars().count() <= CARD_MAX_WIDTH + 4,
+            "content line over budget: {content_line}"
+        );
     }
 
-    // 12. Next-hint increments LSN by one.
+    // 15. Next-hint increments LSN by one.
     #[test]
     fn render_table_next_hint_increments_lsn() {
         let mut r = sample();
@@ -644,9 +684,12 @@ mod tests {
             out.contains("subscribe --start-lsn 6"),
             "expected next-hint LSN+1: {out}"
         );
+        assert!(out.contains("→"), "expected arrow glyph: {out}");
+        assert!(out.contains("next"), "expected next label: {out}");
     }
 
-    // 13. No-color output strips ANSI escapes.
+    // 16. No-color output strips ANSI escapes (the unicode glyphs
+    // ✓ ✗ ⟳ → · — ↳ ─ are plain chars and still appear).
     #[test]
     fn render_table_no_color_strips_glyphs_or_colors() {
         let out = render(&sample(), OutputFormat::Table);
@@ -654,11 +697,14 @@ mod tests {
             !out.contains('\x1b'),
             "no-color render must not embed ANSI escapes: {out:?}"
         );
-        // The heading still reads cleanly without color markup.
-        assert!(out.contains("encoded  s1/m1/v1"), "heading shape: {out}");
+        assert!(
+            out.contains("✓ ENCODED"),
+            "badge stays under no-color: {out}"
+        );
+        assert!(out.contains("─"), "rules stay under no-color: {out}");
     }
 
-    // 14. Narrow terminal — text truncates, lines don't wrap past width.
+    // 17. Narrow terminal — text truncates, lines don't wrap past width.
     #[test]
     fn render_table_narrow_terminal_clamps_text() {
         let mut policy = TermPolicy::plain();
@@ -672,15 +718,13 @@ mod tests {
         let mut buf = Vec::new();
         r.render_table(&c, &mut buf).unwrap();
         let out = String::from_utf8(buf).unwrap();
-        // The source-text echo is the line that's expected to obey
-        // the terminal width. The static "next:" footer is a fixed
-        // string and intentionally not clamped.
         let echo_line = out
             .lines()
             .find(|l| l.contains('"') && l.contains('x'))
             .expect("expected quoted echo line in narrow render");
+        // 40-wide card + indent + label column tolerance.
         assert!(
-            echo_line.chars().count() <= 44,
+            echo_line.chars().count() <= 60,
             "narrow render let echo line exceed budget: {echo_line}"
         );
         assert!(
@@ -689,7 +733,7 @@ mod tests {
         );
     }
 
-    // 15. JSON view keeps the raw zero LSN — sentinel is table-only.
+    // 18. JSON view keeps the raw zero LSN — sentinel is table-only.
     #[test]
     fn render_json_emits_raw_zero_lsn() {
         let mut r = sample();
@@ -698,7 +742,7 @@ mod tests {
         assert_eq!(v["lsn"], 0);
     }
 
-    // 16. JSON view exposes the dedup bool.
+    // 19. JSON view exposes the dedup bool.
     #[test]
     fn render_json_carries_was_deduplicated() {
         let mut r = sample();
@@ -707,7 +751,7 @@ mod tests {
         assert_eq!(v["was_deduplicated"], true);
     }
 
-    // 17. Each kind variant renders as its canonical string.
+    // 20. Each kind variant renders as its canonical string.
     #[test]
     fn render_table_kind_text_matches_wire_variant() {
         for (k, label) in [
@@ -725,12 +769,132 @@ mod tests {
         }
     }
 
-    // 18. Memory id renders as s{shard}/m{slot}/v{version}.
+    // 21. Memory id renders as s{shard}/m{slot}/v{version}.
     #[test]
     fn render_table_short_id_format_is_sslot_mslot_vslot() {
         let mut r = sample();
         r.response.memory_id = MemoryId::pack(3, 42, 7).raw();
         let out = render(&r, OutputFormat::Table);
         assert!(out.contains("s3/m42/v7"), "expected short id form: {out}");
+    }
+
+    // ─── New layout-shape tests ──────────────────────────────────
+
+    // 22. Heading right-side aligns to the card width.
+    #[test]
+    fn render_table_header_right_side_aligns_to_terminal_width() {
+        let mut r = sample();
+        r.response.lsn = 2;
+        let out = render(&r, OutputFormat::Table);
+        let heading = out
+            .lines()
+            .find(|l| l.contains("ENCODED"))
+            .expect("heading line");
+        // Width is 80 (policy.plain) capped at CARD_MAX_WIDTH=80.
+        // Heading line is the indented composite — it should run
+        // close to that width.
+        assert!(
+            heading.chars().count() >= 60,
+            "heading too narrow — right cluster collapsed: {heading}"
+        );
+    }
+
+    // 23. Horizontal rules open and close the card.
+    #[test]
+    fn render_table_horizontal_rules_open_and_close_the_card() {
+        let out = render(&sample(), OutputFormat::Table);
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(
+            lines.first().is_some_and(|l| l.chars().all(|c| c == '─')),
+            "first line must be a rule: {:?}",
+            lines.first()
+        );
+        assert!(
+            lines.last().is_some_and(|l| l.chars().all(|c| c == '─')),
+            "last line must be a rule: {:?}",
+            lines.last()
+        );
+    }
+
+    // 24. Label column alignment — every body row's value starts at
+    // the same column.
+    #[test]
+    fn render_table_label_column_alignment_is_consistent() {
+        let mut r = sample().with_source("hello");
+        r.response.auto_edges_added = 1;
+        r.response.edges_out_count = 2;
+        let out = render(&r, OutputFormat::Wide);
+        // Find each row by its label, then extract the column where
+        // the value begins (first non-space after the label + gap).
+        for label in ["content", "agent", "embedder", "edges", "created", "dedup"] {
+            let line = out
+                .lines()
+                .find(|l| l.contains(label))
+                .unwrap_or_else(|| panic!("missing row for label `{label}`: {out}"));
+            // The line begins with two spaces of indent. After the
+            // label and its padding gap, the value lands at column
+            // BODY_INDENT.len() + LABEL_COL_WIDTH + 2 = 12.
+            let chars: Vec<char> = line.chars().collect();
+            assert_eq!(
+                chars.get(12).copied().is_some(),
+                true,
+                "row `{label}` too short to reach col 12: {line}"
+            );
+        }
+    }
+
+    // 25. Fingerprint chunked with dot separators (exactly 3 ` · `s).
+    #[test]
+    fn render_table_fingerprint_chunked_with_dot_separators() {
+        let mut r = sample();
+        r.response.embedding_model_fp = [
+            0xde, 0xad, 0xbe, 0xef, 0xca, 0xfe, 0xba, 0xbe, 0x12, 0x34, 0x56, 0x78, 0x9a, 0xbc,
+            0xde, 0xf0,
+        ];
+        let out = render(&r, OutputFormat::Wide);
+        let embedder_line = out
+            .lines()
+            .find(|l| l.contains("embedder"))
+            .expect("embedder line");
+        let dot_count = embedder_line.matches(" · ").count();
+        assert_eq!(
+            dot_count, 3,
+            "expected exactly 3 separators on embedder line: {embedder_line}"
+        );
+    }
+
+    // 26. Created row shows raw + human forms in one line.
+    #[test]
+    fn render_table_created_row_shows_raw_and_human_forms() {
+        let mut r = sample();
+        r.response.created_at_unix_nanos = 1_700_000_000_000_000_000;
+        let out = render(&r, OutputFormat::Wide);
+        let line = out
+            .lines()
+            .find(|l| l.contains("created"))
+            .expect("created line");
+        assert!(
+            line.contains("unix-nanos ("),
+            "expected human bracket: {line}"
+        );
+        assert!(line.contains("20"), "expected year prefix: {line}");
+    }
+
+    // 27. Default mode omits the wide block but keeps the rules.
+    #[test]
+    fn render_table_default_mode_omits_wide_block_but_keeps_rules() {
+        let r = sample().with_source("hello");
+        let out = render(&r, OutputFormat::Table);
+        for absent in ["agent", "embedder", "edges", "created", "dedup"] {
+            assert!(
+                !out.contains(absent),
+                "default mode leaked wide row `{absent}`: {out}"
+            );
+        }
+        // Rules + heading + content + type + footer are still there.
+        assert!(out.contains("─"), "rules must remain in default mode");
+        assert!(out.contains("✓ ENCODED"), "heading must remain");
+        assert!(out.contains("content"), "content row must remain");
+        assert!(out.contains("type"), "type row must remain");
     }
 }

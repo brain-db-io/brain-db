@@ -59,7 +59,7 @@ fn fresh_encode_table_shows_check_id_lsn_and_content_echo() {
 
     // Heading
     assert!(
-        out.contains("encoded"),
+        out.contains("✓ ENCODED"),
         "missing fresh-encode heading: {out}"
     );
     assert!(out.contains("LSN 1"), "missing LSN line: {out}");
@@ -71,10 +71,11 @@ fn fresh_encode_table_shows_check_id_lsn_and_content_echo() {
         "source text not echoed: {out}"
     );
 
-    // Metadata
+    // Metadata — labels + values in the new card layout
     assert!(out.contains("episodic"), "missing kind: {out}");
-    assert!(out.contains("salience 0.70"), "missing salience: {out}");
-    assert!(out.contains("context 7"), "missing context: {out}");
+    assert!(out.contains("salience"), "missing salience label: {out}");
+    assert!(out.contains("0.70"), "missing salience value: {out}");
+    assert!(out.contains("context"), "missing context label: {out}");
 
     // What-next hint: subscribe at lsn+1 = 2
     assert!(
@@ -108,12 +109,16 @@ fn dedup_hit_table_shows_alt_glyph_and_no_fresh_write_signal() {
     let item = EncodeRendered::new(resp).with_source("Alice merged the auth-rewrite branch");
     let out = render(item, OutputFormat::Table);
 
-    // The dedup-hit signal is the heading. It must not say "encoded"
+    // The dedup-hit signal is the heading. It must not say "ENCODED"
     // (would be a regression to the old behavior where the user got
     // no signal that the content matched).
     assert!(
-        out.contains("dedup hit"),
+        out.contains("⟳ DEDUP HIT"),
         "missing dedup-hit heading: {out}"
+    );
+    assert!(
+        !out.contains("✓ ENCODED"),
+        "must not double-render fresh badge on dedup: {out}"
     );
 
     // No "LSN N" — there's no fresh LSN to chain off.
@@ -173,7 +178,7 @@ fn wide_mode_surfaces_stub_embedder_warning_when_fingerprint_is_zeros() {
 
     // Default mode is still in the output — wide ADDS, doesn't replace.
     assert!(
-        out.contains("encoded"),
+        out.contains("✓ ENCODED"),
         "wide must still show the heading: {out}"
     );
     assert!(

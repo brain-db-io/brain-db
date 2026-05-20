@@ -63,6 +63,12 @@ tracing = { workspace = true }
 # intact across the truncation boundary.
 unicode-segmentation = "1.12"
 
+# Renderers display stored unix-nanos timestamps alongside their RFC3339
+# form so operators can correlate a memory with WAL records and tracing
+# spans without writing a converter. `parsing` is needed by the helper
+# that re-parses agent created_at strings to append their relative age.
+time = { workspace = true, features = ["formatting", "parsing"] }
+
 # Ratatui split into ratatui-core + ratatui in 0.30; that's the minimum we
 # accept so the follow-up TUI plan can depend on ratatui-core for widget
 # crates if we ever extract them. Crossterm 0.28 matches the backend
