@@ -83,7 +83,7 @@ use brain_ops::{
     TierKind as MetricTierKind, TierStatus as MetricTierStatus,
 };
 use brain_protocol::knowledge::{AuditStatus, ExtractedKnowledgeEvent, KnowledgeEventPayload};
-use brain_protocol::response::types::EventType;
+use brain_protocol::responses::types::EventType;
 use parking_lot::Mutex;
 use redb::ReadableTable;
 use tracing::{trace, warn};

@@ -16,6 +16,7 @@ brain-llm = { path = "../brain-llm" }
 brain-metadata = { path = "../brain-metadata" }
 brain-ops = { path = "../brain-ops" }
 brain-planner = { path = "../brain-planner" }
+brain-protocol = { path = "../brain-protocol" }
 blake3.workspace = true
 parking_lot.workspace = true
 redb.workspace = true
@@ -33,7 +34,6 @@ brain-embed = { path = "../brain-embed" }
 brain-index = { path = "../brain-index" }
 brain-metadata = { path = "../brain-metadata" }
 brain-planner = { path = "../brain-planner" }
-brain-protocol = { path = "../brain-protocol" }
 parking_lot.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
