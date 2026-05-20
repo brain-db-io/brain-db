@@ -101,16 +101,18 @@ impl RealWriterHandle {
             return Ok((*cached).clone());
         }
 
-        // 2. WAL append (P3b first slice). For single-phase writes
-        // whose phase has a typed WalPayload mapping we append before
-        // the wtxn opens — same ordering as the legacy
-        // submit_encode/forget/link/unlink paths. Multi-phase writes
-        // and phases without a payload mapping skip WAL today; their
-        // WAL story lands in later P3b slices.
+        // 2. WAL append. Single-phase writes get one typed payload;
+        // multi-phase writes get TxnBegin + N × payloads + TxnCommit.
         let started_at = self.now_unix_nanos_or_zero(write.started_at_unix_nanos);
         let lsn_first = wal_append_for_write(self, &write, started_at).await?;
 
-        // 3-5. Open wtxn, apply each phase, commit.
+        // 3. HNSW side effects (P3d). Run before the redb wtxn opens
+        // so the wtxn lifetime stays minimal and a HNSW failure
+        // abandons the encode before any metadata commits — same
+        // ordering as the legacy do_encode path.
+        execute_hnsw_side_effects(self, &write)?;
+
+        // 4-6. Open wtxn, apply each phase, commit.
         let phase_acks: Vec<PhaseAck> = {
             let mut db = self.metadata().lock();
             let wtxn = db
@@ -276,6 +278,51 @@ async fn wal_append_for_write(
         .map_err(|e| WriterError::Internal(format!("wal append (txn commit): {e}")))?;
 
     Ok(Some(lsn_first))
+}
+
+/// P3d: HNSW writes per phase. Runs after WAL append and before the
+/// redb wtxn opens — matches the legacy `do_encode` ordering. A HNSW
+/// failure here aborts the write before any metadata commits; the
+/// WAL record stays and recovery's replay will retry on next start.
+///
+/// Phases this handles:
+/// - `UpsertMemory`     → HNSW insert
+/// - `UpdateEmbedding`  → HNSW insert (HNSW's insert replaces by id)
+/// - `Tombstone(Memory)`→ HNSW mark_tombstoned
+///
+/// Other phases (Link, UpdateSalience, etc.) have no HNSW effect.
+///
+/// Note: the arena is NOT written in the live path — arena bytes are
+/// populated only by WAL recovery on shard restart, then HNSW serves
+/// vectors from its own in-memory storage. Matches the legacy
+/// architecture.
+fn execute_hnsw_side_effects(writer: &RealWriterHandle, write: &Write) -> Result<(), WriterError> {
+    for phase in write.phases.iter() {
+        match phase {
+            Phase::UpsertMemory { id, vector, .. }
+            | Phase::UpdateEmbedding {
+                id,
+                new_vector: vector,
+            } => {
+                writer
+                    .hnsw_writer_lock()
+                    .insert(*id, vector.as_ref())
+                    .map_err(|e| WriterError::Internal(format!("hnsw insert: {e:?}")))?;
+            }
+            Phase::Tombstone {
+                target: TombstoneTarget::Memory { id, .. },
+                ..
+            } => {
+                // mark_tombstoned returns NotFound if HNSW doesn't have
+                // the entry yet (e.g. recovery is mid-replay and HNSW
+                // maintenance hasn't run). That's a "tombstone something
+                // not surfacing" — treat as no-op.
+                let _ = writer.hnsw_writer_lock().mark_tombstoned(*id);
+            }
+            _ => {}
+        }
+    }
+    Ok(())
 }
 
 /// Publish one event per phase that has a wire-side counterpart.
@@ -463,13 +510,21 @@ mod tests {
     use tempfile::TempDir;
 
     fn build_writer() -> (TempDir, RealWriterHandle) {
+        let (dir, writer, _shared) = build_writer_with_shared();
+        (dir, writer)
+    }
+
+    /// Test helper that also returns the SharedHnsw reader so tests
+    /// can assert on HNSW post-submit (the RealWriterHandle holds
+    /// only the Writer half of the pair).
+    fn build_writer_with_shared() -> (TempDir, RealWriterHandle, SharedHnsw<VECTOR_DIM>) {
         let dir = TempDir::new().unwrap();
         let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
         let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
-        let (_shared, hnsw_writer) =
+        let (shared, hnsw_writer) =
             SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
         let writer = RealWriterHandle::new(metadata, hnsw_writer);
-        (dir, writer)
+        (dir, writer, shared)
     }
 
     #[tokio::test]
@@ -612,6 +667,77 @@ mod tests {
         assert!(
             lsn_after > lsn_before,
             "bus LSN must advance after UpsertMemory publishes Encoded event"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_upsert_memory_inserts_into_hnsw() {
+        // P3d: UpsertMemory's HNSW side-effect lands the vector in
+        // the search index. We query via the SharedHnsw reader half
+        // — the writer holds only the Writer half.
+        let (_dir, writer, shared) = build_writer_with_shared();
+        let id = MemoryId::pack(0, 1, 0);
+        let phase = Phase::UpsertMemory {
+            id,
+            text: "hello".into(),
+            vector: Box::new([0.5_f32; VECTOR_DIM]),
+            kind: MemoryKind::Episodic,
+            salience: brain_core::Salience::default(),
+            context: ContextId(0),
+            created_at_unix_nanos: 1_700_000_000_000,
+            arena_slot: 1,
+            embedding_model_fp: [0xAA; 16],
+            content_hash: None,
+            deduplicate: false,
+        };
+        let write = Write::single(WriteId::new(), AgentId::new(), phase);
+        writer.submit(write).await.expect("submit");
+        assert!(
+            shared.contains(id),
+            "HNSW must contain the upserted memory_id"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_tombstone_memory_marks_hnsw() {
+        let (_dir, writer, shared) = build_writer_with_shared();
+        let id = MemoryId::pack(0, 1, 0);
+        // Set up: insert.
+        let upsert = Phase::UpsertMemory {
+            id,
+            text: "hi".into(),
+            vector: Box::new([0.5_f32; VECTOR_DIM]),
+            kind: MemoryKind::Episodic,
+            salience: brain_core::Salience::default(),
+            context: ContextId(0),
+            created_at_unix_nanos: 0,
+            arena_slot: 1,
+            embedding_model_fp: [0; 16],
+            content_hash: None,
+            deduplicate: false,
+        };
+        writer
+            .submit(Write::single(WriteId::new(), AgentId::new(), upsert))
+            .await
+            .unwrap();
+        assert!(!shared.is_tombstoned(id));
+
+        // Tombstone via unified path.
+        let tomb = Phase::Tombstone {
+            target: TombstoneTarget::Memory {
+                id,
+                mode: crate::write::phase::TombstoneMode::Soft,
+            },
+            reason: 0,
+            at_unix_nanos: 1_700_000_001_000,
+        };
+        writer
+            .submit(Write::single(WriteId::new(), AgentId::new(), tomb))
+            .await
+            .expect("tombstone submit");
+        assert!(
+            shared.is_tombstoned(id),
+            "HNSW must mark the memory_id tombstoned after Phase::Tombstone(Memory)"
         );
     }
 

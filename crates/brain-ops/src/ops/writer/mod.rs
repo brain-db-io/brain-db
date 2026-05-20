@@ -264,6 +264,13 @@ impl RealWriterHandle {
         self.wal_sink.as_ref()
     }
 
+    /// Lock the HNSW writer for the unified path's side-effect step.
+    /// Returns a `MutexGuard` so the caller holds the lock for the
+    /// minimum window (single insert / mark_tombstoned).
+    pub(crate) fn hnsw_writer_lock(&self) -> parking_lot::MutexGuard<'_, brain_index::Writer<384>> {
+        self.hnsw_writer.lock()
+    }
+
     #[must_use]
     pub fn with_agent_id(mut self, agent_id: AgentId) -> Self {
         self.agent_id = agent_id;
