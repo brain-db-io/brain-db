@@ -779,10 +779,24 @@ pub struct RecallArgs {
     #[arg(long)]
     pub txn: Option<String>,
     /// Surface linked entities + top statements per hit in the
-    /// stacked-card renderer. Requires the server to populate the
-    /// per-hit knowledge graph fields.
-    #[arg(long = "include-graph", default_value_t = false)]
+    /// stacked-card renderer. Hidden from `--help` until the wire
+    /// `RecallResp` grows the per-hit knowledge-graph fields — the
+    /// renderer falls back to empty enrichment today, so exposing
+    /// the flag would lie to users. The shell still accepts the
+    /// flag (parses cleanly) so existing scripts don't break; it
+    /// just stays invisible until the server-side path is real.
+    #[arg(long = "include-graph", default_value_t = false, hide = true)]
     pub include_graph: bool,
+    /// Drop results whose current salience is below this floor.
+    /// `[0.0, 1.0]`, default 0.0 (no filter). Filters AFTER the
+    /// top-K cut, so combine with a higher `--top-k` if the floor
+    /// is aggressive.
+    #[arg(long = "salience-floor", default_value_t = 0.0f32)]
+    pub salience_floor: f32,
+    /// Drop results created more than this many seconds ago.
+    /// Default: no age bound. Server-side filter; cheap.
+    #[arg(long = "max-age")]
+    pub max_age_seconds: Option<u64>,
 }
 
 #[derive(Debug, Args, Clone)]

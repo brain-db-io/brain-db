@@ -34,6 +34,7 @@ pub async fn run(
         .recall(args.query)
         .top_k(args.top_k)
         .confidence_threshold(args.confidence)
+        .salience_floor(args.salience_floor)
         .include_text(args.include_text);
     if !args.filter_context.is_empty() {
         b = b.context_filter(args.filter_context);
@@ -45,6 +46,17 @@ pub async fn run(
             .map(|k| k.into_wire())
             .collect();
         b = b.kind_filter(kinds);
+    }
+    if let Some(secs) = args.max_age_seconds {
+        // The wire field is an absolute lower-bound timestamp ("keep
+        // memories created at or after this point"). Compute it from
+        // the client's clock; nanos because that's the wire unit.
+        let now_nanos = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(u64::MAX);
+        let cutoff = now_nanos.saturating_sub(secs.saturating_mul(1_000_000_000));
+        b = b.age_bound_unix_nanos(Some(cutoff));
     }
     if let Some(t) = txn {
         b = b.txn(t);

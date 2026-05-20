@@ -57,6 +57,11 @@ fn verb_specific_long_flags<A: Args>() -> Vec<String> {
         // Globals are flagged via `global = true`. Per-verb cards
         // intentionally don't list them.
         .filter(|a| !a.is_global_set())
+        // Hidden flags (`hide = true`) are parseable but invisible
+        // in `--help`; they're typically gated/legacy/internal. Per-
+        // verb cards skip them by design so the rendered help and
+        // the visible clap surface stay in lock-step.
+        .filter(|a| !a.is_hide_set())
         .filter_map(|a| a.get_long().map(|s| format!("--{s}")))
         .collect()
 }

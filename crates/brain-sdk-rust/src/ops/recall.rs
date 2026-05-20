@@ -80,6 +80,16 @@ impl<'a> RecallBuilder<'a> {
         self
     }
 
+    /// Filter to memories created at or after this absolute unix-nanos
+    /// timestamp. The shell's `--max-age <secs>` flag computes
+    /// `now - secs` and passes the result here; programmatic SDK
+    /// callers can compute their own cutoff. `None` → no filter.
+    #[must_use]
+    pub fn age_bound_unix_nanos(mut self, t: Option<u64>) -> Self {
+        self.age_bound_unix_nanos = t;
+        self
+    }
+
     #[must_use]
     pub fn include_vectors(mut self, on: bool) -> Self {
         self.include_vectors = on;

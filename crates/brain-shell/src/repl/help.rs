@@ -230,7 +230,18 @@ fn help_recall() -> HelpVerb {
         usage: vec!["recall <QUERY> [flags]".into()],
         flags: vec![
             row("--top-k N", "result cap; default 10; server clamps to cap"),
-            row("--confidence F", "[0.0, 1.0] similarity threshold; default 0.0"),
+            row(
+                "--confidence F",
+                "[0.0, 1.0] threshold compared to `confidence` field; default 0.0 = no filter",
+            ),
+            row(
+                "--salience-floor F",
+                "[0.0, 1.0]; drop hits with current salience below this; default 0.0",
+            ),
+            row(
+                "--max-age SECS",
+                "drop hits created more than N seconds ago (server-side)",
+            ),
             row(
                 "--filter-context N",
                 "keep results from this context; repeatable, up to 16",
@@ -241,18 +252,15 @@ fn help_recall() -> HelpVerb {
             ),
             row("--include-text", "populate the text column (off by default)"),
             row(
-                "--include-graph",
-                "request per-hit graph enrichment (gated)",
-            ),
-            row(
                 "--txn HEX",
                 "read inside an open transaction; auto in REPL",
             ),
         ],
         sources: vec![],
         description: vec![
-            "Vector-similarity search. Embeds the query text, runs a top-K HNSW lookup in the active context's index, returns ranked MemoryResults. Substrate path compares the threshold to similarity_score; hybrid (knowledge-layer) path compares it to the RRF-fused score.".into(),
-            "When the top-K scores cluster within Δ<0.001, the table footer warns that ranking may not be meaningful — typically the embedder isn't loaded (test mode) or the query genuinely doesn't discriminate. Don't trust the order in that case.".into(),
+            "Vector-similarity search. Embeds the query text, runs a top-K HNSW lookup in the active context's index, returns ranked MemoryResults.".into(),
+            "Score fields: `similarity_score` is the raw cosine from the semantic retriever (the substrate path uses it directly; the hybrid path reports the semantic retriever's contribution to the fusion, or 0.0 if semantic didn't fire). `confidence` is the value `--confidence` thresholds against — `similarity_score` on substrate, RRF-fused `fused_score` on hybrid.".into(),
+            "When the top-K scores cluster within Δ<0.001, the table footer warns that ranking may not be meaningful (computed client-side from the response). Typically the embedder isn't loaded (test mode), or the query genuinely doesn't discriminate.".into(),
             "Returned ids are remembered in the session for tab-completion — the next `forget` or `link` can refer to them by short id.".into(),
         ],
         example: Some(r#"recall "auth rewrite" --top-k 5 --include-text --filter-context 7"#.into()),
@@ -603,10 +611,11 @@ mod tests {
         for flag in [
             "--top-k",
             "--confidence",
+            "--salience-floor",
+            "--max-age",
             "--filter-context",
             "--filter-kind",
             "--include-text",
-            "--include-graph",
             "--txn",
         ] {
             assert!(card.contains(flag), "missing flag {flag} in:\n{card}");
