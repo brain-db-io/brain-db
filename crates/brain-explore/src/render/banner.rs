@@ -77,10 +77,12 @@ impl Render for WelcomeBanner {
         let accent = |s: &str| theme.paint(Token::Accent, s, policy).into_owned();
 
         // ── Top rule ──────────────────────────────────────────────
+        // No leading blank line: content sits flush against the rule
+        // so the card framing reads as a unit, not as "rule then
+        // padding then content."
         let width = policy.width.min(80).max(40);
         let rule: String = "─".repeat(width);
         writeln!(w, "{}", muted(&rule))?;
-        writeln!(w)?;
 
         // ── Title line ────────────────────────────────────────────
         // ◉ brand icon + product name + version + · + connection.

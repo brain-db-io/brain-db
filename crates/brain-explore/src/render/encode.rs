@@ -146,9 +146,10 @@ fn render_human(
     let width = policy.width.min(CARD_MAX_WIDTH);
 
     // ── Top rule ──────────────────────────────────────────────────
+    // No leading blank inside the rule: content sits flush against
+    // the framing so the card reads as a single visual unit.
     let rule = "─".repeat(width);
     writeln!(w, "{rule}")?;
-    writeln!(w)?;
 
     // ── Heading ──────────────────────────────────────────────────
     // Status badge on the left + right-aligned routing cluster.
@@ -313,9 +314,10 @@ fn render_human(
             "{arrow} {label_painted}{label_spaces}   {cmd_painted}   {tail}"
         )?;
     }
-    writeln!(w)?;
 
     // ── Bottom rule ──────────────────────────────────────────────
+    // No trailing blank inside the rule: footer hint sits flush
+    // against the bottom framing, matching the top.
     writeln!(w, "{rule}")?;
 
     Ok(())

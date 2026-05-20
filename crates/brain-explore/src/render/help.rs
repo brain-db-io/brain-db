@@ -172,10 +172,12 @@ impl Render for HelpVerb {
         let accent = |s: &str| theme.paint(Token::Accent, s, policy).into_owned();
 
         // ── Top rule ──
+        // No leading blank: content sits flush against the rule so
+        // the card reads as a single visual unit (matches banner +
+        // encode card discipline).
         let width = policy.width.min(CARD_MAX_WIDTH).max(40);
         let rule: String = "─".repeat(width);
         writeln!(w, "{}", muted(&rule))?;
-        writeln!(w)?;
 
         // ── Title line: NAME · tagline ──
         // Uppercase the verb so the eye can land on "what does this
@@ -185,14 +187,14 @@ impl Render for HelpVerb {
         let sep = muted("·");
         let tagline_painted = accent(&self.tagline);
         writeln!(w, "  {name_painted}  {sep}  {tagline_painted}")?;
-        writeln!(w)?;
+
+        // Inter-section blanks land BEFORE each section (not after),
+        // so the last section sits flush against the bottom rule no
+        // matter which one happens to be the last.
 
         // ── Usage block ──
-        // Multi-line usage signatures stack under the label, indented
-        // one column past the label column. Mirrors info.rs's "label
-        // then value" rhythm so the eye treats Usage / Description /
-        // See also as siblings.
         if !self.usage.is_empty() {
+            writeln!(w)?;
             let usage_label = lbl(&pad_verb_label("Usage"));
             let first = val(&self.usage[0]);
             writeln!(w, "  {usage_label}  {first}")?;
@@ -201,11 +203,11 @@ impl Render for HelpVerb {
                 let cont = val(line);
                 writeln!(w, "  {blank_label}  {cont}")?;
             }
-            writeln!(w)?;
         }
 
         // ── Description ──
         if !self.description.is_empty() {
+            writeln!(w)?;
             let desc_label = lbl(&pad_verb_label("Description"));
             // Description paragraphs sit indented under the label —
             // not painted Value (no value token) since description
@@ -219,11 +221,11 @@ impl Render for HelpVerb {
                 // paragraph reads as a block, not as misaligned rows.
                 writeln!(w, "    {para}")?;
             }
-            writeln!(w)?;
         }
 
         // ── See also ──
         if !self.see_also.is_empty() {
+            writeln!(w)?;
             let label = lbl(&pad_verb_label("See also"));
             let links: Vec<String> = self
                 .see_also
@@ -232,7 +234,6 @@ impl Render for HelpVerb {
                 .collect();
             let joined = links.join(&muted("  ·  "));
             writeln!(w, "  {label}  {joined}")?;
-            writeln!(w)?;
         }
 
         // ── Bottom rule ──
