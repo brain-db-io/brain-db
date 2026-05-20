@@ -76,6 +76,14 @@ pub struct EdgeEventPayload {
     /// Only populated for `EdgeSuperseded` — the prior relation that
     /// got replaced.
     pub superseded_relation_id: Option<WireUuid>,
+    /// Origin discriminator copied from
+    /// `brain_metadata::tables::edge::origin::*`:
+    /// `0` = `EXPLICIT` (LINK / RELATION_LINK / WAL replay of either),
+    /// `1` = `AUTO_DERIVED` (worker-inferred, e.g. AutoEdgeWorker's
+    /// `SimilarTo`).
+    /// Agents driving on the change feed filter by this so they can
+    /// distinguish edges they wrote from edges the substrate inferred.
+    pub origin: u8,
 }
 
 /// Spec §08 §8.

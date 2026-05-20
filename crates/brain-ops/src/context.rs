@@ -392,6 +392,7 @@ impl OpsContext {
             self, derived_by, origin, zero_disambiguator, EdgeData, EDGES_REVERSE_TABLE,
             EDGES_TABLE,
         };
+        use brain_protocol::responses::types::EventType;
 
         if pairs.is_empty() {
             return Ok(0);
@@ -433,6 +434,46 @@ impl OpsContext {
         }
         wtxn.commit()
             .map_err(|e| format!("auto_edges commit: {e:?}"))?;
+        drop(db);
+
+        // Publish EdgeAdded events post-commit so subscribers see the
+        // change feed in monotonic order. Auto-edges don't go through
+        // the WAL (they're cheaply re-derivable on restart), so the
+        // worker publishes directly to the EventBus instead of relying
+        // on the WAL→subscribe replay path.
+        //
+        // origin = AUTO_DERIVED lets agents filter explicit vs inferred
+        // edges in real time. The mirror direction is implicit — the
+        // wire payload carries the (from, to) pair as written; clients
+        // that want both directions can union by id and the symmetric
+        // forward+mirror writes from later cycles will surface.
+        //
+        // EventBus::publish is fire-and-forget (no receivers = drop on
+        // the floor); the worker never blocks on subscriber back-pressure.
+        for (from, to, sim) in pairs {
+            let env = EventEnvelope {
+                lsn: 0, // bus stamps a fresh LSN
+                event_type: EventType::EdgeAdded,
+                memory_id: brain_core::MemoryId::NULL,
+                context_id: brain_core::ContextId::default(),
+                kind: brain_core::MemoryKind::Episodic,
+                salience: 0.0,
+                timestamp_unix_nanos: now,
+                text: None,
+                knowledge_payload: None,
+                edge_payload: Some(crate::ops::subscribe::edge_payload_to_event(
+                    NodeRef::Memory(*from),
+                    NodeRef::Memory(*to),
+                    EdgeKindRef::Builtin(EdgeKind::SimilarTo),
+                    *sim,
+                    None,
+                    None,
+                    origin::AUTO_DERIVED,
+                )),
+                agent_id: brain_core::AgentId::default(),
+            };
+            self.events.publish(env);
+        }
         Ok(written)
     }
 }

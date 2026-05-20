@@ -524,3 +524,63 @@ fn mixed_zero_and_real_vectors_only_real_produces_edges() {
         );
     });
 }
+
+// ---------------------------------------------------------------------------
+// Subscribe-visibility: auto-edges must publish `EdgeAdded` events with
+// `origin = AUTO_DERIVED` so agents driving on the change feed can react
+// to inferred edges, not just to explicit LINK calls. Regression guard
+// for the gap caught in the validation report (snappy-whistling-flute).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn auto_edges_publish_subscribe_events() {
+    use brain_protocol::responses::types::EventType;
+
+    glommio_run(|| async {
+        let fix = build_fixture();
+        // Subscribe BEFORE encoding so the broadcast channel buffers
+        // events for us. `tokio::sync::broadcast::Receiver` only sees
+        // post-subscribe events; ordering is "subscribe → encode → drain."
+        let mut rx = fix.ctx.events.receiver();
+
+        // Two lobe-aligned vectors → guaranteed cosine ≈ 1.0; the worker
+        // writes a SimilarTo pair.
+        let _a = submit_encode(&fix.ctx, encode_op(1, 0, dense_vec(0))).await;
+        let _b = submit_encode(&fix.ctx, encode_op(2, 8, dense_vec(8))).await;
+
+        let worker = AutoEdgeWorker::new(fix.queue_rx.clone()).with_knobs(high_recall_knobs());
+        let drained = run_one_cycle(&worker, fix.ctx.clone()).await.unwrap();
+        assert_eq!(drained, 2, "both encodes must drain through the worker");
+
+        // The worker's `write_auto_edges` call publishes one EdgeAdded
+        // event per logical pair via the EventBus. Drain the channel
+        // and count AUTO_DERIVED events.
+        let mut auto_edges = 0usize;
+        let mut explicit_edges = 0usize;
+        let mut other_events = 0usize;
+        while let Ok(env) = rx.try_recv() {
+            match env.event_type {
+                EventType::EdgeAdded => match env.edge_payload.as_ref() {
+                    Some(p) if p.origin == brain_metadata::tables::edge::origin::AUTO_DERIVED => {
+                        auto_edges += 1;
+                    }
+                    Some(_) => {
+                        explicit_edges += 1;
+                    }
+                    None => {}
+                },
+                _ => other_events += 1,
+            }
+        }
+        assert!(
+            auto_edges >= 1,
+            "expected at least one EdgeAdded(AUTO_DERIVED) event, got 0 \
+             (auto={auto_edges}, explicit={explicit_edges}, other={other_events})"
+        );
+        assert_eq!(
+            explicit_edges, 0,
+            "AutoEdgeWorker must not stamp the EXPLICIT origin — that's \
+             reserved for LINK / RELATION_LINK"
+        );
+    });
+}

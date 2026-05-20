@@ -206,7 +206,13 @@ impl EventEnvelope {
                         text: None,
                         knowledge_payload: None,
                         edge_payload: Some(edge_payload_to_event(
-                            e.source, e.target, e.kind, e.weight, None, None,
+                            e.source,
+                            e.target,
+                            e.kind,
+                            e.weight,
+                            None,
+                            None,
+                            brain_metadata::tables::edge::origin::EXPLICIT,
                         )),
                         agent_id,
                     });
@@ -251,6 +257,7 @@ impl EventEnvelope {
                     p.weight,
                     None,
                     None,
+                    brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
                 // LinkPayload has no agent_id today; replay can't
                 // route to a per-agent allowlist. Live writes stamp
@@ -274,6 +281,7 @@ impl EventEnvelope {
                     0.0,
                     None,
                     None,
+                    brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
                 agent_id: brain_core::AgentId::default(),
             }],
@@ -294,6 +302,7 @@ impl EventEnvelope {
                     1.0,
                     Some(p.relation_id),
                     None,
+                    brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
                 agent_id: p.agent_id,
             }],
@@ -314,6 +323,7 @@ impl EventEnvelope {
                     1.0,
                     Some(p.new.relation_id),
                     Some(p.old_relation_id),
+                    brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
                 agent_id: p.new.agent_id,
             }],
@@ -345,6 +355,7 @@ impl EventEnvelope {
                     weight: 0.0,
                     relation_id: Some(p.relation_id.to_bytes()),
                     superseded_relation_id: None,
+                    origin: brain_metadata::tables::edge::origin::EXPLICIT,
                 }),
                 agent_id: p.agent_id,
             }],
@@ -398,13 +409,17 @@ impl EventEnvelope {
 
 /// Project a [`brain_core::NodeRef`] + [`brain_core::EdgeKindRef`]
 /// pair plus optional relation ids into a wire [`EdgeEventPayload`].
-fn edge_payload_to_event(
+///
+/// `origin` mirrors `EdgeData.origin` so subscribers can filter
+/// explicit vs auto-derived edges (`brain_metadata::tables::edge::origin::*`).
+pub(crate) fn edge_payload_to_event(
     from: brain_core::NodeRef,
     to: brain_core::NodeRef,
     kind: brain_core::EdgeKindRef,
     weight: f32,
     relation_id: Option<brain_core::RelationId>,
     superseded: Option<brain_core::RelationId>,
+    origin: u8,
 ) -> EdgeEventPayload {
     let (edge_kind_tag, edge_kind_byte, relation_type_id) = match kind {
         brain_core::EdgeKindRef::Builtin(k) => (0u8, k as u8, None),
@@ -429,6 +444,7 @@ fn edge_payload_to_event(
         weight,
         relation_id: relation_id.map(|r| r.to_bytes()),
         superseded_relation_id: superseded.map(|r| r.to_bytes()),
+        origin,
     }
 }
 

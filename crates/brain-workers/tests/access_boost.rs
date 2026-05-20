@@ -399,7 +399,6 @@ fn recall_fills_buffer_then_boost_worker_applies() {
             age_bound_unix_nanos: None,
             kind_filter: None,
             salience_floor: 0.0,
-            strategy: None,
             include_edges: false,
             include_graph: false,
             include_text: false,

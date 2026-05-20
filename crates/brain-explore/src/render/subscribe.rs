@@ -107,7 +107,47 @@ fn event_to_json(e: &SubscriptionEvent) -> Value {
             );
         }
     }
+    // EdgeAdded / EdgeRemoved / EdgeSuperseded events carry an
+    // edge_payload side-channel — surface it in the JSON so agents
+    // driving on the change feed can filter on origin (AUTO_DERIVED
+    // vs EXPLICIT) and inspect the (from, to, kind, weight) tuple
+    // without a second RPC.
+    if let Some(ep) = e.edge_payload.as_ref() {
+        if let Some(map) = out.as_object_mut() {
+            map.insert(
+                "edge_payload".into(),
+                json!({
+                    "from_kind": ep.from_kind,
+                    "from_id": fmt_id_from_bytes(&ep.from_id),
+                    "to_kind": ep.to_kind,
+                    "to_id": fmt_id_from_bytes(&ep.to_id),
+                    "edge_kind_tag": ep.edge_kind_tag,
+                    "edge_kind_byte": ep.edge_kind_byte,
+                    "relation_type_id": ep.relation_type_id,
+                    "weight": ep.weight,
+                    "relation_id": ep.relation_id.map(|b| fmt_id_from_bytes(&b)),
+                    "superseded_relation_id": ep
+                        .superseded_relation_id
+                        .map(|b| fmt_id_from_bytes(&b)),
+                    "origin": ep.origin,
+                }),
+            );
+        }
+    }
     out
+}
+
+/// Format a 16-byte id (memory id, entity id, relation id) as the
+/// canonical `0x` + 32-hex form used everywhere else in the JSON
+/// envelope. Mirrors `fmt_id` but takes raw bytes rather than the
+/// `u128`-packed memory_id type.
+fn fmt_id_from_bytes(b: &[u8; 16]) -> String {
+    let mut s = String::with_capacity(34);
+    s.push_str("0x");
+    for byte in b {
+        s.push_str(&format!("{byte:02x}"));
+    }
+    s
 }
 
 /// Format the `ExtractedKnowledge` knowledge_payload as a short text
