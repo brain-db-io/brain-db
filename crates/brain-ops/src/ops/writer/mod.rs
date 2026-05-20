@@ -147,6 +147,12 @@ pub struct RealWriterHandle {
     /// Lives on the writer (not the outer handler) so the batch
     /// path doesn't have to know about lexical indexing.
     memory_text_dispatcher: Option<Arc<crate::ops::text_indexer::MemoryTextDispatcher>>,
+    /// Per-writer idempotency cache for the universal `submit(Write)`
+    /// path. Distinct from the redb-backed substrate cache (which keys
+    /// by `RequestId` and lives in `IDEMPOTENCY_TABLE`). The two will
+    /// merge in P3c when this cache becomes redb-backed and keys by
+    /// `WriteId`.
+    write_idempotency: Arc<submit::WriteIdempotencyCache>,
 }
 
 /// What the writer pushes into the AutoEdgeWorker's channel after a
@@ -220,7 +226,25 @@ impl RealWriterHandle {
             extractor_metrics: None,
             temporal_edge_metrics: None,
             memory_text_dispatcher: None,
+            write_idempotency: Arc::new(submit::WriteIdempotencyCache::new()),
         }
+    }
+
+    /// Accessor for the unified write-path idempotency cache.
+    /// Used by [`submit::submit`] and exposed for tests + future
+    /// admin observability.
+    #[must_use]
+    pub fn write_idempotency_cache(&self) -> &submit::WriteIdempotencyCache {
+        &self.write_idempotency
+    }
+
+    /// Accessor for the shared metadata DB. Lets [`submit::submit`]
+    /// lock + open wtxns; lets tests inspect post-commit state. Kept
+    /// pub(crate) so external code goes through the writer's submit
+    /// methods rather than the metadata directly.
+    #[must_use]
+    pub(crate) fn metadata(&self) -> &SharedMetadataDb {
+        &self.metadata
     }
 
     #[must_use]
@@ -499,6 +523,7 @@ impl WriterHandle for RealWriterHandle {
 mod encode;
 mod forget;
 mod link;
+pub mod submit;
 mod unlink;
 pub mod wal_sink;
 
