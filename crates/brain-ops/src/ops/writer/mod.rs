@@ -247,6 +247,14 @@ impl RealWriterHandle {
         &self.metadata
     }
 
+    /// Accessor for the optional EventBus. Lets [`submit::submit`]
+    /// publish post-commit events to subscribers. `None` when the
+    /// writer was constructed without `with_event_bus` (test path).
+    #[must_use]
+    pub(crate) fn event_bus(&self) -> Option<&Arc<EventBus>> {
+        self.events.as_ref()
+    }
+
     #[must_use]
     pub fn with_agent_id(mut self, agent_id: AgentId) -> Self {
         self.agent_id = agent_id;

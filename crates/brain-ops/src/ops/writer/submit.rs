@@ -27,11 +27,14 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use brain_core::{ContextId, MemoryId, MemoryKind, NodeRef};
 use brain_planner::WriterError;
+use brain_protocol::responses::types::EventType;
 use brain_storage::wal::record::Lsn;
 
 use crate::apply::{dispatch, ApplyError};
-use crate::write::{PhaseAck, Write, WriteAck, WriteId};
+use crate::ops::subscribe::{edge_payload_to_event, EventEnvelope};
+use crate::write::{Phase, PhaseAck, TombstoneTarget, Write, WriteAck, WriteId};
 
 use super::RealWriterHandle;
 
@@ -116,13 +119,20 @@ impl RealWriterHandle {
             acks
         };
 
-        // 5. Stamp the cache.
+        // 5. Publish events (one per phase that has a wire surface).
+        // The bus mints sequential LSNs at publish time. WAL framing
+        // (P3b) will pre-stamp these with durable LSNs, replacing the
+        // bus mint at that point. For now: bus-stamped is correct —
+        // subscribers see writes; they just can't reliably replay past
+        // a restart yet (substrate-WAL-replay still works for ops that
+        // use the legacy submit_encode/forget/link/unlink path).
         let committed_at = now_unix_nanos();
+        publish_events_for(self, &write, committed_at);
+
+        // 6. Stamp the cache.
         let ack = WriteAck {
             write_id: write.write_id,
             committed_at_unix_nanos: committed_at,
-            // WAL framing lands in P3b — until then every Write occupies
-            // the synthetic LSN range [0, 0). Recovery never sees these.
             lsn_first: Lsn(0),
             lsn_last: Lsn(0),
             phase_acks,
@@ -130,7 +140,7 @@ impl RealWriterHandle {
         let arc_ack = Arc::new(ack.clone());
         cache.stamp(write.write_id, arc_ack);
 
-        let _ = started_at; // reserved for tracing / metrics in P3c
+        let _ = started_at; // reserved for tracing / metrics in a later slice
 
         Ok(ack)
     }
@@ -149,6 +159,153 @@ fn now_unix_nanos() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Publish one event per phase that has a wire-side counterpart.
+///
+/// Substrate phases (UpsertMemory, Tombstone(Memory), Link, Unlink)
+/// publish their substrate event types. Knowledge phases publish their
+/// knowledge event types. Phases without a wire surface
+/// (UpdateSalience, ReclaimSlots, StampAudit, …) don't publish — they
+/// affect observability through metrics, not subscribers.
+fn publish_events_for(writer: &RealWriterHandle, write: &Write, committed_at_unix_nanos: u64) {
+    let Some(bus) = writer.event_bus() else {
+        // No bus wired — test path or substrate-only deployment that
+        // doesn't surface a change feed. Drop the events silently.
+        return;
+    };
+
+    for phase in write.phases.iter() {
+        let Some(env) = phase_to_envelope(phase, write, committed_at_unix_nanos) else {
+            continue;
+        };
+        bus.publish(env);
+    }
+}
+
+/// Map a single phase into an [`EventEnvelope`] for the bus. Returns
+/// `None` for phases that have no wire-side event.
+fn phase_to_envelope(
+    phase: &Phase,
+    write: &Write,
+    committed_at_unix_nanos: u64,
+) -> Option<EventEnvelope> {
+    use brain_metadata::tables::edge::origin;
+
+    match phase {
+        Phase::UpsertMemory {
+            id,
+            text,
+            kind,
+            salience,
+            context,
+            ..
+        } => Some(EventEnvelope {
+            lsn: 0,
+            event_type: EventType::Encoded,
+            memory_id: *id,
+            context_id: *context,
+            kind: *kind,
+            salience: salience.raw(),
+            timestamp_unix_nanos: committed_at_unix_nanos,
+            text: Some(text.clone()),
+            knowledge_payload: None,
+            edge_payload: None,
+            agent_id: write.agent_id,
+        }),
+
+        Phase::Tombstone {
+            target: TombstoneTarget::Memory { id, mode: _ },
+            ..
+        } => Some(EventEnvelope {
+            lsn: 0,
+            event_type: EventType::Forgotten,
+            memory_id: *id,
+            context_id: ContextId::default(),
+            kind: MemoryKind::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: committed_at_unix_nanos,
+            text: None,
+            knowledge_payload: None,
+            edge_payload: None,
+            agent_id: write.agent_id,
+        }),
+
+        Phase::Link {
+            from,
+            to,
+            kind,
+            weight,
+            origin: edge_origin,
+            ..
+        } => Some(EventEnvelope {
+            lsn: 0,
+            event_type: EventType::EdgeAdded,
+            memory_id: memory_id_from_node_ref(*from),
+            context_id: ContextId::default(),
+            kind: MemoryKind::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: committed_at_unix_nanos,
+            text: None,
+            knowledge_payload: None,
+            edge_payload: Some(edge_payload_to_event(
+                *from,
+                *to,
+                *kind,
+                *weight,
+                None,
+                None,
+                *edge_origin,
+            )),
+            agent_id: write.agent_id,
+        }),
+
+        Phase::Unlink { from, to, kind, .. } => Some(EventEnvelope {
+            lsn: 0,
+            event_type: EventType::EdgeRemoved,
+            memory_id: memory_id_from_node_ref(*from),
+            context_id: ContextId::default(),
+            kind: MemoryKind::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: committed_at_unix_nanos,
+            text: None,
+            knowledge_payload: None,
+            edge_payload: Some(edge_payload_to_event(
+                *from,
+                *to,
+                *kind,
+                0.0,
+                None,
+                None,
+                origin::EXPLICIT,
+            )),
+            agent_id: write.agent_id,
+        }),
+
+        // Knowledge-shaped phases (UpsertEntity, UpsertStatement, ...)
+        // publish their knowledge events once P2b lands their apply
+        // functions. Until then they return PhaseAck variants but no
+        // bus event — same posture as the substrate stubs.
+        //
+        // Non-publishing phases (UpdateSalience, ReclaimSlots,
+        // StampAudit, SetExtractorEnabled, UpdateKind/Context/Embedding,
+        // UpdateAttribute, Resolve, MergeEntities, Supersede, UpsertSchema,
+        // UpsertEntity, UpsertStatement, UpsertRelation,
+        // Tombstone(Entity/Statement/Relation)) — observability lives in
+        // metrics, not the subscribe feed, for these.
+        _ => None,
+    }
+}
+
+fn memory_id_from_node_ref(n: NodeRef) -> MemoryId {
+    match n {
+        NodeRef::Memory(m) => m,
+        // For edges between non-memory nodes (entity↔entity, etc.)
+        // the envelope's `memory_id` field is informational — the
+        // edge_payload carries the real source/target. Substrate
+        // events historically zero this field for non-memory edges.
+        _ => MemoryId::NULL,
+    }
 }
 
 /// Map [`ApplyError`] into [`WriterError`].
@@ -274,6 +431,86 @@ mod tests {
         assert_eq!(ack.phase_acks.len(), 2);
         assert!(matches!(ack.phase_acks[0], PhaseAck::UpsertedMemory(_)));
         assert!(matches!(ack.phase_acks[1], PhaseAck::Linked));
+    }
+
+    #[tokio::test]
+    async fn submit_publishes_link_event_post_commit() {
+        use crate::ops::subscribe::{EventBus, SubscriptionRegistry};
+        let (_dir, mut writer) = build_writer();
+        let bus = Arc::new(EventBus::default());
+        // Snapshot the bus's pre-publish LSN so we can detect the
+        // post-publish increment without subscribing.
+        let _registry = SubscriptionRegistry::new(bus.clone());
+        writer = writer.with_event_bus(bus.clone());
+
+        let lsn_before = bus.current_lsn();
+        let phase = Phase::Link {
+            from: NodeRef::Memory(MemoryId::pack(0, 1, 0)),
+            to: NodeRef::Memory(MemoryId::pack(0, 2, 0)),
+            kind: EdgeKindRef::Builtin(EdgeKind::SimilarTo),
+            weight: 0.42,
+            origin: 0,
+            derived_by: 0,
+            disambiguator: zero_disambiguator(),
+            created_at_unix_nanos: 1_700_000_000_000,
+        };
+        let write = Write::single(WriteId::new(), AgentId::default(), phase);
+        writer.submit(write).await.expect("submit");
+
+        // The bus minted at least one LSN — an event was published.
+        let lsn_after = bus.current_lsn();
+        assert!(
+            lsn_after > lsn_before,
+            "bus LSN must advance after a Link phase publishes"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_publishes_upsert_memory_event_post_commit() {
+        use crate::ops::subscribe::EventBus;
+        let (_dir, mut writer) = build_writer();
+        let bus = Arc::new(EventBus::default());
+        writer = writer.with_event_bus(bus.clone());
+        let lsn_before = bus.current_lsn();
+
+        let phase = Phase::UpsertMemory {
+            id: MemoryId::pack(0, 1, 0),
+            text: "hello".into(),
+            vector: Box::new([0.0_f32; VECTOR_DIM]),
+            kind: MemoryKind::Episodic,
+            salience: brain_core::Salience::default(),
+            context: ContextId(0),
+            created_at_unix_nanos: 1_700_000_000_000,
+            arena_slot: 1,
+            fingerprint: [0xAA; 16],
+        };
+        let write = Write::single(WriteId::new(), AgentId::new(), phase);
+        writer.submit(write).await.expect("submit");
+
+        let lsn_after = bus.current_lsn();
+        assert!(
+            lsn_after > lsn_before,
+            "bus LSN must advance after UpsertMemory publishes Encoded event"
+        );
+    }
+
+    #[tokio::test]
+    async fn submit_does_not_publish_when_no_bus_wired() {
+        // Writer without with_event_bus → no panic, just silently drops.
+        let (_dir, writer) = build_writer();
+        let phase = Phase::Link {
+            from: NodeRef::Memory(MemoryId::pack(0, 1, 0)),
+            to: NodeRef::Memory(MemoryId::pack(0, 2, 0)),
+            kind: EdgeKindRef::Builtin(EdgeKind::SimilarTo),
+            weight: 0.42,
+            origin: 0,
+            derived_by: 0,
+            disambiguator: zero_disambiguator(),
+            created_at_unix_nanos: 1_700_000_000_000,
+        };
+        let write = Write::single(WriteId::new(), AgentId::default(), phase);
+        writer.submit(write).await.expect("submit");
+        // No bus → no observable side-effect besides the redb row.
     }
 
     #[tokio::test]
