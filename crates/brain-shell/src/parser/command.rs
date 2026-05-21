@@ -877,8 +877,19 @@ pub struct UnlinkArgs {
 
 #[derive(Debug, Clone, Subcommand)]
 pub enum TxnCommand {
-    /// Open a new transaction.
-    Begin,
+    /// Open a new transaction. The idle timeout defaults to 300 s
+    /// (the spec maximum) so an interactive REPL session never
+    /// expires while the user is typing — every op inside the
+    /// txn resets the deadline. Override with `--idle-timeout`.
+    Begin {
+        /// Idle-timeout in seconds (1..=300). The deadline resets
+        /// on every op inside the txn, so this is the maximum gap
+        /// between ops, not a wall-clock cap on the txn's lifetime.
+        /// Named distinctly from the global `--timeout` (per-op
+        /// network deadline) to avoid confusion.
+        #[arg(long = "idle-timeout", default_value_t = 300u32)]
+        idle_timeout: u32,
+    },
     /// Commit a transaction by id (hex bytes).
     Commit { id: String },
     /// Abort a transaction by id (hex bytes).
@@ -1046,10 +1057,26 @@ mod tests {
     }
 
     #[test]
-    fn txn_begin_subcommand() {
+    fn txn_begin_subcommand_default_idle_timeout() {
         let cli = parse(&["txn", "begin"]);
         match cli.subcommand {
-            Some(Command::Txn(TxnCommand::Begin)) => {}
+            Some(Command::Txn(TxnCommand::Begin { idle_timeout })) => {
+                // 300 s is the spec maximum and the shell's chosen
+                // default for interactive REPLs — activity resets
+                // the deadline anyway.
+                assert_eq!(idle_timeout, 300);
+            }
+            other => panic!("expected Txn(Begin), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn txn_begin_accepts_explicit_idle_timeout() {
+        let cli = parse(&["txn", "begin", "--idle-timeout", "60"]);
+        match cli.subcommand {
+            Some(Command::Txn(TxnCommand::Begin { idle_timeout })) => {
+                assert_eq!(idle_timeout, 60);
+            }
             other => panic!("expected Txn(Begin), got {other:?}"),
         }
     }

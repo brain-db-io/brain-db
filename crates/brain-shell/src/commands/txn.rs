@@ -14,8 +14,8 @@ pub async fn run(
     cmd: TxnCommand,
 ) -> Result<Rendered, ClientError> {
     match cmd {
-        TxnCommand::Begin => {
-            let resp = client.txn_begin().await?;
+        TxnCommand::Begin { idle_timeout } => {
+            let resp = client.txn_begin_with_timeout(idle_timeout).await?;
             session.active_txn = Some(resp.txn_id);
             Ok(Box::new(TxnBeginRendered(resp)))
         }

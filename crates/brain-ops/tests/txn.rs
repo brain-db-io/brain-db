@@ -884,3 +884,55 @@ fn commit_replay_returns_cached_response() {
         assert_eq!(c1.operations_applied, c2.operations_applied);
     })
 }
+
+// =============================================================================
+// Activity-based timeout extension
+// =============================================================================
+//
+// An interactive REPL session spans seconds of typing. A pure
+// wall-clock timeout would expire txns mid-session even when the
+// user is actively making progress. Every in-txn op resets the
+// deadline; the timeout is an *idle* bound, not a hard wall clock.
+
+#[test]
+fn txn_extends_on_each_op_inside_window() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let txn = [140; 16];
+        // 1 s window. Without activity extension, two encodes spaced
+        // ~600 ms apart would push the second past the original
+        // deadline. With extension, every encode resets the clock.
+        let _ = begin(&fix, txn, 1).await;
+        let _ = encode(&fix, [141; 16], "a", Some(txn)).await;
+        glommio::timer::sleep(std::time::Duration::from_millis(600)).await;
+        let _ = encode(&fix, [142; 16], "b", Some(txn)).await;
+        glommio::timer::sleep(std::time::Duration::from_millis(600)).await;
+        let _ = encode(&fix, [143; 16], "c", Some(txn)).await;
+        glommio::timer::sleep(std::time::Duration::from_millis(600)).await;
+        // ~1.8 s total wall-clock since begin, but the last reset
+        // was ~600 ms ago — commit must still succeed.
+        let resp = commit(&fix, txn).await;
+        assert_eq!(resp.operations_applied, 3);
+    })
+}
+
+#[test]
+fn txn_expires_after_idle_window() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let txn = [150; 16];
+        let _ = begin(&fix, txn, 1).await;
+        let _ = encode(&fix, [151; 16], "alive", Some(txn)).await;
+        // Sleep past the idle window with no activity.
+        glommio::timer::sleep(std::time::Duration::from_millis(1500)).await;
+        // Commit must report expired.
+        let err = dispatch(
+            RequestBody::TxnCommit(TxnCommitRequest { txn_id: txn }),
+            brain_ops::RequestCaller::anonymous(),
+            &fix.ctx,
+        )
+        .await
+        .unwrap_err();
+        assert!(matches!(err, OpError::TxnExpired), "got {err:?}");
+    })
+}

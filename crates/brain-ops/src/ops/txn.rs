@@ -212,16 +212,22 @@ impl TxnStore {
 
     /// Validate that `txn_id` exists and is `Active`. Touches the
     /// sweeper inline so a stale "Active" entry past its expiry is
-    /// observed as `Expired`. Returns Ok with the entry's expiry on
-    /// success.
+    /// observed as `Expired`. Bumps the txn's `expires_at` to
+    /// `now + timeout_seconds` — every in-flight op resets the
+    /// deadline, so an interactive REPL session doesn't expire
+    /// while the user is typing. Returns Ok with the (new) expiry.
     pub fn validate_active(&self, txn_id: TxnId) -> Result<u64, OpError> {
         let mut entries = self.entries.lock();
         let now = now_unix_nanos();
         Self::sweep_expired_locked(&mut entries, now);
-        match entries.get(&txn_id) {
+        match entries.get_mut(&txn_id) {
             None => Err(OpError::TxnNotFound),
             Some(e) => match e.state {
-                TxnState::Active => Ok(e.expires_at_unix_nanos),
+                TxnState::Active => {
+                    e.expires_at_unix_nanos =
+                        now.saturating_add(u64::from(e.timeout_seconds) * 1_000_000_000);
+                    Ok(e.expires_at_unix_nanos)
+                }
                 _ => Err(OpError::TxnExpired),
             },
         }
@@ -229,7 +235,8 @@ impl TxnStore {
 
     /// Apply `f` to the mutable buffer of an Active txn. Errors with
     /// `TxnNotFound` if no such id was ever created, `TxnExpired`
-    /// otherwise.
+    /// otherwise. Bumps `expires_at` on success — every buffer
+    /// mutation counts as activity.
     pub fn with_buffer<R>(
         &self,
         txn_id: TxnId,
@@ -241,7 +248,12 @@ impl TxnStore {
         match entries.get_mut(&txn_id) {
             None => Err(OpError::TxnNotFound),
             Some(entry) => match (&entry.state, &mut entry.buffer) {
-                (TxnState::Active, Some(buf)) => f(buf),
+                (TxnState::Active, Some(buf)) => {
+                    let r = f(buf)?;
+                    entry.expires_at_unix_nanos =
+                        now.saturating_add(u64::from(entry.timeout_seconds) * 1_000_000_000);
+                    Ok(r)
+                }
                 _ => Err(OpError::TxnExpired),
             },
         }

@@ -100,7 +100,7 @@ fn one_shot_txn_subcommands() {
     let begin = parse_argv(&["txn", "begin"]);
     assert!(matches!(
         begin.subcommand,
-        Some(Command::Txn(TxnCommand::Begin))
+        Some(Command::Txn(TxnCommand::Begin { .. }))
     ));
 
     let id = "00112233445566778899aabbccddeeff";

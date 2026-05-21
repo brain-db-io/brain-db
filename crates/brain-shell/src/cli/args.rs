@@ -192,7 +192,7 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
                 .map(|r| ("subscribe".to_string(), r)),
             Command::Txn(t) => {
                 let op = match &t {
-                    TxnCommand::Begin => "txn_begin",
+                    TxnCommand::Begin { .. } => "txn_begin",
                     TxnCommand::Commit { .. } => "txn_commit",
                     TxnCommand::Abort { .. } => "txn_abort",
                 };
