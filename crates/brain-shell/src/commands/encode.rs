@@ -53,6 +53,29 @@ pub async fn run(
     // distinct event.
     let deduplicate = !args.allow_duplicate;
 
+    // If the operator asked us to wait for background stages, open
+    // the subscribe stream BEFORE sending the encode. The worker
+    // may publish `StageCompleted` between when the encode response
+    // returns and when we'd otherwise open the stream — a race that
+    // makes `--wait*` look "stuck" (we hit the timeout instead of
+    // matching the event we missed). Holding an open stream from
+    // before the write closes the window.
+    let pre_subscribe_stream = if args.wait_for_extraction {
+        match client.subscribe().send_stream().await {
+            Ok(s) => Some(s),
+            Err(e) => {
+                tracing::warn!(
+                    target: "brain_shell",
+                    "encode --wait-for-extraction: subscribe failed ({e}); \
+                     proceeding without a wait — the encode itself is unaffected."
+                );
+                None
+            }
+        }
+    } else {
+        None
+    };
+
     let mut b = client
         .encode(text.clone())
         .context(context_id)
@@ -89,9 +112,28 @@ pub async fn run(
             .copied()
             .filter(|k| *k == StageKind::Extractor)
             .collect();
+        // Status line on stderr so the user sees something is
+        // happening — silence on an `--wait*` flag for several
+        // seconds reads as "the shell froze."
+        if !stages.is_empty() {
+            let names: Vec<&'static str> = stages
+                .iter()
+                .map(|k| match k {
+                    StageKind::AutoEdge => "auto_edge",
+                    StageKind::TemporalEdge => "temporal_edge",
+                    StageKind::Extractor => "extractor",
+                })
+                .collect();
+            eprintln!(
+                "→ waiting for {} stage(s): {} (up to {} s)…",
+                stages.len(),
+                names.join(", "),
+                WAIT_STAGES_TIMEOUT_SECS,
+            );
+        }
         Some(
             wait_for_stages(
-                client,
+                pre_subscribe_stream,
                 MemoryId::from_raw(resp.memory_id),
                 &stages,
                 resp.lsn,
@@ -316,19 +358,28 @@ fn edge_kind_label(tag: u8, byte: u8) -> String {
     }
 }
 
-/// Subscribe at `lsn+1` and block until *every* pending stage for the
-/// just-submitted memory has emitted a `StageCompleted` event — or
-/// until the deadline fires. Returns one `StageResult` per
-/// `StageCompleted` seen, in arrival order, plus the stage kinds
-/// that timed out. `pending_stages` comes from the encode ack.
+/// Hard cap on how long `--wait*` blocks. Chosen for interactive
+/// REPL feel: long enough that a healthy extractor (1 s tick + LLM
+/// round-trip) lands in time; short enough that a broken worker
+/// doesn't make the shell look frozen. The render path always
+/// surfaces timed-out stages so the operator sees what didn't
+/// arrive.
+const WAIT_STAGES_TIMEOUT_SECS: u64 = 10;
+
+/// Consume `pre_stream` (opened *before* the encode call to avoid
+/// the publish-vs-subscribe race) and block until *every* pending
+/// stage for `memory_id` has emitted a `StageCompleted` event — or
+/// the timeout fires. Returns one [`StageResult`] per match plus
+/// the stage kinds that timed out.
 ///
-/// When `pending_stages` is empty the helper returns immediately
-/// with empty results.
+/// Empty `pending_stages` or `None` stream returns immediately
+/// with a zero-result delta so the caller still renders a stages
+/// section (making clear the flag was a no-op for this write).
 async fn wait_for_stages(
-    client: &Client,
+    pre_stream: Option<brain_sdk_rust::FrameStream<brain_protocol::response::SubscriptionEvent>>,
     memory_id: MemoryId,
     pending_stages: &[brain_protocol::responses::StageKind],
-    start_lsn: u64,
+    _start_lsn: u64,
 ) -> Result<brain_explore::StageResultsDelta, ClientError> {
     use brain_explore::{StageOutcomeLabel, StageResult, StageResultsDelta};
     use brain_protocol::responses::{StageKind, StageOutcome};
@@ -346,28 +397,16 @@ async fn wait_for_stages(
         pending_stages.iter().copied().collect();
     let mut results: Vec<StageResult> = Vec::new();
 
-    let stream_result = client
-        .subscribe()
-        .start_lsn(start_lsn.saturating_add(1))
-        .send_stream()
-        .await;
-    let mut stream = match stream_result {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(
-                target: "brain_shell",
-                "encode --wait: subscribe failed ({e}); encode succeeded, returning anyway."
-            );
-            return Ok(StageResultsDelta {
-                elapsed_ms: started.elapsed().as_millis() as u64,
-                results,
-                timed_out: remaining_kinds.into_iter().map(wire_to_label).collect(),
-            });
-        }
+    let Some(mut stream) = pre_stream else {
+        // Pre-subscribe failed; surface every requested stage as
+        // timed out so the operator sees the gap explicitly.
+        return Ok(StageResultsDelta {
+            elapsed_ms: started.elapsed().as_millis() as u64,
+            results,
+            timed_out: remaining_kinds.into_iter().map(wire_to_label).collect(),
+        });
     };
-    // Hard cap so a worker that never drains doesn't pin the shell.
-    // 60s is generous; the global --timeout cap is what's printed.
-    let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
+    let deadline = tokio::time::Instant::now() + Duration::from_secs(WAIT_STAGES_TIMEOUT_SECS);
     while !remaining_kinds.is_empty() {
         let remaining_time = deadline.saturating_duration_since(tokio::time::Instant::now());
         if remaining_time.is_zero() {
