@@ -643,8 +643,8 @@ impl ForgetModeArg {
 
 #[derive(Debug, Args, Clone)]
 pub struct EncodeArgs {
-    /// Memory text. Optional when `--from-file`, `--from-stdin`, or
-    /// `--vector` supplies the source.
+    /// Memory text. Optional when `--from-file` or `--from-stdin`
+    /// supplies the source.
     #[arg(value_name = "TEXT")]
     pub text: Option<String>,
     /// Context id (default 0).
@@ -680,10 +680,10 @@ pub struct EncodeArgs {
     /// Read the memory text from this file. Use `-` for stdin. If the
     /// path ends in `.jsonl`, each line is encoded as a separate
     /// memory within an auto-opened TXN.
-    #[arg(long = "from-file", conflicts_with_all = ["text", "from_stdin", "vector"])]
+    #[arg(long = "from-file", conflicts_with_all = ["text", "from_stdin"])]
     pub from_file: Option<String>,
     /// Read memory text from stdin (shorthand for `--from-file -`).
-    #[arg(long = "from-stdin", conflicts_with_all = ["text", "from_file", "vector"])]
+    #[arg(long = "from-stdin", conflicts_with_all = ["text", "from_file"])]
     pub from_stdin: bool,
     /// Block until the extractor has produced knowledge for this
     /// memory. Honours the global `--timeout`. Requires the server to
@@ -698,11 +698,6 @@ pub struct EncodeArgs {
     /// (the worker cycles every 100 ms).
     #[arg(long = "wait-auto-edges-ms", default_value_t = 0u32)]
     pub wait_auto_edges_ms: u32,
-    /// Skip the embedder; use this comma-separated vector directly.
-    /// Mutually exclusive with `text`. Requires the `ENCODE_VECTOR_DIRECT`
-    /// wire op — see warnings emitted at run time.
-    #[arg(long, conflicts_with_all = ["text", "from_file", "from_stdin"])]
-    pub vector: Option<String>,
 }
 
 /// Parsed `--edge <kind>:<target_id>` spec. Lives in the parser layer

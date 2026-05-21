@@ -228,7 +228,15 @@ fn merge_with_txn(
             context_id: pending.context_id,
             salience: pending.salience_initial,
             created_at_unix_nanos: pending.created_at_unix_nanos,
-            text: None,
+            // The text was buffered by the in-txn encode handler and
+            // lives on `BufferedEncode.text`. Mirror the committed-
+            // side contract: surface it only when the caller asked
+            // via `include_text`, otherwise leave it None.
+            text: if req.include_text {
+                Some(pending.text.clone())
+            } else {
+                None
+            },
             // Pending (buffered) memories — no committed metadata
             // yet, so decay/access/flags are all defaults.
             salience_initial: pending.salience_initial,

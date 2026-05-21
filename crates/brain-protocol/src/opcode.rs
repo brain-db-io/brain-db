@@ -59,8 +59,6 @@ pub enum Opcode {
     LinkResp = 0x00A5,
     UnlinkReq = 0x0026,
     UnlinkResp = 0x00A6,
-    EncodeVectorDirectReq = 0x002A,
-    EncodeVectorDirectResp = 0x00AA,
 
     // §03/05 §1.3 Subscription
     SubscribeReq = 0x0030,
@@ -222,8 +220,6 @@ impl Opcode {
             0x00A5 => Self::LinkResp,
             0x0026 => Self::UnlinkReq,
             0x00A6 => Self::UnlinkResp,
-            0x002A => Self::EncodeVectorDirectReq,
-            0x00AA => Self::EncodeVectorDirectResp,
 
             0x0030 => Self::SubscribeReq,
             0x00B0 => Self::SubscribeEvent,
@@ -454,8 +450,6 @@ mod tests {
         (0x00A5, Opcode::LinkResp),
         (0x0026, Opcode::UnlinkReq),
         (0x00A6, Opcode::UnlinkResp),
-        (0x002A, Opcode::EncodeVectorDirectReq),
-        (0x00AA, Opcode::EncodeVectorDirectResp),
         (0x0030, Opcode::SubscribeReq),
         (0x00B0, Opcode::SubscribeEvent),
         (0x0031, Opcode::UnsubscribeReq),

@@ -61,7 +61,6 @@ pub enum RequestBody {
     /// Spec §06 §4 — authentication frame following WELCOME.
     Auth(AuthPayload),
     Encode(EncodeRequest),
-    EncodeVectorDirect(EncodeVectorDirectRequest),
     Recall(RecallRequest),
     Plan(PlanRequest),
     Reason(ReasonRequest),
@@ -145,7 +144,6 @@ impl RequestBody {
             Self::Hello(_) => Opcode::Hello,
             Self::Auth(_) => Opcode::Auth,
             Self::Encode(_) => Opcode::EncodeReq,
-            Self::EncodeVectorDirect(_) => Opcode::EncodeVectorDirectReq,
             Self::Recall(_) => Opcode::RecallReq,
             Self::Plan(_) => Opcode::PlanReq,
             Self::Reason(_) => Opcode::ReasonReq,
@@ -217,7 +215,6 @@ impl RequestBody {
             Self::Hello(r) => to_rkyv_bytes(r),
             Self::Auth(r) => to_rkyv_bytes(r),
             Self::Encode(r) => to_rkyv_bytes(r),
-            Self::EncodeVectorDirect(r) => to_rkyv_bytes(r),
             Self::Recall(r) => to_rkyv_bytes(r),
             Self::Plan(r) => to_rkyv_bytes(r),
             Self::Reason(r) => to_rkyv_bytes(r),
@@ -288,7 +285,6 @@ impl RequestBody {
             Opcode::Hello => Self::Hello(from_rkyv_bytes(bytes)?),
             Opcode::Auth => Self::Auth(from_rkyv_bytes(bytes)?),
             Opcode::EncodeReq => Self::Encode(from_rkyv_bytes(bytes)?),
-            Opcode::EncodeVectorDirectReq => Self::EncodeVectorDirect(from_rkyv_bytes(bytes)?),
             Opcode::RecallReq => Self::Recall(from_rkyv_bytes(bytes)?),
             Opcode::PlanReq => Self::Plan(from_rkyv_bytes(bytes)?),
             Opcode::ReasonReq => Self::Reason(from_rkyv_bytes(bytes)?),
@@ -400,22 +396,6 @@ mod tests {
             request_id: sample_uuid(2),
             txn_id: Some(sample_uuid(3)),
             deduplicate: true,
-        }));
-    }
-
-    #[test]
-    fn encode_vector_direct_round_trips() {
-        round_trip(RequestBody::EncodeVectorDirect(EncodeVectorDirectRequest {
-            text: "vec direct".into(),
-            vector_offset: 200,
-            vector_dim: 384,
-            model_fingerprint: sample_uuid(4),
-            context_id: 5_u64,
-            kind: MemoryKindWire::Semantic,
-            salience_hint: 0.5,
-            edges: vec![],
-            request_id: sample_uuid(6),
-            txn_id: None,
         }));
     }
 

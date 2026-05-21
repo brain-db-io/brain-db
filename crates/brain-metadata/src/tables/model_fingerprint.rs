@@ -32,7 +32,6 @@
 //! - **`ADMIN_REGISTER_MODEL` opcode** (spec §04/07 §11) — Phase 9.
 //! - **`memory_count_at_fingerprint` maintenance** — Phase 8 worker
 //!   reconciles by scanning `memories`.
-//! - **`UnknownModel` rejection** on `ENCODE_VECTOR_DIRECT` — wire layer.
 
 use redb::TableDefinition;
 

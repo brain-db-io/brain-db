@@ -49,7 +49,6 @@ pub enum ResponseBody {
     /// Spec §06 §5 — server confirmation of authentication.
     AuthOk(AuthOkPayload),
     Encode(EncodeResponse),
-    EncodeVectorDirect(EncodeResponse),
     Recall(RecallResponseFrame),
     Plan(PlanResponseFrame),
     Reason(ReasonResponseFrame),
@@ -141,7 +140,6 @@ impl ResponseBody {
             Self::Welcome(_) => Opcode::Welcome,
             Self::AuthOk(_) => Opcode::AuthOk,
             Self::Encode(_) => Opcode::EncodeResp,
-            Self::EncodeVectorDirect(_) => Opcode::EncodeVectorDirectResp,
             Self::Recall(_) => Opcode::RecallResp,
             Self::Plan(_) => Opcode::PlanResp,
             Self::Reason(_) => Opcode::ReasonResp,
@@ -234,7 +232,7 @@ impl ResponseBody {
         match self {
             Self::Welcome(r) => to_rkyv_bytes(r),
             Self::AuthOk(r) => to_rkyv_bytes(r),
-            Self::Encode(r) | Self::EncodeVectorDirect(r) => to_rkyv_bytes(r),
+            Self::Encode(r) => to_rkyv_bytes(r),
             Self::Recall(r) => to_rkyv_bytes(r),
             Self::Plan(r) => to_rkyv_bytes(r),
             Self::Reason(r) => to_rkyv_bytes(r),
@@ -305,7 +303,6 @@ impl ResponseBody {
             Opcode::Welcome => Self::Welcome(from_rkyv_bytes(bytes)?),
             Opcode::AuthOk => Self::AuthOk(from_rkyv_bytes(bytes)?),
             Opcode::EncodeResp => Self::Encode(from_rkyv_bytes(bytes)?),
-            Opcode::EncodeVectorDirectResp => Self::EncodeVectorDirect(from_rkyv_bytes(bytes)?),
             Opcode::RecallResp => Self::Recall(from_rkyv_bytes(bytes)?),
             Opcode::PlanResp => Self::Plan(from_rkyv_bytes(bytes)?),
             Opcode::ReasonResp => Self::Reason(from_rkyv_bytes(bytes)?),
@@ -415,19 +412,6 @@ mod tests {
             created_at_unix_nanos: 1_700_000_000_000_000_000,
             edges_out_count: 3,
             embedding_model_fp: [0xBB; 16],
-        }));
-        round_trip(ResponseBody::EncodeVectorDirect(EncodeResponse {
-            memory_id: sample_memory_id(),
-            was_deduplicated: true,
-            salience: 0.8,
-            auto_edges_added: 0,
-            lsn: 0,
-            agent_id: [0xCC; 16],
-            context_id: 9,
-            kind: MemoryKindWire::Semantic,
-            created_at_unix_nanos: 1_700_000_001_000_000_000,
-            edges_out_count: 0,
-            embedding_model_fp: [0xDD; 16],
         }));
     }
 

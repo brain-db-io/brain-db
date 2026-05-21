@@ -206,12 +206,10 @@ fn help_encode() -> HelpVerb {
             row("<TEXT>", "inline string (the default)"),
             row("--from-file P", "read from file (use - for stdin)"),
             row("--from-stdin", "shorthand for --from-file -"),
-            row("--vector CSV", "gated — panics today; see Notes"),
         ],
         description: vec![
             "Dedup is on by default — encoding the same text twice in the same (agent, context) returns the existing memory. Pass --allow-duplicate for episodic events where the same content is a genuinely distinct event.".into(),
             "Inherits the session's sticky --context (set via \\set context N) and active txn (begun via `txn begin`) unless the corresponding flag overrides. The card shows the caller's agent in wide output (`-o wide`).".into(),
-            "--vector and --from-file *.jsonl are parsed today but not wired server-side — they panic / return a stub error. The other flags work as documented.".into(),
         ],
         example: Some(r#"encode "Alice merged the auth-rewrite branch" --context 7"#.into()),
         see_also: vec![
@@ -605,8 +603,8 @@ mod tests {
         ] {
             assert!(card.contains(flag), "missing flag {flag} in:\n{card}");
         }
-        // Sources block must list all four source forms.
-        for source in ["<TEXT>", "--from-file", "--from-stdin", "--vector"] {
+        // Sources block must list all source forms.
+        for source in ["<TEXT>", "--from-file", "--from-stdin"] {
             assert!(card.contains(source), "missing source {source} in:\n{card}");
         }
         // Reference block must surface clap + markdown deep-dive.

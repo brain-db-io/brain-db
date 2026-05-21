@@ -79,10 +79,6 @@ pub async fn dispatch(
             .await
             .map(ResponseBody::Encode),
 
-        RequestBody::EncodeVectorDirect(_) => Err(OpError::NotYetImplemented(
-            "EncodeVectorDirect — future phase",
-        )),
-
         RequestBody::Recall(r) => crate::recall::handle_recall(r, ctx)
             .await
             .map(ResponseBody::Recall),

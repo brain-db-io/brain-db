@@ -166,8 +166,7 @@ pub struct HelpVerb {
     /// Flag-by-flag reference. Empty → no `Flags` block is rendered.
     pub flags: Vec<HelpFlagRow>,
     /// Alternate sources for the verb's main argument (e.g. encode's
-    /// `--from-file`, `--from-stdin`, `--vector`). Empty → no `Sources`
-    /// block.
+    /// `--from-file`, `--from-stdin`). Empty → no `Sources` block.
     pub sources: Vec<HelpFlagRow>,
     /// Prose paragraphs. Rendered under a `Notes` label, not
     /// `Description`, so the section name matches its content shape

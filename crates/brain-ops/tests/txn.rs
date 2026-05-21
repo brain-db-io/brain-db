@@ -486,6 +486,70 @@ fn recall_in_txn_sees_pending_encode() {
 }
 
 #[test]
+fn recall_in_txn_returns_pending_text_when_include_text_set() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let txn = [70; 16];
+        let _ = begin(&fix, txn, 60).await;
+        let _mid = encode(&fix, [71; 16], "alpha buffered text", Some(txn)).await;
+
+        let mut req = recall_req("alpha buffered", 10, Some(txn));
+        req.include_text = true;
+        let frame = unwrap_recall(
+            dispatch(
+                RequestBody::Recall(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        let hit = frame
+            .results
+            .iter()
+            .find(|r| r.text == "alpha buffered text")
+            .unwrap_or_else(|| {
+                panic!(
+                    "expected pending hit to carry the buffered text; got {:?}",
+                    frame.results
+                )
+            });
+        assert_eq!(hit.text, "alpha buffered text");
+    })
+}
+
+#[test]
+fn recall_in_txn_omits_pending_text_when_include_text_unset() {
+    run_in_glommio(|| async {
+        let fix = build_fixture();
+        let txn = [72; 16];
+        let _ = begin(&fix, txn, 60).await;
+        let mid = encode(&fix, [73; 16], "alpha unbuffered text", Some(txn)).await;
+
+        // include_text defaults to false in recall_req.
+        let frame = unwrap_recall(
+            dispatch(
+                RequestBody::Recall(recall_req("alpha", 10, Some(txn))),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        );
+        let hit = frame
+            .results
+            .iter()
+            .find(|r| r.memory_id == mid)
+            .expect("pending hit must surface even without include_text");
+        assert!(
+            hit.text.is_empty(),
+            "include_text=false must not surface pending text: got {:?}",
+            hit.text
+        );
+    })
+}
+
+#[test]
 fn recall_in_txn_drops_pending_tombstone() {
     run_in_glommio(|| async {
         let fix = build_fixture();

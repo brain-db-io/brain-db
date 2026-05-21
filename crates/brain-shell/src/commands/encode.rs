@@ -2,7 +2,6 @@
 //!
 //! Source modes (in precedence order — clap enforces mutual
 //! exclusivity at parse time):
-//!   * `--vector` (gated — requires the `ENCODE_VECTOR_DIRECT` wire op).
 //!   * `--from-file <path>` (path `-` = stdin; `.jsonl` opens a TXN
 //!     and batches each line).
 //!   * `--from-stdin` (shortcut for `--from-file -`).
@@ -37,15 +36,6 @@ pub async fn run(
     session: &mut Session,
     args: EncodeArgs,
 ) -> Result<Rendered, ClientError> {
-    if args.vector.is_some() {
-        tracing::warn!(
-            target: "brain_shell",
-            "encode --vector: ENCODE_VECTOR_DIRECT wire op is not exposed via the \
-             current SDK builder. Returning a stub error until the SDK adds it."
-        );
-        todo!("wire op required: `EncodeVectorDirectReq` in brain-sdk-rust for `--vector`.");
-    }
-
     let text = resolve_source_text(&args)?;
     let request_id = parse_request_id(args.request_id.as_deref())?;
 
@@ -144,7 +134,7 @@ fn resolve_source_text(args: &EncodeArgs) -> Result<String, ClientError> {
     match &args.text {
         Some(t) if !t.is_empty() => Ok(t.clone()),
         _ => Err(ClientError::Internal(
-            "encode requires a TEXT positional or one of --from-file / --from-stdin / --vector"
+            "encode requires a TEXT positional or one of --from-file / --from-stdin"
                 .into(),
         )),
     }

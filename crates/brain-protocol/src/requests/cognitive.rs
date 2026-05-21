@@ -33,23 +33,6 @@ pub struct EdgeRequest {
     pub weight: f32,
 }
 
-/// Spec §07/2.
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub struct EncodeVectorDirectRequest {
-    pub text: String,
-    pub vector_offset: u32,
-    pub vector_dim: u16,
-    pub model_fingerprint: [u8; 16],
-    pub context_id: WireContextId,
-    pub kind: MemoryKindWire,
-    pub salience_hint: f32,
-    pub edges: Vec<EdgeRequest>,
-    pub request_id: WireUuid,
-    pub txn_id: Option<WireUuid>,
-}
-
 /// Spec §07/3.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]

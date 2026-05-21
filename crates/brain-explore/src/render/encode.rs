@@ -208,6 +208,21 @@ fn render_human(
         let id_painted = theme.paint(Token::MemoryId, &id_short, policy);
         let right_p = format!("matched · {id_painted}");
         (badge_plain.to_string(), badge_p, right_plain, right_p)
+    } else if r.lsn == 0 {
+        // Buffered inside a txn — no durable LSN until commit. Print
+        // a clear marker instead of "LSN 0" which reads like a real
+        // (albeit zero-th) WAL position. The encode is still real —
+        // a memory_id has been reserved and the buffer holds the
+        // vector + text — but the durability story doesn't begin
+        // until TXN_COMMIT.
+        let badge_plain = "◐ BUFFERED";
+        let badge_p = theme.paint(Token::Warn, badge_plain, policy).to_string();
+        let age = humanize_age(r.created_at_unix_nanos);
+        let right_plain = format!("in-txn · {id_short} · {age}");
+        let id_painted = theme.paint(Token::MemoryId, &id_short, policy);
+        let age_painted = theme.paint(Token::Muted, &age, policy);
+        let right_p = format!("in-txn · {id_painted} · {age_painted}");
+        (badge_plain.to_string(), badge_p, right_plain, right_p)
     } else {
         let badge_plain = "✓ ENCODED";
         let badge_p = theme.paint(Token::Success, badge_plain, policy).to_string();
@@ -231,6 +246,16 @@ fn render_human(
         &right_painted,
     )?;
     writeln!(w)?;
+
+    // ── Body: id ────────────────────────────────────────────────
+    // Always print the id as a labeled row, regardless of dedup state.
+    // The heading already carries the short form (`s1/m1/v1`); the
+    // body row carries the *canonical* full id so operators can
+    // paste it into any follow-up command without parsing the heading
+    // or wondering which form belongs where. One row, one form.
+    let id_hex = fmt_id(r.memory_id);
+    let id_value = theme.paint(Token::MemoryId, &id_hex, policy).to_string();
+    write_row(w, ctx, "id", &id_value)?;
 
     // ── Body: content echo ──────────────────────────────────────
     if let Some(text) = rendered.source_text.as_deref() {
@@ -337,6 +362,18 @@ fn render_human(
         // nothing to do rather than emit a dead-end hint.
         let glyph = theme.paint(Token::Muted, "×", policy);
         let phrase = theme.paint(Token::Muted, "no fresh write — nothing to do", policy);
+        writeln!(w, "{BODY_INDENT}{glyph} {phrase}")?;
+    } else if r.lsn == 0 {
+        // Buffered inside a txn — no LSN until commit. The user's
+        // mental model is "what happens next?"; the honest answer
+        // is "TXN_COMMIT". No subscribe hint because nothing is on
+        // the wire yet for this memory.
+        let glyph = theme.paint(Token::Muted, "◐", policy);
+        let phrase = theme.paint(
+            Token::Muted,
+            "buffered — TXN_COMMIT to durabilize and broadcast",
+            policy,
+        );
         writeln!(w, "{BODY_INDENT}{glyph} {phrase}")?;
     } else if r.lsn > 0 {
         // The chain-on hint. `lsn + 1` is the position the next
@@ -532,17 +569,15 @@ mod tests {
         );
     }
 
-    // 4. Default mode hides nil agent entirely.
+    // 4. Default mode hides the nil agent UUID entirely. (The id row
+    // legitimately contains zero bytes when slots/shards/versions are
+    // small — assert on the labeled `agent` row instead of raw zeroes.)
     #[test]
     fn render_table_omits_nil_agent() {
         let out = render(&sample(), OutputFormat::Table);
         assert!(
-            !out.contains("agent"),
-            "default mode must not surface agent: {out}"
-        );
-        assert!(
-            !out.contains("00000000"),
-            "default mode must not surface zero bytes: {out}"
+            !out.lines().any(|l| l.contains("  agent  ")),
+            "default mode must not surface agent row: {out}"
         );
     }
 
@@ -848,6 +883,105 @@ mod tests {
         assert!(out.contains("s3/m42/v7"), "expected short id form: {out}");
     }
 
+    // 21b. The id row carries the canonical full id (0x + 32 hex)
+    // in both default and wide modes. The short form lives only in
+    // the heading; the body row gives operators the single pasteable
+    // canonical form.
+    #[test]
+    fn render_table_id_row_shows_canonical_hex_in_default_mode() {
+        let mut r = sample();
+        r.response.memory_id = MemoryId::pack(2, 17, 4).raw();
+        let out = render(&r, OutputFormat::Table);
+        let id_line = out
+            .lines()
+            .find(|l| l.contains("  id  "))
+            .expect("missing id row");
+        assert!(
+            id_line.contains("0x"),
+            "id row must carry canonical hex form: {id_line}"
+        );
+        // The full id is 0x + 32 hex chars.
+        assert!(
+            id_line.chars().filter(|c| c.is_ascii_hexdigit()).count() >= 32,
+            "id row must include the full 32-hex-digit id: {id_line}"
+        );
+        assert!(
+            !id_line.contains("s2/m17/v4"),
+            "the short form belongs in the heading, not the id row: {id_line}"
+        );
+    }
+
+    #[test]
+    fn render_table_id_row_shows_canonical_hex_in_wide_mode() {
+        let mut r = sample();
+        r.response.memory_id = MemoryId::pack(2, 17, 4).raw();
+        let out = render(&r, OutputFormat::Wide);
+        let id_line = out
+            .lines()
+            .find(|l| l.contains("  id  "))
+            .expect("missing id row");
+        assert!(
+            id_line.contains("0x"),
+            "wide id row must carry canonical hex form: {id_line}"
+        );
+        assert!(
+            !id_line.contains("s2/m17/v4"),
+            "wide id row must NOT duplicate the heading's short form: {id_line}"
+        );
+    }
+
+    // 21d. Dedup hits also get the id row — same shape, same column.
+    #[test]
+    fn render_table_id_row_present_on_dedup_hit() {
+        let mut r = sample();
+        r.response.was_deduplicated = true;
+        r.response.lsn = 0;
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.lines().any(|l| l.contains("  id  ")),
+            "dedup-hit card must still surface id row: {out}"
+        );
+    }
+
+    // 21e. `lsn == 0` (buffered inside a txn) shows the BUFFERED
+    // badge and an `in-txn` marker instead of "LSN 0". The footer
+    // hint is the durability nudge, not a subscribe one.
+    #[test]
+    fn render_table_buffered_heading_when_lsn_zero() {
+        let mut r = sample();
+        r.response.lsn = 0;
+        let out = render(&r, OutputFormat::Table);
+        assert!(out.contains("◐ BUFFERED"), "missing BUFFERED badge: {out}");
+        assert!(out.contains("in-txn"), "missing in-txn marker: {out}");
+        assert!(
+            !out.contains("LSN 0"),
+            "buffered heading must not show 'LSN 0': {out}"
+        );
+        assert!(
+            out.contains("TXN_COMMIT to durabilize"),
+            "buffered footer must hint at commit: {out}"
+        );
+        assert!(
+            !out.contains("subscribe --start-lsn"),
+            "buffered card must not emit subscribe hint (nothing on the wire yet): {out}"
+        );
+    }
+
+    // 21f. A real LSN keeps the existing fresh-encode heading; no
+    // regression on the established shape.
+    #[test]
+    fn render_table_fresh_heading_when_lsn_nonzero() {
+        let mut r = sample();
+        r.response.lsn = 42;
+        let out = render(&r, OutputFormat::Table);
+        assert!(out.contains("✓ ENCODED"), "fresh badge missing: {out}");
+        assert!(out.contains("LSN 42"), "fresh LSN missing: {out}");
+        assert!(
+            !out.contains("BUFFERED"),
+            "fresh card must not borrow BUFFERED badge: {out}"
+        );
+    }
+
     // ─── New layout-shape tests ──────────────────────────────────
 
     // 22. Heading right-side aligns to the card width.
@@ -896,7 +1030,9 @@ mod tests {
         let out = render(&r, OutputFormat::Wide);
         // Find each row by its label, then extract the column where
         // the value begins (first non-space after the label + gap).
-        for label in ["content", "agent", "embedder", "edges", "created", "dedup"] {
+        for label in [
+            "id", "content", "agent", "embedder", "edges", "created", "dedup",
+        ] {
             let line = out
                 .lines()
                 .find(|l| l.contains(label))
@@ -960,9 +1096,10 @@ mod tests {
                 "default mode leaked wide row `{absent}`: {out}"
             );
         }
-        // Rules + heading + content + type + footer are still there.
+        // Rules + heading + id + content + type + footer are still there.
         assert!(out.contains("─"), "rules must remain in default mode");
         assert!(out.contains("✓ ENCODED"), "heading must remain");
+        assert!(out.contains("  id  "), "id row must remain in default mode");
         assert!(out.contains("content"), "content row must remain");
         assert!(out.contains("type"), "type row must remain");
     }

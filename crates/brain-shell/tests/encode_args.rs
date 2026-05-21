@@ -1,5 +1,5 @@
-//! New `encode` flags: `--edge`, `--request-id`, `--from-file`,
-//! `--from-stdin`, `--wait-for-extraction`, `--allow-duplicate`, `--vector`.
+//! `encode` flag parsing: `--edge`, `--request-id`, `--from-file`,
+//! `--from-stdin`, `--wait-for-extraction`, `--allow-duplicate`.
 //! Verifies parse, plus the mutual-exclusivity matrix clap enforces.
 
 use brain_shell::parser::{Cli, Command, EdgeKindArg};
@@ -68,12 +68,28 @@ fn encode_from_stdin_alone() {
 }
 
 #[test]
-fn encode_vector_mutually_exclusive_with_text() {
+fn encode_rejects_unknown_flag_cleanly() {
+    // Unknown flags must surface as a clap error (no panic, no
+    // backtrace). The shell relies on clap's `try_parse_from` for
+    // this; the regression is that nothing in the call chain
+    // unwraps or panics on bad argv.
+    let err = parse(&["encode", "hello", "--bogus-flag", "x"]).unwrap_err();
+    let msg = err.to_string();
+    assert!(
+        msg.contains("unexpected") || msg.contains("unrecognized") || msg.contains("--bogus-flag"),
+        "expected clap unknown-arg error, got: {msg}"
+    );
+}
+
+#[test]
+fn encode_vector_flag_is_removed() {
+    // The flag is gone — clap must reject it rather than silently
+    // accepting it (which would mean a leftover declaration).
     let err = parse(&["encode", "hello", "--vector", "0.1,0.2,0.3"]).unwrap_err();
     let msg = err.to_string();
     assert!(
-        msg.contains("cannot be used with") || msg.contains("not allowed"),
-        "expected clap mutual-exclusivity error, got: {msg}"
+        msg.contains("unexpected") || msg.contains("unrecognized") || msg.contains("--vector"),
+        "--vector must be unknown to clap, got: {msg}"
     );
 }
 

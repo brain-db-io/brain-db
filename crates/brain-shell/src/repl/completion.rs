@@ -54,7 +54,6 @@ const FLAGS: &[&str] = &[
     "--from-file",
     "--from-stdin",
     "--wait-for-extraction",
-    "--vector",
     "--txn",
     "--top-k",
     "--confidence",

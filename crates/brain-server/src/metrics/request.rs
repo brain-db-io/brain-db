@@ -127,7 +127,7 @@ impl Default for RequestMetrics {
 pub fn op_index(req: &RequestBody) -> Option<usize> {
     use RequestBody::*;
     let label = match req {
-        Encode(_) | EncodeVectorDirect(_) => "encode",
+        Encode(_) => "encode",
         Recall(_) => "recall",
         Plan(_) => "plan",
         Reason(_) => "reason",
