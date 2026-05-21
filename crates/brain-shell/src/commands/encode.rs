@@ -53,6 +53,23 @@ pub async fn run(
     // distinct event.
     let deduplicate = !args.allow_duplicate;
 
+    // Print the wait-status line IMMEDIATELY when the operator
+    // passed `--wait-for-extraction`, before any wire I/O. Silence
+    // between Enter and the encode response reads as a freeze
+    // even when everything is healthy; one printed line tells the
+    // user the shell is alive and what it's about to do. Flush
+    // explicitly because stderr is line-buffered when piped.
+    if args.wait_for_extraction {
+        use std::io::Write as _;
+        let mut stderr = std::io::stderr().lock();
+        let _ = writeln!(
+            stderr,
+            "→ encode + waiting for background stages (extractor up to {} s)…",
+            WAIT_STAGES_TIMEOUT_SECS,
+        );
+        let _ = stderr.flush();
+    }
+
     // If the operator asked us to wait for background stages, open
     // the subscribe stream BEFORE sending the encode. The worker
     // may publish `StageCompleted` between when the encode response
@@ -112,25 +129,6 @@ pub async fn run(
             .copied()
             .filter(|k| *k == StageKind::Extractor)
             .collect();
-        // Status line on stderr so the user sees something is
-        // happening — silence on an `--wait*` flag for several
-        // seconds reads as "the shell froze."
-        if !stages.is_empty() {
-            let names: Vec<&'static str> = stages
-                .iter()
-                .map(|k| match k {
-                    StageKind::AutoEdge => "auto_edge",
-                    StageKind::TemporalEdge => "temporal_edge",
-                    StageKind::Extractor => "extractor",
-                })
-                .collect();
-            eprintln!(
-                "→ waiting for {} stage(s): {} (up to {} s)…",
-                stages.len(),
-                names.join(", "),
-                WAIT_STAGES_TIMEOUT_SECS,
-            );
-        }
         Some(
             wait_for_stages(
                 pre_subscribe_stream,
