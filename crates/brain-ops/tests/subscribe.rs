@@ -711,6 +711,9 @@ fn lagged_subscriber_freezes_final_lsn_and_reports_overloaded() {
                 text: None,
                 knowledge_payload: None,
                 edge_payload: None,
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             });
         }

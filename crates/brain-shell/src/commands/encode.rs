@@ -8,9 +8,9 @@
 //!   * positional `TEXT`.
 //!
 //! `--wait-for-extraction` opens a subscribe stream right after the
-//! encode returns and blocks until either the `ExtractionCompleted`
-//! event arrives for the new memory id or the global `--timeout`
-//! elapses.
+//! encode returns and blocks until the extractor stage of the write
+//! emits a `StageCompleted` event for the new memory id (or the
+//! global `--timeout` elapses).
 
 use std::io::Read;
 use std::time::Duration;
@@ -75,7 +75,24 @@ pub async fn run(
     session.push_recent_id(MemoryId::from_raw(resp.memory_id));
 
     if args.wait_for_extraction {
-        wait_for_extraction(client, MemoryId::from_raw(resp.memory_id), resp.lsn).await?;
+        // `--wait-for-extraction` is sugar for "wait for the extractor
+        // stage of this write to finish." Filter the ack's
+        // pending_stages to just the extractor entry; an empty filter
+        // returns immediately (no extractor was queued).
+        use brain_protocol::responses::StageKind;
+        let stages: Vec<StageKind> = resp
+            .pending_stages
+            .iter()
+            .copied()
+            .filter(|k| *k == StageKind::Extractor)
+            .collect();
+        wait_for_stages(
+            client,
+            MemoryId::from_raw(resp.memory_id),
+            &stages,
+            resp.lsn,
+        )
+        .await?;
     }
 
     // When --wait-auto-edges-ms is positive, open a filtered subscribe
@@ -134,8 +151,7 @@ fn resolve_source_text(args: &EncodeArgs) -> Result<String, ClientError> {
     match &args.text {
         Some(t) if !t.is_empty() => Ok(t.clone()),
         _ => Err(ClientError::Internal(
-            "encode requires a TEXT positional or one of --from-file / --from-stdin"
-                .into(),
+            "encode requires a TEXT positional or one of --from-file / --from-stdin".into(),
         )),
     }
 }
@@ -290,17 +306,30 @@ fn edge_kind_label(tag: u8, byte: u8) -> String {
     }
 }
 
-/// Subscribe at `lsn+1` and block until the extractor emits an
-/// `ExtractionCompleted` event for `memory_id`. Returns on timeout
-/// (the global `--timeout`) so a missed event doesn't hang the shell.
-async fn wait_for_extraction(
+/// Subscribe at `lsn+1` and block until *every* pending stage for the
+/// just-submitted memory has emitted a `StageCompleted` event — or
+/// until the deadline fires. `pending_stages` comes from the encode
+/// ack and lists which background stages the write queued; the
+/// helper decrements them as events arrive.
+///
+/// When `pending_stages` is empty the helper returns immediately —
+/// there's nothing to wait for (substrate-only deployment, dedup hit,
+/// or workers disabled).
+async fn wait_for_stages(
     client: &Client,
     memory_id: MemoryId,
+    pending_stages: &[brain_protocol::responses::StageKind],
     start_lsn: u64,
 ) -> Result<(), ClientError> {
+    use brain_protocol::responses::StageKind;
+
+    if pending_stages.is_empty() {
+        return Ok(());
+    }
     let target_raw = memory_id.raw();
-    // start_lsn from the ENCODE response is the LSN of THAT op; the
-    // ExtractedKnowledge event lands at start_lsn+something later.
+    let mut remaining_kinds: std::collections::HashSet<StageKind> =
+        pending_stages.iter().copied().collect();
+
     let stream_result = client
         .subscribe()
         .start_lsn(start_lsn.saturating_add(1))
@@ -311,51 +340,49 @@ async fn wait_for_extraction(
         Err(e) => {
             tracing::warn!(
                 target: "brain_shell",
-                "encode --wait-for-extraction: subscribe failed ({e}); \
-                 encode succeeded, returning anyway.",
+                "encode --wait: subscribe failed ({e}); encode succeeded, returning anyway."
             );
             return Ok(());
         }
     };
-    // Hard cap so a server that never emits the event doesn't pin the
-    // shell. 60s is generous given the extractor cycles every 1-5s
-    // in production; the global --timeout cap is what's printed to
-    // the user.
+    // Hard cap so a worker that never drains doesn't pin the shell.
+    // 60s is generous; the global --timeout cap is what's printed.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
-    loop {
-        let remaining = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if remaining.is_zero() {
+    while !remaining_kinds.is_empty() {
+        let elapsed = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if elapsed.is_zero() {
             tracing::warn!(
                 target: "brain_shell",
-                "encode --wait-for-extraction: timed out waiting for \
-                 ExtractionCompleted({}); returning without confirmation.",
+                "encode --wait: timed out waiting for stages {:?} on memory {}; \
+                 returning without confirmation.",
+                remaining_kinds,
                 target_raw,
             );
             return Ok(());
         }
-        let next = match tokio::time::timeout(remaining, stream.next()).await {
+        let next = match tokio::time::timeout(elapsed, stream.next()).await {
             Ok(Some(Ok(ev))) => ev,
             Ok(Some(Err(e))) => return Err(e),
             Ok(None) => {
                 tracing::warn!(
                     target: "brain_shell",
-                    "encode --wait-for-extraction: subscription closed before \
-                     ExtractionCompleted arrived for {}.",
+                    "encode --wait: subscription closed before stages {:?} completed for {}.",
+                    remaining_kinds,
                     target_raw,
                 );
                 return Ok(());
             }
-            Err(_) => continue, // shouldn't fire — outer `remaining` already enforces it.
+            Err(_) => continue,
         };
-        // Match either the dedicated ExtractionCompleted variant (when
-        // the server publishes it) or the failure variant (which still
-        // ends the wait — there's nothing to wait for any longer).
-        if matches!(
-            next.event_type,
-            EventType::ExtractionCompleted | EventType::ExtractionFailed
-        ) && next.memory_id == target_raw
-        {
-            return Ok(());
+        if !matches!(next.event_type, EventType::StageCompleted) {
+            continue;
+        }
+        if next.memory_id != target_raw {
+            continue;
+        }
+        if let Some(kind) = next.stage_kind {
+            remaining_kinds.remove(&kind);
         }
     }
+    Ok(())
 }

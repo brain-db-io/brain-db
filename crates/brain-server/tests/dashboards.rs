@@ -34,8 +34,7 @@ fn dashboards_dir() -> PathBuf {
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
-        .join("docs")
-        .join("analytics")
+        .join("monitoring")
         .join("dashboards")
 }
 

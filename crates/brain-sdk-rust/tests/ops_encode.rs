@@ -33,6 +33,7 @@ async fn encode_round_trip() {
             created_at_unix_nanos: 0,
             edges_out_count: 0,
             embedding_model_fp: [0; 16],
+        pending_stages: Vec::new(),
         };
         common::write_frame(
             &mut socket,

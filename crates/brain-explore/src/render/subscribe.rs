@@ -7,8 +7,9 @@
 
 use std::io::{self, Write};
 
-use brain_protocol::knowledge::{AuditStatus, KnowledgeEventPayload};
-use brain_protocol::response::types::EventType;
+use brain_protocol::response::types::{
+    EventType, StageAuditStatus, StageExtractorPayload, StageKind, StagePayload,
+};
 use brain_protocol::response::SubscriptionEvent;
 use comfy_table::Cell;
 use serde_json::{json, Value};
@@ -70,8 +71,8 @@ fn push_header(table: &mut comfy_table::Table, ctx: &RenderCtx) {
 
 fn push_event_row(table: &mut comfy_table::Table, ctx: &RenderCtx, e: &SubscriptionEvent) {
     let (theme, policy) = (&ctx.theme, ctx.policy);
-    let text = if matches!(e.event_type, EventType::ExtractedKnowledge) {
-        extracted_knowledge_summary(e).unwrap_or_else(|| e.text.clone())
+    let text = if matches!(e.event_type, EventType::StageCompleted) {
+        stage_completed_summary(e).unwrap_or_else(|| e.text.clone())
     } else {
         e.text.clone()
     };
@@ -96,8 +97,11 @@ fn event_to_json(e: &SubscriptionEvent) -> Value {
         "timestamp_unix_nanos": e.timestamp_unix_nanos,
         "text": e.text,
     });
-    if let Some(payload) = extracted_knowledge_payload(e) {
-        if let Some(map) = out.as_object_mut() {
+    if let Some(map) = out.as_object_mut() {
+        if let Some(kind) = e.stage_kind {
+            map.insert("stage_kind".into(), json!(stage_kind_str(kind)));
+        }
+        if let Some(payload) = stage_extractor_payload(e) {
             map.insert("entity_count".into(), json!(payload.entity_count));
             map.insert("statement_count".into(), json!(payload.statement_count));
             map.insert("relation_count".into(), json!(payload.relation_count));
@@ -150,36 +154,50 @@ fn fmt_id_from_bytes(b: &[u8; 16]) -> String {
     s
 }
 
-/// Format the `ExtractedKnowledge` knowledge_payload as a short text
-/// summary for table rendering. Returns `None` if the event isn't an
-/// `ExtractedKnowledge` carrying its payload — falls back to the
-/// substrate `text` field.
-fn extracted_knowledge_summary(e: &SubscriptionEvent) -> Option<String> {
-    let p = extracted_knowledge_payload(e)?;
-    Some(format!(
-        "{} entities, {} statements, {} relations ({})",
-        p.entity_count,
-        p.statement_count,
-        p.relation_count,
-        audit_status_str(p.audit_status),
-    ))
+/// Format a `StageCompleted` event's stage_payload as a short text
+/// summary for table rendering. Returns `None` if the event isn't
+/// a `StageCompleted` carrying a recognised stage payload.
+fn stage_completed_summary(e: &SubscriptionEvent) -> Option<String> {
+    let kind = e.stage_kind?;
+    match e.stage_payload.as_ref()? {
+        StagePayload::Extractor(p) => Some(format!(
+            "extractor: {} entities, {} statements, {} relations ({})",
+            p.entity_count,
+            p.statement_count,
+            p.relation_count,
+            audit_status_str(p.audit_status),
+        )),
+        StagePayload::AutoEdge(p) => Some(format!("auto_edge: {} edges written", p.edges_written)),
+        StagePayload::TemporalEdge(p) => {
+            Some(format!("temporal_edge: {} edges written", p.edges_written))
+        }
+        // Unknown stage kind: fall back to the kind name only.
+        #[allow(unreachable_patterns)]
+        _ => Some(format!("{:?}: (no payload)", kind)),
+    }
 }
 
-fn extracted_knowledge_payload(
-    e: &SubscriptionEvent,
-) -> Option<&brain_protocol::knowledge::ExtractedKnowledgeEvent> {
-    match &e.knowledge_payload {
-        Some(KnowledgeEventPayload::ExtractedKnowledge(p)) => Some(p),
+fn stage_extractor_payload(e: &SubscriptionEvent) -> Option<&StageExtractorPayload> {
+    match e.stage_payload.as_ref()? {
+        StagePayload::Extractor(p) => Some(p),
         _ => None,
     }
 }
 
-fn audit_status_str(s: AuditStatus) -> &'static str {
+fn stage_kind_str(k: StageKind) -> &'static str {
+    match k {
+        StageKind::AutoEdge => "auto_edge",
+        StageKind::TemporalEdge => "temporal_edge",
+        StageKind::Extractor => "extractor",
+    }
+}
+
+fn audit_status_str(s: StageAuditStatus) -> &'static str {
     match s {
-        AuditStatus::Succeeded => "succeeded",
-        AuditStatus::PartiallyApplied => "partially_applied",
-        AuditStatus::Failed => "failed",
-        AuditStatus::Skipped => "skipped",
+        StageAuditStatus::Succeeded => "succeeded",
+        StageAuditStatus::PartiallyApplied => "partially_applied",
+        StageAuditStatus::Failed => "failed",
+        StageAuditStatus::Skipped => "skipped",
     }
 }
 
@@ -213,6 +231,9 @@ mod tests {
             lsn: 42,
             knowledge_payload: None,
             edge_payload: None,
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
         }
     }
 
@@ -228,11 +249,13 @@ mod tests {
     }
 
     #[test]
-    fn extracted_knowledge_renders_counts_and_status() {
-        use brain_protocol::knowledge::{ExtractedKnowledgeEvent, KnowledgeEventPayload};
+    fn stage_completed_extractor_renders_counts_and_status() {
+        use brain_protocol::response::types::{
+            StageAuditStatus, StageExtractorPayload, StageKind, StageOutcome, StagePayload,
+        };
 
         let ev = SubscriptionEvent {
-            event_type: EventType::ExtractedKnowledge,
+            event_type: EventType::StageCompleted,
             memory_id: MemoryId::pack(0, 17, 1).raw(),
             context_id: 0,
             text: String::new(),
@@ -240,32 +263,32 @@ mod tests {
             salience: 0.0,
             timestamp_unix_nanos: 0,
             lsn: 99,
-            knowledge_payload: Some(KnowledgeEventPayload::ExtractedKnowledge(
-                ExtractedKnowledgeEvent {
-                    memory_id: MemoryId::pack(0, 17, 1).raw(),
-                    entity_count: 3,
-                    statement_count: 5,
-                    relation_count: 2,
-                    audit_status: AuditStatus::Succeeded,
-                },
-            )),
+            knowledge_payload: None,
             edge_payload: None,
+            stage_kind: Some(StageKind::Extractor),
+            stage_outcome: Some(StageOutcome::Ok),
+            stage_payload: Some(StagePayload::Extractor(StageExtractorPayload {
+                entity_count: 3,
+                statement_count: 5,
+                relation_count: 2,
+                audit_status: StageAuditStatus::Succeeded,
+                error_message: String::new(),
+            })),
         };
 
         let r = SubscriptionEventRendered(ev.clone());
         let mut buf = Vec::new();
         r.render_table(&ctx(), &mut buf).unwrap();
         let s = String::from_utf8(buf).unwrap();
-        // comfy_table may wrap the summary across cells on a narrow
-        // policy; assert the individual count tokens land somewhere in
-        // the output and that the audit-status verb is present.
-        assert!(s.contains("ExtractedKnowledge"), "rendered: {s}");
+        assert!(s.contains("StageCompleted"), "rendered: {s}");
+        assert!(s.contains("extractor"), "rendered: {s}");
         assert!(s.contains("entities") && s.contains('3'), "rendered: {s}");
         assert!(s.contains("statements") && s.contains('5'), "rendered: {s}");
         assert!(s.contains("relations") && s.contains('2'), "rendered: {s}");
         assert!(s.contains("succeeded"), "rendered: {s}");
 
         let json = r.render_json(&ctx());
+        assert_eq!(json["stage_kind"], "extractor");
         assert_eq!(json["entity_count"], 3);
         assert_eq!(json["statement_count"], 5);
         assert_eq!(json["relation_count"], 2);

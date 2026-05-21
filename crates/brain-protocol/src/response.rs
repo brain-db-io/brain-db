@@ -412,6 +412,11 @@ mod tests {
             created_at_unix_nanos: 1_700_000_000_000_000_000,
             edges_out_count: 3,
             embedding_model_fp: [0xBB; 16],
+            pending_stages: vec![
+                crate::responses::StageKind::AutoEdge,
+                crate::responses::StageKind::TemporalEdge,
+                crate::responses::StageKind::Extractor,
+            ],
         }));
     }
 
@@ -525,6 +530,9 @@ mod tests {
             lsn: 1234,
             knowledge_payload: None,
             edge_payload: None,
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
         }));
     }
 
@@ -791,6 +799,9 @@ mod tests {
                 lsn: 0,
                 knowledge_payload: None,
                 edge_payload: None,
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
             })
             .is_final(),
             None

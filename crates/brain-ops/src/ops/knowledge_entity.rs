@@ -750,6 +750,9 @@ pub(crate) async fn emit_knowledge_event(
             text: None,
             knowledge_payload: Some(payload),
             edge_payload: None,
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
             agent_id,
         };
         let _ = ctx.events.publish(envelope);
@@ -766,6 +769,9 @@ pub(crate) async fn emit_knowledge_event(
         text: None,
         knowledge_payload: Some(payload),
         edge_payload: None,
+        stage_kind: None,
+        stage_outcome: None,
+        stage_payload: None,
         agent_id,
     })
     .await;
@@ -793,11 +799,5 @@ fn wal_kind_for_event(
         P::RelationSuperseded(_) => K::RelationSupersede,
         P::RelationTombstoned(_) => K::RelationTombstone,
         P::SchemaUpdated(_) => K::SchemaUpdate,
-        // Extractor-published signals don't have a WAL kind — they're
-        // emitted as live change-feed events by the worker, not
-        // replayed from the WAL.
-        P::ExtractionCompleted(_) | P::ExtractionFailed(_) | P::ExtractedKnowledge(_) => {
-            return None
-        }
     })
 }

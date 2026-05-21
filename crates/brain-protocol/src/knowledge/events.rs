@@ -39,18 +39,8 @@ pub enum KnowledgeEventPayload {
     RelationSuperseded(RelationSupersededEvent),
     RelationTombstoned(RelationTombstonedEvent),
 
-    // Extractor events (phase 22).
-    ExtractionCompleted(ExtractionCompletedEvent),
-    ExtractionFailed(ExtractionFailedEvent),
-
     // Schema events (phase 19).
     SchemaUpdated(SchemaUpdatedEvent),
-
-    // Extractor-completion signal — emitted by `ExtractorWorker` after
-    // a per-memory extraction run finishes (success, partial, fail, or
-    // skip). Subscribers wait on this to know typed-knowledge writes
-    // for an encoded memory have landed before they RECALL.
-    ExtractedKnowledge(ExtractedKnowledgeEvent),
 }
 
 // ---------------------------------------------------------------------------
@@ -179,76 +169,6 @@ pub struct RelationTombstonedEvent {
 }
 
 // ---------------------------------------------------------------------------
-// Extractor events — phase 22 (defined for forward compat).
-// ---------------------------------------------------------------------------
-
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub struct ExtractionCompletedEvent {
-    pub extractor_id: u32,
-    /// Raw packed `MemoryId`.
-    pub memory_id: u128,
-    pub statements_produced: u32,
-    pub entities_referenced: u32,
-    pub wall_time_ms: u32,
-}
-
-#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub struct ExtractionFailedEvent {
-    pub extractor_id: u32,
-    pub memory_id: u128,
-    /// §28 error code from `03_errors.md`.
-    pub error_code: u8,
-    pub error_message: String,
-}
-
-// ---------------------------------------------------------------------------
-// Extracted-knowledge completion event.
-//
-// Distinct from `ExtractionCompletedEvent` because the latter is scoped
-// to a single extractor (`extractor_id`, `statements_produced`,
-// `entities_referenced`, `wall_time_ms`) and is intended for per-tier
-// observability. `ExtractedKnowledgeEvent` is the *aggregated*
-// per-memory signal a subscriber waits on before recalling — it sums
-// the counts across the pipeline and carries the worker's overall
-// audit verdict.
-// ---------------------------------------------------------------------------
-
-/// Audit verdict for an `ExtractedKnowledge` event. Mirrors the
-/// `pipeline_status` byte the worker stores in its audit row.
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-#[repr(u8)]
-pub enum AuditStatus {
-    /// All enabled tiers ran cleanly, writes committed.
-    Succeeded = 0,
-    /// One or more tiers failed; the worker still committed the items
-    /// other tiers produced. Counts reflect what landed.
-    PartiallyApplied = 1,
-    /// All tiers failed or the apply path errored; nothing landed.
-    Failed = 2,
-    /// Worker ran but had nothing to commit (no extractors registered
-    /// or every tier returned zero items).
-    Skipped = 3,
-}
-
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
-#[archive(check_bytes)]
-#[archive_attr(derive(Debug))]
-pub struct ExtractedKnowledgeEvent {
-    /// Raw packed `MemoryId` whose extraction this event reports on.
-    pub memory_id: u128,
-    pub entity_count: u32,
-    pub statement_count: u32,
-    pub relation_count: u32,
-    pub audit_status: AuditStatus,
-}
-
-// ---------------------------------------------------------------------------
 // Schema events — phase 19 (defined for forward compat).
 // ---------------------------------------------------------------------------
 
@@ -350,39 +270,6 @@ mod tests {
                 to: uuid(22),
             },
         ));
-    }
-
-    #[test]
-    fn extraction_event_round_trips() {
-        roundtrip(KnowledgeEventPayload::ExtractionCompleted(
-            ExtractionCompletedEvent {
-                extractor_id: 7,
-                memory_id: 0x1234_5678_9abc_def0_1234_5678_9abc_def0,
-                statements_produced: 3,
-                entities_referenced: 2,
-                wall_time_ms: 42,
-            },
-        ));
-    }
-
-    #[test]
-    fn extracted_knowledge_event_round_trips() {
-        for status in [
-            AuditStatus::Succeeded,
-            AuditStatus::PartiallyApplied,
-            AuditStatus::Failed,
-            AuditStatus::Skipped,
-        ] {
-            roundtrip(KnowledgeEventPayload::ExtractedKnowledge(
-                ExtractedKnowledgeEvent {
-                    memory_id: 0xdead_beef_cafe_f00d_1234_5678_9abc_def0,
-                    entity_count: 3,
-                    statement_count: 5,
-                    relation_count: 2,
-                    audit_status: status,
-                },
-            ));
-        }
     }
 
     #[test]

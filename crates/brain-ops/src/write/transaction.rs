@@ -9,11 +9,22 @@
 //! The writer doesn't distinguish among these origins. One queue,
 //! one apply path, one WAL envelope, one event burst.
 
-use brain_core::AgentId;
+use brain_core::{AgentId, MemoryId};
 use brain_storage::wal::record::Lsn;
 
 use super::id::WriteId;
 use super::phase::{Phase, PhaseAck};
+
+/// Per-memory background stage triggered by this write. The writer's
+/// post-commit fan-out builds one of these for every successful
+/// enqueue onto a worker channel. Clients use the list as the
+/// checklist for `--wait`: they expect one `StageCompleted` event
+/// per entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct PendingStage {
+    pub memory_id: MemoryId,
+    pub stage_kind: brain_protocol::responses::StageKind,
+}
 
 /// One submission to the writer. Owns its phases (no borrowing — the
 /// writer's queue is a `flume::Sender<Write>` and the work crosses
@@ -110,6 +121,13 @@ pub struct WriteAck {
     pub lsn_first: Lsn,
     pub lsn_last: Lsn,
     pub phase_acks: Vec<PhaseAck>,
+    /// Background stages this write triggered. One entry per
+    /// successful enqueue onto a worker channel — clients waiting
+    /// on the write's full completion count these down as
+    /// `StageCompleted` events arrive. Empty when no background
+    /// work was queued (no UpsertMemory phases, or workers not
+    /// wired in this build).
+    pub pending_stages: Vec<PendingStage>,
 }
 
 impl WriteAck {

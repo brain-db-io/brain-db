@@ -35,13 +35,17 @@
 //! drain produces zero edges instead of pointing into a tombstoned
 //! source.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::MemoryId;
-use brain_ops::{AutoEdgeEnqueue, AutoEdgeMetrics};
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
+use brain_ops::{AutoEdgeEnqueue, AutoEdgeMetrics, EventEnvelope};
+use brain_protocol::responses::types::{
+    EventType, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload,
+};
 use tracing::trace;
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -188,7 +192,15 @@ async fn do_auto_edge_cycle(
     // budget) from the channel, run knn for each, collect link tuples.
     // We never `await` on the channel itself (try_recv only) — that
     // would block the entire scheduler if the queue empties.
+    //
+    // `drained_sources` tracks every memory we pulled from the queue —
+    // including ones whose stage produced no edges — so we can publish
+    // a `StageCompleted{AutoEdge}` event for each. Wait helpers depend
+    // on per-source completion signals; skipping the "no edges" case
+    // would hang the client.
     let mut to_link: Vec<(MemoryId, MemoryId, f32)> = Vec::new();
+    let mut drained_sources: Vec<MemoryId> = Vec::new();
+    let mut per_source_edges: HashMap<MemoryId, u32> = HashMap::new();
     let mut processed = 0usize;
     let mut neighbours_found = 0u64;
     while processed < cfg.batch_size {
@@ -202,6 +214,7 @@ async fn do_auto_edge_cycle(
             break;
         };
         processed += 1;
+        drained_sources.push(source_id);
 
         // Source was FORGOTTEN between enqueue and now — skip it
         // entirely. We treat the source's tombstone state as
@@ -249,6 +262,7 @@ async fn do_auto_edge_cycle(
                 continue;
             }
             to_link.push((source_id, neighbour, similarity));
+            *per_source_edges.entry(source_id).or_insert(0) += 1;
             neighbours_found += 1;
         }
 
@@ -276,6 +290,39 @@ async fn do_auto_edge_cycle(
     worker.metrics.observe_neighbours_found(neighbours_found);
     worker.metrics.observe_cycle_duration(elapsed.as_secs_f64());
 
+    // Publish one `StageCompleted{AutoEdge}` per drained source — even
+    // for sources that produced zero edges. Wait helpers tick the
+    // pending-stage checklist off as these arrive; missing the
+    // zero-edges case would leave the client blocked forever.
+    let ts = now_unix_nanos();
+    for source_id in drained_sources {
+        let edges_written = per_source_edges.get(&source_id).copied().unwrap_or(0);
+        let outcome = if edges_written > 0 {
+            StageOutcome::Ok
+        } else {
+            StageOutcome::Empty
+        };
+        let envelope = EventEnvelope {
+            lsn: 0,
+            event_type: EventType::StageCompleted,
+            memory_id: source_id,
+            context_id: ContextId::default(),
+            kind: MemoryKind::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: ts,
+            text: None,
+            knowledge_payload: None,
+            edge_payload: None,
+            stage_kind: Some(StageKind::AutoEdge),
+            stage_outcome: Some(outcome),
+            stage_payload: Some(StagePayload::AutoEdge(StageAutoEdgePayload {
+                edges_written,
+            })),
+            agent_id: AgentId::default(),
+        };
+        let _ = ctx.ops.events.publish(envelope);
+    }
+
     trace!(
         drained = processed,
         edges_logical = written,
@@ -283,4 +330,11 @@ async fn do_auto_edge_cycle(
         "auto_edge cycle",
     );
     Ok(processed)
+}
+
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }

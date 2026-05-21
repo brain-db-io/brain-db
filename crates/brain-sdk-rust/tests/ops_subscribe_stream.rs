@@ -25,6 +25,9 @@ fn event(idx: u64) -> SubscriptionEvent {
         text: String::new(),
         knowledge_payload: None,
         edge_payload: None,
+        stage_kind: None,
+        stage_outcome: None,
+        stage_payload: None,
     }
 }
 

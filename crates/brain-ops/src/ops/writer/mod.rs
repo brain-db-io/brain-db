@@ -497,9 +497,9 @@ pub(crate) fn try_enqueue_auto_edge(
     writer: &RealWriterHandle,
     memory_id: MemoryId,
     vector: &[f32; brain_embed::VECTOR_DIM],
-) {
+) -> bool {
     let Some(sender) = writer.auto_edge_sender() else {
-        return;
+        return false;
     };
     match sender.try_send((memory_id, *vector)) {
         Ok(()) => {
@@ -507,6 +507,7 @@ pub(crate) fn try_enqueue_auto_edge(
                 memory_id = ?memory_id,
                 "auto_edge enqueue"
             );
+            true
         }
         Err(flume::TrySendError::Full(_)) => {
             if let Some(m) = writer.auto_edge_metrics() {
@@ -516,12 +517,14 @@ pub(crate) fn try_enqueue_auto_edge(
                 memory_id = ?memory_id,
                 "auto_edge channel full; dropping enqueue"
             );
+            false
         }
         Err(flume::TrySendError::Disconnected(_)) => {
             tracing::debug!(
                 memory_id = ?memory_id,
                 "auto_edge worker disconnected; encode continues"
             );
+            false
         }
     }
 }
@@ -536,14 +539,15 @@ pub(crate) fn try_enqueue_temporal_edge(
     agent_id: brain_core::AgentId,
     context_id: brain_core::ContextId,
     created_at_unix_nanos: u64,
-) {
+) -> bool {
     let Some(sender) = writer.temporal_edge_sender() else {
-        return;
+        return false;
     };
     let payload: TemporalEdgeEnqueue = (memory_id, agent_id, context_id, created_at_unix_nanos);
     match sender.try_send(payload) {
         Ok(()) => {
             tracing::trace!(memory_id = ?memory_id, "temporal_edge enqueue");
+            true
         }
         Err(flume::TrySendError::Full(_)) => {
             if let Some(m) = writer.temporal_edge_metrics() {
@@ -553,12 +557,14 @@ pub(crate) fn try_enqueue_temporal_edge(
                 memory_id = ?memory_id,
                 "temporal_edge channel full; dropping enqueue"
             );
+            false
         }
         Err(flume::TrySendError::Disconnected(_)) => {
             tracing::debug!(
                 memory_id = ?memory_id,
                 "temporal_edge worker disconnected; encode continues"
             );
+            false
         }
     }
 }
@@ -568,9 +574,13 @@ pub(crate) fn try_enqueue_temporal_edge(
 /// (encode succeeds without extraction). Disconnected channel logs
 /// at debug. This is the single enqueue point both the single-encode
 /// and TXN batch paths route through.
-pub(crate) fn try_enqueue_extractor(writer: &RealWriterHandle, memory_id: MemoryId, text: &str) {
+pub(crate) fn try_enqueue_extractor(
+    writer: &RealWriterHandle,
+    memory_id: MemoryId,
+    text: &str,
+) -> bool {
     let Some(sender) = writer.extractor_sender() else {
-        return;
+        return false;
     };
     let payload: ExtractorEnqueue = (memory_id, std::sync::Arc::from(text));
     match sender.try_send(payload) {
@@ -579,6 +589,7 @@ pub(crate) fn try_enqueue_extractor(writer: &RealWriterHandle, memory_id: Memory
                 memory_id = ?memory_id,
                 "extractor enqueue"
             );
+            true
         }
         Err(flume::TrySendError::Full(_)) => {
             if let Some(m) = writer.extractor_metrics() {
@@ -588,12 +599,14 @@ pub(crate) fn try_enqueue_extractor(writer: &RealWriterHandle, memory_id: Memory
                 memory_id = ?memory_id,
                 "extractor channel full; dropping enqueue"
             );
+            false
         }
         Err(flume::TrySendError::Disconnected(_)) => {
             tracing::debug!(
                 memory_id = ?memory_id,
                 "extractor worker disconnected; encode continues"
             );
+            false
         }
     }
 }

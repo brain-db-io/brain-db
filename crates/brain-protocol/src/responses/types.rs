@@ -118,8 +118,15 @@ pub enum EventType {
     StatementTombstoned = 24,
     RelationCreated = 25,
     RelationSuperseded = 26,
-    ExtractionCompleted = 27,
-    ExtractionFailed = 28,
+    /// One *stage* of a write's pipeline completed. The same envelope
+    /// is published by every background worker (auto-edge, temporal-
+    /// edge, extractor) once it has committed its derived phases for
+    /// a memory. Subscribers waiting on a write's completion count
+    /// down their `pending_stages` checklist as `StageCompleted`
+    /// events arrive. `stage_payload` carries the per-stage detail
+    /// (extractor counts + audit status, edge stages: the count of
+    /// edges written, etc.).
+    StageCompleted = 27,
     SchemaUpdated = 29,
     /// Phase 18.7. Appended after `SchemaUpdated` to preserve the
     /// stable discriminants of prior variants.
@@ -129,21 +136,110 @@ pub enum EventType {
     // relation create / supersede / tombstone all flow through these
     // three variants; the per-event `edge_payload` sidecar carries
     // `from`, `to`, kind discriminator, relation id when applicable.
-    // The legacy `RelationCreated` / `RelationSuperseded` /
-    // `RelationTombstoned` codes stay around because pre-Phase-C
-    // knowledge writers still publish them via `knowledge_payload`;
-    // future writers all go through the unified edge codes below.
     EdgeAdded = 31,
     EdgeRemoved = 32,
     EdgeSuperseded = 33,
+}
 
-    // Extractor-completion signal. Published by `ExtractorWorker` after
-    // the per-memory entity / statement / relation writes commit (or
-    // after the audit row records a failure). Lets SUBSCRIBE clients
-    // wait for extraction to land before they RECALL typed knowledge
-    // for a freshly-encoded memory. `knowledge_payload` carries the
-    // `ExtractedKnowledge` variant with the counts + audit status.
-    ExtractedKnowledge = 34,
+/// Background stage a write triggers. A write submission runs N
+/// foreground phases inside `submit()`'s wtxn (caller blocks) plus M
+/// background stages that workers drain (caller doesn't block, but
+/// may opt in via `--wait`). The ack lists the stages this write
+/// queued so a client knows which `StageCompleted` events to wait
+/// for.
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq, Hash)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+#[repr(u8)]
+pub enum StageKind {
+    /// `SimilarTo` edges derived from HNSW k-NN of the new memory.
+    AutoEdge = 0,
+    /// `FollowedBy` edges derived from session adjacency.
+    TemporalEdge = 1,
+    /// Entities, statements, relations extracted from memory text via
+    /// the three-tier pipeline (pattern → classifier → LLM).
+    Extractor = 2,
+}
+
+/// Verdict of a completed stage. Carried on every `StageCompleted`
+/// event so a client can distinguish "ran and produced output" from
+/// "ran but had nothing to produce" from "failed."
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+#[repr(u8)]
+pub enum StageOutcome {
+    /// Stage produced at least one derived item.
+    Ok = 0,
+    /// Stage ran cleanly but produced nothing (e.g. zero-vector input
+    /// for auto-edge, no extractable content for extractor). Distinct
+    /// from `Ok` so wait helpers can show "completed, nothing to add."
+    Empty = 1,
+    /// Stage errored. The wait helper still unblocks; the failure
+    /// reason lives on the per-stage payload (`StagePayload::*`).
+    Failed = 2,
+}
+
+/// Per-stage detail sidecar on `StageCompleted` events. Discriminated
+/// by [`StageKind`] but kept as a flat enum so subscribers can
+/// destructure without first reading the parent stage_kind byte.
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub enum StagePayload {
+    AutoEdge(StageAutoEdgePayload),
+    TemporalEdge(StageTemporalEdgePayload),
+    Extractor(StageExtractorPayload),
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct StageAutoEdgePayload {
+    /// How many `SimilarTo` rows the worker wrote.
+    pub edges_written: u32,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct StageTemporalEdgePayload {
+    /// How many `FollowedBy` rows the worker wrote.
+    pub edges_written: u32,
+}
+
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct StageExtractorPayload {
+    pub entity_count: u32,
+    pub statement_count: u32,
+    pub relation_count: u32,
+    pub audit_status: StageAuditStatus,
+    /// Populated only when `audit_status == Failed`. Empty otherwise.
+    pub error_message: String,
+}
+
+/// Audit verdict for an extractor stage. Mirrors the worker's
+/// internal `pipeline_status` byte. Distinct from [`StageOutcome`]
+/// because the extractor pipeline has more granularity than the
+/// generic three-state outcome — `PartiallyApplied` is a per-tier
+/// concern that doesn't make sense for the edge stages.
+#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+#[repr(u8)]
+pub enum StageAuditStatus {
+    /// Every enabled tier ran cleanly and writes committed.
+    Succeeded = 0,
+    /// One or more tiers failed; surviving tiers still committed
+    /// their items. Counts reflect what landed.
+    PartiallyApplied = 1,
+    /// All tiers failed or the apply path errored; nothing landed.
+    Failed = 2,
+    /// Worker ran but had nothing to commit (no extractors
+    /// registered, or every tier returned zero items).
+    Skipped = 3,
 }
 
 /// Spec §08 §18 — `IntegrityIssue::IntegrityIssueType`.

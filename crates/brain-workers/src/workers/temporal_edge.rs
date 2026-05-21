@@ -33,18 +33,22 @@
 //! - Backfilling existing memories. Migration is for the timeline
 //!   index itself; this worker only writes from live enqueues.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::{AgentId, ContextId, MemoryId, NodeRef};
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, NodeRef};
 use brain_metadata::tables::edge::EdgeKey;
 use brain_metadata::tables::memory::{
     agent_timeline_prefix_agent_time, AGENT_TIMELINE_KEY_LEN, MEMORIES_BY_AGENT_TIMELINE_TABLE,
     MEMORIES_TABLE,
 };
-use brain_ops::{TemporalEdgeEnqueue, TemporalEdgeMetrics, TemporalSkipReason};
+use brain_ops::{EventEnvelope, TemporalEdgeEnqueue, TemporalEdgeMetrics, TemporalSkipReason};
+use brain_protocol::responses::types::{
+    EventType, StageKind, StageOutcome, StagePayload, StageTemporalEdgePayload,
+};
 use tracing::trace;
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -161,6 +165,13 @@ async fn do_temporal_edge_cycle(
 
     let mut to_link: Vec<(MemoryId, MemoryId, f32)> = Vec::new();
     let mut processed = 0usize;
+    // Every drained memory needs a `StageCompleted{TemporalEdge}`
+    // event so wait helpers can tick the pending-stage checklist —
+    // even when the predecessor lookup fails or the gap exceeds the
+    // window. `per_source_edges` counts the rows the cycle will
+    // commit for each source.
+    let mut drained_sources: Vec<MemoryId> = Vec::new();
+    let mut per_source_edges: HashMap<MemoryId, u32> = HashMap::new();
 
     while processed < cfg.batch_size {
         if started.elapsed() >= cfg.max_runtime {
@@ -173,6 +184,7 @@ async fn do_temporal_edge_cycle(
             break;
         };
         processed += 1;
+        drained_sources.push(new_memory_id);
 
         // Look up the predecessor via the agent-timeline index in
         // its own read txn. One tiny rtxn per enqueue keeps the
@@ -219,6 +231,7 @@ async fn do_temporal_edge_cycle(
         }
 
         to_link.push((prev_id, new_memory_id, weight));
+        *per_source_edges.entry(new_memory_id).or_insert(0) += 1;
 
         if processed.is_multiple_of(16) {
             glommio::executor().yield_if_needed().await;
@@ -238,6 +251,37 @@ async fn do_temporal_edge_cycle(
     worker.metrics.add_edges_written(written as u64);
     worker.metrics.observe_cycle_duration(elapsed.as_secs_f64());
 
+    // Publish per-source `StageCompleted{TemporalEdge}` events so wait
+    // helpers can tick the checklist.
+    let ts = now_unix_nanos();
+    for memory_id in drained_sources {
+        let edges_written = per_source_edges.get(&memory_id).copied().unwrap_or(0);
+        let outcome = if edges_written > 0 {
+            StageOutcome::Ok
+        } else {
+            StageOutcome::Empty
+        };
+        let envelope = EventEnvelope {
+            lsn: 0,
+            event_type: EventType::StageCompleted,
+            memory_id,
+            context_id: ContextId::default(),
+            kind: MemoryKind::Episodic,
+            salience: 0.0,
+            timestamp_unix_nanos: ts,
+            text: None,
+            knowledge_payload: None,
+            edge_payload: None,
+            stage_kind: Some(StageKind::TemporalEdge),
+            stage_outcome: Some(outcome),
+            stage_payload: Some(StagePayload::TemporalEdge(StageTemporalEdgePayload {
+                edges_written,
+            })),
+            agent_id: AgentId::default(),
+        };
+        let _ = ctx.ops.events.publish(envelope);
+    }
+
     trace!(
         drained = processed,
         edges_logical = written,
@@ -245,6 +289,13 @@ async fn do_temporal_edge_cycle(
         "temporal_edge cycle",
     );
     Ok(processed)
+}
+
+fn now_unix_nanos() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
 }
 
 /// Outcome of the predecessor lookup. Kept as an explicit enum so the

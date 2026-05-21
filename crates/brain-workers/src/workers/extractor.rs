@@ -82,8 +82,9 @@ use brain_ops::{
     CausalEdgeEnqueue, CausalEdgeMetrics, EventEnvelope, ExtractorEnqueue, ExtractorItemKind,
     ExtractorMetrics, ResolverOutcome, TierKind as MetricTierKind, TierStatus as MetricTierStatus,
 };
-use brain_protocol::knowledge::{AuditStatus, ExtractedKnowledgeEvent, KnowledgeEventPayload};
-use brain_protocol::responses::types::EventType;
+use brain_protocol::responses::types::{
+    EventType, StageAuditStatus, StageExtractorPayload, StageKind, StageOutcome, StagePayload,
+};
 use parking_lot::Mutex;
 use redb::ReadableTable;
 use tracing::{trace, warn};
@@ -361,7 +362,7 @@ async fn do_extractor_cycle(
                     ctx,
                     memory_id,
                     ExtractorItemCounts::zero(),
-                    AuditStatus::Failed,
+                    StageAuditStatus::Failed,
                 );
             }
         }
@@ -747,46 +748,57 @@ async fn apply_outcome(
 }
 
 /// Translate the worker's `pipeline_status` byte into the wire
-/// [`AuditStatus`] carried on the `ExtractedKnowledge` event. Unknown
-/// bytes round to `Failed`; the worker's `decide_status` only ever
-/// emits one of the four documented constants, so the fallback is
-/// strictly defensive.
-fn audit_status_from_byte(byte: u8) -> AuditStatus {
+/// [`StageAuditStatus`] carried on the `StageCompleted` event.
+/// Unknown bytes round to `Failed`; the worker's `decide_status`
+/// only ever emits one of the four documented constants, so the
+/// fallback is strictly defensive.
+fn audit_status_from_byte(byte: u8) -> StageAuditStatus {
     match byte {
-        pipeline_status::SUCCESS => AuditStatus::Succeeded,
-        pipeline_status::PARTIAL_FAILURE => AuditStatus::PartiallyApplied,
-        pipeline_status::SKIPPED => AuditStatus::Skipped,
-        _ => AuditStatus::Failed,
+        pipeline_status::SUCCESS => StageAuditStatus::Succeeded,
+        pipeline_status::PARTIAL_FAILURE => StageAuditStatus::PartiallyApplied,
+        pipeline_status::SKIPPED => StageAuditStatus::Skipped,
+        _ => StageAuditStatus::Failed,
     }
 }
 
 /// Publish the `ExtractedKnowledge` SUBSCRIBE event onto the per-shard
 /// bus. A no-op when no subscriber is listening — `events.publish`
 /// still mints an LSN for the bus's own bookkeeping.
+/// Publish a `StageCompleted{Extractor}` event so subscribers waiting
+/// via `--wait` can decrement their pending-stage checklist for this
+/// memory.
 fn publish_extracted_knowledge(
     ctx: &WorkerContext,
     memory_id: MemoryId,
     counts: ExtractorItemCounts,
-    audit_status: AuditStatus,
+    audit_status: StageAuditStatus,
 ) {
-    let payload = KnowledgeEventPayload::ExtractedKnowledge(ExtractedKnowledgeEvent {
-        memory_id: memory_id.raw(),
+    let outcome = match audit_status {
+        StageAuditStatus::Succeeded | StageAuditStatus::PartiallyApplied => StageOutcome::Ok,
+        StageAuditStatus::Skipped => StageOutcome::Empty,
+        StageAuditStatus::Failed => StageOutcome::Failed,
+    };
+    let payload = StagePayload::Extractor(StageExtractorPayload {
         entity_count: counts.entities,
         statement_count: counts.statements,
         relation_count: counts.relations,
         audit_status,
+        error_message: String::new(),
     });
     let envelope = EventEnvelope {
         lsn: 0,
-        event_type: EventType::ExtractedKnowledge,
+        event_type: EventType::StageCompleted,
         memory_id,
         context_id: ContextId::default(),
         kind: MemoryKind::Episodic,
         salience: 0.0,
         timestamp_unix_nanos: now_unix_nanos(),
         text: None,
-        knowledge_payload: Some(payload),
+        knowledge_payload: None,
         edge_payload: None,
+        stage_kind: Some(StageKind::Extractor),
+        stage_outcome: Some(outcome),
+        stage_payload: Some(payload),
         agent_id: AgentId::default(),
     };
     let _ = ctx.ops.events.publish(envelope);

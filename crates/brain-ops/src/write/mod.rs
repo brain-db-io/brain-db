@@ -24,5 +24,5 @@ pub use phase::{
     AttributeTarget, EntityAttributesUpdate, EvidenceRefPhase, Phase, PhaseAck, ResolveContext,
     SupersedeReplacement, SupersedeReplacementId, SupersedeTarget, TombstoneTarget,
 };
-pub use transaction::{Write, WriteAck};
+pub use transaction::{PendingStage, Write, WriteAck};
 pub use trigger::{TriggerEvent, TriggerKind, TriggerMask};

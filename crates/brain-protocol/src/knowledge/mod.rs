@@ -37,11 +37,10 @@ pub use entity_resp::{
     EntityUnmergeResponse, EntityUpdateResponse, EntityView, ResolutionOutcomeWire,
 };
 pub use events::{
-    AuditStatus, EntityCreatedEvent, EntityMergedEvent, EntityRenamedEvent, EntityTombstonedEvent,
-    EntityUnmergedEvent, EntityUpdatedEvent, ExtractedKnowledgeEvent, ExtractionCompletedEvent,
-    ExtractionFailedEvent, KnowledgeEventPayload, RelationCreatedEvent, RelationSupersededEvent,
-    RelationTombstonedEvent, SchemaUpdatedEvent, StatementCreatedEvent, StatementSupersededEvent,
-    StatementTombstonedEvent,
+    EntityCreatedEvent, EntityMergedEvent, EntityRenamedEvent, EntityTombstonedEvent,
+    EntityUnmergedEvent, EntityUpdatedEvent, KnowledgeEventPayload, RelationCreatedEvent,
+    RelationSupersededEvent, RelationTombstonedEvent, SchemaUpdatedEvent, StatementCreatedEvent,
+    StatementSupersededEvent, StatementTombstonedEvent,
 };
 pub use extractor_req::{ExtractorDisableRequest, ExtractorEnableRequest, ExtractorListRequest};
 pub use extractor_resp::{

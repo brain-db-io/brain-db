@@ -189,7 +189,11 @@ impl RealWriterHandle {
         // so they can derive `SimilarTo` / `FollowedBy` / extracted-
         // entities/statements in the background. The channels are
         // best-effort (drop on full); workers are eventually-consistent
-        // with the metadata they read back.
+        // with the metadata they read back. Each successful enqueue
+        // adds a `PendingStage` to the ack — clients waiting on the
+        // write's full completion count these down as `StageCompleted`
+        // events arrive on the subscribe stream.
+        let mut pending_stages: Vec<crate::write::PendingStage> = Vec::new();
         for phase in write.phases.iter() {
             if let Phase::UpsertMemory {
                 id,
@@ -200,15 +204,30 @@ impl RealWriterHandle {
                 ..
             } = phase
             {
-                super::try_enqueue_auto_edge(self, *id, vector.as_ref());
-                super::try_enqueue_temporal_edge(
+                if super::try_enqueue_auto_edge(self, *id, vector.as_ref()) {
+                    pending_stages.push(crate::write::PendingStage {
+                        memory_id: *id,
+                        stage_kind: brain_protocol::responses::StageKind::AutoEdge,
+                    });
+                }
+                if super::try_enqueue_temporal_edge(
                     self,
                     *id,
                     write.agent_id,
                     *context,
                     *created_at_unix_nanos,
-                );
-                super::try_enqueue_extractor(self, *id, text);
+                ) {
+                    pending_stages.push(crate::write::PendingStage {
+                        memory_id: *id,
+                        stage_kind: brain_protocol::responses::StageKind::TemporalEdge,
+                    });
+                }
+                if super::try_enqueue_extractor(self, *id, text) {
+                    pending_stages.push(crate::write::PendingStage {
+                        memory_id: *id,
+                        stage_kind: brain_protocol::responses::StageKind::Extractor,
+                    });
+                }
             }
         }
 
@@ -219,6 +238,7 @@ impl RealWriterHandle {
             lsn_first: lsn_first.unwrap_or(Lsn(0)),
             lsn_last: lsn_first.unwrap_or(Lsn(0)),
             phase_acks,
+            pending_stages,
         };
         let arc_ack = Arc::new(ack.clone());
         cache.stamp_with_hash(write.write_id, arc_ack, write.request_hash);
@@ -485,6 +505,9 @@ fn phase_to_envelope(
             text: Some(text.clone()),
             knowledge_payload: None,
             edge_payload: None,
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
             agent_id: write.agent_id,
         }),
 
@@ -502,6 +525,9 @@ fn phase_to_envelope(
             text: None,
             knowledge_payload: None,
             edge_payload: None,
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
             agent_id: write.agent_id,
         }),
 
@@ -531,6 +557,9 @@ fn phase_to_envelope(
                 None,
                 *edge_origin,
             )),
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
             agent_id: write.agent_id,
         }),
 
@@ -553,6 +582,9 @@ fn phase_to_envelope(
                 None,
                 origin::EXPLICIT,
             )),
+            stage_kind: None,
+            stage_outcome: None,
+            stage_payload: None,
             agent_id: write.agent_id,
         }),
 

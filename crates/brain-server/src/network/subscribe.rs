@@ -689,6 +689,9 @@ fn empty_subscription_event_frame(stream_id: u32, last_lsn: u64) -> Frame {
         lsn: last_lsn,
         knowledge_payload: None,
         edge_payload: None,
+        stage_kind: None,
+        stage_outcome: None,
+        stage_payload: None,
     })
     .encode();
     Frame::new(

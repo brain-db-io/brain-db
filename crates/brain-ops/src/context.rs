@@ -470,6 +470,9 @@ impl OpsContext {
                     None,
                     origin::AUTO_DERIVED,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             };
             self.events.publish(env);
@@ -558,6 +561,9 @@ impl OpsContext {
                     None,
                     origin::AUTO_DERIVED,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             };
             self.events.publish(env);
@@ -647,6 +653,9 @@ impl OpsContext {
                     None,
                     origin::AUTO_DERIVED,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             };
             self.events.publish(env);

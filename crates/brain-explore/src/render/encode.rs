@@ -510,6 +510,7 @@ mod tests {
             created_at_unix_nanos: 0,
             edges_out_count: 0,
             embedding_model_fp: [0u8; 16],
+            pending_stages: Vec::new(),
         })
     }
 

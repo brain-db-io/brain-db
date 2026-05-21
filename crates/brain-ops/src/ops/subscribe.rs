@@ -119,11 +119,18 @@ pub struct EventEnvelope {
     /// (encode publishes the text; forget does not).
     pub text: Option<String>,
     /// Typed knowledge-layer payload — `None` for substrate events,
-    /// `Some(_)` for the 14 knowledge event variants (phase 16.7+).
+    /// `Some(_)` for the knowledge event variants (phase 16.7+).
     pub knowledge_payload: Option<brain_protocol::knowledge::KnowledgeEventPayload>,
     /// Unified-edge change-feed payload — `Some(_)` when `event_type`
-    /// is `EdgeAdded`, `EdgeRemoved` or `EdgeSuperseded`. Phase C.
+    /// is `EdgeAdded`, `EdgeRemoved` or `EdgeSuperseded`.
     pub edge_payload: Option<EdgeEventPayload>,
+    /// Stage triple — `Some(_)` when `event_type == StageCompleted`.
+    /// All three are populated together; the helper publishers in
+    /// brain-workers fill all three on the same envelope. `None` on
+    /// every non-stage event.
+    pub stage_kind: Option<brain_protocol::responses::StageKind>,
+    pub stage_outcome: Option<brain_protocol::responses::StageOutcome>,
+    pub stage_payload: Option<brain_protocol::responses::StagePayload>,
     /// Agent the event was attributed to. Substrate writers stamp
     /// their bound agent; knowledge handlers stamp the auth-time
     /// agent the request ran under. Default (nil) for tests +
@@ -147,6 +154,9 @@ impl EventEnvelope {
             lsn: self.lsn,
             knowledge_payload: self.knowledge_payload.clone(),
             edge_payload: self.edge_payload.clone(),
+            stage_kind: self.stage_kind,
+            stage_outcome: self.stage_outcome,
+            stage_payload: self.stage_payload.clone(),
         }
     }
 
@@ -192,6 +202,9 @@ impl EventEnvelope {
                     text: Some(p.text),
                     knowledge_payload: None,
                     edge_payload: None,
+                    stage_kind: None,
+                    stage_outcome: None,
+                    stage_payload: None,
                     agent_id,
                 });
                 for e in p.edges {
@@ -214,6 +227,9 @@ impl EventEnvelope {
                             None,
                             brain_metadata::tables::edge::origin::EXPLICIT,
                         )),
+                        stage_kind: None,
+                        stage_outcome: None,
+                        stage_payload: None,
                         agent_id,
                     });
                 }
@@ -238,6 +254,9 @@ impl EventEnvelope {
                 // ForgetPayload doesn't carry agent_id today; replay
                 // can't route through the per-agent allowlist for
                 // forgets. Live forgets stamp it via `writer.agent_id`.
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             }],
             WalPayload::Link(p) => vec![Self {
@@ -262,6 +281,9 @@ impl EventEnvelope {
                 // LinkPayload has no agent_id today; replay can't
                 // route to a per-agent allowlist. Live writes stamp
                 // via WalSink.
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             }],
             WalPayload::Unlink(p) => vec![Self {
@@ -283,6 +305,9 @@ impl EventEnvelope {
                     None,
                     brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: brain_core::AgentId::default(),
             }],
             WalPayload::RelationLink(p) => vec![Self {
@@ -304,6 +329,9 @@ impl EventEnvelope {
                     None,
                     brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: p.agent_id,
             }],
             WalPayload::RelationSupersede(p) => vec![Self {
@@ -325,6 +353,9 @@ impl EventEnvelope {
                     Some(p.old_relation_id),
                     brain_metadata::tables::edge::origin::EXPLICIT,
                 )),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: p.new.agent_id,
             }],
             WalPayload::RelationTombstone(p) => vec![Self {
@@ -357,6 +388,9 @@ impl EventEnvelope {
                     superseded_relation_id: None,
                     origin: brain_metadata::tables::edge::origin::EXPLICIT,
                 }),
+                stage_kind: None,
+                stage_outcome: None,
+                stage_payload: None,
                 agent_id: p.agent_id,
             }],
             WalPayload::Knowledge(record) => {
@@ -381,9 +415,6 @@ impl EventEnvelope {
                     KnowledgeEventPayload::RelationSuperseded(_) => EventType::RelationSuperseded,
                     KnowledgeEventPayload::RelationTombstoned(_) => EventType::RelationTombstoned,
                     KnowledgeEventPayload::SchemaUpdated(_) => EventType::SchemaUpdated,
-                    KnowledgeEventPayload::ExtractionCompleted(_)
-                    | KnowledgeEventPayload::ExtractionFailed(_)
-                    | KnowledgeEventPayload::ExtractedKnowledge(_) => return Vec::new(),
                 };
                 vec![Self {
                     lsn,
@@ -396,6 +427,9 @@ impl EventEnvelope {
                     text: None,
                     knowledge_payload: Some(payload),
                     edge_payload: None,
+                    stage_kind: None,
+                    stage_outcome: None,
+                    stage_payload: None,
                     agent_id: brain_core::AgentId::default(),
                 }]
             }

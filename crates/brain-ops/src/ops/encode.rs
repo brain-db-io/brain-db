@@ -85,6 +85,9 @@ pub async fn handle_encode(
                 created_at_unix_nanos: 0,
                 edges_out_count: 0,
                 embedding_model_fp,
+                // Dedup hit — no fresh write, so no background stages
+                // were queued. The client has nothing to wait for.
+                pending_stages: Vec::new(),
             });
         }
     }
@@ -151,6 +154,16 @@ pub async fn handle_encode(
         .map_err(|e| OpError::ExecError(brain_planner::ExecError::WriterFailed(e)))?;
     debug_assert!(matches!(ack.phase_acks[0], PhaseAck::UpsertedMemory(_)));
 
+    // Project the write's pending background stages onto the wire
+    // response. Clients waiting via `--wait` decrement this list as
+    // `StageCompleted` events arrive on the subscribe stream.
+    let pending_stages = ack
+        .pending_stages
+        .iter()
+        .filter(|s| s.memory_id == memory_id)
+        .map(|s| s.stage_kind)
+        .collect();
+
     Ok(EncodeResponse {
         memory_id: memory_id.into(),
         was_deduplicated: false,
@@ -163,6 +176,7 @@ pub async fn handle_encode(
         created_at_unix_nanos: created_at,
         edges_out_count: auto_edges_added,
         embedding_model_fp,
+        pending_stages,
     })
 }
 
@@ -331,6 +345,13 @@ fn reconstruct_encode_response(
             .unwrap_or(0)
     };
 
+    let pending_stages = cached
+        .pending_stages
+        .iter()
+        .filter(|s| s.memory_id == memory_id)
+        .map(|s| s.stage_kind)
+        .collect();
+
     Ok(EncodeResponse {
         memory_id: memory_id.into(),
         was_deduplicated: false,
@@ -343,6 +364,7 @@ fn reconstruct_encode_response(
         created_at_unix_nanos: created_at,
         edges_out_count: auto_edges_added,
         embedding_model_fp,
+        pending_stages,
     })
 }
 
@@ -435,6 +457,10 @@ async fn handle_encode_in_txn(
             created_at_unix_nanos: 0,
             edges_out_count: auto_edges_added,
             embedding_model_fp: ctx.executor.embedder.fingerprint(),
+            // Buffered inside a txn — no background work has been
+            // queued yet (workers fire post-commit). The COMMIT
+            // ack carries the aggregated stages for the whole txn.
+            pending_stages: Vec::new(),
         });
     }
 
@@ -569,6 +595,9 @@ async fn handle_encode_in_txn(
         created_at_unix_nanos: created_at,
         edges_out_count: auto_edges_added,
         embedding_model_fp: ctx.executor.embedder.fingerprint(),
+        // Workers fire post-commit; the COMMIT ack carries the
+        // aggregated stages for the whole txn.
+        pending_stages: Vec::new(),
     })
 }
 

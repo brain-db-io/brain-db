@@ -2,7 +2,7 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use super::types::EventType;
+use super::types::{EventType, StageKind, StageOutcome, StagePayload};
 use crate::knowledge::KnowledgeEventPayload;
 use crate::request::{MemoryKindWire, WireContextId, WireMemoryId, WireUuid};
 
@@ -40,6 +40,14 @@ pub struct SubscriptionEvent {
     /// Substrate LINK / UNLINK, typed-relation create / supersede /
     /// tombstone all surface here. `None` for every other event.
     pub edge_payload: Option<EdgeEventPayload>,
+    /// `Some(_)` when `event_type == StageCompleted` — one background
+    /// stage of a write's pipeline finished. The triple
+    /// `(memory_id, stage_kind, outcome)` is the wait-helper's
+    /// match-key; `payload` carries the per-stage detail. `None` for
+    /// every other event.
+    pub stage_kind: Option<StageKind>,
+    pub stage_outcome: Option<StageOutcome>,
+    pub stage_payload: Option<StagePayload>,
 }
 
 /// Side-channel payload carried on an `EdgeAdded` / `EdgeRemoved` /

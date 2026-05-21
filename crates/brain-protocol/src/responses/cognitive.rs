@@ -2,12 +2,13 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use super::types::{InferenceKind, PlanStatus, ReasonStatus, RetrieverNameWire, TransitionKind};
+use super::types::{
+    InferenceKind, PlanStatus, ReasonStatus, RetrieverNameWire, StageKind, TransitionKind,
+};
 use crate::request::{EdgeKindWire, MemoryKindWire, WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §08 §1 `ENCODE_RESP`. Same shape used for §08 §2
-/// `ENCODE_VECTOR_DIRECT_RESP`.
-#[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
+/// Spec §08 §1 `ENCODE_RESP`.
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub struct EncodeResponse {
@@ -39,6 +40,12 @@ pub struct EncodeResponse {
     /// Embedding-model fingerprint stamped on the row. Lets the
     /// client detect when a model migration would change the vector.
     pub embedding_model_fp: [u8; 16],
+    /// Background stages this write queued. Each entry will emit a
+    /// `SubscriptionEvent` with `event_type == StageCompleted` once
+    /// the corresponding worker commits its derived phases. Empty
+    /// when the write triggered no background work (e.g. substrate-
+    /// only deployment with workers disabled, or a dedup hit).
+    pub pending_stages: Vec<StageKind>,
 }
 
 /// Spec §08 §3 — one streaming RECALL frame.
