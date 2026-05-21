@@ -74,11 +74,14 @@ pub async fn run(
     let resp = b.send().await?;
     session.push_recent_id(MemoryId::from_raw(resp.memory_id));
 
-    if args.wait_for_extraction {
+    let stage_results = if args.wait_for_extraction {
         // `--wait-for-extraction` is sugar for "wait for the extractor
         // stage of this write to finish." Filter the ack's
         // pending_stages to just the extractor entry; an empty filter
-        // returns immediately (no extractor was queued).
+        // returns a zero-result delta immediately so the operator
+        // still sees a "stages completed" section in the card,
+        // making clear the flag was a no-op (substrate-only deploy,
+        // dedup hit, or extractor not wired).
         use brain_protocol::responses::StageKind;
         let stages: Vec<StageKind> = resp
             .pending_stages
@@ -86,14 +89,18 @@ pub async fn run(
             .copied()
             .filter(|k| *k == StageKind::Extractor)
             .collect();
-        wait_for_stages(
-            client,
-            MemoryId::from_raw(resp.memory_id),
-            &stages,
-            resp.lsn,
+        Some(
+            wait_for_stages(
+                client,
+                MemoryId::from_raw(resp.memory_id),
+                &stages,
+                resp.lsn,
+            )
+            .await?,
         )
-        .await?;
-    }
+    } else {
+        None
+    };
 
     // When --wait-auto-edges-ms is positive, open a filtered subscribe
     // stream for that window and collect EdgeAdded(AUTO_DERIVED) events
@@ -117,6 +124,9 @@ pub async fn run(
     let mut rendered = EncodeRendered::new(resp).with_source(text.clone());
     if let Some(delta) = auto_edges_delta {
         rendered = rendered.with_auto_edges_delta(delta);
+    }
+    if let Some(delta) = stage_results {
+        rendered = rendered.with_stage_results(delta);
     }
     Ok(Box::new(rendered))
 }
@@ -308,27 +318,33 @@ fn edge_kind_label(tag: u8, byte: u8) -> String {
 
 /// Subscribe at `lsn+1` and block until *every* pending stage for the
 /// just-submitted memory has emitted a `StageCompleted` event — or
-/// until the deadline fires. `pending_stages` comes from the encode
-/// ack and lists which background stages the write queued; the
-/// helper decrements them as events arrive.
+/// until the deadline fires. Returns one `StageResult` per
+/// `StageCompleted` seen, in arrival order, plus the stage kinds
+/// that timed out. `pending_stages` comes from the encode ack.
 ///
-/// When `pending_stages` is empty the helper returns immediately —
-/// there's nothing to wait for (substrate-only deployment, dedup hit,
-/// or workers disabled).
+/// When `pending_stages` is empty the helper returns immediately
+/// with empty results.
 async fn wait_for_stages(
     client: &Client,
     memory_id: MemoryId,
     pending_stages: &[brain_protocol::responses::StageKind],
     start_lsn: u64,
-) -> Result<(), ClientError> {
-    use brain_protocol::responses::StageKind;
+) -> Result<brain_explore::StageResultsDelta, ClientError> {
+    use brain_explore::{StageOutcomeLabel, StageResult, StageResultsDelta};
+    use brain_protocol::responses::{StageKind, StageOutcome};
 
+    let started = std::time::Instant::now();
     if pending_stages.is_empty() {
-        return Ok(());
+        return Ok(StageResultsDelta {
+            elapsed_ms: 0,
+            results: Vec::new(),
+            timed_out: Vec::new(),
+        });
     }
     let target_raw = memory_id.raw();
     let mut remaining_kinds: std::collections::HashSet<StageKind> =
         pending_stages.iter().copied().collect();
+    let mut results: Vec<StageResult> = Vec::new();
 
     let stream_result = client
         .subscribe()
@@ -342,25 +358,28 @@ async fn wait_for_stages(
                 target: "brain_shell",
                 "encode --wait: subscribe failed ({e}); encode succeeded, returning anyway."
             );
-            return Ok(());
+            return Ok(StageResultsDelta {
+                elapsed_ms: started.elapsed().as_millis() as u64,
+                results,
+                timed_out: remaining_kinds.into_iter().map(wire_to_label).collect(),
+            });
         }
     };
     // Hard cap so a worker that never drains doesn't pin the shell.
     // 60s is generous; the global --timeout cap is what's printed.
     let deadline = tokio::time::Instant::now() + Duration::from_secs(60);
     while !remaining_kinds.is_empty() {
-        let elapsed = deadline.saturating_duration_since(tokio::time::Instant::now());
-        if elapsed.is_zero() {
+        let remaining_time = deadline.saturating_duration_since(tokio::time::Instant::now());
+        if remaining_time.is_zero() {
             tracing::warn!(
                 target: "brain_shell",
-                "encode --wait: timed out waiting for stages {:?} on memory {}; \
-                 returning without confirmation.",
+                "encode --wait: timed out waiting for stages {:?} on memory {}.",
                 remaining_kinds,
                 target_raw,
             );
-            return Ok(());
+            break;
         }
-        let next = match tokio::time::timeout(elapsed, stream.next()).await {
+        let next = match tokio::time::timeout(remaining_time, stream.next()).await {
             Ok(Some(Ok(ev))) => ev,
             Ok(Some(Err(e))) => return Err(e),
             Ok(None) => {
@@ -370,7 +389,7 @@ async fn wait_for_stages(
                     remaining_kinds,
                     target_raw,
                 );
-                return Ok(());
+                break;
             }
             Err(_) => continue,
         };
@@ -380,9 +399,106 @@ async fn wait_for_stages(
         if next.memory_id != target_raw {
             continue;
         }
-        if let Some(kind) = next.stage_kind {
-            remaining_kinds.remove(&kind);
+        let Some(kind) = next.stage_kind else {
+            continue;
+        };
+        // Only consume events for stages we asked to wait on; an
+        // unrelated stage on the same memory_id stays in the stream
+        // for whoever else is listening.
+        if !remaining_kinds.remove(&kind) {
+            continue;
         }
+        let outcome = match next.stage_outcome.unwrap_or(StageOutcome::Ok) {
+            StageOutcome::Ok => StageOutcomeLabel::Ok,
+            StageOutcome::Empty => StageOutcomeLabel::Empty,
+            StageOutcome::Failed => StageOutcomeLabel::Failed,
+        };
+        let summary = summarize_stage_payload(kind, next.stage_payload.as_ref(), outcome);
+        results.push(StageResult {
+            kind: wire_to_label(kind),
+            outcome,
+            summary,
+        });
     }
-    Ok(())
+
+    Ok(StageResultsDelta {
+        elapsed_ms: started.elapsed().as_millis() as u64,
+        results,
+        timed_out: remaining_kinds.into_iter().map(wire_to_label).collect(),
+    })
+}
+
+fn wire_to_label(k: brain_protocol::responses::StageKind) -> brain_explore::StageKindLabel {
+    use brain_explore::StageKindLabel;
+    use brain_protocol::responses::StageKind;
+    match k {
+        StageKind::AutoEdge => StageKindLabel::AutoEdge,
+        StageKind::TemporalEdge => StageKindLabel::TemporalEdge,
+        StageKind::Extractor => StageKindLabel::Extractor,
+    }
+}
+
+/// Build a one-line summary for the rendered stage row. Uses the
+/// payload when present (entity / statement / relation counts for
+/// extractor; edges written for edge stages); falls back to a
+/// generic phrase when the payload is missing.
+fn summarize_stage_payload(
+    kind: brain_protocol::responses::StageKind,
+    payload: Option<&brain_protocol::responses::StagePayload>,
+    outcome: brain_explore::StageOutcomeLabel,
+) -> String {
+    use brain_explore::StageOutcomeLabel;
+    use brain_protocol::responses::{StageAuditStatus, StagePayload};
+    match (kind, payload) {
+        (_, Some(StagePayload::AutoEdge(p))) => {
+            if p.edges_written == 0 {
+                "no SimilarTo edges (below threshold or zero-vector)".into()
+            } else {
+                let plural = if p.edges_written == 1 { "" } else { "s" };
+                format!("{} SimilarTo edge{plural} written", p.edges_written)
+            }
+        }
+        (_, Some(StagePayload::TemporalEdge(p))) => {
+            if p.edges_written == 0 {
+                "no FollowedBy edge (no predecessor in session window)".into()
+            } else {
+                let plural = if p.edges_written == 1 { "" } else { "s" };
+                format!("{} FollowedBy edge{plural} written", p.edges_written)
+            }
+        }
+        (_, Some(StagePayload::Extractor(p))) => {
+            let status = match p.audit_status {
+                StageAuditStatus::Succeeded => "succeeded",
+                StageAuditStatus::PartiallyApplied => "partially applied",
+                StageAuditStatus::Failed => "failed",
+                StageAuditStatus::Skipped => "skipped",
+            };
+            format!(
+                "{} entit{}, {} statement{}, {} relation{} · {status}",
+                p.entity_count,
+                if p.entity_count == 1 { "y" } else { "ies" },
+                p.statement_count,
+                if p.statement_count == 1 { "" } else { "s" },
+                p.relation_count,
+                if p.relation_count == 1 { "" } else { "s" },
+            )
+        }
+        // No payload on the envelope — happens when a worker
+        // publishes a bare StageCompleted (unusual). Use the
+        // outcome as the summary instead of leaving the row blank.
+        (k, None) => match outcome {
+            StageOutcomeLabel::Ok => format!("{} completed", stage_kind_word(k)),
+            StageOutcomeLabel::Empty => format!("{} ran — nothing to add", stage_kind_word(k)),
+            StageOutcomeLabel::Failed => format!("{} failed", stage_kind_word(k)),
+        },
+    }
+}
+
+fn stage_kind_word(k: brain_protocol::responses::StageKind) -> &'static str {
+    use brain_protocol::responses::StageKind;
+    match k {
+        StageKind::AutoEdge => "auto_edge",
+        StageKind::TemporalEdge => "temporal_edge",
+        StageKind::Extractor => "extractor",
+    }
 }

@@ -24,7 +24,8 @@ pub use render::{
     ConnectionInfo, EncodeRendered, EntityCard, GraphNode, GraphTree, HelpFlagRow, HelpItem,
     HelpReference, HelpSection, HelpTopLevel, HelpUnknown, HelpVerb, InfoCard, LinkRendered,
     MemorySummary, ObjectRef, PlanSteps, ReasonSteps, RecallResults, RelationCard, RelationSummary,
-    RenderableError, ServerInfo, ServerWelcomeFields, SessionInfo, StatementCard, StatementSummary,
+    RenderableError, ServerInfo, ServerWelcomeFields, SessionInfo, StageKindLabel,
+    StageOutcomeLabel, StageResult, StageResultsDelta, StatementCard, StatementSummary,
     SubscriptionEventList, SubscriptionEventRendered, TxnAbortRendered, TxnBeginRendered,
     TxnCommitRendered, UnlinkRendered, WelcomeBanner,
 };

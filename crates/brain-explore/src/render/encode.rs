@@ -69,6 +69,75 @@ pub struct EncodeRendered {
     /// via `--wait-auto-edges-ms`; the former means the worker had
     /// time to run and produced nothing — silent by design).
     pub auto_edges_delta: Option<AutoEdgesDelta>,
+    /// Outcomes captured by `--wait*` from `StageCompleted` events.
+    /// `Some(_)` when the user asked the shell to block on
+    /// background stages; `None` means no wait was requested. The
+    /// renderer prints one line per result so the operator sees
+    /// exactly what each stage produced (or didn't).
+    pub stage_results: Option<StageResultsDelta>,
+}
+
+/// Post-encode amendment carrying per-stage outcomes. Populated by
+/// `wait_for_stages` in brain-shell after the encode response
+/// returned. The wall-clock window in `elapsed_ms` is the total
+/// time the wait helper spent listening (NOT per-stage runtime).
+#[derive(Debug, Clone)]
+pub struct StageResultsDelta {
+    pub elapsed_ms: u64,
+    pub results: Vec<StageResult>,
+    /// Stages that were on the pending checklist but didn't emit a
+    /// `StageCompleted` before the deadline. Empty on the happy
+    /// path. Surfaced so the operator sees "extractor stage timed
+    /// out" instead of a silent return.
+    pub timed_out: Vec<StageKindLabel>,
+}
+
+/// Wire-decoupled view of one `StageCompleted` event. The shell
+/// flattens the StagePayload variants into a single struct so the
+/// renderer doesn't have to know the wire enum.
+#[derive(Debug, Clone)]
+pub struct StageResult {
+    pub kind: StageKindLabel,
+    pub outcome: StageOutcomeLabel,
+    /// One-line human summary of what the stage produced, e.g.
+    /// `"2 SimilarTo edges"` or `"3 entities, 5 statements, 0
+    /// relations · succeeded"`.
+    pub summary: String,
+}
+
+/// Stage discriminator. Mirrors `brain_protocol::responses::StageKind`
+/// but kept as a free enum here so the brain-explore crate doesn't
+/// re-export the protocol's wire type into its public surface.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageKindLabel {
+    AutoEdge,
+    TemporalEdge,
+    Extractor,
+}
+
+impl StageKindLabel {
+    /// Snake-case label used in the rendered `stages` row and the
+    /// per-result lines. Stable so scripts can grep for it.
+    #[must_use]
+    pub fn snake(&self) -> &'static str {
+        match self {
+            StageKindLabel::AutoEdge => "auto_edge",
+            StageKindLabel::TemporalEdge => "temporal_edge",
+            StageKindLabel::Extractor => "extractor",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum StageOutcomeLabel {
+    /// Stage produced at least one derived item.
+    Ok,
+    /// Stage ran cleanly but produced nothing — e.g. zero-vector
+    /// input, no extractable content. Distinct from `Ok` so we can
+    /// render `⟲` instead of `✓` and explain "nothing to add."
+    Empty,
+    /// Stage errored. The summary carries the reason.
+    Failed,
 }
 
 /// Per-encode summary of auto-edges that landed during the
@@ -104,6 +173,7 @@ impl EncodeRendered {
             response,
             source_text: None,
             auto_edges_delta: None,
+            stage_results: None,
         }
     }
 
@@ -122,6 +192,16 @@ impl EncodeRendered {
     #[must_use]
     pub fn with_auto_edges_delta(mut self, delta: AutoEdgesDelta) -> Self {
         self.auto_edges_delta = Some(delta);
+        self
+    }
+
+    /// Attach stage-completion outcomes the wait helper captured.
+    /// The renderer prints one line per stage, plus a header line
+    /// summarising elapsed time and a footer if any stages timed
+    /// out.
+    #[must_use]
+    pub fn with_stage_results(mut self, delta: StageResultsDelta) -> Self {
+        self.stage_results = Some(delta);
         self
     }
 }
@@ -288,6 +368,16 @@ fn render_human(
         write_type_row(w, ctx, r)?;
     }
 
+    // ── Body: pending background stages ─────────────────────────
+    // Lists the workers the write queued — `auto_edge`,
+    // `temporal_edge`, `extractor` — so the operator sees what's
+    // about to run in the background even without `--wait*`. Empty
+    // pending_stages renders `none queued` so a substrate-only
+    // deployment (no workers wired) reads honestly.
+    if !r.was_deduplicated {
+        write_stages_row(w, ctx, &r.pending_stages)?;
+    }
+
     // ── Wide-mode block ─────────────────────────────────────────
     if wide {
         writeln!(w)?;
@@ -425,7 +515,86 @@ fn render_human(
         }
     }
 
+    // ── Async amendment: stage results from `--wait*` ─────────────
+    // Per-stage outcomes captured by the shell's wait helper.
+    // Distinct from `auto_edges_delta`: this is the "stage done"
+    // signal (one line per stage), not the per-edge dump. Renders
+    // even when results are empty — the operator asked us to wait,
+    // so we have to report what happened (including "nothing").
+    if let Some(delta) = &rendered.stage_results {
+        let arrow = theme.paint(Token::Accent, "→", policy);
+        let header_plain = format!("waited {} ms for background stages", delta.elapsed_ms);
+        let header_painted = theme.paint(Token::Value, &header_plain, policy);
+        writeln!(w, "{arrow} {header_painted}")?;
+        for res in &delta.results {
+            let (glyph, glyph_token) = match res.outcome {
+                StageOutcomeLabel::Ok => ("✓", Token::Success),
+                StageOutcomeLabel::Empty => ("⟲", Token::Muted),
+                StageOutcomeLabel::Failed => ("✗", Token::Error),
+            };
+            let glyph_painted = theme.paint(glyph_token, glyph, policy);
+            let kind_painted = theme.paint(Token::Label, res.kind.snake(), policy);
+            // 13-char column for the stage name so the summaries
+            // line up across rows (`temporal_edge` is the longest).
+            let pad = 13_usize.saturating_sub(res.kind.snake().chars().count());
+            let kind_spaces = " ".repeat(pad);
+            let summary_painted = theme.paint(Token::Value, &res.summary, policy);
+            writeln!(
+                w,
+                "    {glyph_painted} {kind_painted}{kind_spaces}  {summary_painted}"
+            )?;
+        }
+        if !delta.timed_out.is_empty() {
+            let warn = theme.paint(Token::Warn, "!", policy);
+            let names: Vec<&'static str> = delta.timed_out.iter().map(|k| k.snake()).collect();
+            let phrase = format!(
+                "timed out waiting for: {} — server may still finish them later",
+                names.join(", "),
+            );
+            let phrase_painted = theme.paint(Token::Muted, &phrase, policy);
+            writeln!(w, "    {warn} {phrase_painted}")?;
+        }
+    }
+
     Ok(())
+}
+
+/// Render the labelled `stages` row carrying the pending background
+/// stages from the encode ack. Empty → `none queued` so a substrate-
+/// only deployment reads honestly; non-empty → snake-case list with
+/// `·` separators (e.g. `auto_edge · temporal_edge · extractor`).
+fn write_stages_row(
+    w: &mut dyn Write,
+    ctx: &RenderCtx,
+    pending: &[brain_protocol::responses::StageKind],
+) -> io::Result<()> {
+    let theme = &ctx.theme;
+    let policy = ctx.policy;
+    let value = if pending.is_empty() {
+        theme
+            .paint(
+                Token::Muted,
+                "none queued (substrate-only or workers disabled)",
+                policy,
+            )
+            .to_string()
+    } else {
+        let names: Vec<&'static str> = pending
+            .iter()
+            .map(|s| match s {
+                brain_protocol::responses::StageKind::AutoEdge => "auto_edge",
+                brain_protocol::responses::StageKind::TemporalEdge => "temporal_edge",
+                brain_protocol::responses::StageKind::Extractor => "extractor",
+            })
+            .collect();
+        let joined = names.join(" · ");
+        let painted = theme.paint(Token::Value, &joined, policy).to_string();
+        let count = pending.len();
+        let suffix = format!("  ({count} pending)");
+        let suffix_painted = theme.paint(Token::Muted, &suffix, policy);
+        format!("{painted}{suffix_painted}")
+    };
+    write_row(w, ctx, "stages", &value)
 }
 
 /// Heading composer: place `badge` at the left, `right` flush against
@@ -1100,15 +1269,145 @@ mod tests {
                 "default mode leaked wide row `{absent}`: {out}"
             );
         }
-        // Rules + heading + id + content + metadata + footer are still there.
+        // Rules + heading + id + content + metadata + stages + footer.
         assert!(out.contains("─"), "rules must remain in default mode");
         assert!(out.contains("✓ ENCODED"), "heading must remain");
         assert!(out.contains("  id  "), "id row must remain in default mode");
         assert!(out.contains("content"), "content row must remain");
         assert!(out.contains("metadata"), "metadata row must remain");
+        assert!(out.contains("stages"), "stages row must remain");
         assert!(
             out.contains("type") && out.contains("salience") && out.contains("context"),
             "metadata row must carry type/salience/context sub-labels: {out}"
+        );
+    }
+
+    // 28. The `stages` row honestly says "none queued" when no
+    // background work was triggered (substrate-only deployment,
+    // workers disabled, or no UpsertMemory phase).
+    #[test]
+    fn render_stages_row_says_none_queued_when_empty() {
+        let r = sample();
+        let out = render(&r, OutputFormat::Table);
+        let line = out
+            .lines()
+            .find(|l| l.contains("  stages"))
+            .expect("stages row missing");
+        assert!(
+            line.contains("none queued"),
+            "empty stages row should explain why: {line}"
+        );
+    }
+
+    // 29. The `stages` row lists each queued stage by snake_case
+    // name plus a `(N pending)` count suffix.
+    #[test]
+    fn render_stages_row_lists_pending_stages() {
+        use brain_protocol::responses::StageKind;
+        let mut r = sample();
+        r.response.pending_stages = vec![
+            StageKind::AutoEdge,
+            StageKind::TemporalEdge,
+            StageKind::Extractor,
+        ];
+        let out = render(&r, OutputFormat::Table);
+        let line = out
+            .lines()
+            .find(|l| l.contains("  stages"))
+            .expect("stages row missing");
+        assert!(
+            line.contains("auto_edge"),
+            "auto_edge in stages row: {line}"
+        );
+        assert!(
+            line.contains("temporal_edge"),
+            "temporal_edge in stages row: {line}"
+        );
+        assert!(
+            line.contains("extractor"),
+            "extractor in stages row: {line}"
+        );
+        assert!(line.contains("(3 pending)"), "count suffix: {line}");
+    }
+
+    // 30. Stage results from `--wait*` render below the card as
+    // a "→ waited Nms" header plus one line per stage with the
+    // right glyph (✓ for Ok, ⟲ for Empty, ✗ for Failed).
+    #[test]
+    fn render_stage_results_amendment_section() {
+        let r = sample().with_stage_results(StageResultsDelta {
+            elapsed_ms: 350,
+            results: vec![
+                StageResult {
+                    kind: StageKindLabel::AutoEdge,
+                    outcome: StageOutcomeLabel::Ok,
+                    summary: "2 SimilarTo edges written".into(),
+                },
+                StageResult {
+                    kind: StageKindLabel::TemporalEdge,
+                    outcome: StageOutcomeLabel::Empty,
+                    summary: "no FollowedBy edge".into(),
+                },
+                StageResult {
+                    kind: StageKindLabel::Extractor,
+                    outcome: StageOutcomeLabel::Ok,
+                    summary: "3 entities, 5 statements, 0 relations · succeeded".into(),
+                },
+            ],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.contains("waited 350 ms for background stages"),
+            "missing header: {out}"
+        );
+        assert!(out.contains("✓ auto_edge"), "Ok stage uses ✓ glyph: {out}");
+        assert!(
+            out.contains("⟲ temporal_edge"),
+            "Empty stage uses ⟲ glyph: {out}"
+        );
+        assert!(
+            out.contains("✓ extractor"),
+            "Ok extractor uses ✓ glyph: {out}"
+        );
+        assert!(out.contains("2 SimilarTo edges"), "auto summary: {out}");
+        assert!(
+            out.contains("3 entities, 5 statements"),
+            "extractor summary: {out}"
+        );
+    }
+
+    // 31. Timed-out stages get an explicit row instead of silently
+    // disappearing. The user asked us to wait — silence is wrong.
+    #[test]
+    fn render_stage_results_surfaces_timeouts() {
+        let r = sample().with_stage_results(StageResultsDelta {
+            elapsed_ms: 60_000,
+            results: vec![StageResult {
+                kind: StageKindLabel::AutoEdge,
+                outcome: StageOutcomeLabel::Ok,
+                summary: "1 SimilarTo edge written".into(),
+            }],
+            timed_out: vec![StageKindLabel::Extractor],
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.contains("timed out waiting for: extractor"),
+            "timeout row missing: {out}"
+        );
+    }
+
+    // 32. Dedup hits don't render a `stages` row (no fresh write
+    // → no background work).
+    #[test]
+    fn render_dedup_hit_omits_stages_row() {
+        let mut r = sample();
+        r.response.was_deduplicated = true;
+        r.response.lsn = 0;
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            !out.lines().any(|l| l.contains("  stages")),
+            "dedup hit must not render stages row: {out}"
         );
     }
 }

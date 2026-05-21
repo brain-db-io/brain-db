@@ -31,7 +31,10 @@ pub mod txn;
 pub use adhoc::AdHocTable;
 pub use audit_card::{AuditCard, TierOutcome};
 pub use banner::{BannerAgentSource, WelcomeBanner};
-pub use encode::{AutoEdgeSummary, AutoEdgesDelta, EncodeRendered};
+pub use encode::{
+    AutoEdgeSummary, AutoEdgesDelta, EncodeRendered, StageKindLabel, StageOutcomeLabel,
+    StageResult, StageResultsDelta,
+};
 pub use entity_card::{EntityCard, MemorySummary, RelationSummary, StatementSummary};
 pub use error::RenderableError;
 pub use graph_tree::{GraphNode, GraphTree};
