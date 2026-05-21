@@ -890,10 +890,13 @@ pub enum TxnCommand {
         #[arg(long = "idle-timeout", default_value_t = 300u32)]
         idle_timeout: u32,
     },
-    /// Commit a transaction by id (hex bytes).
-    Commit { id: String },
-    /// Abort a transaction by id (hex bytes).
-    Abort { id: String },
+    /// Commit a transaction by id (hex bytes). Optional inside the
+    /// REPL — when the session has an active txn (prompt shows
+    /// `brain*>`), `txn commit` with no id commits that one.
+    Commit { id: Option<String> },
+    /// Abort a transaction by id (hex bytes). Optional inside the
+    /// REPL — same default-to-active-txn rule as `commit`.
+    Abort { id: Option<String> },
 }
 
 /// Compatibility re-export so callers can pattern-match without

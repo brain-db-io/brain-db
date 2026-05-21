@@ -422,18 +422,19 @@ fn help_txn() -> HelpVerb {
         name: "txn".into(),
         tagline: "multi-op atomicity".into(),
         usage: vec![
-            "txn begin                     open a transaction (sticks to the session)".into(),
-            "txn commit <ID>               commit by id".into(),
-            "txn abort <ID>                abort by id".into(),
+            "txn begin [--idle-timeout SECS]   open a transaction (sticks to the session)".into(),
+            "txn commit [ID]                   commit by id (defaults to the session's active txn)".into(),
+            "txn abort  [ID]                   abort by id (defaults to the session's active txn)".into(),
         ],
         flags: vec![],
         sources: vec![],
         description: vec![
             "Within an active txn, subsequent encode/forget/link/unlink calls inherit the txn id unless --txn is passed explicitly. The prompt switches to `brain*>` while a session txn is active so it's visible at a glance.".into(),
+            "`commit` / `abort` without an id resolve to whichever txn the session is attached to. Pass an id explicitly to act on a different txn (e.g. one opened in another tab).".into(),
             "`\\unset txn` drops the session's local handle on the txn without sending anything to the server — useful when you want to issue a one-off outside-the-txn read. The server-side transaction stays open until commit/abort.".into(),
             "Recall reads inside a txn see the txn's pending writes — so encode + recall in one transaction is atomically self-consistent.".into(),
         ],
-        example: Some("txn begin   →   encode \"...\"   →   recall \"...\"   →   txn commit <id>".into()),
+        example: Some("txn begin   →   encode \"...\"   →   recall \"...\"   →   txn commit".into()),
         see_also: vec!["encode".into(), "recall".into(), "forget".into()],
         reference: Some(HelpReference {
             clap_command: "txn --help".into(),

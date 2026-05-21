@@ -106,8 +106,16 @@ fn one_shot_txn_subcommands() {
     let id = "00112233445566778899aabbccddeeff";
     let commit = parse_argv(&["txn", "commit", id]);
     match commit.subcommand {
-        Some(Command::Txn(TxnCommand::Commit { id: got })) => assert_eq!(got, id),
-        other => panic!("expected txn commit, got {other:?}"),
+        Some(Command::Txn(TxnCommand::Commit { id: Some(got) })) => assert_eq!(got, id),
+        other => panic!("expected txn commit with id, got {other:?}"),
+    }
+
+    // No id → the handler defaults to the session's active txn; the
+    // parser just records that nothing was passed.
+    let commit_no_id = parse_argv(&["txn", "commit"]);
+    match commit_no_id.subcommand {
+        Some(Command::Txn(TxnCommand::Commit { id: None })) => {}
+        other => panic!("expected txn commit with no id, got {other:?}"),
     }
 }
 

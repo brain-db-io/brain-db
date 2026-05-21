@@ -20,19 +20,37 @@ pub async fn run(
             Ok(Box::new(TxnBeginRendered(resp)))
         }
         TxnCommand::Commit { id } => {
-            let bytes = parse_txn_id(&id).map_err(ClientError::Internal)?;
+            let bytes = resolve_txn_id(id.as_deref(), session)?;
             let result = client.txn_commit(bytes).await;
             clear_if_matches(session, bytes, &result);
             let resp = result?;
             Ok(Box::new(TxnCommitRendered(resp)))
         }
         TxnCommand::Abort { id } => {
-            let bytes = parse_txn_id(&id).map_err(ClientError::Internal)?;
+            let bytes = resolve_txn_id(id.as_deref(), session)?;
             let result = client.txn_abort(bytes).await;
             clear_if_matches(session, bytes, &result);
             let resp = result?;
             Ok(Box::new(TxnAbortRendered(resp)))
         }
+    }
+}
+
+/// Resolve the txn id for a `commit` / `abort`: explicit hex arg
+/// wins; otherwise fall back to the session's active txn. Refuses
+/// when both are missing — the operator has no txn to act on.
+fn resolve_txn_id(arg: Option<&str>, session: &Session) -> Result<[u8; 16], ClientError> {
+    if let Some(s) = arg {
+        return parse_txn_id(s).map_err(ClientError::Internal);
+    }
+    match session.active_txn {
+        Some(bytes) => Ok(bytes),
+        None => Err(ClientError::Internal(
+            "txn commit / abort needs an id — no transaction is currently \
+             attached to this session. Run `txn begin` first or pass the \
+             id explicitly."
+                .into(),
+        )),
     }
 }
 
