@@ -1,14 +1,18 @@
-//! Executor side of the planner. Async functions that consume a
-//! plan + an [`ExecutorContext`] and produce a Rust-side result.
+//! Executor side of the planner.
 //!
-//! Spec §08/08 §1: "The executor is async (returns futures). Each
-//! `execute_*` method orchestrates the steps in the plan."
+//! After the unified write path migration, the only executor surface
+//! is the read-only / non-write paths (recall, plan, reason, path)
+//! plus the WriterHandle trait + WriterError + EdgeOutcome /
+//! ForgetOutcome that wire handlers still use for outcome
+//! classification.
+//!
+//! The legacy execute_encode / execute_forget / dispatch::execute
+//! functions and the matching submit_* WriterHandle trait methods
+//! were deleted with the unified write path migration; all writes
+//! now go through `brain_ops::RealWriterHandle::submit(Write)`.
 
 pub mod context;
-pub mod dispatch;
-pub mod encode;
 pub mod error;
-pub mod forget;
 pub mod path;
 pub mod reason;
 pub mod recall;
@@ -16,10 +20,7 @@ pub mod result;
 pub mod writer;
 
 pub use context::{ExecutorContext, PendingMemorySnapshot, SharedMetadataDb, TxnSnapshot};
-pub use dispatch::{execute, ExecutionResult};
-pub use encode::execute_encode;
 pub use error::ExecError;
-pub use forget::execute_forget;
 pub use path::execute_path;
 pub use reason::execute_reason;
 pub use recall::execute_recall;
@@ -28,7 +29,6 @@ pub use result::{
     ReasonStatus, RecallHit, RecallResult,
 };
 pub use writer::{
-    EdgeOutcome, EncodeAck, EncodeOp, EncodeOpEdge, ForgetAck, ForgetOp, ForgetOutcome, LinkAck,
-    LinkOp, TxnBatch, TxnBatchAck, TxnEncode, TxnForget, TxnLink, TxnUnlink, UnlinkAck, UnlinkOp,
-    WriterError, WriterHandle,
+    EdgeOutcome, EncodeOp, EncodeOpEdge, ForgetOp, ForgetOutcome, LinkOp, UnlinkOp, WriterError,
+    WriterHandle,
 };

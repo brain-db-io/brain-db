@@ -17,10 +17,15 @@ use brain_core::MemoryId;
 use brain_planner::{EdgeOutcome, EncodeOp, ForgetOp, ForgetOutcome, LinkOp, UnlinkOp};
 use brain_protocol::request::ForgetMode;
 
-/// Spec §07/06 §2 `response_kind` discriminants.
+/// response_kind discriminants. Parked: future durable WriteIdempotencyCache
+/// will re-use these tag bytes when migrating from the in-memory cache.
+#[allow(dead_code)]
 pub(crate) const RESPONSE_KIND_ENCODE: u8 = 1;
+#[allow(dead_code)]
 pub(crate) const RESPONSE_KIND_FORGET: u8 = 2;
+#[allow(dead_code)]
 pub(crate) const RESPONSE_KIND_LINK: u8 = 3;
+#[allow(dead_code)]
 pub(crate) const RESPONSE_KIND_UNLINK: u8 = 4;
 
 const PAYLOAD_VERSION_V1: u8 = 1;

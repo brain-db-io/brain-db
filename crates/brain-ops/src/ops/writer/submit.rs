@@ -131,14 +131,36 @@ impl RealWriterHandle {
         };
 
         // 5. Publish events (one per phase that has a wire surface).
-        // The bus mints sequential LSNs at publish time. WAL framing
-        // (P3b) will pre-stamp these with durable LSNs, replacing the
-        // bus mint at that point. For now: bus-stamped is correct —
-        // subscribers see writes; they just can't reliably replay past
-        // a restart yet (substrate-WAL-replay still works for ops that
-        // use the legacy submit_encode/forget/link/unlink path).
         let committed_at = now_unix_nanos();
         publish_events_for(self, &write, committed_at);
+
+        // 5b. Post-commit worker enqueues. Every UpsertMemory phase
+        // signals the auto-edge, temporal-edge, and extractor workers
+        // so they can derive `SimilarTo` / `FollowedBy` / extracted-
+        // entities/statements in the background. The channels are
+        // best-effort (drop on full); workers are eventually-consistent
+        // with the metadata they read back.
+        for phase in write.phases.iter() {
+            if let Phase::UpsertMemory {
+                id,
+                text,
+                vector,
+                context,
+                created_at_unix_nanos,
+                ..
+            } = phase
+            {
+                super::try_enqueue_auto_edge(self, *id, vector.as_ref());
+                super::try_enqueue_temporal_edge(
+                    self,
+                    *id,
+                    write.agent_id,
+                    *context,
+                    *created_at_unix_nanos,
+                );
+                super::try_enqueue_extractor(self, *id, text);
+            }
+        }
 
         // 6. Stamp the cache.
         let ack = WriteAck {

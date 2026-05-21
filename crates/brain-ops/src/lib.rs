@@ -200,8 +200,7 @@ mod tests {
         use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
         use brain_index::{IndexParams, SharedHnsw};
         use brain_planner::{
-            EncodeAck, EncodeOp, ExecutorContext, ForgetAck, ForgetOp, SharedMetadataDb,
-            WriterError as PlannerWriterError, WriterHandle,
+            ExecutorContext, SharedMetadataDb, WriterError as PlannerWriterError, WriterHandle,
         };
 
         struct NopDispatcher;
@@ -219,74 +218,12 @@ mod tests {
 
         struct NopWriter;
         impl WriterHandle for NopWriter {
-            fn submit_encode<'a>(
-                &'a self,
-                _op: EncodeOp,
-            ) -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<EncodeAck, PlannerWriterError>> + 'a>,
-            > {
-                Box::pin(
-                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
-                )
-            }
-            fn submit_forget<'a>(
-                &'a self,
-                _op: ForgetOp,
-            ) -> std::pin::Pin<
-                Box<dyn std::future::Future<Output = Result<ForgetAck, PlannerWriterError>> + 'a>,
-            > {
-                Box::pin(
-                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
-                )
-            }
-            fn submit_link<'a>(
-                &'a self,
-                _: brain_planner::LinkOp,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<brain_planner::LinkAck, PlannerWriterError>,
-                        > + 'a,
-                >,
-            > {
-                Box::pin(
-                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
-                )
-            }
-            fn submit_unlink<'a>(
-                &'a self,
-                _: brain_planner::UnlinkOp,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<brain_planner::UnlinkAck, PlannerWriterError>,
-                        > + 'a,
-                >,
-            > {
-                Box::pin(
-                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
-                )
-            }
             fn reserve_memory_id<'a>(
                 &'a self,
             ) -> std::pin::Pin<
                 Box<
                     dyn std::future::Future<
                             Output = Result<brain_core::MemoryId, PlannerWriterError>,
-                        > + 'a,
-                >,
-            > {
-                Box::pin(
-                    async move { Err(PlannerWriterError::Internal("unused in 7.1 tests".into())) },
-                )
-            }
-            fn submit_batch<'a>(
-                &'a self,
-                _: brain_planner::TxnBatch,
-            ) -> std::pin::Pin<
-                Box<
-                    dyn std::future::Future<
-                            Output = Result<brain_planner::TxnBatchAck, PlannerWriterError>,
                         > + 'a,
                 >,
             > {

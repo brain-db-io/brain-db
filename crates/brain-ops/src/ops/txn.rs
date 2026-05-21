@@ -15,10 +15,6 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{EdgeKind, MemoryId};
 use brain_metadata::tables::memory::MemoryMetadata;
-use brain_planner::{
-    TxnBatch, TxnEncode, TxnForget as TxnBatchForget, TxnLink as TxnBatchLink,
-    TxnUnlink as TxnBatchUnlink,
-};
 use brain_protocol::request::{ForgetMode, TxnAbortRequest, TxnBeginRequest, TxnCommitRequest};
 use brain_protocol::response::{TxnAbortResponse, TxnBeginResponse, TxnCommitResponse};
 use parking_lot::Mutex;
@@ -514,84 +510,6 @@ pub(crate) fn build_phases(buffer: &TxnBuffer) -> Vec<crate::write::Phase> {
     }
 
     phases
-}
-
-/// Convert a `TxnBuffer` into the `TxnBatch` the writer consumes.
-/// Legacy path — used only when handle_txn_commit hasn't migrated to
-/// build_phases + submit(Write). Kept until the migration is complete.
-#[allow(dead_code)]
-fn build_batch(buffer: &TxnBuffer) -> TxnBatch {
-    let memories: Vec<TxnEncode> = buffer
-        .encodes
-        .iter()
-        .map(|e| TxnEncode {
-            memory_id: e.memory_id,
-            request_id: brain_core::RequestId::from(e.request_id),
-            request_hash: e.request_hash,
-            context_id: e.context_id,
-            kind: e.kind,
-            text: e.text.clone(),
-            vector: e.vector,
-            salience_initial: e.salience_initial,
-            fingerprint: e.fingerprint,
-            edges: e
-                .edges
-                .iter()
-                .map(|edge| brain_planner::EncodeOpEdge {
-                    target: edge.target,
-                    kind: edge.kind,
-                    weight: edge.weight,
-                })
-                .collect(),
-            created_at_unix_nanos: e.created_at_unix_nanos,
-            agent_id: e.agent_id,
-        })
-        .collect();
-    let links: Vec<TxnBatchLink> = buffer
-        .links
-        .iter()
-        .map(|l| TxnBatchLink {
-            request_id: brain_core::RequestId::from(l.request_id),
-            request_hash: l.request_hash,
-            source: l.source,
-            target: l.target,
-            kind: l.kind,
-            weight: l.weight,
-            created_at_unix_nanos: l.created_at_unix_nanos,
-            agent_id: l.agent_id,
-        })
-        .collect();
-    let unlinks: Vec<TxnBatchUnlink> = buffer
-        .unlinks
-        .iter()
-        .map(|u| TxnBatchUnlink {
-            request_id: brain_core::RequestId::from(u.request_id),
-            request_hash: u.request_hash,
-            source: u.source,
-            target: u.target,
-            kind: u.kind,
-            created_at_unix_nanos: u.created_at_unix_nanos,
-            agent_id: u.agent_id,
-        })
-        .collect();
-    let forgets: Vec<TxnBatchForget> = buffer
-        .forgets
-        .iter()
-        .map(|f| TxnBatchForget {
-            request_id: brain_core::RequestId::from(f.request_id),
-            request_hash: f.request_hash,
-            memory_id: f.memory_id,
-            mode: f.mode,
-            created_at_unix_nanos: f.created_at_unix_nanos,
-            agent_id: f.agent_id,
-        })
-        .collect();
-    TxnBatch {
-        memories,
-        links,
-        unlinks,
-        forgets,
-    }
 }
 
 // Re-export for the lens.
