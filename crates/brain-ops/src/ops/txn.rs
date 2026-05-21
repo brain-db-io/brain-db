@@ -2,9 +2,10 @@
 //!
 //! True buffer-and-apply transaction semantics per spec §09/08.
 //! Operations carrying a `txn_id` push into a per-txn `TxnBuffer`
-//! instead of mutating redb/HNSW; TXN_COMMIT applies the entire
-//! buffer in a single redb write txn via `WriterHandle::submit_batch`;
-//! TXN_ABORT drops the buffer.
+//! instead of mutating redb/HNSW. TXN_COMMIT translates the buffer
+//! into a multi-phase `Write` and submits it through the unified
+//! write path — every phase commits in one redb wtxn. TXN_ABORT
+//! drops the buffer.
 //!
 //! Out of scope for v1: WAL records (Phase 9 wires the shard's Wal),
 //! cross-shard txns, substrate-level nested-txn detection. See the
@@ -328,9 +329,7 @@ pub async fn handle_txn_commit(
     // Build a single multi-phase Write from the buffer. The WAL
     // envelope (TxnBegin/Phase×N/TxnCommit) makes the whole commit
     // atomic; recovery's existing TXN state machine replays the
-    // batch or discards it. The unified path replaces the legacy
-    // submit_batch which had its own (now-redundant) atomic-commit
-    // logic in brain-ops/src/ops/writer/mod.rs::do_submit_batch.
+    // batch or discards it.
     let phases = build_phases(&buffer);
     let write = crate::write::Write::from_phases(
         crate::write::WriteId::new(),
@@ -421,7 +420,7 @@ fn clamp_timeout(req: u32) -> u32 {
 }
 
 /// Convert a `TxnBuffer` into a `Vec<Phase>` for the unified write
-/// path. Ordering preserves the legacy submit_batch semantic:
+/// path. Phase ordering:
 ///
 ///   per encode: UpsertMemory + N × Link (encode-inline edges) for
 ///                Inserted outcomes only — TargetMissing edges drop

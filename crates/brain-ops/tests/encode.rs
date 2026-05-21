@@ -1,8 +1,8 @@
-//! Integration tests for `handle_encode` (sub-task 7.3).
+//! Integration tests for `handle_encode`.
 //!
 //! Drives the full pipeline:
-//!   dispatcher → handle_encode → plan_encode_inner → execute_encode
-//!   → RealWriterHandle → metadata + HNSW
+//!   dispatcher → handle_encode → plan_encode_inner →
+//!   RealWriterHandle::submit(Write) → metadata + HNSW
 //!
 //! Embedder is a deterministic mock for offline runs. One test
 //! exercises the real BGE dispatcher when `BRAIN_EMBED_MODEL_DIR` is

@@ -1,4 +1,5 @@
-//! FORGET handler (sub-task 7.7 + 7.9 transactional path).
+//! FORGET handler — non-TXN path submits a Tombstone phase through
+//! the unified writer; in-TXN ops buffer for later commit.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -29,6 +30,43 @@ pub async fn handle_forget(
     let _ = plan_forget_inner(&req, &ctx.planner_ctx)?;
 
     let memory_id = MemoryId::from(memory_id_wire);
+    let real_writer = downcast_writer_pub(ctx)?;
+    let write_id = WriteId::from_request(brain_core::RequestId::from(req.request_id));
+    let request_hash = hash_forget_request(&ForgetOp {
+        request_id: brain_core::RequestId::from(req.request_id),
+        memory_id,
+        mode: req.mode,
+        agent_id: ctx.executor.caller_agent,
+    });
+
+    // Idempotency: a true replay (same hash) returns the cached
+    // outcome; a mismatched hash on the same WriteId is a conflict.
+    match real_writer
+        .write_idempotency_cache()
+        .lookup_with_hash(write_id, Some(request_hash))
+    {
+        crate::ops::writer::submit::CacheLookup::Hit(_cached) => {
+            // The cached ack tells us "tombstone happened"; the wire
+            // semantic says was_already_forgotten=false in that case
+            // (the first call did the work). For the
+            // MemoryNotFound / AlreadyTombstoned paths we never
+            // submit, so there's nothing in the cache to hit.
+            return Ok(ForgetResponse {
+                memory_id: memory_id_wire,
+                was_already_forgotten: false,
+                edges_removed: 0,
+            });
+        }
+        crate::ops::writer::submit::CacheLookup::Conflict => {
+            return Err(OpError::ExecError(brain_planner::ExecError::WriterFailed(
+                brain_planner::WriterError::Conflict(format!(
+                    "forget request_id replay with different params: request_id={}",
+                    hex_short(&req.request_id),
+                )),
+            )));
+        }
+        crate::ops::writer::submit::CacheLookup::Miss => {}
+    }
 
     // Peek MEMORIES_TABLE: distinguish MemoryNotFound /
     // AlreadyTombstoned / Tombstoned. apply_tombstone_memory returns
@@ -52,7 +90,6 @@ pub async fn handle_forget(
 
         // Only submit a Write when the memory actually exists active.
         // AlreadyTombstoned + MemoryNotFound are wire-level no-ops.
-        let real_writer = downcast_writer_pub(ctx)?;
         let phase = Phase::Tombstone {
             target: TombstoneTarget::Memory {
                 id: memory_id,
@@ -61,11 +98,8 @@ pub async fn handle_forget(
             reason: 1, // ClientRequest
             at_unix_nanos: now_unix_nanos(),
         };
-        let write = Write::single(
-            WriteId::from_request(brain_core::RequestId::from(req.request_id)),
-            ctx.executor.caller_agent,
-            phase,
-        );
+        let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+            .with_request_hash(request_hash);
         let ack = real_writer
             .submit(write)
             .await
@@ -78,6 +112,14 @@ pub async fn handle_forget(
         was_already_forgotten,
         edges_removed: 0,
     })
+}
+
+fn hex_short(bytes: &[u8; 16]) -> String {
+    let mut s = String::with_capacity(8);
+    for b in &bytes[..4] {
+        s.push_str(&format!("{b:02x}"));
+    }
+    s
 }
 
 /// Read MEMORIES_TABLE to classify the FORGET outcome before submit.

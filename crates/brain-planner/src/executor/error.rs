@@ -2,8 +2,10 @@
 //! which is the plan-time failure mode.
 //!
 //! Each variant maps to a wire-protocol error code at the server
-//! boundary (Phase 9). For Phase 6 they're the Rust-side return shape
-//! of `execute_recall` (and future `execute_encode`, etc.).
+//! boundary. The executor surfaces these through `execute_recall`
+//! / `execute_reason` / `execute_path`; the unified write path
+//! (brain-ops `submit(Write)`) raises its own `WriterError` and the
+//! handlers wrap it here.
 
 use brain_embed::EmbedError;
 use thiserror::Error;

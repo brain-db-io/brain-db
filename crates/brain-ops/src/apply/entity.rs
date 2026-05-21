@@ -177,6 +177,7 @@ mod tests {
             agent_id: brain_core::AgentId::default(),
             started_at_unix_nanos: 1_700_000_000_000,
             phases: vec![],
+            request_hash: None,
         };
 
         let wtxn = db.write_txn().unwrap();

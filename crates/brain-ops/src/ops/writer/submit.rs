@@ -1,10 +1,9 @@
 //! Universal `submit(Write)` — the unified write path's entry point.
 //!
-//! Replaces (eventually) the five specialised `submit_encode` /
-//! `submit_forget` / `submit_link` / `submit_unlink` / `submit_batch`
-//! methods on [`super::RealWriterHandle`]. Lives alongside them during
-//! P3-P4 so handlers can migrate one at a time; the old methods get
-//! deleted in P4 once the last caller is gone.
+//! Every wire opcode that mutates state (ENCODE / FORGET / LINK /
+//! UNLINK / TXN_COMMIT) and every worker-derived write (auto-edge,
+//! temporal-edge, extractor) lands here. One pipeline, one WAL
+//! envelope, one redb wtxn, one event burst.
 //!
 //! ## The pipeline
 //!
@@ -47,9 +46,25 @@ use super::RealWriterHandle;
 ///    by `WriteId` so universal writes share the cache.
 /// 2. P3 needs a working idempotency story to exercise retry semantics
 ///    in unit tests without dragging in the WAL.
+struct CacheEntry {
+    ack: Arc<WriteAck>,
+    /// Hash of the original request; `None` for writes that opted
+    /// out (workers, internal writes). When present, a lookup with a
+    /// different hash is a conflict, not a replay.
+    request_hash: Option<[u8; 32]>,
+}
+
 #[derive(Default)]
 pub struct WriteIdempotencyCache {
-    entries: parking_lot::Mutex<std::collections::HashMap<WriteId, Arc<WriteAck>>>,
+    entries: parking_lot::Mutex<std::collections::HashMap<WriteId, CacheEntry>>,
+}
+
+/// Result of a cache lookup. Lets `submit` distinguish a true replay
+/// from a conflict without re-fetching the entry.
+pub enum CacheLookup {
+    Miss,
+    Hit(Arc<WriteAck>),
+    Conflict,
 }
 
 impl WriteIdempotencyCache {
@@ -58,16 +73,42 @@ impl WriteIdempotencyCache {
         Self::default()
     }
 
-    /// Lookup; returns the cached ack if present.
+    /// Hash-aware lookup. `request_hash = None` means the caller does
+    /// not validate hash equality (workers / tests); the entry is
+    /// returned unconditionally on key match.
+    pub fn lookup_with_hash(&self, id: WriteId, request_hash: Option<[u8; 32]>) -> CacheLookup {
+        let entries = self.entries.lock();
+        let Some(entry) = entries.get(&id) else {
+            return CacheLookup::Miss;
+        };
+        match (entry.request_hash, request_hash) {
+            (Some(stored), Some(provided)) if stored != provided => CacheLookup::Conflict,
+            _ => CacheLookup::Hit(entry.ack.clone()),
+        }
+    }
+
+    /// Hash-less lookup retained for backward-compat tests that don't
+    /// thread a hash through. Equivalent to `lookup_with_hash(id, None)`.
     pub fn lookup(&self, id: WriteId) -> Option<Arc<WriteAck>> {
-        self.entries.lock().get(&id).cloned()
+        match self.lookup_with_hash(id, None) {
+            CacheLookup::Hit(ack) => Some(ack),
+            _ => None,
+        }
     }
 
     /// Stamp; replaces any prior entry for `id`. (Replays carry the
     /// same `WriteId`; a different ack for the same id means the
     /// caller used a fresh `WriteId::new()` — that's a different write.)
     pub fn stamp(&self, id: WriteId, ack: Arc<WriteAck>) {
-        self.entries.lock().insert(id, ack);
+        self.stamp_with_hash(id, ack, None);
+    }
+
+    /// Stamp with the request-hash so future lookups can detect
+    /// conflicts.
+    pub fn stamp_with_hash(&self, id: WriteId, ack: Arc<WriteAck>, request_hash: Option<[u8; 32]>) {
+        self.entries
+            .lock()
+            .insert(id, CacheEntry { ack, request_hash });
     }
 
     /// How many entries the cache currently holds. Used by tests +
@@ -95,10 +136,19 @@ impl RealWriterHandle {
     ///   `WriteId`, different phases. (Not yet wired in P3; the cache
     ///   just returns the cached ack on hit.)
     pub async fn submit(&self, write: Write) -> Result<WriteAck, WriterError> {
-        // 1. Idempotency.
+        // 1. Idempotency. A `request_hash` mismatch on the same
+        //    WriteId is a conflict — the caller re-used a request_id
+        //    with different params. Same hash → cached ack.
         let cache = self.write_idempotency_cache();
-        if let Some(cached) = cache.lookup(write.write_id) {
-            return Ok((*cached).clone());
+        match cache.lookup_with_hash(write.write_id, write.request_hash) {
+            CacheLookup::Hit(cached) => return Ok((*cached).clone()),
+            CacheLookup::Conflict => {
+                return Err(WriterError::Conflict(format!(
+                    "request_id replay with different params: write_id={:?}",
+                    write.write_id
+                )))
+            }
+            CacheLookup::Miss => {}
         }
 
         // 2. WAL append. Single-phase writes get one typed payload;
@@ -171,7 +221,7 @@ impl RealWriterHandle {
             phase_acks,
         };
         let arc_ack = Arc::new(ack.clone());
-        cache.stamp(write.write_id, arc_ack);
+        cache.stamp_with_hash(write.write_id, arc_ack, write.request_hash);
 
         let _ = started_at; // reserved for tracing / metrics in a later slice
 
@@ -362,11 +412,49 @@ fn publish_events_for(writer: &RealWriterHandle, write: &Write, committed_at_uni
     };
 
     for phase in write.phases.iter() {
-        let Some(env) = phase_to_envelope(phase, write, committed_at_unix_nanos) else {
+        let Some(mut env) = phase_to_envelope(phase, write, committed_at_unix_nanos) else {
             continue;
         };
+        // Tombstone(Memory) needs the original row's context_id +
+        // kind in the envelope so subscribers can filter properly.
+        // Read it back post-commit — the row is still present (soft
+        // tombstone keeps it during the grace window).
+        if let Phase::Tombstone {
+            target: TombstoneTarget::Memory { id, .. },
+            ..
+        } = phase
+        {
+            if let Some((ctx, kind)) = read_memory_context_and_kind(writer, *id) {
+                env.context_id = ctx;
+                env.kind = kind;
+            }
+        }
         bus.publish(env);
     }
+}
+
+/// Read MEMORIES_TABLE for the row's context_id + kind. Used by the
+/// post-commit event publisher to stamp Tombstone events with the
+/// values the subscriber filter actually compares against. Returns
+/// `None` if the row went away between commit and publish (shouldn't
+/// happen — single-writer-per-shard — but defensive).
+fn read_memory_context_and_kind(
+    writer: &RealWriterHandle,
+    id: brain_core::MemoryId,
+) -> Option<(ContextId, MemoryKind)> {
+    let db = writer.metadata().lock();
+    let rtxn = db.read_txn().ok()?;
+    let t = rtxn
+        .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+        .ok()?;
+    let row = t.get(id.to_be_bytes()).ok().flatten()?.value();
+    let kind = match row.kind {
+        0 => MemoryKind::Episodic,
+        1 => MemoryKind::Semantic,
+        2 => MemoryKind::Consolidated,
+        _ => MemoryKind::Episodic,
+    };
+    Some((ContextId(row.context_id), kind))
 }
 
 /// Map a single phase into an [`EventEnvelope`] for the bus. Returns
@@ -761,6 +849,67 @@ mod tests {
             shared.is_tombstoned(id),
             "HNSW must mark the memory_id tombstoned after Phase::Tombstone(Memory)"
         );
+    }
+
+    /// Regression: fresh-DB encode with `deduplicate=true` used to
+    /// panic on the read-side lookup with
+    /// `Table 'fingerprints' does not exist` because redb doesn't
+    /// create the table until something writes it. Constructing
+    /// `RealWriterHandle` must materialise every table that any
+    /// read-side path touches; otherwise the first opt-in dedup
+    /// encode 500s.
+    #[test]
+    fn writer_construction_bootstraps_fingerprint_table_for_reads() {
+        let dir = TempDir::new().unwrap();
+        let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
+        let (_shared, hnsw_writer) =
+            SharedHnsw::<VECTOR_DIM>::new(IndexParams::default_v1()).unwrap();
+        let _writer = RealWriterHandle::new(metadata.clone(), hnsw_writer);
+
+        // After construction, every table that op handlers read from
+        // pre-submit must be openable in a fresh read txn — proving
+        // the bootstrap covers them.
+        let db_guard = metadata.lock();
+        let rtxn = db_guard.read_txn().expect("read_txn");
+        for table_label in [
+            "MEMORIES",
+            "MEMORIES_BY_AGENT_TIMELINE",
+            "IDEMPOTENCY",
+            "EDGES",
+            "EDGES_REVERSE",
+            "FINGERPRINTS",
+            "TEXTS",
+        ] {
+            let result: Result<(), redb::TableError> = match table_label {
+                "MEMORIES" => rtxn
+                    .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+                    .map(|_| ()),
+                "MEMORIES_BY_AGENT_TIMELINE" => rtxn
+                    .open_table(brain_metadata::tables::memory::MEMORIES_BY_AGENT_TIMELINE_TABLE)
+                    .map(|_| ()),
+                "IDEMPOTENCY" => rtxn
+                    .open_table(brain_metadata::tables::idempotency::IDEMPOTENCY_TABLE)
+                    .map(|_| ()),
+                "EDGES" => rtxn
+                    .open_table(brain_metadata::tables::edge::EDGES_TABLE)
+                    .map(|_| ()),
+                "EDGES_REVERSE" => rtxn
+                    .open_table(brain_metadata::tables::edge::EDGES_REVERSE_TABLE)
+                    .map(|_| ()),
+                "FINGERPRINTS" => rtxn
+                    .open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE)
+                    .map(|_| ()),
+                "TEXTS" => rtxn
+                    .open_table(brain_metadata::tables::text::TEXTS_TABLE)
+                    .map(|_| ()),
+                _ => unreachable!(),
+            };
+            assert!(
+                result.is_ok(),
+                "table {table_label} must be materialised at writer construction"
+            );
+        }
     }
 
     #[tokio::test]

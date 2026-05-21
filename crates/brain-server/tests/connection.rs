@@ -135,7 +135,7 @@ async fn ping_works_pre_handshake_and_keeps_connection_alive() {
         client_timestamp_unix_nanos: 1234,
     };
     let body = brain_protocol::request::RequestBody::Ping(ping);
-    let frame = Frame::new(Opcode::Ping.as_u16(), 1 << 15, 0, body.encode());
+    let frame = Frame::new(Opcode::Ping.as_u16(), 0, 0, body.encode());
     client.write_all(&frame.encode()).await.expect("send");
     client.flush().await.expect("flush");
 

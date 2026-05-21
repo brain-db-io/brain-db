@@ -1,4 +1,4 @@
-//! ENCODE handler (sub-task 7.3 + 7.9 transactional path).
+//! ENCODE handler.
 //!
 //! Without `txn_id`: validate + embed + reserve id + dedup check +
 //! build a multi-phase Write (UpsertMemory + N × Link) and submit.
@@ -32,6 +32,34 @@ pub async fn handle_encode(
     let plan = plan_encode_inner(&req, &ctx.planner_ctx)?;
     let salience = plan.wal_append.salience_initial;
 
+    // 1b. Idempotency replay short-circuit (spec §09/02 §4). The same
+    // request_id arriving twice must return the original response. The
+    // writer's idempotency cache is keyed by WriteId, but it lives
+    // behind submit() — by then we've already burned embedding work
+    // and a slot reservation. Peek it up-front so a replay is free.
+    // A mismatched request hash on the same WriteId is a Conflict.
+    let real_writer = downcast_writer_pub(ctx)?;
+    let write_id = WriteId::from_request(brain_core::RequestId::from(req.request_id));
+    let context_id = ContextId::from(req.context_id);
+    let kind = MemoryKind::from(req.kind);
+    let embedding_model_fp = ctx.executor.embedder.fingerprint();
+    let request_hash = encode_request_hash(&req, embedding_model_fp, ctx.executor.caller_agent);
+    match real_writer
+        .write_idempotency_cache()
+        .lookup_with_hash(write_id, Some(request_hash))
+    {
+        crate::ops::writer::submit::CacheLookup::Hit(cached) => {
+            return reconstruct_encode_response(ctx, &req, &cached, salience, embedding_model_fp);
+        }
+        crate::ops::writer::submit::CacheLookup::Conflict => {
+            return Err(OpError::Conflict(format!(
+                "encode request_id replay with different params: request_id={}",
+                hex_short(&req.request_id),
+            )));
+        }
+        crate::ops::writer::submit::CacheLookup::Miss => {}
+    }
+
     // 2. Embed text → vector.
     let vector = ctx
         .executor
@@ -39,9 +67,6 @@ pub async fn handle_encode(
         .embed(&req.text)
         .map_err(|e| OpError::ExecError(brain_planner::ExecError::EmbedFailed(e)))?;
     let content_hash = *blake3::hash(req.text.as_bytes()).as_bytes();
-    let context_id = ContextId::from(req.context_id);
-    let kind = MemoryKind::from(req.kind);
-    let embedding_model_fp = ctx.executor.embedder.fingerprint();
 
     // 3. Dedup check (spec §07/07 §6) — when opted in, look up
     // (agent, context, content_hash). On hit, return the existing
@@ -118,12 +143,8 @@ pub async fn handle_encode(
     }
 
     // 7. Submit.
-    let real_writer = downcast_writer_pub(ctx)?;
-    let write = Write::from_phases(
-        WriteId::from_request(brain_core::RequestId::from(req.request_id)),
-        ctx.executor.caller_agent,
-        phases,
-    );
+    let write = Write::from_phases(write_id, ctx.executor.caller_agent, phases)
+        .with_request_hash(request_hash);
     let ack = real_writer
         .submit(write)
         .await
@@ -157,11 +178,18 @@ fn lookup_fingerprint(
     let rtxn = db_guard.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
-    let t = rtxn
-        .open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE)
-        .map_err(|e| {
-            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
-        })?;
+    // `TableDoesNotExist` on a fresh shard means no prior encode opted
+    // into dedup yet — the lookup is a miss, not an error. Same pattern
+    // as the knowledge/filters and recall read paths.
+    let t = match rtxn.open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE) {
+        Ok(t) => t,
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => {
+            return Err(OpError::ExecError(
+                brain_planner::ExecError::MetadataReadFailed(e.to_string()),
+            ))
+        }
+    };
     let key = brain_metadata::tables::fingerprint::fingerprint_key(
         ctx.executor.caller_agent,
         context_id,
@@ -172,7 +200,8 @@ fn lookup_fingerprint(
 
 /// For each edge in the request, classify the outcome:
 /// `Inserted` when the target memory exists, `TargetMissing` otherwise.
-/// Matches the legacy execute_encode pre-write check.
+/// Runs in one rtxn so all edge targets see a consistent metadata
+/// view; the corresponding Link phases skip TargetMissing edges.
 fn compute_edge_outcomes(
     ctx: &OpsContext,
     req: &EncodeRequest,
@@ -184,11 +213,19 @@ fn compute_edge_outcomes(
     let rtxn = db_guard.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
-    let mems_table = rtxn
-        .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
-        .map_err(|e| {
-            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
-        })?;
+    // Fresh shard with no memories yet → every edge target is missing
+    // by definition; degrade gracefully rather than 500-ing.
+    let mems_table = match rtxn.open_table(brain_metadata::tables::memory::MEMORIES_TABLE) {
+        Ok(t) => t,
+        Err(redb::TableError::TableDoesNotExist(_)) => {
+            return Ok(vec![EdgeOutcome::TargetMissing; req.edges.len()]);
+        }
+        Err(e) => {
+            return Err(OpError::ExecError(
+                brain_planner::ExecError::MetadataReadFailed(e.to_string()),
+            ))
+        }
+    };
     Ok(req
         .edges
         .iter()
@@ -208,11 +245,105 @@ fn compute_edge_outcomes(
         .collect())
 }
 
+/// Hash of the encode request used for idempotency conflict
+/// detection. Mirrors [`crate::idempotency::hash_encode_request`] but
+/// operates directly on [`EncodeRequest`] so the non-TXN path can
+/// stamp the writer's cache without first building an EncodeOp.
+fn encode_request_hash(
+    req: &EncodeRequest,
+    embedding_model_fp: [u8; 16],
+    agent: brain_core::AgentId,
+) -> [u8; 32] {
+    let op = brain_planner::EncodeOp {
+        request_id: brain_core::RequestId::from(req.request_id),
+        context_id: ContextId::from(req.context_id),
+        kind: MemoryKind::from(req.kind),
+        text: req.text.clone(),
+        vector: [0.0; brain_embed::VECTOR_DIM],
+        salience_initial: req.salience_hint,
+        fingerprint: embedding_model_fp,
+        edges: req
+            .edges
+            .iter()
+            .map(|e| brain_planner::EncodeOpEdge {
+                target: MemoryId::from(e.target),
+                kind: EdgeKind::from(e.kind),
+                weight: e.weight,
+            })
+            .collect(),
+        deduplicate: req.deduplicate,
+        content_hash: *blake3::hash(req.text.as_bytes()).as_bytes(),
+        agent_id: agent,
+    };
+    crate::idempotency::hash_encode_request(&op)
+}
+
 fn now_unix_nanos() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Build the response for an idempotency-replay hit. The cached
+/// `WriteAck` carries the original memory_id (in phase_acks[0]) and
+/// LSN; the `created_at` field is recovered by reading the row from
+/// `MEMORIES_TABLE` since the apply stamped it there. Everything else
+/// is deterministic from the request.
+fn reconstruct_encode_response(
+    ctx: &OpsContext,
+    req: &EncodeRequest,
+    cached: &crate::write::WriteAck,
+    salience: f32,
+    embedding_model_fp: [u8; 16],
+) -> Result<EncodeResponse, OpError> {
+    let memory_id = match cached.phase_acks.first() {
+        Some(PhaseAck::UpsertedMemory(id)) => *id,
+        _ => {
+            return Err(OpError::Internal(
+                "idempotency cache hit but phase_acks[0] is not UpsertedMemory".into(),
+            ));
+        }
+    };
+    let auto_edges_added = cached
+        .phase_acks
+        .iter()
+        .filter(|a| matches!(a, PhaseAck::Linked))
+        .count() as u32;
+
+    // Recover the original created_at by reading the row. Cache hits
+    // are rare; the extra read is cheaper than carrying created_at on
+    // every PhaseAck for this one case.
+    let created_at = {
+        let db_guard = ctx.executor.metadata.lock();
+        let rtxn = db_guard.read_txn().map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
+        let t = rtxn
+            .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+            .map_err(|e| {
+                OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+            })?;
+        t.get(memory_id.to_be_bytes())
+            .ok()
+            .flatten()
+            .map(|g| g.value().created_at_unix_nanos)
+            .unwrap_or(0)
+    };
+
+    Ok(EncodeResponse {
+        memory_id: memory_id.into(),
+        was_deduplicated: false,
+        salience,
+        auto_edges_added,
+        lsn: cached.lsn_first.raw(),
+        agent_id: ctx.executor.caller_agent.into(),
+        context_id: req.context_id,
+        kind: req.kind,
+        created_at_unix_nanos: created_at,
+        edges_out_count: auto_edges_added,
+        embedding_model_fp,
+    })
 }
 
 async fn handle_encode_in_txn(

@@ -7,6 +7,7 @@ use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
 use brain_metadata::tables::memory::{
     agent_timeline_key, MemoryMetadata, MEMORIES_BY_AGENT_TIMELINE_TABLE, MEMORIES_TABLE,
 };
+use brain_metadata::tables::text::TEXTS_TABLE;
 use redb::{ReadableTable, WriteTransaction};
 
 use super::ApplyError;
@@ -81,6 +82,18 @@ pub fn apply_upsert_memory(
             .map_err(|e| ApplyError::Storage(format!("TIMELINE insert: {e:?}")))?;
     }
 
+    // Couple the raw text to the memory row inside the same wtxn.
+    // RECALL --include-text and the lexical retriever both read here;
+    // dropping the write would silently strip text from every recall.
+    {
+        let mut texts_t = wtxn
+            .open_table(TEXTS_TABLE)
+            .map_err(|e| ApplyError::Storage(format!("open TEXTS: {e:?}")))?;
+        texts_t
+            .insert(&id.to_be_bytes(), text.as_bytes())
+            .map_err(|e| ApplyError::Storage(format!("TEXTS insert: {e:?}")))?;
+    }
+
     // FINGERPRINTS_TABLE entry when the encode opted into content-
     // hash dedup. The row keys (agent_id, context_id, content_hash) →
     // this memory id, so a future ENCODE with matching text/agent/ctx
@@ -147,6 +160,7 @@ pub fn apply_tombstone_memory(
     let agent_bytes = row.agent_id_bytes;
     let ctx_raw = row.context_id;
     let mid_bytes = row.memory_id_bytes;
+    let dedup_hash = row.content_hash;
 
     // Persist the tombstone-stamped row.
     {
@@ -168,6 +182,25 @@ pub fn apply_tombstone_memory(
         let _ = timeline_t
             .remove(key.as_slice())
             .map_err(|e| ApplyError::Storage(format!("TIMELINE remove: {e:?}")))?;
+    }
+
+    // Evict the fingerprint row in the same wtxn as the tombstone —
+    // a re-encode of the same text after FORGET must miss the dedup
+    // index, otherwise the new write would silently fold into a
+    // dead memory. Only present when the original encode opted in.
+    if let Some(hash) = dedup_hash {
+        use brain_metadata::tables::fingerprint::{fingerprint_key, FINGERPRINTS_TABLE};
+        let mut fp_t = wtxn
+            .open_table(FINGERPRINTS_TABLE)
+            .map_err(|e| ApplyError::Storage(format!("open FINGERPRINTS: {e:?}")))?;
+        let key = fingerprint_key(
+            brain_core::AgentId::from(agent_bytes),
+            ContextId(ctx_raw),
+            &hash,
+        );
+        let _ = fp_t
+            .remove(&key)
+            .map_err(|e| ApplyError::Storage(format!("FINGERPRINTS remove: {e:?}")))?;
     }
 
     Ok(PhaseAck::Tombstoned(*target))
@@ -351,6 +384,7 @@ mod tests {
             agent_id: agent,
             started_at_unix_nanos: 0,
             phases: Vec::new(),
+            request_hash: None,
         }
     }
 

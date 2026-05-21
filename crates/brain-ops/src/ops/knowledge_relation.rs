@@ -23,8 +23,8 @@
 use brain_core::knowledge::Relation;
 use brain_core::{Cardinality, EntityId, RelationId, RelationTypeId};
 use brain_metadata::relation_ops::{
-    relation_create, relation_get, relation_history, relation_list_from, relation_list_to,
-    relation_supersede, relation_tombstone, RelationListFilter, RelationOpError,
+    relation_create, relation_get, relation_list_from, relation_list_to, relation_supersede,
+    relation_tombstone, RelationListFilter, RelationOpError,
 };
 use brain_metadata::relation_traversal::{
     traverse, TraversalConfig, TraversalDirection, MAX_DEPTH,
@@ -795,10 +795,4 @@ fn map_relation_op_error(err: RelationOpError) -> OpError {
             OpError::Internal(format!("entity op forwarded from relation_ops: {e}"))
         }
     }
-}
-
-// Reduce dead-code warnings on transitively-needed re-exports.
-#[allow(dead_code)]
-fn _imports_keepalive() {
-    let _ = relation_history;
 }

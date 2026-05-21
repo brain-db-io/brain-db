@@ -270,15 +270,16 @@ mod tests {
     fn dispatch_encode_routes_to_handler() {
         use crate::test_support::run_in_glommio;
         run_in_glommio(|| async {
-            // 7.3 wired the real ENCODE handler. The `NopWriter` returns
-            // `WriterError::Internal`, so the handler propagates an
-            // `ExecError::WriterFailed` — which is enough to prove the
-            // dispatcher reaches `handle_encode` rather than the stub.
+            // 7.3 wired the real ENCODE handler. The unified path needs
+            // a `RealWriterHandle`; the `NopWriter` fixture fails the
+            // downcast with `OpError::Internal`, which is sufficient to
+            // prove the dispatcher reaches `handle_encode` rather than
+            // a stub. Either of those error shapes confirms routing.
             let ctx = fake_context();
             let req = brain_protocol::request::RequestBody::Encode(encode_req());
             match dispatch(req, RequestCaller::anonymous(), &ctx).await {
-                Err(OpError::ExecError(_)) => {}
-                other => panic!("expected ExecError from NopWriter, got {other:?}"),
+                Err(OpError::ExecError(_)) | Err(OpError::Internal(_)) => {}
+                other => panic!("expected ExecError or Internal from NopWriter, got {other:?}"),
             }
         })
     }

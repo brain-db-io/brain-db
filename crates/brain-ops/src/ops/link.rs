@@ -1,4 +1,5 @@
-//! LINK / UNLINK handlers (sub-task 7.8 + 7.9 transactional path).
+//! LINK / UNLINK handlers — submit Link / Unlink phases through the
+//! unified writer; in-TXN ops buffer for later commit.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,10 +26,48 @@ pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkRespo
     let target = MemoryId::from(req.target);
     let kind = EdgeKind::from(req.kind);
 
+    let real_writer = downcast_writer(ctx)?;
+    let write_id = WriteId::from_request(RequestId::from(req.request_id));
+    let request_hash = hash_link_request(&LinkOp {
+        request_id: RequestId::from(req.request_id),
+        source,
+        target,
+        kind,
+        weight: req.weight,
+        agent_id: ctx.executor.caller_agent,
+    });
+
+    // Idempotency replay short-circuit + conflict detection.
+    match real_writer
+        .write_idempotency_cache()
+        .lookup_with_hash(write_id, Some(request_hash))
+    {
+        crate::ops::writer::submit::CacheLookup::Hit(_cached) => {
+            // Idempotency replay (spec §09/02 §4): mirror the original
+            // outcome transparently. The original was a successful
+            // insert, so `already_existed=false` — same shape as the
+            // first response. No fresh write — counts don't bump again
+            // because submit returns early before apply_link runs.
+            return Ok(LinkResponse {
+                source: source.into(),
+                target: target.into(),
+                kind: EdgeKindWire::from(kind),
+                weight: req.weight,
+                created_at_unix_nanos: 0,
+                already_existed: false,
+            });
+        }
+        crate::ops::writer::submit::CacheLookup::Conflict => {
+            return Err(map_writer_err_for_link(WriterError::Conflict(
+                "link request_id replay with different params".into(),
+            )));
+        }
+        crate::ops::writer::submit::CacheLookup::Miss => {}
+    }
+
     // Validate endpoints + compute already_existed in one rtxn. The
-    // unified submit(Write) path doesn't surface these on its own —
-    // the legacy submit_link folded them into its ack; we replicate
-    // by reading before submit.
+    // wire response needs `already_existed` to distinguish a fresh
+    // edge from an overwrite, and the submit ack doesn't surface it.
     let (src_exists, tgt_exists, already_existed) = peek_link_state(ctx, source, target, kind)?;
     if !src_exists {
         return Err(OpError::NotFound {
@@ -43,7 +82,6 @@ pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkRespo
         });
     }
 
-    let real_writer = downcast_writer(ctx)?;
     let created_at = now_unix_nanos();
     let phase = Phase::Link {
         from: NodeRef::Memory(source),
@@ -55,11 +93,8 @@ pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkRespo
         disambiguator: brain_metadata::tables::edge::zero_disambiguator(),
         created_at_unix_nanos: created_at,
     };
-    let write = Write::single(
-        WriteId::from_request(RequestId::from(req.request_id)),
-        ctx.executor.caller_agent,
-        phase,
-    );
+    let write =
+        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
     let ack = real_writer
         .submit(write)
         .await
@@ -152,23 +187,54 @@ pub async fn handle_unlink(
     let target = MemoryId::from(req.target);
     let kind = EdgeKind::from(req.kind);
 
-    // Peek the edge to compute `removed`: legacy submit_unlink folded
-    // the pre-write existence check into its ack. apply_unlink doesn't
-    // surface it, so we read EDGES_TABLE here pre-submit.
+    let real_writer = downcast_writer(ctx)?;
+    let write_id = WriteId::from_request(RequestId::from(req.request_id));
+    let request_hash = hash_unlink_request(&UnlinkOp {
+        request_id: RequestId::from(req.request_id),
+        source,
+        target,
+        kind,
+        agent_id: ctx.executor.caller_agent,
+    });
+
+    match real_writer
+        .write_idempotency_cache()
+        .lookup_with_hash(write_id, Some(request_hash))
+    {
+        crate::ops::writer::submit::CacheLookup::Hit(_cached) => {
+            // Replay mirrors the original outcome. The first call had
+            // an existing edge to remove (otherwise it would have been
+            // a no-op and stamped removed=false; we only stamp the
+            // cache after the wtxn commits, so the first call's ack
+            // existing means it actually removed something).
+            return Ok(UnlinkResponse {
+                source: source.into(),
+                target: target.into(),
+                kind: EdgeKindWire::from(kind),
+                removed: true,
+            });
+        }
+        crate::ops::writer::submit::CacheLookup::Conflict => {
+            return Err(map_writer_err_for_unlink(WriterError::Conflict(
+                "unlink request_id replay with different params".into(),
+            )));
+        }
+        crate::ops::writer::submit::CacheLookup::Miss => {}
+    }
+
+    // Peek the edge to compute `removed`: the wire response needs to
+    // distinguish a real delete from a no-op, and apply_unlink doesn't
+    // surface it on its phase ack.
     let removed = peek_edge_exists(ctx, source, target, kind)?;
 
-    let real_writer = downcast_writer(ctx)?;
     let phase = Phase::Unlink {
         from: NodeRef::Memory(source),
         to: NodeRef::Memory(target),
         kind: EdgeKindRef::Builtin(kind),
         disambiguator: brain_metadata::tables::edge::zero_disambiguator(),
     };
-    let write = Write::single(
-        WriteId::from_request(RequestId::from(req.request_id)),
-        ctx.executor.caller_agent,
-        phase,
-    );
+    let write =
+        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
     let ack = real_writer
         .submit(write)
         .await

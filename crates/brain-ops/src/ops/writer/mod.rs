@@ -29,25 +29,23 @@
 //!   (`removed=false`), not an error. Successful unlink decrements
 //!   both counts.
 
-use std::collections::HashSet;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::{AgentId, EdgeKind, MemoryId, ShardId};
+use brain_core::{AgentId, MemoryId, ShardId};
 use brain_index::Writer as HnswWriter;
 use brain_metadata::tables::edge::{EDGES_REVERSE_TABLE, EDGES_TABLE};
+use brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE;
 use brain_metadata::tables::idempotency::IDEMPOTENCY_TABLE;
-use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+use brain_metadata::tables::memory::{MEMORIES_BY_AGENT_TIMELINE_TABLE, MEMORIES_TABLE};
+use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_planner::{SharedMetadataDb, WriterError, WriterHandle};
 use parking_lot::Mutex;
-#[allow(unused_imports)] // parked: bump_edge_count uses .get on Table
-use redb::ReadableTable;
 use uuid::Uuid;
 
-use crate::subscribe::{EventBus, EventEnvelope};
+use crate::subscribe::EventBus;
 
 /// Real per-shard writer backed by `MetadataDb` + `HnswWriter`. No
 /// WAL — Phase 8 / 9 swap this for a WAL-backed implementation
@@ -58,12 +56,6 @@ pub struct RealWriterHandle {
     /// In-process slot counter. Phase 8 / 9 will replace with the
     /// arena allocator. Starts at 1.
     next_slot: AtomicU64,
-    /// Memories we've tombstoned this process-lifetime. Used by the
-    /// legacy do_forget to surface AlreadyTombstoned across different
-    /// RequestIds. The unified path's handle_forget peeks MEMORIES_TABLE
-    /// directly so this is now parked.
-    #[allow(dead_code)]
-    tombstoned: Mutex<HashSet<MemoryId>>,
     /// Agent id stamped on every memory metadata row. Phase 9 will
     /// derive this from the authenticated connection; for now it's
     /// nil. Carried as a field so tests + the future server can pin
@@ -194,14 +186,20 @@ impl RealWriterHandle {
         // never-opened table returns `TableDoesNotExist`. We do a
         // one-time empty write txn at construction so subsequent
         // idempotency + metadata reads succeed even before the
-        // first submit.
+        // first submit. Every substrate table that any reader path
+        // touches (dedup lookup, timeline walks, edge planner reads)
+        // must be listed here, otherwise the first read on a fresh
+        // shard explodes.
         {
             let mut db = metadata.lock();
             if let Ok(wtxn) = db.write_txn() {
                 let _ = wtxn.open_table(MEMORIES_TABLE);
+                let _ = wtxn.open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE);
                 let _ = wtxn.open_table(IDEMPOTENCY_TABLE);
                 let _ = wtxn.open_table(EDGES_TABLE);
                 let _ = wtxn.open_table(EDGES_REVERSE_TABLE);
+                let _ = wtxn.open_table(FINGERPRINTS_TABLE);
+                let _ = wtxn.open_table(TEXTS_TABLE);
                 let _ = wtxn.commit();
             }
         }
@@ -209,7 +207,6 @@ impl RealWriterHandle {
             metadata,
             hnsw_writer: Mutex::new(hnsw_writer),
             next_slot: AtomicU64::new(1),
-            tombstoned: Mutex::new(HashSet::new()),
             agent_id: AgentId(Uuid::nil()),
             shard_id: 0,
             events: None,
@@ -407,39 +404,6 @@ impl RealWriterHandle {
     ) {
         self.memory_text_dispatcher = Some(dispatcher);
     }
-
-    #[allow(dead_code)] // parked: needed when handle_forget routes text-index drop through the writer
-    pub(super) fn memory_text_dispatcher(
-        &self,
-    ) -> Option<&Arc<crate::ops::text_indexer::MemoryTextDispatcher>> {
-        self.memory_text_dispatcher.as_ref()
-    }
-
-    /// Publish an event. When a WAL sink is wired, callers pass
-    /// `Some(lsn)` so the envelope carries the WAL-assigned LSN
-    /// instead of the bus's internal allocator stamp.
-    #[allow(dead_code)] // parked: P3b-future may wire WAL-LSN events here
-    fn publish_with_lsn(&self, mut env: EventEnvelope, lsn: Option<u64>) {
-        if let Some(bus) = &self.events {
-            if let Some(lsn) = lsn {
-                // Pre-stamp so the bus's LsnAllocator becomes a noop
-                // for events that already carry a durable LSN. The
-                // bus's send() is the only side-effect we want.
-                env.lsn = lsn;
-                bus.publish_prestamped(env);
-            } else {
-                bus.publish(env);
-            }
-        }
-    }
-}
-
-#[allow(dead_code)] // parked: submit.rs has its own now_unix_nanos; keep for future writer hooks
-fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
 }
 
 impl WriterHandle for RealWriterHandle {
@@ -524,54 +488,6 @@ pub use wal_sink::{
 // Helpers.
 // ---------------------------------------------------------------------------
 
-/// Bump `edges_out_count` (or `edges_in_count`) on `memory_id` by
-/// `delta`. No-op if the memory row doesn't exist (the LINK / UNLINK
-/// paths validate existence separately; this is defensive).
-#[allow(dead_code)] // parked: apply::edge::apply_link doesn't yet maintain the denorm; future slice wires it
-fn bump_edge_count(
-    memories_t: &mut redb::Table<'_, [u8; 16], MemoryMetadata>,
-    memory_id: MemoryId,
-    out: bool,
-    delta: i32,
-) -> Result<(), WriterError> {
-    let key = memory_id.to_be_bytes();
-    let prior = memories_t
-        .get(key)
-        .map_err(|e| WriterError::Internal(format!("bump_edge_count get: {e:?}")))?
-        .map(|access| access.value());
-    let Some(mut meta) = prior else {
-        return Ok(());
-    };
-    let cur = if out {
-        meta.edges_out_count
-    } else {
-        meta.edges_in_count
-    };
-    let new = if delta >= 0 {
-        cur.saturating_add(delta as u32)
-    } else {
-        cur.saturating_sub((-delta) as u32)
-    };
-    if out {
-        meta.edges_out_count = new;
-    } else {
-        meta.edges_in_count = new;
-    }
-    memories_t
-        .insert(key, meta)
-        .map_err(|e| WriterError::Internal(format!("bump_edge_count insert: {e:?}")))?;
-    Ok(())
-}
-
-#[allow(dead_code)] // parked: was used by legacy txn debug logging
-fn hex_short(bytes: &[u8; 16]) -> String {
-    let mut s = String::with_capacity(8);
-    for b in &bytes[..4] {
-        s.push_str(&format!("{b:02x}"));
-    }
-    s
-}
-
 /// Enqueue `(memory_id, vector)` onto the AutoEdgeWorker channel if
 /// one is wired. Non-blocking; full channel logs a warn and drops
 /// (encode succeeds without auto-edges). Disconnected channel logs at
@@ -609,11 +525,6 @@ pub(crate) fn try_enqueue_auto_edge(
         }
     }
 }
-
-// Silence unused-import warnings when EdgeKind is referenced only
-// inside conditional code paths.
-#[allow(dead_code)]
-fn _kind_use(_: EdgeKind) {}
 
 /// Enqueue `(memory_id, agent_id, context_id, created_at_unix_nanos)`
 /// onto the TemporalEdgeWorker channel if one is wired. Mirrors

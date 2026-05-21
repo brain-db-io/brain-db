@@ -1,8 +1,8 @@
-//! Integration tests for `handle_forget` (sub-task 7.7).
+//! Integration tests for `handle_forget`.
 //!
 //! Drives the full pipeline:
-//!   dispatcher → handle_forget → plan_forget_inner → execute_forget
-//!   → RealWriterHandle → wire ForgetResponse
+//!   dispatcher → handle_forget → plan_forget_inner →
+//!   RealWriterHandle::submit(Write) → wire ForgetResponse
 //!
 //! Pre-populates the index via ENCODE through the dispatcher so we
 //! have real memories to forget.

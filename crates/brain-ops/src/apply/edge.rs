@@ -6,8 +6,10 @@
 //! symmetric kinds. Typed-relation disambiguation rides on the
 //! `disambiguator` field of the phase.
 
+use brain_core::{MemoryId, NodeRef};
 use brain_metadata::tables::edge::{self, EdgeData, EDGES_REVERSE_TABLE, EDGES_TABLE};
-use redb::WriteTransaction;
+use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+use redb::{ReadableTable, WriteTransaction};
 
 use super::ApplyError;
 use crate::write::{Phase, PhaseAck, Write};
@@ -33,12 +35,30 @@ pub fn apply_link(
     };
 
     let data = EdgeData::new(*weight, *origin, *derived_by, *created_at_unix_nanos);
+
     let mut edges_t = wtxn
         .open_table(EDGES_TABLE)
         .map_err(|e| ApplyError::Storage(format!("open EDGES: {e:?}")))?;
     let mut edges_rev_t = wtxn
         .open_table(EDGES_REVERSE_TABLE)
         .map_err(|e| ApplyError::Storage(format!("open EDGES_REVERSE: {e:?}")))?;
+
+    // Detect "already-existed" inside the wtxn so we don't double-
+    // count the denormalised edge counters. edge::link is upsert
+    // (overwrites weight) — bumping the count again would corrupt
+    // the denorm. The forward-key encoding matches edge::link's,
+    // so a direct table.get is enough.
+    let fwd_key = edge::EdgeKey {
+        from: *from,
+        kind: *kind,
+        to: *to,
+        disambiguator: *disambiguator,
+    }
+    .encode();
+    let already_existed = edges_t
+        .get(fwd_key.as_slice())
+        .map_err(|e| ApplyError::Storage(format!("EDGES get: {e:?}")))?
+        .is_some();
 
     edge::link(
         &mut edges_t,
@@ -50,6 +70,19 @@ pub fn apply_link(
         &data,
     )
     .map_err(|e| ApplyError::Metadata(format!("link: {e:?}")))?;
+
+    // Drop the table borrows before bump_edge_count opens MEMORIES.
+    drop(edges_t);
+    drop(edges_rev_t);
+
+    // Maintain the denormalised edge counters on Memory endpoints.
+    // Entity / Statement endpoints don't carry these counters yet.
+    if !already_existed {
+        if let (NodeRef::Memory(src), NodeRef::Memory(tgt)) = (*from, *to) {
+            bump_edge_count(wtxn, src, true, 1)?;
+            bump_edge_count(wtxn, tgt, false, 1)?;
+        }
+    }
 
     Ok(PhaseAck::Linked)
 }
@@ -70,24 +103,84 @@ pub fn apply_unlink(
         return Err(ApplyError::PhaseMisShape("expected Unlink"));
     };
 
-    let mut edges_t = wtxn
-        .open_table(EDGES_TABLE)
-        .map_err(|e| ApplyError::Storage(format!("open EDGES: {e:?}")))?;
-    let mut edges_rev_t = wtxn
-        .open_table(EDGES_REVERSE_TABLE)
-        .map_err(|e| ApplyError::Storage(format!("open EDGES_REVERSE: {e:?}")))?;
+    let removed = {
+        let mut edges_t = wtxn
+            .open_table(EDGES_TABLE)
+            .map_err(|e| ApplyError::Storage(format!("open EDGES: {e:?}")))?;
+        let mut edges_rev_t = wtxn
+            .open_table(EDGES_REVERSE_TABLE)
+            .map_err(|e| ApplyError::Storage(format!("open EDGES_REVERSE: {e:?}")))?;
 
-    let _removed = edge::unlink(
-        &mut edges_t,
-        &mut edges_rev_t,
-        *from,
-        *kind,
-        *to,
-        *disambiguator,
-    )
-    .map_err(|e| ApplyError::Metadata(format!("unlink: {e:?}")))?;
+        edge::unlink(
+            &mut edges_t,
+            &mut edges_rev_t,
+            *from,
+            *kind,
+            *to,
+            *disambiguator,
+        )
+        .map_err(|e| ApplyError::Metadata(format!("unlink: {e:?}")))?
+        // Drop borrows on scope exit so bump_edge_count can open MEMORIES.
+    };
+
+    // Decrement counters when we actually removed an edge between memories.
+    if removed {
+        if let (NodeRef::Memory(src), NodeRef::Memory(tgt)) = (*from, *to) {
+            bump_edge_count(wtxn, src, true, -1)?;
+            bump_edge_count(wtxn, tgt, false, -1)?;
+        }
+    }
 
     Ok(PhaseAck::Unlinked)
+}
+
+/// Adjust `edges_out_count` (`out=true`) or `edges_in_count` on
+/// `memory_id` by `delta`. No-op when the memory row doesn't exist —
+/// the apply path validates target existence before queuing the
+/// phase; a stale phase racing reclamation just doesn't update the
+/// gone row.
+fn bump_edge_count(
+    wtxn: &WriteTransaction,
+    memory_id: MemoryId,
+    out: bool,
+    delta: i32,
+) -> Result<(), ApplyError> {
+    let key = memory_id.to_be_bytes();
+    let mut row: MemoryMetadata = {
+        let t = wtxn
+            .open_table(MEMORIES_TABLE)
+            .map_err(|e| ApplyError::Storage(format!("open MEMORIES: {e:?}")))?;
+        let Some(g) = t
+            .get(key)
+            .map_err(|e| ApplyError::Storage(format!("MEMORIES get: {e:?}")))?
+        else {
+            return Ok(());
+        };
+        g.value()
+    };
+
+    let cur = if out {
+        row.edges_out_count
+    } else {
+        row.edges_in_count
+    };
+    let new = if delta >= 0 {
+        cur.saturating_add(delta as u32)
+    } else {
+        cur.saturating_sub((-delta) as u32)
+    };
+    if out {
+        row.edges_out_count = new;
+    } else {
+        row.edges_in_count = new;
+    }
+
+    let mut t = wtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| ApplyError::Storage(format!("open MEMORIES: {e:?}")))?;
+    t.insert(key, row)
+        .map_err(|e| ApplyError::Storage(format!("MEMORIES insert (edge count): {e:?}")))?;
+    Ok(())
 }
 
 #[cfg(test)]

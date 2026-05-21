@@ -32,6 +32,13 @@ pub struct Write {
     /// (e.g. an edge phase referencing an entity created by a prior
     /// phase in the same write).
     pub phases: Vec<Phase>,
+    /// Caller-supplied hash over the original request payload. Lets
+    /// the writer's idempotency cache distinguish a true replay
+    /// (same WriteId, same hash → cached ack) from a conflict (same
+    /// WriteId, different hash → `WriterError::Conflict`). `None`
+    /// disables conflict detection — workers / internal writes that
+    /// can't conflict by construction skip the hash. Wire ops set it.
+    pub request_hash: Option<[u8; 32]>,
 }
 
 impl Write {
@@ -44,6 +51,7 @@ impl Write {
             agent_id,
             started_at_unix_nanos: 0,
             phases: vec![phase],
+            request_hash: None,
         }
     }
 
@@ -56,6 +64,7 @@ impl Write {
             agent_id,
             started_at_unix_nanos: 0,
             phases,
+            request_hash: None,
         }
     }
 
@@ -63,6 +72,14 @@ impl Write {
     #[must_use]
     pub fn started_at(mut self, ts_nanos: u64) -> Self {
         self.started_at_unix_nanos = ts_nanos;
+        self
+    }
+
+    /// Stamp the request-hash; chainable from the builder. Wire ops
+    /// set this so the writer can detect idempotency conflicts.
+    #[must_use]
+    pub fn with_request_hash(mut self, hash: [u8; 32]) -> Self {
+        self.request_hash = Some(hash);
         self
     }
 
