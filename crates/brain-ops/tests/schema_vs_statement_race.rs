@@ -26,13 +26,13 @@ use brain_core::knowledge::{
 use brain_core::{
     ContextId, EntityId, EntityTypeId, ExtractorId, MemoryId, StatementId, StatementKind,
 };
-use brain_metadata::entity_ops::entity_put;
-use brain_metadata::entity_type_ops::entity_type_intern;
-use brain_metadata::predicate_ops::predicate_intern_or_get;
-use brain_metadata::schema_store::{schema_active, schema_upload};
-use brain_metadata::statement_ops::{statement_create, statement_get};
-use brain_metadata::tables::knowledge::predicate::{PredicateDefinition, PREDICATES_TABLE};
-use brain_metadata::tables::knowledge::statement::{statement_flags, STATEMENTS_TABLE};
+use brain_metadata::entity::ops::entity_put;
+use brain_metadata::entity::types::entity_type_intern;
+use brain_metadata::schema::predicate::predicate_intern_or_get;
+use brain_metadata::schema::store::{schema_active, schema_upload};
+use brain_metadata::statement::{statement_create, statement_get};
+use brain_metadata::tables::predicate::{PredicateDefinition, PREDICATES_TABLE};
+use brain_metadata::tables::statement::{statement_flags, STATEMENTS_TABLE};
 use brain_protocol::schema::{parse_schema, validate, ValidatedSchema};
 use redb::{ReadableDatabase, ReadableTable};
 
@@ -286,11 +286,11 @@ fn out_of_vocab_statement_only_flagged_after_subsequent_schema_upload() {
     // `prefers` — so `ghost` is NOT in the set, sweep flags the row.
     let active_pids = {
         let rtxn = db.begin_read().unwrap();
-        brain_metadata::predicate_ops::predicates_active_for_schema(&rtxn, "acme", 1).unwrap()
+        brain_metadata::schema::predicate::predicates_active_for_schema(&rtxn, "acme", 1).unwrap()
     };
     {
         let wtxn = db.begin_write().unwrap();
-        let _changed = brain_metadata::schema_apply::flag_statements_outside_schema(
+        let _changed = brain_metadata::schema::apply::flag_statements_outside_schema(
             &wtxn,
             "acme",
             &active_pids,

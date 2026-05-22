@@ -182,7 +182,7 @@ pub struct WorkersConfig {
     pub temporal_edge: TemporalEdgeWorkerConfig,
     /// Phase C: substrate auto-derived `Caused` edges, sourced from
     /// extractor-asserted causal statements (`brain:caused_by` etc).
-    /// Substrate-only deployments resolve an empty whitelist and the
+    /// No-schema deployments resolve an empty whitelist and the
     /// worker no-ops; setting `enabled = false` skips registration
     /// entirely.
     #[serde(default)]
@@ -249,7 +249,13 @@ fn default_auto_edge_batch_size() -> usize {
     256
 }
 fn default_auto_edge_similarity_threshold() -> f32 {
-    0.85
+    // Reads `BRAIN_AUTO_EDGE_THRESHOLD` at startup so operators can
+    // tune the cosine-similarity floor without re-rolling the config.
+    // The crate default is 0.75 (topical-cluster floor), tunable up
+    // to 0.85+ for strict deduping.
+    brain_workers::resolved_auto_edge_threshold(
+        brain_workers::DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD,
+    )
 }
 fn default_auto_edge_top_k() -> usize {
     5
@@ -291,6 +297,14 @@ pub struct TemporalEdgeWorkerConfig {
     /// Allow `FollowedBy` edges across context boundaries.
     #[serde(default = "default_temporal_edge_cross_context")]
     pub cross_context: bool,
+    /// Cosine similarity floor for the topical gate. Below this, the
+    /// candidate predecessor is dropped — preserves narrative threads
+    /// without writing spurious "followed by" edges between
+    /// topically-unrelated memories ("I had lunch" → "deployed to
+    /// prod"). The default reads `BRAIN_TEMPORAL_EDGE_TOPICAL_THRESHOLD`
+    /// at startup so operators can tune without re-rolling configs.
+    #[serde(default = "default_temporal_edge_topical_threshold")]
+    pub topical_threshold: f32,
 }
 
 impl Default for TemporalEdgeWorkerConfig {
@@ -303,6 +317,7 @@ impl Default for TemporalEdgeWorkerConfig {
             weight_min: default_temporal_edge_weight_min(),
             channel_capacity: default_temporal_edge_channel_capacity(),
             cross_context: default_temporal_edge_cross_context(),
+            topical_threshold: default_temporal_edge_topical_threshold(),
         }
     }
 }
@@ -328,6 +343,11 @@ fn default_temporal_edge_channel_capacity() -> usize {
 fn default_temporal_edge_cross_context() -> bool {
     false
 }
+fn default_temporal_edge_topical_threshold() -> f32 {
+    brain_workers::resolved_topical_threshold(
+        brain_workers::DEFAULT_TEMPORAL_EDGE_TOPICAL_THRESHOLD,
+    )
+}
 
 /// `[workers.causal_edge]` TOML section. Controls extractor-driven
 /// `Caused` derivation. Every field defaults so an existing `dev.toml`
@@ -350,7 +370,7 @@ pub struct CausalEdgeWorkerConfig {
     #[serde(default = "default_causal_edge_min_confidence")]
     pub min_confidence: f32,
     /// Predicate qnames whose presence triggers causal derivation.
-    /// Each entry is `"namespace:name"`. Substrate-only deployments
+    /// Each entry is `"namespace:name"`. No-schema deployments
     /// inherit the brain defaults but resolve to an empty set against
     /// their predicate table.
     #[serde(default = "default_causal_edge_whitelist")]
@@ -422,7 +442,7 @@ fn default_causal_edge_channel_capacity() -> usize {
 
 /// `[workers.extractor]` TOML section. Defaults registered every
 /// shard. Omit the section to accept defaults; set `enabled = false`
-/// to skip worker registration entirely for substrate-only deployments.
+/// to skip worker registration entirely for no-schema deployments.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct ExtractorWorkerConfig {
@@ -447,6 +467,14 @@ pub struct ExtractorWorkerConfig {
     /// `false` only for re-extraction backfill scenarios.
     #[serde(default = "default_extractor_skip_audited")]
     pub skip_already_extracted: bool,
+    /// Memories the extractor worker bundles into one classifier
+    /// forward pass per cycle iteration. The GLiNER backbone GEMM
+    /// dominates per-encode latency; batching 8 memories pulls
+    /// per-memory cost down by ~4-5x on a CPU host. Operators can
+    /// override via `BRAIN_EXTRACTOR_BATCH_SIZE` for tail-latency
+    /// tuning.
+    #[serde(default = "default_extractor_batch_size")]
+    pub batch_size: usize,
 }
 
 impl Default for ExtractorWorkerConfig {
@@ -458,6 +486,7 @@ impl Default for ExtractorWorkerConfig {
             llm_budget_per_cycle_micro_usd: default_extractor_llm_budget_micro_usd(),
             channel_capacity: default_extractor_channel_capacity(),
             skip_already_extracted: default_extractor_skip_audited(),
+            batch_size: default_extractor_batch_size(),
         }
     }
 }
@@ -479,6 +508,9 @@ fn default_extractor_channel_capacity() -> usize {
 }
 fn default_extractor_skip_audited() -> bool {
     true
+}
+fn default_extractor_batch_size() -> usize {
+    brain_workers::DEFAULT_EXTRACTOR_BATCH_SIZE
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]

@@ -17,12 +17,10 @@
 pub mod id;
 pub mod phase;
 pub mod transaction;
-pub mod trigger;
 
 pub use id::{AllocatedId, IdKind, WriteId};
 pub use phase::{
-    AttributeTarget, EntityAttributesUpdate, EvidenceRefPhase, Phase, PhaseAck, ResolveContext,
-    SupersedeReplacement, SupersedeReplacementId, SupersedeTarget, TombstoneTarget,
+    EvidenceRefPhase, Phase, PhaseAck, SupersedeReplacement, SupersedeReplacementId,
+    SupersedeTarget, TombstoneTarget,
 };
 pub use transaction::{PendingStage, Write, WriteAck};
-pub use trigger::{TriggerEvent, TriggerKind, TriggerMask};

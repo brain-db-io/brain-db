@@ -71,6 +71,23 @@ impl ExtractorRegistry {
             .map(|(id, ext)| (ext, self.enabled.contains(id)))
     }
 
+    /// True iff at least one enabled, fully-wired extractor reports
+    /// [`ExtractorKind::Llm`]. "Wired" means a real LLM client is
+    /// attached — a degraded row (no API key, unknown model) is
+    /// registered but reports `is_wired() == false`, so this still
+    /// returns false. The encode response surfaces the bool so the
+    /// renderer can distinguish "0 statements because no LLM tier is
+    /// configured" from "0 statements because the input didn't match
+    /// any LLM-emitted predicate". Operators see actionable text in
+    /// the first case (set an API key) and per-memory text in the
+    /// second.
+    #[must_use]
+    pub fn has_enabled_llm_extractor(&self) -> bool {
+        use brain_core::knowledge::ExtractorKind;
+        self.iter_enabled()
+            .any(|ext| ext.kind() == ExtractorKind::Llm && ext.is_wired())
+    }
+
     #[must_use]
     pub fn len(&self) -> usize {
         self.by_id.len()

@@ -52,6 +52,9 @@ use tokio::net::TcpStream;
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -215,6 +218,7 @@ async fn recall_round_trip(client: &mut TcpStream, stream_id: u32, cue: &str) ->
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
         txn_id: None,
+        rerank: false,
     };
     send_frame(
         client,

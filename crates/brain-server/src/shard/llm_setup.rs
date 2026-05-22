@@ -50,15 +50,19 @@ pub struct LlmDeps {
 }
 
 impl LlmDeps {
-    /// Merge with the existing classifier model into a full
-    /// [`MaterializeDeps`].
+    /// Merge with the existing classifier model and the snapshotted
+    /// entity-type qname list into a full [`MaterializeDeps`].
+    /// The qname list is what the classifier passes as labels on
+    /// every `predict()` call.
     #[must_use]
     pub fn into_materialize_deps(
         self,
         classifier_model: Option<Arc<dyn ClassifierModel>>,
+        entity_type_qnames: Arc<Vec<String>>,
     ) -> MaterializeDeps {
         MaterializeDeps {
             classifier_model,
+            entity_type_qnames,
             model_router: self.router,
             llm_cache: self.cache,
         }
@@ -285,15 +289,82 @@ mod tests {
     }
 
     #[test]
-    fn into_materialize_deps_threads_router_and_cache() {
+    fn into_materialize_deps_threads_router_cache_and_labels() {
         let dir = tempfile::tempdir().unwrap();
         let deps = LlmDeps {
             router: None,
             cache: open_cache(dir.path()),
         };
-        let materialize = deps.into_materialize_deps(None);
+        let labels = Arc::new(vec!["brain:Person".to_string()]);
+        let materialize = deps.into_materialize_deps(None, labels.clone());
         assert!(materialize.model_router.is_none());
         assert!(materialize.llm_cache.is_some());
         assert!(materialize.classifier_model.is_none());
+        assert_eq!(materialize.entity_type_qnames.as_slice(), labels.as_slice());
+    }
+
+    /// Documents the constraint that drove the spawn_shard fix:
+    /// redb's lock is process-wide and inode-keyed. Two live
+    /// opens of the same `llm_cache.redb` from the same process
+    /// MUST fail with `Database already open`. The shard's
+    /// startup path therefore opens the cache exactly once (in
+    /// the Glommio closure via `build_llm_deps`).
+    #[test]
+    fn second_open_of_same_path_fails_while_first_alive() {
+        let dir = tempfile::tempdir().unwrap();
+        let first = open_cache(dir.path()).expect("first open");
+        // Second open with the first still alive — must fail.
+        let path = dir.path().join("llm_cache.redb");
+        // LlmCacheDb is not Debug (its inner redb::Database isn't),
+        // so we can't use expect_err here — match on Result manually.
+        let err = match LlmCacheDb::open(&path) {
+            Ok(_) => panic!("second open must fail while first is still alive"),
+            Err(e) => e,
+        };
+        assert!(
+            err.to_string().contains("Database already open"),
+            "expected redb lock error, got: {err}"
+        );
+        drop(first);
+        // After drop, re-open succeeds.
+        match LlmCacheDb::open(&path) {
+            Ok(_db) => {}
+            Err(e) => panic!("re-open after drop must succeed: {e}"),
+        }
+    }
+
+    /// Two `MaterializeDeps` instances sharing the same single
+    /// open `LlmCacheDb` handle via `Arc::clone` must both work —
+    /// this is the contract `materialize_extractors` relies on
+    /// when wiring multiple LLM extractors against one cache.
+    #[test]
+    fn shared_cache_handle_supports_many_materialize_deps() {
+        let dir = tempfile::tempdir().unwrap();
+        let llm_deps = build_llm_deps(dir.path());
+        assert!(llm_deps.cache.is_some(), "cache should open");
+        let cache_arc = llm_deps.cache.clone().unwrap();
+        // Drop the original LlmDeps so its embedded Arc clone goes away;
+        // the refcount we assert below should reflect only cache_arc plus
+        // the two MaterializeDeps copies, not the original `build_llm_deps`
+        // return value.
+        drop(llm_deps);
+
+        let labels = Arc::new(vec!["brain:Person".to_string()]);
+        let deps_a = LlmDeps {
+            router: None,
+            cache: Some(Arc::clone(&cache_arc)),
+        }
+        .into_materialize_deps(None, labels.clone());
+        let deps_b = LlmDeps {
+            router: None,
+            cache: Some(Arc::clone(&cache_arc)),
+        }
+        .into_materialize_deps(None, labels.clone());
+
+        // Both deps point at the same redb file via Arc::clone
+        // — no second `LlmCacheDb::open` was performed.
+        assert!(deps_a.llm_cache.is_some());
+        assert!(deps_b.llm_cache.is_some());
+        assert_eq!(Arc::strong_count(&cache_arc), 3); // cache_arc + deps_a + deps_b
     }
 }

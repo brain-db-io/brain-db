@@ -188,6 +188,12 @@ pub enum Opcode {
     QueryTraceResp = 0x01E2,
     RecallHybridReq = 0x0163,
     RecallHybridResp = 0x01E3,
+
+    // Procedural-memory materialization (W3.1, wire v2). Renders an
+    // agent's stored `brain:behavior_*` Preferences into a system
+    // block for LLM prompt injection.
+    MaterializeProceduralReq = 0x0164,
+    MaterializeProceduralResp = 0x01E4,
 }
 
 impl Opcode {
@@ -319,6 +325,9 @@ impl Opcode {
             0x01E2 => Self::QueryTraceResp,
             0x0163 => Self::RecallHybridReq,
             0x01E3 => Self::RecallHybridResp,
+
+            0x0164 => Self::MaterializeProceduralReq,
+            0x01E4 => Self::MaterializeProceduralResp,
 
             0x0120 => Self::SchemaUploadReq,
             0x01A0 => Self::SchemaUploadResp,
@@ -502,6 +511,8 @@ mod tests {
         (0x01B7, Opcode::EntityListResp),
         (0x0138, Opcode::EntityTombstoneReq),
         (0x01B8, Opcode::EntityTombstoneResp),
+        (0x0164, Opcode::MaterializeProceduralReq),
+        (0x01E4, Opcode::MaterializeProceduralResp),
     ];
 
     #[test]

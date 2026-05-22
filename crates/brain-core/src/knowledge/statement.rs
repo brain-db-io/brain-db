@@ -10,6 +10,27 @@
 //! See `spec/19_statements/00_purpose.md` for the canonical schema and
 //! `spec/19_statements/{01_supersession, 02_contradiction, 04_confidence, 05_evidence}.md`
 //! for the kind-specific contracts.
+//!
+//! ## Four-timestamp bi-temporal model
+//!
+//! Every statement carries four independent timestamps so an agent can
+//! answer both "what was true on date X" and "what did I believe on
+//! date X" without resurrecting tombstones (Zep / Graphiti's bi-temporal
+//! model, applied to a typed graph):
+//!
+//! | Axis         | Field                              | Meaning                                                                 |
+//! | ------------ | ---------------------------------- | ----------------------------------------------------------------------- |
+//! | Object time  | `valid_from_unix_nanos`            | when the fact became true in reality                                    |
+//! | Object time  | `valid_to_unix_nanos`              | when the fact stopped being true in reality (open-ended when `None`)    |
+//! | Record time  | `extracted_at_unix_nanos`          | when the substrate first ingested the claim                             |
+//! | Record time  | `record_invalidated_at_unix_nanos` | when the substrate stopped believing the claim (open-ended when `None`) |
+//!
+//! Object-time and record-time diverge under late-arriving corrections.
+//! Example: in May we learn that Alice changed jobs in February —
+//! `valid_to = February` (object) but `record_invalidated_at = May`
+//! (record). A query "what did I believe on April 1?" returns the
+//! superseded statement (record axis still active then); a query "what
+//! was true on April 1?" does not (object axis already closed).
 
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
@@ -297,7 +318,7 @@ impl TombstoneReason {
 /// A typed claim about an entity. Spec `§19/00`.
 ///
 /// Pure value type. The brain-metadata storage layer holds the rkyv-
-/// archived form (`brain_metadata::tables::knowledge::statement::StatementMetadata`);
+/// archived form (`brain_metadata::tables::statement::StatementMetadata`);
 /// the wire layer holds the rkyv-archived view
 /// (`brain_protocol::knowledge::statement_resp::StatementView`).
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
@@ -331,6 +352,37 @@ pub struct Statement {
     pub tombstoned: bool,
     pub tombstoned_at_unix_nanos: Option<u64>,
     pub tombstone_reason: Option<TombstoneReason>,
+
+    /// Record-time invalidation timestamp. `Some(t)` means the substrate
+    /// stopped believing this statement at unix-nanos `t` — superseded,
+    /// tombstoned, or invalidated by FORGET cascade. `None` means the
+    /// substrate still believes it (canonical "current" version of its
+    /// chain).
+    ///
+    /// Distinct from `valid_to_unix_nanos`: `valid_to` answers "when did
+    /// the fact stop being true in reality", `record_invalidated_at`
+    /// answers "when did Brain stop recording it as truth". The two
+    /// diverge under late-arriving corrections — e.g., if we learn in
+    /// May that Alice changed jobs in February, `valid_to` is set to
+    /// February but `record_invalidated_at` is May. This enables
+    /// time-travel queries of the form "what did the agent believe on
+    /// date X" without resurrecting tombstones.
+    pub record_invalidated_at_unix_nanos: Option<u64>,
+
+    /// LLM-coined predicate qname when this row landed on the
+    /// `brain:fact` wildcard sink. `None` for statements whose
+    /// `predicate` resolves to a schema-declared row — the wildcard
+    /// sink preserves the model's original intent so a later schema
+    /// upload can promote `(brain:fact, original_predicate_qname)` rows
+    /// into typed predicates without re-extraction.
+    pub original_predicate_qname: Option<String>,
+
+    /// Per-statement statefulness flag. Copied from
+    /// `PredicateDefinition.is_stateful` at write time for schema-
+    /// declared predicates; carries the LLM's per-extraction signal
+    /// for `brain:fact` wildcard rows (where the predicate registry
+    /// row is generic and can't speak for the individual fact).
+    pub is_stateful: bool,
 }
 
 impl Statement {
@@ -375,6 +427,9 @@ impl Statement {
             tombstoned: false,
             tombstoned_at_unix_nanos: None,
             tombstone_reason: None,
+            record_invalidated_at_unix_nanos: None,
+            original_predicate_qname: None,
+            is_stateful: false,
         }
     }
 
@@ -438,6 +493,11 @@ pub struct Predicate {
     pub object_type_constraint_byte: u8,
     pub schema_version: u32,
     pub description: String,
+    /// When true, a new statement with the same `(subject, predicate)`
+    /// supersedes the prior active one. When false, observations
+    /// accumulate. Resolved from the schema's `stateful` keyword or
+    /// the kind-derived default at intern time.
+    pub is_stateful: bool,
 }
 
 impl Predicate {
@@ -676,6 +736,7 @@ mod tests {
             object_type_constraint_byte: 0,
             schema_version: 1,
             description: "entity type assertion".into(),
+            is_stateful: false,
         };
         assert_eq!(p.canonical(), "brain:is_a");
     }

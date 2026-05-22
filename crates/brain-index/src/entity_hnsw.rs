@@ -502,7 +502,10 @@ mod tests {
 
     #[test]
     fn search_with_ef_above_max_errors() {
-        let idx = EntityHnswIndex::new(EntityHnswParams::default_v1()).unwrap();
+        let mut idx = EntityHnswIndex::new(EntityHnswParams::default_v1()).unwrap();
+        // Need at least one entity inserted; otherwise the early-return on
+        // empty-index path runs before the ef validation.
+        idx.insert(EntityId::new(), &one_hot(0)).unwrap();
         let err = idx
             .search_with_ef(&one_hot(0), 5, Some(1000))
             .expect_err("over max");

@@ -67,6 +67,7 @@ pub async fn format(snap: &Snapshot<'_>) -> String {
     emit_extractor_metrics(&mut s, snap.shards);
     emit_temporal_edge_metrics(&mut s, snap.shards);
     emit_causal_edge_metrics(&mut s, snap.shards);
+    emit_statement_embed_metrics(&mut s, snap.shards);
 
     s
 }
@@ -553,7 +554,7 @@ fn emit_temporal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
 
 /// Phase C: per-shard CausalEdgeWorker metric family. Mirrors the
 /// temporal-edge emitter; adds a `predicate_whitelist_resolved` gauge
-/// for operator triage on substrate-only deployments where the worker
+/// for operator triage on no-schema deployments where the worker
 /// runs but never finds a causal predicate.
 fn emit_causal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
     emit_header(
@@ -647,6 +648,92 @@ fn emit_causal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
                 &m.snapshot().cycle_duration_seconds,
             );
         }
+    }
+}
+
+/// Per-shard StatementEmbedWorker metric family. The worker is
+/// unconditional, so every shard contributes a row (no `Option`
+/// dispatch like the channel-driven workers).
+fn emit_statement_embed_metrics(out: &mut String, shards: &[ShardHandle]) {
+    emit_header(
+        out,
+        "brain_statement_embed_cycles_total",
+        "StatementEmbedWorker cycles executed (one per tick).",
+        "counter",
+    );
+    for shard in shards {
+        let snap = shard.statement_embed_metrics().snapshot();
+        let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+        let _ = writeln!(
+            out,
+            "brain_statement_embed_cycles_total{labels} {}",
+            snap.cycles_total
+        );
+    }
+
+    emit_header(
+        out,
+        "brain_statement_embed_rows_embedded_total",
+        "Statements successfully inserted into the Statement HNSW.",
+        "counter",
+    );
+    for shard in shards {
+        let snap = shard.statement_embed_metrics().snapshot();
+        let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+        let _ = writeln!(
+            out,
+            "brain_statement_embed_rows_embedded_total{labels} {}",
+            snap.rows_embedded_total
+        );
+    }
+
+    emit_header(
+        out,
+        "brain_statement_embed_rows_skipped_total",
+        "Queue rows the worker dropped without embedding (tombstoned, superseded, already in HNSW).",
+        "counter",
+    );
+    for shard in shards {
+        let snap = shard.statement_embed_metrics().snapshot();
+        let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+        let _ = writeln!(
+            out,
+            "brain_statement_embed_rows_skipped_total{labels} {}",
+            snap.rows_skipped_total
+        );
+    }
+
+    emit_header(
+        out,
+        "brain_statement_embed_errors_total",
+        "Embedder batch failures during StatementEmbedWorker cycles.",
+        "counter",
+    );
+    for shard in shards {
+        let snap = shard.statement_embed_metrics().snapshot();
+        let labels = format!("{{shard=\"{}\"}}", shard.shard_id());
+        let _ = writeln!(
+            out,
+            "brain_statement_embed_errors_total{labels} {}",
+            snap.embed_errors_total
+        );
+    }
+
+    emit_header(
+        out,
+        "brain_statement_embed_batch_duration_seconds",
+        "Wall-clock duration of one StatementEmbedWorker tick.",
+        "histogram",
+    );
+    for shard in shards {
+        let snap = shard.statement_embed_metrics().snapshot();
+        let inner = format!("shard=\"{}\"", shard.shard_id());
+        emit_worker_histogram(
+            out,
+            "brain_statement_embed_batch_duration_seconds",
+            &inner,
+            &snap.batch_duration_seconds,
+        );
     }
 }
 

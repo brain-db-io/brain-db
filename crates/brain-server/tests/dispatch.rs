@@ -32,6 +32,9 @@ use tokio::net::TcpStream;
 // Pull every brain-server source the connection layer reaches into the
 // test binary so `crate::` resolves the same as in main.rs.
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -117,6 +120,14 @@ async fn start_with_shards(n_shards: usize, limits: ConnectionLimits) -> Server 
     let routing = Arc::new(arc_swap::ArcSwap::from_pointee(
         RoutingTable::new(n_shards as u16, std::collections::HashMap::new()).unwrap(),
     ));
+    let __auth_store = {
+        let tmp = tempfile::TempDir::new().expect("tmpdir");
+        let p = tmp.path().join("api_keys.redb");
+        let store =
+            std::sync::Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        std::mem::forget(tmp);
+        store
+    };
     let topology = Topology {
         shards: Arc::new(handles.clone()),
         routing,
@@ -125,6 +136,7 @@ async fn start_with_shards(n_shards: usize, limits: ConnectionLimits) -> Server 
             vec![AuthMethod::None],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
+        auth_store: __auth_store.clone(),
     };
 
     let (trigger, signal) = ShutdownSignal::channel();
@@ -574,6 +586,7 @@ async fn recall_returns_single_frame_eos_in_v1() {
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
         txn_id: None,
+        rerank: false,
     };
     send_frame(
         &mut client,

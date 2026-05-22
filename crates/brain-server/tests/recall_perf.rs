@@ -242,6 +242,7 @@ fn recall_req(txn_id: Option<[u8; 16]>) -> RecallRequest {
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
         txn_id,
+        rerank: false,
     }
 }
 
@@ -273,9 +274,9 @@ async fn measure(fix: &Fixture, txn_id: Option<[u8; 16]>) -> (Duration, Duration
 }
 
 // ---------------------------------------------------------------------------
-// PERF1A — substrate-only path. Reached by `handle_recall` when a
+// PERF1A — memory-HNSW-only path. Reached by `handle_recall` when a
 // txn is attached; gated at 1 ms p95 because there's no fusion, no
-// tantivy round-trip, no graph traversal — just the substrate HNSW.
+// tantivy round-trip, no graph traversal — just the memory HNSW.
 // ---------------------------------------------------------------------------
 
 #[test]

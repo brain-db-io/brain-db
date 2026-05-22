@@ -15,11 +15,11 @@
 
 use brain_core::knowledge::{Entity, EntityType, Relation};
 use brain_core::{EntityId, ExtractorId, RelationId, RelationTypeId};
-use brain_metadata::entity_ops::{entity_put, normalize_name};
-use brain_metadata::relation_ops::{
+use brain_metadata::entity::ops::{entity_put, normalize_name};
+use brain_metadata::relation::ops::{
     relation_create, relation_get, relation_list_from, RelationListFilter,
 };
-use brain_metadata::relation_traversal::{traverse, TraversalConfig, TraversalDirection};
+use brain_metadata::relation::traversal::{traverse, TraversalConfig, TraversalDirection};
 use brain_metadata::MetadataDb;
 use criterion::{black_box, criterion_group, Criterion};
 use tempfile::TempDir;

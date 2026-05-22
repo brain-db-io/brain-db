@@ -34,6 +34,8 @@ async fn encode_round_trip() {
             edges_out_count: 0,
             embedding_model_fp: [0; 16],
             pending_stages: Vec::new(),
+            has_active_schema: false,
+            has_llm_extractor: false,
         };
         common::write_frame(
             &mut socket,

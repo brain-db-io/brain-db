@@ -13,7 +13,7 @@
 //!   `client.recall_hybrid` SDK verb).
 //!
 //! End-to-end against a real shard lives in
-//! `crates/brain-server/tests/knowledge_query_wire.rs`; this
+//! `crates/brain-server/tests/query_wire.rs`; this
 //! file covers the SDK side without the storage stack.
 
 mod common;

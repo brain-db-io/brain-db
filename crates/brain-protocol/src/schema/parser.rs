@@ -231,6 +231,7 @@ fn parse_predicate_def(pair: Pair<'_, Rule>) -> Result<PredicateDef, ParseError>
     let mut name = String::new();
     let mut kind: Option<StatementKindAst> = None;
     let mut object: Option<ObjectTypeDecl> = None;
+    let mut stateful: Option<bool> = None;
     let mut description: Option<String> = None;
 
     for child in pair.into_inner() {
@@ -249,6 +250,13 @@ fn parse_predicate_def(pair: Pair<'_, Rule>) -> Result<PredicateDef, ParseError>
                     .find(|p| p.as_rule() == Rule::object_type)
                     .expect("object field always has object_type child");
                 object = Some(parse_object_type(obj_pair));
+            }
+            Rule::predicate_stateful_field => {
+                let b = child
+                    .into_inner()
+                    .find(|p| p.as_rule() == Rule::bool_literal)
+                    .expect("stateful field always has bool_literal child");
+                stateful = Some(b.as_str() == "true");
             }
             Rule::predicate_description_field => {
                 let s = child
@@ -276,6 +284,7 @@ fn parse_predicate_def(pair: Pair<'_, Rule>) -> Result<PredicateDef, ParseError>
         name,
         kind,
         object,
+        stateful,
         description,
     })
 }
@@ -1017,6 +1026,69 @@ mod tests {
             }
         );
         assert_eq!(p.description.as_deref(), Some("user preference"));
+        // No explicit stateful keyword → AST carries None; resolution
+        // happens at intern time (Preference defaults to true).
+        assert_eq!(p.stateful, None);
+        assert!(p.resolved_stateful());
+    }
+
+    #[test]
+    fn predicate_def_with_explicit_stateful_true() {
+        let src = r#"
+            namespace t
+            define predicate works_at {
+                kind: Fact
+                object: Entity<Organization>
+                stateful: true
+            }
+        "#;
+        let s = parse_ok(src);
+        let SchemaItem::Predicate(p) = &s.items[0] else {
+            panic!("predicate expected")
+        };
+        assert_eq!(p.kind, StatementKindAst::Fact);
+        assert_eq!(p.stateful, Some(true));
+        assert!(
+            p.resolved_stateful(),
+            "explicit stateful: true overrides Fact default"
+        );
+    }
+
+    #[test]
+    fn predicate_def_with_explicit_stateful_false_on_preference() {
+        // Preference's natural default is stateful: true; an author
+        // may opt out to make it cumulative.
+        let src = r#"
+            namespace t
+            define predicate liked_song {
+                kind: Preference
+                object: Value<text>
+                stateful: false
+            }
+        "#;
+        let s = parse_ok(src);
+        let SchemaItem::Predicate(p) = &s.items[0] else {
+            panic!("predicate expected")
+        };
+        assert_eq!(p.stateful, Some(false));
+        assert!(!p.resolved_stateful());
+    }
+
+    #[test]
+    fn predicate_def_fact_default_is_cumulative() {
+        let src = r#"
+            namespace t
+            define predicate mentions {
+                kind: Fact
+                object: Entity<Person>
+            }
+        "#;
+        let s = parse_ok(src);
+        let SchemaItem::Predicate(p) = &s.items[0] else {
+            panic!("predicate expected")
+        };
+        assert_eq!(p.stateful, None);
+        assert!(!p.resolved_stateful(), "Fact defaults to cumulative");
     }
 
     #[test]

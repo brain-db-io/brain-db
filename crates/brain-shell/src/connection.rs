@@ -8,12 +8,12 @@ use brain_core::AgentId;
 use brain_sdk_rust::{Client, ClientConfig, ClientError, PoolConfig};
 
 /// Shell pool size. Two connections is the minimum for the
-/// hold-a-stream-while-running-a-write pattern that
-/// `encode --wait-for-extraction` relies on: one connection for
-/// the open SUBSCRIBE stream, one for the ENCODE round-trip. A
-/// `PoolConfig::single()` would deadlock — the subscribe stream
-/// borrows the only connection until we close it, so the encode
-/// blocks indefinitely on `acquire`.
+/// hold-a-stream-while-running-a-write pattern that `encode --wait`
+/// relies on: one connection for the open SUBSCRIBE stream, one
+/// for the ENCODE round-trip. A `PoolConfig::single()` would
+/// deadlock — the subscribe stream borrows the only connection
+/// until we close it, so the encode blocks indefinitely on
+/// `acquire`.
 const SHELL_POOL_SIZE: u32 = 4;
 
 /// Open a `Client` to `addr` configured with shell defaults.

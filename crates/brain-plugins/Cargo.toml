@@ -1,0 +1,15 @@
+[package]
+name = "brain-plugins"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+description = "Plugin surface (enricher + connector) for the Brain knowledge pipeline."
+
+[dependencies]
+brain-core = { path = "../brain-core" }
+brain-extractors = { path = "../brain-extractors" }
+thiserror.workspace = true
+tracing.workspace = true
+serde_json = { workspace = true }

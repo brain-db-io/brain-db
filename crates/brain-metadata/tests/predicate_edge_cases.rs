@@ -12,7 +12,7 @@
 //! - `NAME_MAX_LEN = 64` (64 accepted, 65 rejected).
 //! - Special chars rejected.
 
-use brain_metadata::predicate_ops::{
+use brain_metadata::schema::predicate::{
     predicate_intern_or_get, predicate_lookup_by_qname, PredicateOpError, NAMESPACE_MAX_LEN,
     NAME_MAX_LEN,
 };

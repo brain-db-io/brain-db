@@ -7,7 +7,7 @@
 //! `(NodeRef from, EdgeKindRef kind, NodeRef to, disambiguator)`. The
 //! kind component is variable-length so a prefix scan on `(from, *, *)`
 //! returns substrate edges (the smallest tag) first, then mentions,
-//! then typed relations — substrate-only deployments never pay decode
+//! then typed relations — no-schema deployments never pay decode
 //! cost for the typed-relation suffix.
 //!
 //! ## Why `Typed` carries `RelationTypeId`, not `RelationId`

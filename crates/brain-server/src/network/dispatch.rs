@@ -31,9 +31,10 @@ use brain_core::AgentId;
 use brain_ops::error::OpError;
 use brain_protocol::error::ErrorCode;
 use brain_protocol::handshake::{
-    AgentPermissions, AuthCredentials, AuthMethod, AuthOkPayload, AuthPayload, HelloPayload,
-    ServerCapabilities, WelcomePayload,
+    AgentPermissions, AuthOkPayload, AuthPayload, HelloPayload, ServerCapabilities, WelcomePayload,
 };
+
+use crate::auth::{derive_scope_from_handshake, AuthError, AuthStore, RequestScope};
 use brain_protocol::opcode::Opcode;
 use brain_protocol::request::RequestBody;
 use brain_protocol::response::{
@@ -57,6 +58,11 @@ pub(crate) enum ConnPhase {
         agent: AgentId,
         bound_shard: u16,
         permissions: AgentPermissions,
+        /// Resolved scope for this connection. In permissive mode
+        /// (no `BRAIN_REQUIRE_SCOPED_API_KEYS`) this is permissive
+        /// over the agent the client claimed; in strict mode it's
+        /// derived from the API key.
+        scope: RequestScope,
     },
 }
 
@@ -93,6 +99,9 @@ pub struct Topology {
     /// Per-operation request metrics (12.1b). Shared with the admin
     /// exposition path via `AdminState::request_metrics`.
     pub request_metrics: Arc<crate::metrics::request::RequestMetrics>,
+    /// Scope-bound API key store. The AUTH handler resolves the
+    /// presented secret here and stamps the result on `ConnPhase`.
+    pub auth_store: Arc<AuthStore>,
 }
 
 // ---------------------------------------------------------------------------
@@ -127,14 +136,11 @@ pub(crate) struct OpDispatch {
     pub(crate) stream_id: u32,
     pub(crate) req: RequestBody,
     pub(crate) target_shard: u16,
-    /// Authenticated agent from the connection's
-    /// `ConnPhase::Established.agent`. Threaded through to
-    /// `brain_ops::dispatch` so writer Ops carry per-request
-    /// identity instead of the per-shard default. Defaults to
-    /// `AgentId::default()` when the request rides through before
-    /// auth completes — handlers treat that as "anonymous /
-    /// substrate-wide."
-    pub(crate) caller_agent: AgentId,
+    /// Resolved AUTH-time scope (org / user / namespace / agent /
+    /// permissions). Threaded into `brain_ops::dispatch` as a
+    /// `RequestCaller` so handlers read scope from here instead of
+    /// trusting client-supplied fields.
+    pub(crate) scope: RequestScope,
 }
 
 pub(crate) struct SubscribeStart {
@@ -216,10 +222,10 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
     }
 
     // Everything else requires `Established`.
-    let (agent, bound_shard) = match &state.phase {
+    let (bound_shard, scope) = match &state.phase {
         ConnPhase::Established {
-            agent, bound_shard, ..
-        } => (*agent, *bound_shard),
+            bound_shard, scope, ..
+        } => (*bound_shard, scope.clone()),
         _ => {
             return Action::Inline(error_frame(
                 frame.header.stream_id_u32(),
@@ -287,11 +293,12 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         stream_id: frame.header.stream_id_u32(),
         req,
         target_shard,
-        // Stamp the auth-time agent on every dispatched op so the
-        // writer's event publish carries it — closing the shared-
-        // shard cross-agent leak the `agents` subscribe filter
-        // needs to enforce.
-        caller_agent: agent,
+        // Stamp the AUTH-bound scope on every dispatched op. Handlers
+        // read agent / namespace / permissions from this object and
+        // ignore whatever the client supplied — the shared-shard
+        // cross-agent leak the `agents` subscribe filter needs to
+        // enforce closes here.
+        scope,
     })
 }
 
@@ -359,52 +366,54 @@ fn on_auth(frame: Frame, state: &mut ConnState, topology: &Topology) -> Action {
         }
     };
 
-    // v1 dev-only: only `AuthMethod::None` is accepted. Token/Mtls land
-    // when 9.x adds a real auth backend.
-    if !matches!(auth.method, AuthMethod::None)
-        || !matches!(auth.credentials, AuthCredentials::None)
-    {
-        return Action::CloseWith(error_frame(
-            0,
-            ErrorCode::NoSuchAuthMethod,
-            "only AuthMethod::None is wired in v1",
-        ));
-    }
+    // The server still advertises its accepted methods; reject anything
+    // the policy doesn't allow. Both `Token` (scoped API key) and
+    // `None` (dev / trusted-network mode) flow through `derive_scope`.
     if !topology
         .server_caps
         .server_features
         .auth_methods
         .iter()
-        .any(|m| matches!(m, AuthMethod::None))
+        .any(|m| std::mem::discriminant(m) == std::mem::discriminant(&auth.method))
     {
         return Action::CloseWith(error_frame(
             0,
             ErrorCode::NoSuchAuthMethod,
-            "server policy forbids unauthenticated connections",
+            "auth method not in server policy",
         ));
     }
 
-    let agent = AgentId(uuid::Uuid::from_bytes(auth.agent_id));
+    let scope = match derive_scope_from_handshake(&auth, &topology.auth_store) {
+        Ok(s) => s,
+        Err(e) => {
+            let code = match e {
+                AuthError::Missing | AuthError::Unknown | AuthError::Revoked => {
+                    ErrorCode::Unauthenticated
+                }
+                AuthError::PolicyForbidsAnonymous => ErrorCode::NoSuchAuthMethod,
+                AuthError::Storage(_) => ErrorCode::Internal,
+            };
+            return Action::CloseWith(error_frame(0, code, &e.to_string()));
+        }
+    };
+
+    let agent = scope.agent_id;
     // Refcount-bump load. The published table may swap between AUTH
     // and a later request; both observers see a coherent snapshot.
     let routing = topology.routing.load_full();
     let bound_shard = routing.shard_for_agent(agent);
-    let permissions = AgentPermissions {
-        can_encode: true,
-        can_recall: true,
-        can_plan: true,
-        can_reason: true,
-        can_forget: true,
-        can_admin: false,
-    };
+    let permissions = scope.to_agent_permissions();
     state.phase = ConnPhase::Established {
         agent,
         bound_shard,
         permissions,
+        scope: scope.clone(),
     };
 
     let auth_ok = AuthOkPayload {
-        agent_id: auth.agent_id,
+        // Echo the AUTH-bound agent (which may differ from what the
+        // client claimed when strict mode is on).
+        agent_id: *agent.0.as_bytes(),
         bound_shard_id: bound_shard,
         permissions,
         server_time_unix_nanos: now_unix_nanos(),
@@ -467,10 +476,7 @@ pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>
             );
         }
     };
-    match shard
-        .dispatch_op(op.req, brain_ops::RequestCaller::new(op.caller_agent))
-        .await
-    {
+    match shard.dispatch_op(op.req, op.scope.to_caller()).await {
         Ok(body) => {
             // 9.10 ships single-frame EOS responses. Multi-frame
             // streaming for RECALL / PLAN / REASON is 9.11.
@@ -651,6 +657,15 @@ mod tests {
     use brain_protocol::handshake::{AuthMethod, HelloCapabilities};
 
     fn test_topology() -> Topology {
+        let tmp = tempfile::tempdir().expect("tmpdir");
+        let auth_store = Arc::new(
+            crate::auth::AuthStore::open(tmp.path().join("api_keys.redb"), false)
+                .expect("open auth store"),
+        );
+        // Leak the tempdir into a 'static slot — we want the file alive
+        // for the lifetime of the test, and the per-test `Topology` is
+        // dropped at the end of the test anyway.
+        std::mem::forget(tmp);
         Topology {
             shards: Arc::new(Vec::new()),
             routing: Arc::new(arc_swap::ArcSwap::from_pointee(
@@ -658,9 +673,10 @@ mod tests {
             )),
             server_caps: Arc::new(ServerCapabilities::v1_default(
                 "brain-server/test",
-                vec![AuthMethod::None],
+                vec![AuthMethod::None, AuthMethod::Token],
             )),
             request_metrics: Arc::new(crate::metrics::request::RequestMetrics::new()),
+            auth_store,
         }
     }
 

@@ -14,37 +14,56 @@
 //!    trigrams. If the best candidate's score exceeds
 //!    [`DEFAULT_FUZZY_THRESHOLD`], add the surface form as an alias
 //!    and return that EntityId.
-//! 4. **Create** — mint a fresh UUIDv7 EntityId, intern the type if
-//!    needed, and write the entity row.
+//! 4. **Embedding (HNSW + cosine)** — when the caller wires an entity
+//!    HNSW and an embedder, embed the surface form and ask the HNSW
+//!    for the top-K nearest entities (`type_id`-filtered). If the top
+//!    score is at or above [`EMBED_RESOLVE_THRESHOLD`], add the
+//!    surface form as an alias and return that EntityId. This catches
+//!    paraphrases trigrams miss (e.g. "Stripe Inc." vs
+//!    "Stripe Payments").
+//! 5. **Create** — mint a fresh UUIDv7 EntityId, intern the type if
+//!    needed, embed the canonical name (when an HNSW is wired), and
+//!    write the entity row + the HNSW slot. Synchronous population
+//!    means subsequent resolves can hit the embedding tier immediately;
+//!    a worker-driven HNSW backfill isn't required because entity
+//!    creation is rare relative to statement creation.
 //!
 //! Determinism comes from the lookup contract: given the same DB
 //! state + same surface form, the resolver always returns the same
-//! EntityId. Tier-4 creates use UUIDv7 (time + random), so two
+//! EntityId. Tier-5 creates use UUIDv7 (time + random), so two
 //! independent resolves of the same brand-new surface form against
-//! the same DB produce different IDs only if both observe a tier-1/2/3
-//! miss — which is the intended split-brain semantics for two
-//! simultaneous extractions.
+//! the same DB produce different IDs only if both observe a
+//! tier-1/2/3/4 miss — which is the intended split-brain semantics
+//! for two simultaneous extractions.
 //!
-//! Phase E does not consult the entity HNSW (tier-3 in the §18/01
-//! gauntlet) because the pipeline doesn't currently embed surface
-//! forms. The trigram index covers the same "near-miss" case at lower
-//! cost. A future phase wiring an entity-embedding pipeline can layer
-//! HNSW lookups in front of the trigram tier without changing this
-//! crate's public API.
+//! The embedding threshold defaults to 0.78 cosine. Operators can
+//! tighten or loosen it via `BRAIN_RESOLVER_EMBED_THRESHOLD` (parsed
+//! as an f32 in `[0.0, 1.0]`; invalid values fall back to the
+//! default with a `tracing::warn!`). Callers that have no HNSW or no
+//! embedder pass `None` for either and the tier silently skips —
+//! the gauntlet still flows through tier-1/2/3/5 unchanged.
 
 use std::collections::HashSet;
+use std::sync::Arc;
 
 use brain_core::knowledge::trigrams;
+use brain_core::MergeId;
 use brain_core::{Entity, EntityId, EntityTypeId};
-use brain_metadata::entity_ops::{entity_add_alias, entity_put, normalize_name, EntityOpError};
-use brain_metadata::entity_type_ops::{
+use brain_embed::Dispatcher;
+use brain_index::entity_hnsw::EntityHnswIndex;
+use brain_index::VECTOR_DIM;
+use brain_metadata::entity::ops::{entity_add_alias, entity_put, normalize_name, EntityOpError};
+use brain_metadata::entity::review::{enqueue_merge_proposal, MergeReviewError};
+use brain_metadata::entity::trigram::TrigramOpError;
+use brain_metadata::entity::types::{
     entity_type_intern, entity_type_lookup_by_name, EntityTypeOpError,
 };
-use brain_metadata::tables::knowledge::entity::{
+use brain_metadata::tables::entity::{
     EntityMetadata, ENTITIES_TABLE, ENTITY_ALIASES_TABLE, ENTITY_BY_CANONICAL_NAME_TABLE,
     ENTITY_TRIGRAMS_TABLE,
 };
-use brain_metadata::trigram_ops::TrigramOpError;
+use brain_metadata::tables::merge_review_queue::proposal_tier;
+use parking_lot::RwLock;
 use redb::{ReadableTable, WriteTransaction};
 
 /// Jaccard floor for tier-3 fuzzy matching. Below this, the resolver
@@ -55,6 +74,74 @@ use redb::{ReadableTable, WriteTransaction};
 /// transposition halves Jaccard).
 pub const DEFAULT_FUZZY_THRESHOLD: f32 = 0.75;
 
+/// Default cosine floor for tier-3 embedding lookups. A surface form
+/// whose top embedding-HNSW neighbour scores at or above this is
+/// accepted as an alias of that entity. The 0.78 default tracks the
+/// spec's "Tier 3 — embedding HNSW" guidance.
+pub const EMBED_RESOLVE_THRESHOLD: f32 = 0.78;
+
+/// Floor for the confidence-banded merge-review queue. A surface form
+/// whose top embedding-HNSW neighbour scores in
+/// `[PARTIAL_MATCH_FLOOR, EMBED_RESOLVE_THRESHOLD)` is treated as a
+/// "close but not confident" near-miss — the resolver creates a fresh
+/// entity for the new surface form and enqueues a `Pending`
+/// `MergeReviewProposal` so the ambiguity-resolver worker can re-check
+/// the pair as the entity HNSW grows.
+///
+/// Lower than the auto-alias threshold (0.78) and higher than the
+/// floor below which the candidate is not even considered (0.7).
+/// Spec §18/03 §4.2 — "0.7 to 0.95 goes to review".
+pub const PARTIAL_MATCH_FLOOR: f32 = 0.7;
+
+/// Env-var override for [`EMBED_RESOLVE_THRESHOLD`]. Parsed as an
+/// f32 in `[0.0, 1.0]`; invalid / out-of-range values fall back to
+/// the default with a `tracing::warn!`.
+pub const EMBED_RESOLVE_THRESHOLD_ENV: &str = "BRAIN_RESOLVER_EMBED_THRESHOLD";
+
+/// Top-K asked of the entity HNSW during a tier-3 embedding probe.
+/// 8 balances "enough candidates to break a near-tie" against the
+/// cost of `entity_get`-ing each one for the type-filter pass.
+const EMBED_RESOLVE_TOP_K: usize = 8;
+
+/// Resolved effective threshold for the current process. Reads the
+/// env var once (per call) so tests can flip it inside `with_var`.
+fn embed_resolve_threshold() -> f32 {
+    parse_embed_threshold_env(std::env::var(EMBED_RESOLVE_THRESHOLD_ENV).ok().as_deref())
+}
+
+/// Pure-logic parser for [`EMBED_RESOLVE_THRESHOLD_ENV`]. Exposed for
+/// unit tests that don't want to race the process-wide env.
+pub fn parse_embed_threshold_env(raw: Option<&str>) -> f32 {
+    let Some(raw) = raw else {
+        return EMBED_RESOLVE_THRESHOLD;
+    };
+    if raw.is_empty() {
+        return EMBED_RESOLVE_THRESHOLD;
+    }
+    match raw.parse::<f32>() {
+        Ok(v) if (0.0..=1.0).contains(&v) => v,
+        Ok(v) => {
+            tracing::warn!(
+                target: "brain_extractors::resolver",
+                env_var = EMBED_RESOLVE_THRESHOLD_ENV,
+                value = v,
+                "embed-resolve threshold outside [0.0, 1.0]; using default",
+            );
+            EMBED_RESOLVE_THRESHOLD
+        }
+        Err(e) => {
+            tracing::warn!(
+                target: "brain_extractors::resolver",
+                env_var = EMBED_RESOLVE_THRESHOLD_ENV,
+                value = %raw,
+                error = %e,
+                "embed-resolve threshold env var is not a valid f32; using default",
+            );
+            EMBED_RESOLVE_THRESHOLD
+        }
+    }
+}
+
 /// Outcome of one resolve attempt. The worker uses the tier to bump
 /// per-tier counters on the pipeline audit row.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -62,6 +149,7 @@ pub enum ResolutionTier {
     Exact,
     Alias,
     Fuzzy,
+    Embedding,
     Created,
 }
 
@@ -88,6 +176,9 @@ pub enum ResolverError {
 
     #[error("trigram op: {0}")]
     TrigramOp(#[from] TrigramOpError),
+
+    #[error("merge-review queue: {0}")]
+    MergeReview(#[from] MergeReviewError),
 
     #[error("redb storage error: {0}")]
     Storage(#[from] redb::StorageError),
@@ -196,16 +287,62 @@ fn trigram_candidates_wtxn(
     Ok(out)
 }
 
+/// Embedding-tier handles bundled together. Callers wire both or
+/// neither: an HNSW without an embedder can't be queried, and an
+/// embedder without an HNSW has nowhere to send the vector. `None`
+/// (the caller's choice) makes the resolver skip tier-3b cleanly
+/// and the gauntlet collapses to the legacy 1/2/3a/4 flow.
+#[derive(Clone)]
+pub struct EmbeddingDeps {
+    pub hnsw: Arc<RwLock<EntityHnswIndex>>,
+    pub embedder: Arc<dyn Dispatcher>,
+}
+
+impl std::fmt::Debug for EmbeddingDeps {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EmbeddingDeps").finish_non_exhaustive()
+    }
+}
+
+/// Resolve `surface_form` against the entity registry without the
+/// embedding tier. Equivalent to
+/// [`resolve_or_create_with_hnsw`] called with `deps: None`.
+pub fn resolve_or_create(
+    wtxn: &WriteTransaction,
+    surface_form: &str,
+    entity_type_qname: &str,
+    confidence: f32,
+    now_unix_nanos: u64,
+) -> Result<Resolution, ResolverError> {
+    resolve_or_create_with_hnsw(
+        wtxn,
+        surface_form,
+        entity_type_qname,
+        confidence,
+        now_unix_nanos,
+        None,
+    )
+}
+
 /// Resolve `surface_form` against the entity registry, creating a new
 /// entity if no tier matched. The caller drives the txn; all reads +
 /// writes happen inside it so the resolver's outcome is atomic with
 /// downstream writes (mention edges, statement creation).
-pub fn resolve_or_create(
+///
+/// When `embed_deps` is `Some`, the resolver consults the entity
+/// HNSW between the trigram-fuzzy tier and the create tier, and
+/// inserts the canonical-name embedding of every newly-minted entity
+/// into the HNSW so the next resolve of a paraphrase can short-circuit
+/// at tier-3b. Failures inside the embedding path (embedder errors,
+/// HNSW lock contention) degrade gracefully: the resolver logs at
+/// `warn` and falls through to the next tier, never aborts the txn.
+pub fn resolve_or_create_with_hnsw(
     wtxn: &WriteTransaction,
     surface_form: &str,
     entity_type_qname: &str,
     _confidence: f32,
     now_unix_nanos: u64,
+    embed_deps: Option<&EmbeddingDeps>,
 ) -> Result<Resolution, ResolverError> {
     let normalized = normalize_name(surface_form);
     if normalized.is_empty() {
@@ -235,7 +372,7 @@ pub fn resolve_or_create(
         });
     }
 
-    // Tier 3 — trigram fuzzy lookup. Candidates whose Jaccard against
+    // Tier 3a — trigram fuzzy lookup. Candidates whose Jaccard against
     // the query is above `DEFAULT_FUZZY_THRESHOLD` get the surface
     // form added as an alias and are returned as the match.
     let candidate_ids = trigram_candidates_wtxn(wtxn, type_id, &normalized)?;
@@ -269,6 +406,40 @@ pub fn resolve_or_create(
         }
     }
 
+    // Tier 3b — embedding HNSW. The trigram tier above misses
+    // paraphrases ("Stripe Inc." vs "Stripe Payments"); a semantic
+    // similarity probe catches those without growing the alias index
+    // pre-emptively.
+    //
+    // The probe also surfaces "close but not confident" candidates in
+    // the `[PARTIAL_MATCH_FLOOR, EMBED_RESOLVE_THRESHOLD)` band. Those
+    // do NOT auto-alias — they're queued for the ambiguity-resolver
+    // worker, which re-checks them as the HNSW grows.
+    let mut partial_match: Option<(EntityId, f32)> = None;
+    if let Some(deps) = embed_deps {
+        match tier_embedding(deps, type_id, surface_form, wtxn) {
+            Ok(EmbeddingProbe::AutoAlias { entity_id, .. }) => {
+                entity_add_alias(wtxn, entity_id, surface_form.to_string(), now_unix_nanos)?;
+                return Ok(Resolution {
+                    entity_id,
+                    tier: ResolutionTier::Embedding,
+                });
+            }
+            Ok(EmbeddingProbe::PartialMatch { entity_id, score }) => {
+                partial_match = Some((entity_id, score));
+            }
+            Ok(EmbeddingProbe::None) => {}
+            Err(reason) => {
+                tracing::warn!(
+                    target: "brain_extractors::resolver",
+                    surface_form,
+                    reason,
+                    "tier-3 embedding probe failed; falling through to create",
+                );
+            }
+        }
+    }
+
     // Tier 4 — create. UUIDv7 makes the new id roughly time-ordered;
     // re-running this branch with the same surface form produces a
     // different id because the previous one is still around for
@@ -283,10 +454,155 @@ pub fn resolve_or_create(
     );
     entity.mention_count = 1;
     entity_put(wtxn, &entity)?;
+
+    // Populate the entity HNSW so the next paraphrase can hit tier-3b.
+    // Failures here are non-fatal: the entity row is durable; the
+    // worst case is a near-miss future resolve.
+    if let Some(deps) = embed_deps {
+        if let Err(reason) = insert_into_entity_hnsw(deps, new_id, surface_form) {
+            tracing::warn!(
+                target: "brain_extractors::resolver",
+                entity_id = ?new_id,
+                reason,
+                "tier-4 entity-HNSW population failed; entity is durable but unreachable via tier-3b until a rebuild",
+            );
+        }
+    }
+
+    // Tier 3b near-miss: the embedding probe spotted a candidate in
+    // the partial-match band. Enqueue a `Pending` merge proposal so
+    // the ambiguity-resolver worker can re-check the pair after the
+    // HNSW absorbs more aliases / paraphrases. The new entity has
+    // already been written above — the worker will merge the new
+    // entity into the candidate if the recomputed cosine clears the
+    // auto-apply threshold.
+    if let Some((candidate, score)) = partial_match {
+        let proposal_id = MergeId::new();
+        enqueue_merge_proposal(
+            wtxn,
+            proposal_id,
+            new_id,
+            candidate,
+            score,
+            proposal_tier::EMBEDDING,
+            now_unix_nanos,
+        )?;
+    }
+
     Ok(Resolution {
         entity_id: new_id,
         tier: ResolutionTier::Created,
     })
+}
+
+/// Outcome of one tier-3b embedding probe.
+#[derive(Debug, Clone, Copy, PartialEq)]
+enum EmbeddingProbe {
+    /// Top neighbour cleared [`EMBED_RESOLVE_THRESHOLD`]; the resolver
+    /// auto-aliases the surface form to this entity.
+    AutoAlias { entity_id: EntityId, score: f32 },
+    /// Top neighbour scored in
+    /// `[PARTIAL_MATCH_FLOOR, EMBED_RESOLVE_THRESHOLD)`; the resolver
+    /// mints a fresh entity AND enqueues a `Pending` proposal.
+    PartialMatch { entity_id: EntityId, score: f32 },
+    /// No neighbour above the floor — the probe contributes nothing.
+    None,
+}
+
+/// Tier-3b worker: embed the surface form, ask the HNSW for the top-K
+/// nearest entities, type-filter, classify the top score against the
+/// auto-alias / partial-match / drop thresholds.
+///
+/// - `score >= EMBED_RESOLVE_THRESHOLD` → [`EmbeddingProbe::AutoAlias`].
+/// - `PARTIAL_MATCH_FLOOR <= score < EMBED_RESOLVE_THRESHOLD`
+///   → [`EmbeddingProbe::PartialMatch`].
+/// - `score < PARTIAL_MATCH_FLOOR` or no candidate → [`EmbeddingProbe::None`].
+/// - `Err(reason)` for transient backend failures (embedder, HNSW lock).
+fn tier_embedding(
+    deps: &EmbeddingDeps,
+    type_id: EntityTypeId,
+    surface_form: &str,
+    wtxn: &WriteTransaction,
+) -> Result<EmbeddingProbe, String> {
+    let threshold = embed_resolve_threshold();
+    let vector = deps
+        .embedder
+        .embed(surface_form)
+        .map_err(|e| format!("embedder failed: {e}"))?;
+    let hits = {
+        let hnsw = deps.hnsw.read();
+        if hnsw.is_empty() {
+            return Ok(EmbeddingProbe::None);
+        }
+        hnsw.search(&vector, EMBED_RESOLVE_TOP_K)
+            .map_err(|e| format!("hnsw search failed: {e}"))?
+    };
+    if hits.is_empty() {
+        return Ok(EmbeddingProbe::None);
+    }
+    // Filter by entity_type. The HNSW shares one global index for all
+    // entity types per shard, so a Person lookup might surface an
+    // Organization neighbour at the top; pre-filtering before
+    // threshold-checking keeps us honest.
+    let typed_hits: Vec<(EntityId, f32)> = hits
+        .into_iter()
+        .filter_map(|(eid, score)| match read_entity_type(wtxn, eid) {
+            Ok(Some(t)) if t == type_id => Some((eid, score)),
+            _ => None,
+        })
+        .collect();
+    if typed_hits.is_empty() {
+        return Ok(EmbeddingProbe::None);
+    }
+    let (best_id, best_score) = typed_hits[0];
+    if best_score >= threshold {
+        return Ok(EmbeddingProbe::AutoAlias {
+            entity_id: best_id,
+            score: best_score,
+        });
+    }
+    if best_score >= PARTIAL_MATCH_FLOOR {
+        return Ok(EmbeddingProbe::PartialMatch {
+            entity_id: best_id,
+            score: best_score,
+        });
+    }
+    Ok(EmbeddingProbe::None)
+}
+
+/// Read just the `entity_type_id` field for `id` inside an existing
+/// write txn. Lighter than `entity_get_inside_wtxn` (no aliases, no
+/// blob decoding) — tier-3b only needs the type filter.
+fn read_entity_type(
+    wtxn: &WriteTransaction,
+    id: EntityId,
+) -> Result<Option<EntityTypeId>, ResolverError> {
+    let t = wtxn.open_table(ENTITIES_TABLE)?;
+    let row: Option<EntityMetadata> = t.get(&id.to_bytes())?.map(|g| g.value());
+    Ok(row.map(|m| EntityTypeId::from(m.entity_type_id)))
+}
+
+/// Embed the entity's canonical name and insert into the HNSW. Best-
+/// effort: returns `Err(reason)` so the caller can decide whether to
+/// log or proceed. The resolver currently logs at `warn` and proceeds
+/// (the entity row is already committed; tier-3b becomes unreachable
+/// for paraphrases of this entity until a future HNSW rebuild).
+fn insert_into_entity_hnsw(
+    deps: &EmbeddingDeps,
+    entity_id: EntityId,
+    canonical_name: &str,
+) -> Result<(), String> {
+    let vector: [f32; VECTOR_DIM] = deps
+        .embedder
+        .embed(canonical_name)
+        .map_err(|e| format!("embedder failed: {e}"))?;
+    let mut hnsw = deps.hnsw.write();
+    if hnsw.contains(entity_id) {
+        return Ok(());
+    }
+    hnsw.insert(entity_id, &vector)
+        .map_err(|e| format!("hnsw insert failed: {e}"))?;
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -297,7 +613,7 @@ pub fn resolve_or_create(
 mod tests {
     use super::*;
     use brain_core::EntityType;
-    use brain_metadata::entity_ops::entity_get;
+    use brain_metadata::entity::ops::entity_get;
     use brain_metadata::MetadataDb;
     use tempfile::TempDir;
 
@@ -453,6 +769,409 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let def = entity_type_lookup_by_name(&wtxn, "Organization").unwrap();
         assert!(def.is_some());
+        wtxn.commit().unwrap();
+    }
+
+    // ----- Tier 3 embedding -----------------------------------------------
+
+    use brain_embed::EmbedError;
+    use brain_index::entity_hnsw::EntityHnswParams;
+    use std::collections::HashMap;
+    use std::sync::Mutex as StdMutex;
+
+    /// Deterministic embedder driven by a `name → vector` table.
+    /// Surface forms not in the table return a unit-axis vector that
+    /// is far from every fixture (axis chosen via blake3 hash) so the
+    /// "below threshold" branch is reproducible.
+    struct ScriptedEmbedder {
+        table: StdMutex<HashMap<String, [f32; VECTOR_DIM]>>,
+    }
+
+    impl ScriptedEmbedder {
+        fn new() -> Self {
+            Self {
+                table: StdMutex::new(HashMap::new()),
+            }
+        }
+
+        fn set(&self, key: &str, v: [f32; VECTOR_DIM]) {
+            self.table.lock().unwrap().insert(key.to_string(), v);
+        }
+    }
+
+    impl Dispatcher for ScriptedEmbedder {
+        fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+            if let Some(v) = self.table.lock().unwrap().get(text).copied() {
+                return Ok(v);
+            }
+            // Fallback: deterministic far vector keyed off the text
+            // hash. Distinct keys land on distinct axes so they're
+            // orthogonal (cosine = 0) to the fixture vectors.
+            let h = blake3::hash(text.as_bytes());
+            let axis = (u32::from_le_bytes([
+                h.as_bytes()[0],
+                h.as_bytes()[1],
+                h.as_bytes()[2],
+                h.as_bytes()[3],
+            ]) as usize
+                % (VECTOR_DIM - 32))
+                + 32;
+            let mut v = [0.0_f32; VECTOR_DIM];
+            v[axis] = 1.0;
+            Ok(v)
+        }
+
+        fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+            texts.iter().map(|t| self.embed(t)).collect()
+        }
+
+        fn fingerprint(&self) -> [u8; 16] {
+            [0x77; 16]
+        }
+    }
+
+    /// Build a sparse unit vector that is mostly along axis `peak` plus
+    /// a small share at `co`. Lets tests stage two surface forms with
+    /// a chosen cosine between them.
+    fn shared_axis(peak: usize, co: usize, peak_w: f32, co_w: f32) -> [f32; VECTOR_DIM] {
+        let mut v = [0.0_f32; VECTOR_DIM];
+        v[peak] = peak_w;
+        v[co] = co_w;
+        // L2-normalise so cosine ≈ dot.
+        let norm = (peak_w * peak_w + co_w * co_w).sqrt();
+        if norm > 0.0 {
+            v[peak] /= norm;
+            v[co] /= norm;
+        }
+        v
+    }
+
+    fn fresh_hnsw() -> Arc<RwLock<EntityHnswIndex>> {
+        Arc::new(RwLock::new(
+            EntityHnswIndex::new(EntityHnswParams::default_v1()).unwrap(),
+        ))
+    }
+
+    fn deps(embedder: Arc<ScriptedEmbedder>, hnsw: Arc<RwLock<EntityHnswIndex>>) -> EmbeddingDeps {
+        EmbeddingDeps {
+            hnsw,
+            embedder: embedder as Arc<dyn Dispatcher>,
+        }
+    }
+
+    /// Stage an entity in redb + the HNSW with a chosen embedding.
+    fn seed_entity(
+        d: &mut MetadataDb,
+        hnsw: &Arc<RwLock<EntityHnswIndex>>,
+        type_id: EntityTypeId,
+        canonical: &str,
+        vector: [f32; VECTOR_DIM],
+    ) -> EntityId {
+        let id = EntityId::new();
+        let ent = Entity::new_active(
+            id,
+            type_id,
+            canonical.into(),
+            normalize_name(canonical),
+            NOW,
+        );
+        let wtxn = d.write_txn().unwrap();
+        entity_put(&wtxn, &ent).unwrap();
+        wtxn.commit().unwrap();
+        hnsw.write().insert(id, &vector).unwrap();
+        id
+    }
+
+    #[test]
+    fn tier_embedding_resolves_near_paraphrase() {
+        // "Stripe Inc." sits at a dominant peak; "Stripe Payments"
+        // shares ~85 % of that peak with a sliver elsewhere — cosine
+        // ≈ 0.85, well above the 0.78 default threshold.
+        let stripe_inc_v = shared_axis(10, 11, 1.0, 0.0);
+        let stripe_payments_v = shared_axis(10, 11, 0.95, 0.31);
+
+        let embedder = Arc::new(ScriptedEmbedder::new());
+        embedder.set("Stripe Payments", stripe_payments_v);
+
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let hnsw = fresh_hnsw();
+        let target_id = seed_entity(
+            &mut d,
+            &hnsw,
+            brain_core::EntityType::PERSON_ID,
+            "Stripe Inc.",
+            stripe_inc_v,
+        );
+
+        let deps = deps(embedder, hnsw);
+        let wtxn = d.write_txn().unwrap();
+        let res = resolve_or_create_with_hnsw(
+            &wtxn,
+            "Stripe Payments",
+            "brain:Person",
+            0.9,
+            NOW + 1,
+            Some(&deps),
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+
+        assert_eq!(res.entity_id, target_id);
+        assert_eq!(res.tier, ResolutionTier::Embedding);
+
+        // Alias was added — next resolve hits tier-2 directly.
+        let rtxn = d.read_txn().unwrap();
+        let got = entity_get(&rtxn, target_id).unwrap().unwrap();
+        assert!(
+            got.aliases.iter().any(|a| a == "Stripe Payments"),
+            "tier-3 should add the surface form as an alias; got {:?}",
+            got.aliases,
+        );
+    }
+
+    #[test]
+    fn tier_embedding_below_threshold_falls_through() {
+        // Two unrelated vectors → cosine ≈ 0, well below 0.78. The
+        // resolver must create a fresh entity instead of returning
+        // the seed.
+        let stripe_v = shared_axis(10, 11, 1.0, 0.0);
+        let bitcoin_v = shared_axis(200, 201, 1.0, 0.0);
+
+        let embedder = Arc::new(ScriptedEmbedder::new());
+        embedder.set("Bitcoin", bitcoin_v);
+
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let hnsw = fresh_hnsw();
+        let seed_id = seed_entity(
+            &mut d,
+            &hnsw,
+            brain_core::EntityType::PERSON_ID,
+            "Stripe Inc.",
+            stripe_v,
+        );
+
+        let deps = deps(embedder, hnsw.clone());
+        let wtxn = d.write_txn().unwrap();
+        let res = resolve_or_create_with_hnsw(
+            &wtxn,
+            "Bitcoin",
+            "brain:Person",
+            0.9,
+            NOW + 1,
+            Some(&deps),
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+
+        assert_eq!(res.tier, ResolutionTier::Created);
+        assert_ne!(res.entity_id, seed_id);
+
+        // Tier-4 also populates the HNSW so the next paraphrase of
+        // "Bitcoin" can resolve via tier-3b.
+        assert!(hnsw.read().contains(res.entity_id));
+    }
+
+    #[test]
+    fn tier_embedding_respects_entity_type() {
+        // Both Person and Organization entries share the SAME embedding
+        // peak so the HNSW returns both at the top. The type filter
+        // must drop the Organization candidate before the threshold
+        // check.
+        let shared_v = shared_axis(42, 43, 1.0, 0.0);
+        // Slightly off-axis for Alice's Cafe so HNSW orders Alice Wong
+        // higher when the query vector matches Alice Wong exactly —
+        // but this test is really about the type filter rejecting the
+        // wrong-type top hit.
+        let cafe_v = shared_axis(42, 43, 0.999, 0.045);
+
+        let embedder = Arc::new(ScriptedEmbedder::new());
+        embedder.set("Alice", shared_v);
+
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let hnsw = fresh_hnsw();
+
+        // Intern an Organization type so we can seed a cross-type entity.
+        let org_type_id = {
+            let wtxn = d.write_txn().unwrap();
+            let id = entity_type_intern(&wtxn, "Organization", Vec::new(), NOW).unwrap();
+            wtxn.commit().unwrap();
+            id
+        };
+
+        let alice_person_id = seed_entity(
+            &mut d,
+            &hnsw,
+            brain_core::EntityType::PERSON_ID,
+            "Alice Wong",
+            shared_v,
+        );
+        let _cafe_id = seed_entity(&mut d, &hnsw, org_type_id, "Alice's Cafe", cafe_v);
+
+        let deps = deps(embedder, hnsw);
+        let wtxn = d.write_txn().unwrap();
+        let res =
+            resolve_or_create_with_hnsw(&wtxn, "Alice", "brain:Person", 0.9, NOW + 1, Some(&deps))
+                .unwrap();
+        wtxn.commit().unwrap();
+
+        assert_eq!(res.entity_id, alice_person_id);
+        assert_eq!(res.tier, ResolutionTier::Embedding);
+    }
+
+    #[test]
+    fn tier_embedding_env_threshold_override_parser() {
+        // Direct parser test — avoids racing the process-wide env.
+        assert!((parse_embed_threshold_env(None) - EMBED_RESOLVE_THRESHOLD).abs() < 1e-6);
+        assert!((parse_embed_threshold_env(Some("")) - EMBED_RESOLVE_THRESHOLD).abs() < 1e-6);
+        assert!((parse_embed_threshold_env(Some("0.6")) - 0.6).abs() < 1e-6);
+        assert!((parse_embed_threshold_env(Some("0.0")) - 0.0).abs() < 1e-6);
+        assert!((parse_embed_threshold_env(Some("1.0")) - 1.0).abs() < 1e-6);
+        // Out-of-range + non-numeric → default.
+        assert!(
+            (parse_embed_threshold_env(Some("1.5")) - EMBED_RESOLVE_THRESHOLD).abs() < 1e-6,
+            "out-of-range must fall back to default",
+        );
+        assert!(
+            (parse_embed_threshold_env(Some("nope")) - EMBED_RESOLVE_THRESHOLD).abs() < 1e-6,
+            "non-numeric must fall back to default",
+        );
+    }
+
+    #[test]
+    fn tier_create_populates_entity_hnsw() {
+        // When tier-4 fires with embed_deps, the resolver embeds the
+        // canonical_name and inserts into the HNSW so the next
+        // paraphrase resolve can hit tier-3b instead of minting again.
+        let canonical_v = shared_axis(77, 78, 1.0, 0.0);
+        let paraphrase_v = shared_axis(77, 78, 0.95, 0.31);
+
+        let embedder = Arc::new(ScriptedEmbedder::new());
+        embedder.set("Brand New Co", canonical_v);
+        embedder.set("Brand New Company", paraphrase_v);
+
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let hnsw = fresh_hnsw();
+
+        let deps = deps(embedder, hnsw.clone());
+        let wtxn = d.write_txn().unwrap();
+        let r1 = resolve_or_create_with_hnsw(
+            &wtxn,
+            "Brand New Co",
+            "brain:Person",
+            0.9,
+            NOW,
+            Some(&deps),
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+        assert_eq!(r1.tier, ResolutionTier::Created);
+        assert!(hnsw.read().contains(r1.entity_id));
+
+        // Second resolve with a paraphrase hits tier-3b.
+        let wtxn = d.write_txn().unwrap();
+        let r2 = resolve_or_create_with_hnsw(
+            &wtxn,
+            "Brand New Company",
+            "brain:Person",
+            0.9,
+            NOW + 1,
+            Some(&deps),
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+        assert_eq!(r2.entity_id, r1.entity_id);
+        assert_eq!(r2.tier, ResolutionTier::Embedding);
+    }
+
+    #[test]
+    fn tier_partial_match_enqueues_proposal() {
+        // Cosine in the [0.7, 0.78) band: NOT auto-aliased; the
+        // resolver creates a fresh entity AND enqueues a Pending
+        // proposal flagging the close-but-not-confident candidate.
+        let acme_v = shared_axis(50, 51, 1.0, 0.0);
+        // Cosine with acme_v ≈ peak^2 = 0.75^2 + 0.661^2 * (0/0) … use a
+        // sparse construction that gives a known cosine.
+        // shared_axis L2-normalises (peak/sqrt(p^2+co^2), co/sqrt(...)),
+        // so the cosine of two such vectors that share peak axis 50 and
+        // differ in their co axis is the dot product = peak1*peak2 +
+        // co1*co2 where each pair lies on the unit circle. With weights
+        // (1.0, 0.0) and (0.75, 0.661) we get cosine ≈ 0.75.
+        let acme_holdings_v = shared_axis(50, 51, 0.75, 0.661);
+
+        let embedder = Arc::new(ScriptedEmbedder::new());
+        embedder.set("Acme Holdings", acme_holdings_v);
+        // Also stage the canonical name embedding for tier-4 self-insert.
+        embedder.set("Acme Holdings", acme_holdings_v);
+
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let hnsw = fresh_hnsw();
+        let acme_id = seed_entity(
+            &mut d,
+            &hnsw,
+            brain_core::EntityType::PERSON_ID,
+            "Acme",
+            acme_v,
+        );
+
+        let deps_holder = deps(embedder, hnsw.clone());
+        let wtxn = d.write_txn().unwrap();
+        let res = resolve_or_create_with_hnsw(
+            &wtxn,
+            "Acme Holdings",
+            "brain:Person",
+            0.9,
+            NOW + 1,
+            Some(&deps_holder),
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+
+        // Resolver MUST NOT have merged or aliased — fresh entity.
+        assert_eq!(res.tier, ResolutionTier::Created);
+        assert_ne!(res.entity_id, acme_id);
+
+        // A Pending merge proposal points from the new entity to Acme.
+        let rtxn = d.read_txn().unwrap();
+        let pending = brain_metadata::entity::review::list_proposals_by_status(
+            &rtxn,
+            brain_metadata::tables::merge_review_queue::proposal_status::PENDING,
+            16,
+        )
+        .unwrap();
+        assert_eq!(pending.len(), 1, "exactly one Pending proposal");
+        let proposal = &pending[0];
+        assert_eq!(proposal.source_entity, res.entity_id.to_bytes());
+        assert_eq!(proposal.candidate_entity, acme_id.to_bytes());
+        assert!(
+            proposal.confidence >= PARTIAL_MATCH_FLOOR
+                && proposal.confidence < EMBED_RESOLVE_THRESHOLD,
+            "confidence {} not in partial-match band",
+            proposal.confidence,
+        );
+        assert_eq!(
+            proposal.tier_that_proposed,
+            brain_metadata::tables::merge_review_queue::proposal_tier::EMBEDDING,
+        );
+    }
+
+    #[test]
+    fn tier_embedding_skipped_when_deps_absent() {
+        // Resolver compatibility: with `None` deps it never consults
+        // the HNSW. Exercised by the existing `resolve_or_create`
+        // entrypoint already, but pinned here as a regression guard
+        // because the worker can momentarily run without deps wired
+        // (test fixtures, substrate-only deployments).
+        let dir = TempDir::new().unwrap();
+        let mut d = db(&dir);
+        let wtxn = d.write_txn().unwrap();
+        let res =
+            resolve_or_create_with_hnsw(&wtxn, "Solo", "brain:Person", 0.9, NOW, None).unwrap();
+        assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
     }
 }

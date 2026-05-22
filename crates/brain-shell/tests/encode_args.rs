@@ -1,6 +1,6 @@
 //! `encode` flag parsing: `--edge`, `--request-id`, `--from-file`,
-//! `--from-stdin`, `--wait-for-extraction`, `--allow-duplicate`.
-//! Verifies parse, plus the mutual-exclusivity matrix clap enforces.
+//! `--from-stdin`, `--wait`, `--allow-duplicate`. Verifies parse,
+//! plus the mutual-exclusivity matrix clap enforces.
 
 use brain_shell::parser::{Cli, Command, EdgeKindArg};
 use clap::Parser;
@@ -94,12 +94,19 @@ fn encode_vector_flag_is_removed() {
 }
 
 #[test]
-fn encode_wait_for_extraction_parses() {
-    let cli = parse_ok(&["encode", "hello", "--wait-for-extraction"]);
+fn encode_wait_parses_and_covers_all_stages() {
+    let cli = parse_ok(&["encode", "hello", "--wait"]);
     let Some(Command::Encode(a)) = cli.subcommand else {
         panic!("expected Encode")
     };
-    assert!(a.wait_for_extraction);
+    assert!(a.wait);
+}
+
+#[test]
+fn encode_legacy_wait_for_extraction_flag_rejected() {
+    // No back-compat alias: the old --wait-for-extraction is gone.
+    // Brain is pre-release, so renaming wins over a synonym layer.
+    assert!(parse(&["encode", "hello", "--wait-for-extraction"]).is_err());
 }
 
 #[test]

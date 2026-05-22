@@ -224,14 +224,24 @@ impl From<&LlmRequest> for OpenAIRequestBody {
     fn from(req: &LlmRequest) -> Self {
         // OpenAI puts the system prompt as the first message with
         // role="system". For o-series models the role becomes
-        // "developer"; phase 21 sticks with "system" for
-        // simplicity (OpenAI accepts both transparently).
-        let mut messages: Vec<OpenAIMessage> =
-            Vec::with_capacity(req.messages.len() + req.system.as_ref().map_or(0, |_| 1));
-        if let Some(sys) = &req.system {
+        // "developer"; phase 21 sticks with "system" — OpenAI accepts
+        // both transparently. Anthropic-style prompt caching has no
+        // direct equivalent on the Chat Completions API, so cached
+        // and live blocks both fold into a single concatenated system
+        // message here; the cache flag is ignored on this provider.
+        let extra = if req.system_blocks.is_empty() { 0 } else { 1 };
+        let mut messages: Vec<OpenAIMessage> = Vec::with_capacity(req.messages.len() + extra);
+        if !req.system_blocks.is_empty() {
+            let mut combined = String::new();
+            for b in &req.system_blocks {
+                if !combined.is_empty() {
+                    combined.push_str("\n\n");
+                }
+                combined.push_str(&b.text);
+            }
             messages.push(OpenAIMessage {
                 role: "system",
-                content: sys.clone(),
+                content: combined,
             });
         }
         for m in &req.messages {
@@ -311,6 +321,10 @@ fn decode_openai_response(payload: OpenAIResponseBody) -> Result<LlmResponse, Ll
         content,
         tokens_in: payload.usage.prompt_tokens,
         tokens_out: payload.usage.completion_tokens,
+        // OpenAI's Chat Completions API has no equivalent to Anthropic's
+        // ephemeral prompt cache, so these are always zero on this path.
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         cost_micro_usd,
         model_version: payload.model,
     })
@@ -369,8 +383,7 @@ mod tests {
 
     #[test]
     fn request_body_prepends_system_message() {
-        let mut req = LlmRequest::new("gpt-4o-mini", "user-body");
-        req.system = Some("sys-instr".into());
+        let req = LlmRequest::new("gpt-4o-mini", "user-body").with_system("sys-instr");
         let body = OpenAIRequestBody::from(&req);
         let json = serde_json::to_string(&body).unwrap();
         assert!(json.contains("\"role\":\"system\",\"content\":\"sys-instr\""));
@@ -378,6 +391,25 @@ mod tests {
         let sys_idx = json.find("\"role\":\"system\"").unwrap();
         let user_idx = json.find("\"role\":\"user\"").unwrap();
         assert!(sys_idx < user_idx);
+    }
+
+    #[test]
+    fn request_body_concatenates_multiple_system_blocks() {
+        use crate::types::SystemBlock;
+        let mut req = LlmRequest::new("gpt-4o-mini", "u");
+        req.system_blocks = vec![
+            SystemBlock::cached("role-text"),
+            SystemBlock::cached("schema-text"),
+        ];
+        let body = OpenAIRequestBody::from(&req);
+        let json = serde_json::to_string(&body).unwrap();
+        // OpenAI has no prompt cache directive in the same shape — both
+        // cached blocks fold into one system message, blank-line joined.
+        assert!(json.contains("\"role\":\"system\""));
+        assert!(json.contains("role-text"));
+        assert!(json.contains("schema-text"));
+        // Exactly one system message — the cache flag is ignored here.
+        assert_eq!(json.matches("\"role\":\"system\"").count(), 1);
     }
 
     #[test]
@@ -409,7 +441,7 @@ mod tests {
     fn request_body_translates_message_roles() {
         let req = LlmRequest {
             model: "m".into(),
-            system: None,
+            system_blocks: Vec::new(),
             messages: vec![
                 LlmMessage {
                     role: LlmRole::User,

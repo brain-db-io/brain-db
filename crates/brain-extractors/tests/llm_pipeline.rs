@@ -78,6 +78,8 @@ fn ok_response(content: &str, tokens: u64) -> LlmResponse {
         content: content.into(),
         tokens_in: tokens / 2,
         tokens_out: tokens / 2,
+        cache_creation_input_tokens: 0,
+        cache_read_input_tokens: 0,
         cost_micro_usd: tokens * 2,
         model_version: "scripted-mock-v1".into(),
     }
@@ -114,6 +116,8 @@ fn ctx<'a>(reg: &'a ExtractorRegistry) -> ExtractionContext<'a> {
         schema_version: 1,
         now_unix_nanos: 100,
         registry: reg,
+        prior_tier_items: None,
+        extractor_context: None,
     }
 }
 

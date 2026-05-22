@@ -14,8 +14,8 @@
 
 #![cfg(target_os = "linux")]
 
-use brain_metadata::audit_ops::audit_by_memory;
-use brain_metadata::tables::knowledge::audit::extraction_status;
+use brain_metadata::audit::ops::audit_by_memory;
+use brain_metadata::tables::audit::extraction_status;
 use brain_metadata::MetadataDb;
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
@@ -32,6 +32,9 @@ use tokio::net::TcpStream;
 #[allow(dead_code)]
 #[path = "../src/admin/mod.rs"]
 mod admin;
+#[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
 #[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
@@ -172,7 +175,7 @@ fn encode_request(text: &str) -> RequestBody {
 fn read_audit_rows_after_stop(
     metadata_path: &std::path::Path,
     memory_id: brain_core::MemoryId,
-) -> Vec<brain_metadata::tables::knowledge::audit::ExtractionAudit> {
+) -> Vec<brain_metadata::tables::audit::ExtractionAudit> {
     let db = MetadataDb::open(metadata_path).expect("open metadata after stop");
     let rtxn = db.read_txn().expect("read_txn");
     audit_by_memory(&rtxn, memory_id, 100).expect("audit_by_memory")

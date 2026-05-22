@@ -404,6 +404,7 @@ fn recall_fills_buffer_then_boost_worker_applies() {
             include_text: false,
             request_id: None,
             txn_id: None,
+            rerank: false,
         };
         let resp = dispatch(
             RequestBody::Recall(recall),

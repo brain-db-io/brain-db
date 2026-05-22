@@ -18,7 +18,7 @@ pub struct EncodeResponse {
     pub auto_edges_added: u32,
     // ── Provenance + chaining (added by the v1 subscribe-replay PR) ──
     /// WAL LSN the encode was recorded at. `0` for the in-memory
-    /// test path / substrate-only deployments without a WAL sink.
+    /// test path / no-schema deployments without a WAL sink.
     /// Production clients chain `encode → subscribe --start-lsn lsn+1`
     /// to follow downstream events from this point.
     pub lsn: u64,
@@ -46,6 +46,25 @@ pub struct EncodeResponse {
     /// when the write triggered no background work (e.g. substrate-
     /// only deployment with workers disabled, or a dedup hit).
     pub pending_stages: Vec<StageKind>,
+    /// Whether a user schema is currently declared on the shard the
+    /// write landed on. Lets the client distinguish two structurally
+    /// identical "0 statements, 0 relations" extractor outcomes:
+    /// (a) no schema declares matching predicates — the renderer can
+    /// say so up front, and (b) schema IS declared but the extractor
+    /// couldn't find a sentence with a matching predicate. The
+    /// distinction matters because (a) is a deployment-time
+    /// configuration story and (b) is a per-memory content story.
+    pub has_active_schema: bool,
+    /// Whether at least one LLM-tier extractor is registered and
+    /// enabled on the shard the write landed on. When false (no
+    /// `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` configured at boot, or
+    /// every LLM extractor disabled via `EXTRACTOR_DISABLE`),
+    /// statements/relations are unreachable regardless of input
+    /// content — the renderer surfaces a config hint instead of the
+    /// generic "extractor produced no statements" suffix. Independent
+    /// of `has_active_schema` because the two failure modes need
+    /// different operator remediation.
+    pub has_llm_extractor: bool,
 }
 
 /// Spec §08 §3 — one streaming RECALL frame.
@@ -74,11 +93,11 @@ pub struct MemoryResult {
     pub created_at_unix_nanos: u64,
     pub last_accessed_at_unix_nanos: u64,
     pub edges: Option<Vec<EdgeView>>,
-    /// Retrievers that surfaced this memory. Empty on substrate-only
-    /// deployments and inside transactions; populated when the server
+    /// Retrievers that surfaced this memory. Empty when no schema is
+    /// declared and inside transactions; populated when the server
     /// routes RECALL through the hybrid engine (spec §28/08 §5).
     pub contributing_retrievers: Vec<RetrieverNameWire>,
-    /// Post-RRF fused rank score. `0.0` on substrate-only deployments
+    /// Post-RRF fused rank score. `0.0` on no-schema deployments
     /// and inside transactions; positive when hybrid retrieval ran
     /// (spec §28/08 §5).
     pub fused_score: f32,
@@ -92,7 +111,7 @@ pub struct MemoryResult {
     pub access_count: u32,
     /// WAL LSN this row was written at — derived from
     /// `MemoryMetadata.created_at_unix_nanos` + the shard's
-    /// next_lsn watermark. `0` for substrate-only deployments that
+    /// next_lsn watermark. `0` for no-schema deployments that
     /// never wired a WAL sink. Lets the client say "subscribe from
     /// the moment this memory was written."
     pub lsn: u64,

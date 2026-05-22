@@ -53,7 +53,7 @@ const FLAGS: &[&str] = &[
     "--request-id",
     "--from-file",
     "--from-stdin",
-    "--wait-for-extraction",
+    "--wait",
     "--txn",
     "--top-k",
     "--confidence",

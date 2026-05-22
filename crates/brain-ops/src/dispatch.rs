@@ -11,30 +11,69 @@
 //! through 7.10 replace each stub with a real implementation.
 
 use brain_core::AgentId;
+use brain_metadata::api_keys::bits as perm_bits;
 use brain_protocol::request::RequestBody;
 use brain_protocol::response::ResponseBody;
 
 use crate::context::OpsContext;
 use crate::error::OpError;
 
-/// Per-request caller context. Carries the auth-time agent (from
-/// `ConnPhase::Established.agent`) so handlers can stamp it onto
-/// the Ops they build — separate from the wire request because the
-/// agent is auth metadata, not request data. Future fields might
-/// include permissions, request id for tracing, etc.
-#[derive(Debug, Clone, Copy)]
+/// Per-request caller context. Carries the AUTH-bound scope
+/// (org / user / namespace / agent / permissions) derived from the
+/// API key the client presented — handlers read scope from here
+/// instead of trusting client-supplied fields.
+#[derive(Debug, Clone)]
 pub struct RequestCaller {
-    /// Authenticated agent for this request. `AgentId::default()`
-    /// means "unauthenticated / test path"; the writer treats that
-    /// as a substrate-wide event with no agent filter applicability.
+    /// Authenticated agent. `AgentId::default()` means "unauthenticated /
+    /// test path"; the writer treats that as a substrate-wide event with
+    /// no agent filter applicability.
     pub agent_id: AgentId,
+    /// Tenant identity. Zero in permissive mode (no scope binding).
+    pub org_id: [u8; 16],
+    /// User identity (optional human/service). Zero when not bound.
+    pub user_id: [u8; 16],
+    /// Schema namespace the caller may address. Empty string means
+    /// "no namespace lock" (permissive / dev mode).
+    pub namespace: String,
+    /// Permission bitfield from [`brain_metadata::api_keys::bits`].
+    pub permissions: u32,
+    /// True when scope binding is enforced for this caller. In
+    /// permissive mode (default v1.0) all checks short-circuit.
+    pub scope_enforced: bool,
 }
 
 impl RequestCaller {
-    /// Construct a caller with the given agent.
+    /// Construct a permissive caller carrying the given agent. Used by
+    /// the network layer when `BRAIN_REQUIRE_SCOPED_API_KEYS` is off.
     #[must_use]
     pub fn new(agent_id: AgentId) -> Self {
-        Self { agent_id }
+        Self {
+            agent_id,
+            org_id: [0u8; 16],
+            user_id: [0u8; 16],
+            namespace: String::new(),
+            permissions: perm_bits::FULL,
+            scope_enforced: false,
+        }
+    }
+
+    /// Construct a strict-mode caller from a resolved API-key scope.
+    #[must_use]
+    pub fn from_scope(
+        agent_id: AgentId,
+        org_id: [u8; 16],
+        user_id: [u8; 16],
+        namespace: String,
+        permissions: u32,
+    ) -> Self {
+        Self {
+            agent_id,
+            org_id,
+            user_id,
+            namespace,
+            permissions,
+            scope_enforced: true,
+        }
     }
 
     /// The substrate-wide / test-only default. Used by paths that
@@ -43,6 +82,58 @@ impl RequestCaller {
     pub fn anonymous() -> Self {
         Self {
             agent_id: AgentId::default(),
+            org_id: [0u8; 16],
+            user_id: [0u8; 16],
+            namespace: String::new(),
+            permissions: perm_bits::FULL,
+            scope_enforced: false,
+        }
+    }
+
+    /// True iff every bit in `op` is set on this caller's permission
+    /// bitfield. In permissive mode this is always true.
+    #[must_use]
+    pub fn allows(&self, op: u32) -> bool {
+        !self.scope_enforced || (self.permissions & op == op)
+    }
+
+    /// Returns `Err(OpError::Unauthorized)` if the requested permission
+    /// is not in the caller's bitfield. Helper for handler permission
+    /// checks at the auth boundary.
+    pub fn require(&self, op: u32, what: &'static str) -> Result<(), OpError> {
+        if self.allows(op) {
+            Ok(())
+        } else {
+            Err(OpError::Unauthorized(format!(
+                "API key lacks permission: {what}"
+            )))
+        }
+    }
+
+    /// Returns `Err(OpError::Unauthorized)` when scope binding is on
+    /// and the request's claimed agent doesn't match the key's agent.
+    /// In permissive mode this passes unconditionally.
+    pub fn require_agent(&self, claimed: AgentId, what: &'static str) -> Result<(), OpError> {
+        if !self.scope_enforced || self.agent_id == claimed {
+            Ok(())
+        } else {
+            Err(OpError::Unauthorized(format!(
+                "{what}: API key is bound to a different agent_id"
+            )))
+        }
+    }
+
+    /// Returns `Err(OpError::Unauthorized)` when scope binding is on
+    /// and the schema namespace the request targets doesn't match the
+    /// key's namespace.
+    pub fn require_namespace(&self, claimed: &str, what: &'static str) -> Result<(), OpError> {
+        if !self.scope_enforced || self.namespace.is_empty() || self.namespace == claimed {
+            Ok(())
+        } else {
+            Err(OpError::Unauthorized(format!(
+                "{what}: API key is bound to namespace {:?}, not {:?}",
+                self.namespace, claimed
+            )))
         }
     }
 }
@@ -52,6 +143,17 @@ pub async fn dispatch(
     caller: RequestCaller,
     ctx: &OpsContext,
 ) -> Result<ResponseBody, OpError> {
+    // First gate: every op carries a required-permission tag. In
+    // permissive mode `caller.allows()` is unconditionally true so the
+    // check is a no-op; in strict mode an API key without the bit
+    // gets rejected before any work is done.
+    enforce_permission(&caller, &req)?;
+    // Second gate: handlers that act as a specific agent_id must see
+    // the AUTH-bound one, not whatever the client claimed. Namespace
+    // checks for schema-touching ops happen inside the namespace-bound
+    // handlers (SCHEMA_UPLOAD, etc.).
+    enforce_namespace(&caller, &req)?;
+
     // Per-request override: stamp the caller's agent onto a clone
     // of the shared ctx so handlers that build writer Ops can pull
     // it via `ctx.executor.caller_agent` without taking another
@@ -164,149 +266,373 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         // Knowledge layer — Phase 16+ (spec §28/00).
         // -----------------------------------------------------------
-        RequestBody::EntityCreate(r) => crate::knowledge_entity::handle_entity_create(r, ctx)
+        RequestBody::EntityCreate(r) => crate::handlers::entity::handle_entity_create(r, ctx)
             .await
             .map(ResponseBody::EntityCreate),
 
-        RequestBody::EntityGet(r) => crate::knowledge_entity::handle_entity_get(r, ctx)
+        RequestBody::EntityGet(r) => crate::handlers::entity::handle_entity_get(r, ctx)
             .await
             .map(ResponseBody::EntityGet),
 
-        RequestBody::EntityUpdate(r) => crate::knowledge_entity::handle_entity_update(r, ctx)
+        RequestBody::EntityUpdate(r) => crate::handlers::entity::handle_entity_update(r, ctx)
             .await
             .map(ResponseBody::EntityUpdate),
 
-        RequestBody::EntityRename(r) => crate::knowledge_entity::handle_entity_rename(r, ctx)
+        RequestBody::EntityRename(r) => crate::handlers::entity::handle_entity_rename(r, ctx)
             .await
             .map(ResponseBody::EntityRename),
 
-        RequestBody::EntityMerge(r) => crate::knowledge_entity::handle_entity_merge(r, ctx)
+        RequestBody::EntityMerge(r) => crate::handlers::entity::handle_entity_merge(r, ctx)
             .await
             .map(ResponseBody::EntityMerge),
 
-        RequestBody::EntityUnmerge(r) => crate::knowledge_entity::handle_entity_unmerge(r, ctx)
+        RequestBody::EntityUnmerge(r) => crate::handlers::entity::handle_entity_unmerge(r, ctx)
             .await
             .map(ResponseBody::EntityUnmerge),
 
-        RequestBody::EntityResolve(r) => crate::knowledge_entity::handle_entity_resolve(r, ctx)
+        RequestBody::EntityResolve(r) => crate::handlers::entity::handle_entity_resolve(r, ctx)
             .await
             .map(ResponseBody::EntityResolve),
 
-        RequestBody::EntityList(r) => crate::knowledge_entity::handle_entity_list(r, ctx)
+        RequestBody::EntityList(r) => crate::handlers::entity::handle_entity_list(r, ctx)
             .await
             .map(ResponseBody::EntityList),
 
-        RequestBody::EntityTombstone(r) => crate::knowledge_entity::handle_entity_tombstone(r, ctx)
+        RequestBody::EntityTombstone(r) => crate::handlers::entity::handle_entity_tombstone(r, ctx)
             .await
             .map(ResponseBody::EntityTombstone),
 
         // Statement ops — phase 17.7. Spec §28/06.
         RequestBody::StatementCreate(r) => {
-            crate::knowledge_statement::handle_statement_create(r, ctx)
+            crate::handlers::statement::handle_statement_create(r, ctx)
                 .await
                 .map(ResponseBody::StatementCreate)
         }
-        RequestBody::StatementGet(r) => crate::knowledge_statement::handle_statement_get(r, ctx)
+        RequestBody::StatementGet(r) => crate::handlers::statement::handle_statement_get(r, ctx)
             .await
             .map(ResponseBody::StatementGet),
         RequestBody::StatementSupersede(r) => {
-            crate::knowledge_statement::handle_statement_supersede(r, ctx)
+            crate::handlers::statement::handle_statement_supersede(r, ctx)
                 .await
                 .map(ResponseBody::StatementSupersede)
         }
         RequestBody::StatementTombstone(r) => {
-            crate::knowledge_statement::handle_statement_tombstone(r, ctx)
+            crate::handlers::statement::handle_statement_tombstone(r, ctx)
                 .await
                 .map(ResponseBody::StatementTombstone)
         }
         RequestBody::StatementRetract(r) => {
-            crate::knowledge_statement::handle_statement_retract(r, ctx)
+            crate::handlers::statement::handle_statement_retract(r, ctx)
                 .await
                 .map(ResponseBody::StatementRetract)
         }
         RequestBody::StatementHistory(r) => {
-            crate::knowledge_statement::handle_statement_history(r, ctx)
+            crate::handlers::statement::handle_statement_history(r, ctx)
                 .await
                 .map(ResponseBody::StatementHistory)
         }
-        RequestBody::StatementList(r) => crate::knowledge_statement::handle_statement_list(r, ctx)
+        RequestBody::StatementList(r) => crate::handlers::statement::handle_statement_list(r, ctx)
             .await
             .map(ResponseBody::StatementList),
 
         // Relation ops — phase 18.7. Spec §28/07.
-        RequestBody::RelationCreate(r) => crate::knowledge_relation::handle_relation_create(r, ctx)
+        RequestBody::RelationCreate(r) => crate::handlers::relation::handle_relation_create(r, ctx)
             .await
             .map(ResponseBody::RelationCreate),
-        RequestBody::RelationGet(r) => crate::knowledge_relation::handle_relation_get(r, ctx)
+        RequestBody::RelationGet(r) => crate::handlers::relation::handle_relation_get(r, ctx)
             .await
             .map(ResponseBody::RelationGet),
         RequestBody::RelationSupersede(r) => {
-            crate::knowledge_relation::handle_relation_supersede(r, ctx)
+            crate::handlers::relation::handle_relation_supersede(r, ctx)
                 .await
                 .map(ResponseBody::RelationSupersede)
         }
         RequestBody::RelationTombstone(r) => {
-            crate::knowledge_relation::handle_relation_tombstone(r, ctx)
+            crate::handlers::relation::handle_relation_tombstone(r, ctx)
                 .await
                 .map(ResponseBody::RelationTombstone)
         }
         RequestBody::RelationListFrom(r) => {
-            crate::knowledge_relation::handle_relation_list_from(r, ctx)
+            crate::handlers::relation::handle_relation_list_from(r, ctx)
                 .await
                 .map(ResponseBody::RelationListFrom)
         }
         RequestBody::RelationListTo(r) => {
-            crate::knowledge_relation::handle_relation_list_to(r, ctx)
+            crate::handlers::relation::handle_relation_list_to(r, ctx)
                 .await
                 .map(ResponseBody::RelationListTo)
         }
         RequestBody::RelationTraverse(r) => {
-            crate::knowledge_relation::handle_relation_traverse(r, ctx)
+            crate::handlers::relation::handle_relation_traverse(r, ctx)
                 .await
                 .map(ResponseBody::RelationTraverse)
         }
 
         // Schema ops — phase 19.6. Spec §28/05.
-        RequestBody::SchemaUpload(r) => crate::knowledge_schema::handle_schema_upload(r, ctx)
+        RequestBody::SchemaUpload(r) => crate::handlers::schema::handle_schema_upload(r, ctx)
             .await
             .map(ResponseBody::SchemaUpload),
-        RequestBody::SchemaGet(r) => crate::knowledge_schema::handle_schema_get(r, ctx)
+        RequestBody::SchemaGet(r) => crate::handlers::schema::handle_schema_get(r, ctx)
             .await
             .map(ResponseBody::SchemaGet),
-        RequestBody::SchemaList(r) => crate::knowledge_schema::handle_schema_list(r, ctx)
+        RequestBody::SchemaList(r) => crate::handlers::schema::handle_schema_list(r, ctx)
             .await
             .map(ResponseBody::SchemaList),
-        RequestBody::SchemaValidate(r) => crate::knowledge_schema::handle_schema_validate(r, ctx)
+        RequestBody::SchemaValidate(r) => crate::handlers::schema::handle_schema_validate(r, ctx)
             .await
             .map(ResponseBody::SchemaValidate),
 
         // Extractor governance ops — phase 20.8. Spec §28/05 §6-§7.
-        RequestBody::ExtractorList(r) => crate::knowledge_extractor::handle_extractor_list(r, ctx)
-            .await
-            .map(ResponseBody::ExtractorList),
+        RequestBody::ExtractorList(r) => {
+            crate::handlers::extractor_admin::handle_extractor_list(r, ctx)
+                .await
+                .map(ResponseBody::ExtractorList)
+        }
         RequestBody::ExtractorDisable(r) => {
-            crate::knowledge_extractor::handle_extractor_disable(r, ctx)
+            crate::handlers::extractor_admin::handle_extractor_disable(r, ctx)
                 .await
                 .map(ResponseBody::ExtractorDisable)
         }
         RequestBody::ExtractorEnable(r) => {
-            crate::knowledge_extractor::handle_extractor_enable(r, ctx)
+            crate::handlers::extractor_admin::handle_extractor_enable(r, ctx)
                 .await
                 .map(ResponseBody::ExtractorEnable)
         }
 
         // Hybrid query ops — phase 23.9. Spec §24 + §28/04.
-        RequestBody::Query(r) => crate::knowledge_query::handle_query(r, ctx)
+        RequestBody::Query(r) => crate::query::handle_query(r, ctx)
             .await
             .map(ResponseBody::Query),
-        RequestBody::QueryExplain(r) => crate::knowledge_query::handle_query_explain(r, ctx)
+        RequestBody::QueryExplain(r) => crate::query::handle_query_explain(r, ctx)
             .await
             .map(ResponseBody::QueryExplain),
-        RequestBody::QueryTrace(r) => crate::knowledge_query::handle_query_trace(r, ctx)
+        RequestBody::QueryTrace(r) => crate::query::handle_query_trace(r, ctx)
             .await
             .map(ResponseBody::QueryTrace),
-        RequestBody::RecallHybrid(r) => crate::knowledge_query::handle_recall_hybrid(r, ctx)
+        RequestBody::RecallHybrid(r) => crate::query::handle_recall_hybrid(r, ctx)
             .await
             .map(ResponseBody::RecallHybrid),
+
+        // Procedural-memory materialization (W3.1, wire v2).
+        RequestBody::MaterializeProcedural(r) => {
+            crate::handlers::procedural::handle_materialize_procedural(r, ctx)
+                .await
+                .map(ResponseBody::MaterializeProcedural)
+        }
+    }
+}
+
+/// Map each `RequestBody` variant to the permission bit it needs and
+/// fail with `Unauthorized` when the caller's bitfield lacks it.
+fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), OpError> {
+    let (op_bit, what): (u32, &'static str) = match req {
+        // Cognitive primitives.
+        RequestBody::Encode(_) => (perm_bits::ENCODE, "ENCODE"),
+        RequestBody::Recall(_) | RequestBody::Plan(_) | RequestBody::Reason(_) => {
+            (perm_bits::RECALL, "RECALL")
+        }
+        RequestBody::Forget(_) => (perm_bits::FORGET, "FORGET"),
+
+        // Edge mutation.
+        RequestBody::Link(_) | RequestBody::Unlink(_) => (perm_bits::LINK, "LINK"),
+
+        // Streaming reads.
+        RequestBody::Subscribe(_) | RequestBody::Unsubscribe(_) | RequestBody::CancelStream(_) => {
+            (perm_bits::RECALL, "SUBSCRIBE")
+        }
+
+        // Transactions ride with the underlying writes; require both
+        // ENCODE and FORGET so the txn can mutate any state. Coarse but
+        // safe — a read-only key cannot drive any kind of write txn.
+        RequestBody::TxnBegin(_) | RequestBody::TxnCommit(_) | RequestBody::TxnAbort(_) => {
+            (perm_bits::ENCODE, "TXN")
+        }
+
+        // Schema ops.
+        RequestBody::SchemaUpload(_) => (perm_bits::SCHEMA_UPLOAD, "SCHEMA_UPLOAD"),
+        RequestBody::SchemaGet(_) | RequestBody::SchemaList(_) | RequestBody::SchemaValidate(_) => {
+            (perm_bits::RECALL, "SCHEMA_READ")
+        }
+
+        // Knowledge-layer writes ride under ENCODE.
+        RequestBody::EntityCreate(_)
+        | RequestBody::EntityUpdate(_)
+        | RequestBody::EntityRename(_)
+        | RequestBody::EntityMerge(_)
+        | RequestBody::EntityUnmerge(_)
+        | RequestBody::StatementCreate(_)
+        | RequestBody::StatementSupersede(_)
+        | RequestBody::StatementRetract(_)
+        | RequestBody::RelationCreate(_)
+        | RequestBody::RelationSupersede(_) => (perm_bits::ENCODE, "KNOWLEDGE_WRITE"),
+
+        // Knowledge-layer tombstones ride under FORGET.
+        RequestBody::EntityTombstone(_)
+        | RequestBody::StatementTombstone(_)
+        | RequestBody::RelationTombstone(_) => (perm_bits::FORGET, "KNOWLEDGE_TOMBSTONE"),
+
+        // Knowledge-layer reads.
+        RequestBody::EntityGet(_)
+        | RequestBody::EntityList(_)
+        | RequestBody::EntityResolve(_)
+        | RequestBody::StatementGet(_)
+        | RequestBody::StatementHistory(_)
+        | RequestBody::StatementList(_)
+        | RequestBody::RelationGet(_)
+        | RequestBody::RelationListFrom(_)
+        | RequestBody::RelationListTo(_)
+        | RequestBody::RelationTraverse(_)
+        | RequestBody::Query(_)
+        | RequestBody::QueryExplain(_)
+        | RequestBody::QueryTrace(_)
+        | RequestBody::RecallHybrid(_)
+        | RequestBody::MaterializeProcedural(_) => (perm_bits::RECALL, "KNOWLEDGE_READ"),
+
+        // Extractor governance — admin-only.
+        RequestBody::ExtractorList(_)
+        | RequestBody::ExtractorDisable(_)
+        | RequestBody::ExtractorEnable(_) => (perm_bits::ADMIN, "EXTRACTOR_ADMIN"),
+
+        // Admin ops — admin-only.
+        RequestBody::AdminStats(_)
+        | RequestBody::AdminSnapshot(_)
+        | RequestBody::AdminRestore(_)
+        | RequestBody::AdminIntegrityCheck(_)
+        | RequestBody::AdminMigrateEmbeddings(_)
+        | RequestBody::AdminCreateContext(_)
+        | RequestBody::AdminRenameContext(_)
+        | RequestBody::AdminMoveMemory(_)
+        | RequestBody::AdminReclassify(_)
+        | RequestBody::AdminListTombstoned(_) => (perm_bits::ADMIN, "ADMIN"),
+
+        // Connection-lifecycle ops never reach the dispatcher in
+        // production (the network layer handles them inline); the
+        // arms exist so the match is exhaustive.
+        RequestBody::Hello(_)
+        | RequestBody::Auth(_)
+        | RequestBody::Bye(_)
+        | RequestBody::Ping(_)
+        | RequestBody::ClientPong(_) => return Ok(()),
+    };
+    caller.require(op_bit, what)
+}
+
+/// Reject namespace-touching ops whose target namespace doesn't match
+/// the caller's bound namespace. In permissive mode this is a no-op.
+fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), OpError> {
+    if !caller.scope_enforced || caller.namespace.is_empty() {
+        return Ok(());
+    }
+    let target = match req {
+        RequestBody::SchemaGet(r) => Some(r.namespace.as_str()),
+        RequestBody::SchemaList(r) => Some(r.namespace.as_str()),
+        _ => None,
+    };
+    if let Some(ns) = target {
+        caller.require_namespace(ns, "namespace")?;
+    }
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Tests (pure permission / namespace checks).
+// ---------------------------------------------------------------------------
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use brain_protocol::knowledge::{SchemaGetRequest, SchemaListRequest};
+    use brain_protocol::requests::cognitive::EncodeRequest;
+    use brain_protocol::requests::types::MemoryKindWire;
+
+    fn agent(byte: u8) -> AgentId {
+        let mut a = [0u8; 16];
+        a[15] = byte;
+        AgentId(uuid::Uuid::from_bytes(a))
+    }
+
+    fn permissive() -> RequestCaller {
+        RequestCaller::new(agent(1))
+    }
+
+    fn strict(perms: u32, namespace: &str, agent_id: AgentId) -> RequestCaller {
+        RequestCaller::from_scope(agent_id, [1u8; 16], [0u8; 16], namespace.into(), perms)
+    }
+
+    fn encode_req() -> RequestBody {
+        RequestBody::Encode(EncodeRequest {
+            text: "hi".into(),
+            context_id: 0,
+            kind: MemoryKindWire::Episodic,
+            salience_hint: 0.5,
+            edges: Vec::new(),
+            request_id: [0u8; 16],
+            txn_id: None,
+            deduplicate: false,
+        })
+    }
+
+    #[test]
+    fn permissive_caller_passes_every_permission_check() {
+        let caller = permissive();
+        assert!(enforce_permission(&caller, &encode_req()).is_ok());
+        assert!(caller.allows(perm_bits::ADMIN));
+        assert!(caller.allows(perm_bits::ENCODE | perm_bits::FORGET));
+    }
+
+    #[test]
+    fn strict_caller_without_encode_rejects_encode() {
+        let caller = strict(perm_bits::RECALL, "acme", agent(1));
+        let err = enforce_permission(&caller, &encode_req()).unwrap_err();
+        assert!(matches!(err, OpError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn strict_caller_with_encode_passes() {
+        let caller = strict(perm_bits::ENCODE | perm_bits::RECALL, "acme", agent(1));
+        assert!(enforce_permission(&caller, &encode_req()).is_ok());
+    }
+
+    #[test]
+    fn strict_mode_enforces_namespace_scope() {
+        let caller = strict(
+            perm_bits::RECALL | perm_bits::SCHEMA_UPLOAD,
+            "brain",
+            agent(1),
+        );
+        let req = RequestBody::SchemaGet(SchemaGetRequest {
+            namespace: "acme".into(),
+            version: 0,
+        });
+        let err = enforce_namespace(&caller, &req).unwrap_err();
+        assert!(matches!(err, OpError::Unauthorized(_)));
+
+        let req = RequestBody::SchemaGet(SchemaGetRequest {
+            namespace: "brain".into(),
+            version: 0,
+        });
+        assert!(enforce_namespace(&caller, &req).is_ok());
+    }
+
+    #[test]
+    fn strict_caller_with_empty_namespace_is_open() {
+        let caller = strict(perm_bits::RECALL, "", agent(1));
+        let req = RequestBody::SchemaList(SchemaListRequest {
+            namespace: "anywhere".into(),
+            limit: 0,
+            cursor: Vec::new(),
+        });
+        assert!(enforce_namespace(&caller, &req).is_ok());
+    }
+
+    #[test]
+    fn strict_mode_enforces_agent_id() {
+        let caller = strict(perm_bits::ENCODE, "ns", agent(1));
+        assert!(caller.require_agent(agent(1), "test").is_ok());
+        assert!(caller.require_agent(agent(2), "test").is_err());
+
+        // Permissive: any claimed agent_id passes.
+        let p = permissive();
+        assert!(p.require_agent(agent(99), "test").is_ok());
     }
 }

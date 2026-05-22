@@ -9,9 +9,10 @@
 //! - depth=2 : p50 ≤ 15 ms
 //! - depth=3 : p50 ≤ 30 ms
 //!
-//! Also validates that the substrate-only memory-anchored walk
-//! (`walk_memory_edges` from Phase A) has not regressed under the
-//! same unification.
+//! Also validates that the no-schema memory-anchored walk
+//! (`walk_memory_edges` from Phase A, exercised when no typed
+//! relations are declared) has not regressed under the same
+//! unification.
 //!
 //! Fixture:
 //! - 1000 entities + 5000 typed relations across 3 distinct relation
@@ -27,9 +28,9 @@ use brain_core::knowledge::{Entity, EntityType, Relation};
 use brain_core::{
     EdgeKind, EdgeKindRef, EntityId, ExtractorId, MemoryId, NodeRef, RelationId, RelationTypeId,
 };
-use brain_metadata::entity_ops::{entity_put, normalize_name};
-use brain_metadata::relation_ops::relation_create;
-use brain_metadata::relation_traversal::{traverse, TraversalConfig, TraversalDirection};
+use brain_metadata::entity::ops::{entity_put, normalize_name};
+use brain_metadata::relation::ops::relation_create;
+use brain_metadata::relation::traversal::{traverse, TraversalConfig, TraversalDirection};
 use brain_metadata::tables::edge::{
     derived_by, link, origin, walk_outgoing, zero_disambiguator, EdgeData, EDGES_REVERSE_TABLE,
     EDGES_TABLE,
@@ -77,7 +78,7 @@ fn build_entity_fixture() -> EntityFixture {
 
     // Intern two more relation types so the bench exercises type
     // diversity (mimics a real schema with several predicates).
-    use brain_metadata::relation_type_ops::relation_type_intern_or_get;
+    use brain_metadata::relation::types::relation_type_intern_or_get;
     let (rt_b, rt_c) = {
         let wtxn = db.write_txn().expect("write_txn");
         let b = relation_type_intern_or_get(&wtxn, "brain", "follows", 0, T0).expect("intern_b");
@@ -399,9 +400,10 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
     });
 }
 
-/// Memory-anchor walk on a substrate-only fixture. Verifies that
-/// Phase A's `walk_memory_edges` (now backed by the unified
-/// `EDGES_TABLE`) hasn't regressed against the depth=1 target.
+/// Memory-anchor walk on a memory-only fixture (no typed relations
+/// declared). Verifies that Phase A's `walk_memory_edges` (now backed
+/// by the unified `EDGES_TABLE`) hasn't regressed against the depth=1
+/// target.
 fn bench_substrate_walk(c: &mut Criterion) {
     let fx = build_memory_fixture();
     let mut idx = 0usize;

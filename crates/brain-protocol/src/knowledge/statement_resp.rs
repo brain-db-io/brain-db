@@ -57,6 +57,12 @@ pub struct StatementView {
     pub tombstoned_at_unix_nanos: u64,
     pub tombstone_reason: u8,
     pub flags: u32,
+    /// LLM-coined predicate qname when this row landed on the
+    /// `brain:fact` wildcard sink. Empty string means `predicate`
+    /// reflects the LLM's actual intent.
+    pub original_predicate_qname: String,
+    /// `true` iff this statement is stateful (per-statement signal).
+    pub is_stateful: bool,
 }
 
 // ---------------------------------------------------------------------------
@@ -244,6 +250,8 @@ impl StatementView {
             tombstoned_at_unix_nanos: s.tombstoned_at_unix_nanos.unwrap_or(0),
             tombstone_reason: s.tombstone_reason.map(TombstoneReason::as_u8).unwrap_or(0),
             flags,
+            original_predicate_qname: s.original_predicate_qname.clone().unwrap_or_default(),
+            is_stateful: s.is_stateful,
         }
     }
 
@@ -298,6 +306,17 @@ impl StatementView {
             tombstoned: self.tombstoned,
             tombstoned_at_unix_nanos: opt_nz(self.tombstoned_at_unix_nanos),
             tombstone_reason,
+            original_predicate_qname: if self.original_predicate_qname.is_empty() {
+                None
+            } else {
+                Some(self.original_predicate_qname.clone())
+            },
+            is_stateful: self.is_stateful,
+            // W3.4 bi-temporal field — wire layer doesn't carry it yet;
+            // the W3.4 follow-up will extend `StatementView` and route
+            // the value through here. Until then the wire-decoded
+            // statement is treated as "still active in record-time".
+            record_invalidated_at_unix_nanos: None,
         })
     }
 }
@@ -452,6 +471,22 @@ mod tests {
             .to_statement(s.predicate)
             .unwrap();
         assert_eq!(back, expected_wire);
+        // View carries empty original qname / not-stateful by default.
+        assert!(view.original_predicate_qname.is_empty());
+        assert!(!view.is_stateful);
+    }
+
+    #[test]
+    fn view_carries_original_qname_and_stateful_flag() {
+        let mut s = sample_statement(StatementObject::Entity(EntityId::new()));
+        s.original_predicate_qname = Some("works_at".into());
+        s.is_stateful = true;
+        let view = StatementView::from_statement(&s, "brain:fact".into());
+        assert_eq!(view.original_predicate_qname, "works_at");
+        assert!(view.is_stateful);
+        let back = view.to_statement(s.predicate).unwrap();
+        assert_eq!(back.original_predicate_qname.as_deref(), Some("works_at"));
+        assert!(back.is_stateful);
     }
 
     #[test]

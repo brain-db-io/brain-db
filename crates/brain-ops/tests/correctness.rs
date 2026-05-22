@@ -148,6 +148,7 @@ mod common {
             include_text: false,
             request_id: None,
             txn_id: None,
+            rerank: false,
         };
         match dispatch(
             RequestBody::Recall(req),
@@ -373,6 +374,7 @@ mod criterion_01_wire {
                     include_text: false,
                     request_id: None,
                     txn_id: None,
+                    rerank: false,
                 }),
             ),
             (

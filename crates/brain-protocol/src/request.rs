@@ -134,6 +134,11 @@ pub enum RequestBody {
     QueryExplain(crate::knowledge::QueryExplainRequest),
     QueryTrace(crate::knowledge::QueryTraceRequest),
     RecallHybrid(crate::knowledge::RecallHybridRequest),
+
+    // Procedural-memory materialization (wire v2). Reads an agent's
+    // stored `brain:behavior_*` Preferences and renders a system
+    // block for LLM prompt injection.
+    MaterializeProcedural(crate::knowledge::MaterializeProceduralRequest),
 }
 
 impl RequestBody {
@@ -203,6 +208,7 @@ impl RequestBody {
             Self::QueryExplain(_) => Opcode::QueryExplainReq,
             Self::QueryTrace(_) => Opcode::QueryTraceReq,
             Self::RecallHybrid(_) => Opcode::RecallHybridReq,
+            Self::MaterializeProcedural(_) => Opcode::MaterializeProceduralReq,
         }
     }
 
@@ -274,6 +280,7 @@ impl RequestBody {
             Self::QueryExplain(r) => to_rkyv_bytes(r),
             Self::QueryTrace(r) => to_rkyv_bytes(r),
             Self::RecallHybrid(r) => to_rkyv_bytes(r),
+            Self::MaterializeProcedural(r) => to_rkyv_bytes(r),
         }
     }
 
@@ -346,6 +353,9 @@ impl RequestBody {
             Opcode::QueryExplainReq => Self::QueryExplain(from_rkyv_bytes(bytes)?),
             Opcode::QueryTraceReq => Self::QueryTrace(from_rkyv_bytes(bytes)?),
             Opcode::RecallHybridReq => Self::RecallHybrid(from_rkyv_bytes(bytes)?),
+            Opcode::MaterializeProceduralReq => {
+                Self::MaterializeProcedural(from_rkyv_bytes(bytes)?)
+            }
             other => return Err(ProtocolError::UnknownOpcode(other.as_u16())),
         })
     }
@@ -414,6 +424,7 @@ mod tests {
             include_text: true,
             request_id: Some(sample_uuid(7)),
             txn_id: None,
+            rerank: false,
         }));
     }
 

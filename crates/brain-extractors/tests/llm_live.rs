@@ -109,6 +109,8 @@ fn ctx<'a>(reg: &'a ExtractorRegistry) -> ExtractionContext<'a> {
         schema_version: 1,
         now_unix_nanos: 1,
         registry: reg,
+        prior_tier_items: None,
+        extractor_context: None,
     }
 }
 

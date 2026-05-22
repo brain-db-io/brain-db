@@ -11,7 +11,7 @@
 //!   auto-supersession / CardinalityViolation path.
 
 use brain_core::Cardinality;
-use brain_metadata::relation_type_ops::{
+use brain_metadata::relation::types::{
     relation_type_intern_or_get, relation_type_lookup_by_qname, RelationTypeOpError,
     NAMESPACE_MAX_LEN, NAME_MAX_LEN,
 };

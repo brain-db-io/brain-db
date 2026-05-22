@@ -21,15 +21,14 @@ use redb::WriteTransaction;
 
 use crate::write::{Phase, PhaseAck, Write};
 
-pub mod audit;
 pub mod edge;
+pub mod encode_helpers;
 pub mod entity;
 pub mod memory;
 pub mod reclaim;
 pub mod relation;
 pub mod schema;
 pub mod statement;
-pub mod update;
 
 // ---------------------------------------------------------------------------
 // ApplyError
@@ -66,11 +65,6 @@ pub enum ApplyError {
     /// doesn't accept (e.g. `Supersede(Statement, Relation)`).
     #[error("phase mis-shape: {0}")]
     PhaseMisShape(&'static str),
-
-    /// Slice not yet fully implemented (covers stub variants while P2
-    /// is in progress). Replaced as variants land.
-    #[error("apply for {0} not yet implemented")]
-    NotYetImplemented(&'static str),
 }
 
 impl ApplyError {
@@ -84,7 +78,6 @@ impl ApplyError {
             Self::SchemaAdmission(_) => "schema_admission",
             Self::Metadata(_) => "metadata",
             Self::PhaseMisShape(_) => "phase_mis_shape",
-            Self::NotYetImplemented(_) => "not_yet_implemented",
         }
     }
 }
@@ -158,13 +151,15 @@ pub fn dispatch(
         Phase::UpdateKind { .. } => memory::apply_update_kind(wtxn, phase, write),
         Phase::UpdateContext { .. } => memory::apply_update_context(wtxn, phase, write),
         Phase::UpdateEmbedding { .. } => memory::apply_update_embedding(wtxn, phase, write),
-        Phase::UpdateAttribute { .. } => update::apply_update_attribute(wtxn, phase, write),
-        Phase::Resolve { .. } => entity::apply_resolve(wtxn, phase, write),
+        Phase::UpdateEntity { .. } => entity::apply_update_entity(wtxn, phase, write),
+        Phase::RenameEntity { .. } => entity::apply_rename_entity(wtxn, phase, write),
+        Phase::UnmergeEntities { .. } => entity::apply_unmerge_entities(wtxn, phase, write),
         Phase::MergeEntities { .. } => entity::apply_merge_entities(wtxn, phase, write),
+        Phase::ApproveMerge { .. } => entity::apply_approve_merge(wtxn, phase, write),
+        Phase::RejectMerge { .. } => entity::apply_reject_merge(wtxn, phase, write),
         Phase::SetExtractorEnabled { .. } => {
             schema::apply_set_extractor_enabled(wtxn, phase, write)
         }
-        Phase::StampAudit { .. } => audit::apply_stamp_audit(wtxn, phase, write),
         Phase::ReclaimSlots { .. } => reclaim::apply_reclaim_slots(wtxn, phase, write),
     }
 }
@@ -188,7 +183,6 @@ mod tests {
             (ApplyError::SchemaAdmission("p".into()), "schema_admission"),
             (ApplyError::Metadata("q".into()), "metadata"),
             (ApplyError::PhaseMisShape("r"), "phase_mis_shape"),
-            (ApplyError::NotYetImplemented("s"), "not_yet_implemented"),
         ];
         for (e, expected) in cases {
             assert_eq!(e.tag(), expected);

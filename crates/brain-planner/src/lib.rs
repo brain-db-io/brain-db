@@ -29,21 +29,17 @@
 pub mod config;
 pub mod context;
 pub mod cost;
-pub mod encode;
 pub mod error;
 pub mod executor;
 pub mod explain;
-pub mod forget;
-pub mod knowledge;
-pub mod path;
+pub mod hybrid;
 pub mod plan;
-pub mod reason;
-pub mod recall;
+pub mod planner;
 pub mod stats;
+pub mod vsa;
 
 pub use config::PlannerConfig;
 pub use context::PlannerContext;
-pub use encode::{plan_encode, plan_encode_inner, MAX_TEXT_BYTES};
 pub use error::PlanError;
 pub use executor::{
     execute_path, execute_reason, execute_recall, EdgeOutcome, EncodeOp, EncodeOpEdge,
@@ -52,8 +48,6 @@ pub use executor::{
     RecallHit, RecallResult, SharedMetadataDb, TxnSnapshot, UnlinkOp, WriterError, WriterHandle,
 };
 pub use explain::explain;
-pub use forget::{plan_forget, plan_forget_inner};
-pub use path::{plan_path, plan_path_inner};
 pub use plan::{
     default_contradicts_edge_kinds, default_plan_edge_kinds, default_supports_edge_kinds,
     AggregationStep, AnnSearchStep, ApplyStep, ContextResolutionStep, EdgeSpec, EdgeStep,
@@ -63,8 +57,11 @@ pub use plan::{
     RecallSubStep, ResponseStep, ScoringStep, ShardId, ShardSearchStep, SlotAllocationStep,
     SortKey, TextFetchStep, TraversalStep, WalAppendStep,
 };
-pub use reason::{plan_reason, plan_reason_inner};
-pub use recall::{plan_recall, plan_recall_inner};
+pub use planner::encode::{plan_encode, plan_encode_inner, MAX_TEXT_BYTES};
+pub use planner::forget::{plan_forget, plan_forget_inner};
+pub use planner::path::{plan_path, plan_path_inner};
+pub use planner::reason::{plan_reason, plan_reason_inner};
+pub use planner::recall::{plan_recall, plan_recall_inner};
 pub use stats::ShardStats;
 
 /// Compile-time guard: every plan type must be `Send + Sync` so the

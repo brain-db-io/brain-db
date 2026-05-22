@@ -372,8 +372,8 @@ fn render_human(
     // Lists the workers the write queued — `auto_edge`,
     // `temporal_edge`, `extractor` — so the operator sees what's
     // about to run in the background even without `--wait*`. Empty
-    // pending_stages renders `none queued` so a substrate-only
-    // deployment (no workers wired) reads honestly.
+    // pending_stages renders `none queued` so a deployment with no
+    // background workers wired reads honestly.
     if !r.was_deduplicated {
         write_stages_row(w, ctx, &r.pending_stages)?;
     }
@@ -538,7 +538,16 @@ fn render_human(
             // line up across rows (`temporal_edge` is the longest).
             let pad = 13_usize.saturating_sub(res.kind.snake().chars().count());
             let kind_spaces = " ".repeat(pad);
-            let summary_painted = theme.paint(Token::Value, &res.summary, policy);
+            // Append a "why" suffix for the empty-statement/empty-
+            // relation extractor case: without the hint, "0 statements,
+            // 0 relations" reads like a worker failure rather than
+            // a deployment-config or content-coverage outcome.
+            let summary_with_hint = augment_extractor_summary(
+                res,
+                rendered.response.has_active_schema,
+                rendered.response.has_llm_extractor,
+            );
+            let summary_painted = theme.paint(Token::Value, &summary_with_hint, policy);
             writeln!(
                 w,
                 "    {glyph_painted} {kind_painted}{kind_spaces}  {summary_painted}"
@@ -559,10 +568,72 @@ fn render_human(
     Ok(())
 }
 
+/// When an extractor stage reports `0 statements, 0 relations`, the
+/// raw count line doesn't tell the operator WHY. Three distinct
+/// conditions land at the same number:
+///
+/// 1. The deployment has no user-declared schema. Every proposed
+///    statement / relation is dropped by the predicate/relation_type
+///    admission filter because no predicate is registered. UX hint:
+///    "no schema declares matching predicates".
+///
+/// 2. A schema IS declared but the deployment has no LLM tier wired
+///    (no `ANTHROPIC_API_KEY` / `OPENAI_API_KEY`, or every LLM
+///    extractor disabled). Pattern + classifier tiers can produce
+///    entities but never statements/relations. UX hint tells the
+///    operator exactly which env var to set so the missing capability
+///    isn't a guessing game.
+///
+/// 3. Schema declared, LLM tier wired, but the input sentence
+///    didn't carry any predicate the schema covers. UX hint:
+///    "extractor produced no statements".
+///
+/// The hint is appended after the existing `· <status>` suffix so
+/// scripts that parse the leading count fields stay unaffected.
+fn augment_extractor_summary(
+    res: &StageResult,
+    has_active_schema: bool,
+    has_llm_extractor: bool,
+) -> String {
+    if res.kind != StageKindLabel::Extractor {
+        return res.summary.clone();
+    }
+    // The summary string format is owned by brain-shell — we look
+    // for the "0 statements, 0 relations" sentinel (handling both
+    // singular/plural via the shared "0 " prefix). If the kept
+    // counts are non-zero, leave the summary alone.
+    let zero_stmts = res.summary.contains("0 statement") || res.summary.contains("0 statements");
+    let zero_rels = res.summary.contains("0 relation") || res.summary.contains("0 relations");
+    if !(zero_stmts && zero_rels) {
+        return res.summary.clone();
+    }
+    // Skipped / Failed don't carry the "why nothing was kept" question
+    // — they already explain themselves. Empty maps to a different
+    // story (the extractor wasn't asked to produce anything) and we
+    // only annotate when the extractor actually ran.
+    if !matches!(res.outcome, StageOutcomeLabel::Ok) {
+        return res.summary.clone();
+    }
+    let hint = if !has_active_schema {
+        // No schema → drop all proposed statements/relations. This
+        // dominates the explanation: even with an LLM, predicate
+        // admission would reject everything.
+        "no schema declares matching predicates"
+    } else if !has_llm_extractor {
+        // Schema declared but no LLM tier. Pattern + classifier can
+        // resolve entities but never produce statements/relations.
+        // Surface the env vars by name so the operator knows the fix.
+        "statements require an LLM tier — set ANTHROPIC_API_KEY or OPENAI_API_KEY"
+    } else {
+        "extractor produced no statements"
+    };
+    format!("{} · {hint}", res.summary)
+}
+
 /// Render the labelled `stages` row carrying the pending background
-/// stages from the encode ack. Empty → `none queued` so a substrate-
-/// only deployment reads honestly; non-empty → snake-case list with
-/// `·` separators (e.g. `auto_edge · temporal_edge · extractor`).
+/// stages from the encode ack. Empty → `none queued` so a deployment
+/// with no workers wired reads honestly; non-empty → snake-case list
+/// with `·` separators (e.g. `auto_edge · temporal_edge · extractor`).
 fn write_stages_row(
     w: &mut dyn Write,
     ctx: &RenderCtx,
@@ -574,7 +645,7 @@ fn write_stages_row(
         theme
             .paint(
                 Token::Muted,
-                "none queued (substrate-only or workers disabled)",
+                "none queued (no schema declared or workers disabled)",
                 policy,
             )
             .to_string()
@@ -683,6 +754,8 @@ mod tests {
             edges_out_count: 0,
             embedding_model_fp: [0u8; 16],
             pending_stages: Vec::new(),
+            has_active_schema: false,
+            has_llm_extractor: false,
         })
     }
 
@@ -1283,7 +1356,7 @@ mod tests {
     }
 
     // 28. The `stages` row honestly says "none queued" when no
-    // background work was triggered (substrate-only deployment,
+    // background work was triggered (no-schema deployment,
     // workers disabled, or no UpsertMemory phase).
     #[test]
     fn render_stages_row_says_none_queued_when_empty() {
@@ -1408,6 +1481,168 @@ mod tests {
         assert!(
             !out.lines().any(|l| l.contains("  stages")),
             "dedup hit must not render stages row: {out}"
+        );
+    }
+
+    // 33. Extractor stage with 0 statements + 0 relations on a
+    // no-schema deployment renders the "no schema declares matching
+    // predicates" hint, so the operator understands why nothing
+    // landed (deployment story, not a worker failure).
+    #[test]
+    fn render_extractor_zero_stmts_no_schema_appends_schema_hint() {
+        let mut r = sample();
+        r.response.has_active_schema = false;
+        let r = r.with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::Extractor,
+                outcome: StageOutcomeLabel::Ok,
+                summary: "1 entity, 0 statements, 0 relations · succeeded".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.contains("no schema declares matching predicates"),
+            "no-schema hint missing on extractor row: {out}"
+        );
+    }
+
+    // 34. Extractor stage with 0 statements + 0 relations BUT a
+    // schema IS declared + an LLM tier IS wired — the extractor ran
+    // with both prerequisites satisfied but found no sentence
+    // matching any declared predicate. Content-coverage story.
+    #[test]
+    fn render_extractor_zero_stmts_with_schema_appends_content_hint() {
+        let mut r = sample();
+        r.response.has_active_schema = true;
+        r.response.has_llm_extractor = true;
+        let r = r.with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::Extractor,
+                outcome: StageOutcomeLabel::Ok,
+                summary: "1 entity, 0 statements, 0 relations · succeeded".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.contains("extractor produced no statements"),
+            "schema-present + llm-wired hint missing on extractor row: {out}"
+        );
+        assert!(
+            !out.contains("no schema declares matching predicates"),
+            "must not emit the no-schema hint when schema IS declared: {out}"
+        );
+        assert!(
+            !out.contains("statements require an LLM tier"),
+            "must not emit the llm-missing hint when an LLM tier is wired: {out}"
+        );
+    }
+
+    // 34b. Schema declared but no LLM tier wired — the renderer
+    // tells the operator exactly which env var unlocks statements.
+    // Without this hint, the user reads "0 statements" and assumes
+    // the system is broken; with it, they know it's a one-line fix.
+    #[test]
+    fn render_extractor_zero_stmts_schema_but_no_llm_appends_llm_hint() {
+        let mut r = sample();
+        r.response.has_active_schema = true;
+        r.response.has_llm_extractor = false;
+        let r = r.with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::Extractor,
+                outcome: StageOutcomeLabel::Ok,
+                summary: "5 entities, 0 statements, 0 relations · succeeded".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            out.contains("statements require an LLM tier"),
+            "llm-missing hint missing on extractor row: {out}"
+        );
+        assert!(
+            out.contains("ANTHROPIC_API_KEY") && out.contains("OPENAI_API_KEY"),
+            "hint must name both env vars so operator knows the fix: {out}"
+        );
+        assert!(
+            !out.contains("extractor produced no statements"),
+            "must not also emit the content-coverage hint: {out}"
+        );
+        assert!(
+            !out.contains("partially applied"),
+            "must not slap a 'partially applied' badge on a clean classifier run: {out}"
+        );
+    }
+
+    // 35. Non-zero statement/relation counts leave the summary alone.
+    // The hint only fires for the structural ambiguity case.
+    #[test]
+    fn render_extractor_nonzero_counts_no_hint() {
+        let r = sample().with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::Extractor,
+                outcome: StageOutcomeLabel::Ok,
+                summary: "1 entity, 3 statements, 0 relations · succeeded".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            !out.contains("no schema declares matching predicates"),
+            "must not emit no-schema hint when statements landed: {out}"
+        );
+        assert!(
+            !out.contains("extractor produced no statements"),
+            "must not emit content hint when statements landed: {out}"
+        );
+    }
+
+    // 36. Non-Ok outcomes (Skipped / Failed / Empty) don't get the
+    // hint — they already carry their own explanation.
+    #[test]
+    fn render_extractor_zero_stmts_skipped_outcome_no_hint() {
+        let r = sample().with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::Extractor,
+                outcome: StageOutcomeLabel::Empty,
+                summary: "0 entities, 0 statements, 0 relations · skipped".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            !out.contains("no schema declares matching predicates"),
+            "must not annotate already-explained skipped row: {out}"
+        );
+        assert!(
+            !out.contains("extractor produced no statements"),
+            "must not annotate already-explained skipped row: {out}"
+        );
+    }
+
+    // 37. Hint only applies to extractor rows. Edge stages with
+    // their own "0 X" phrasing must not be touched.
+    #[test]
+    fn render_non_extractor_stage_summary_untouched() {
+        let r = sample().with_stage_results(StageResultsDelta {
+            elapsed_ms: 200,
+            results: vec![StageResult {
+                kind: StageKindLabel::AutoEdge,
+                outcome: StageOutcomeLabel::Empty,
+                summary: "no SimilarTo edges (below threshold or zero-vector)".into(),
+            }],
+            timed_out: Vec::new(),
+        });
+        let out = render(&r, OutputFormat::Table);
+        assert!(
+            !out.contains("no schema declares matching predicates"),
+            "must not annotate non-extractor stage: {out}"
         );
     }
 }

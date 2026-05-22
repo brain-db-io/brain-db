@@ -18,6 +18,7 @@ pub mod entity_resp;
 pub mod events;
 pub mod extractor_req;
 pub mod extractor_resp;
+pub mod procedural;
 pub mod query;
 pub mod relation_req;
 pub mod relation_resp;
@@ -47,6 +48,7 @@ pub use extractor_resp::{
     ExtractorDisableResponse, ExtractorEnableResponse, ExtractorListItem,
     ExtractorListResponseFrame,
 };
+pub use procedural::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 pub use query::{
     FusionConfigWire, ItemIdWire, MemoryHit, QueryExplainRequest, QueryExplainResponse,
     QueryRequest, QueryResponse, QueryResultItem, QueryTraceRequest, QueryTraceResponse,

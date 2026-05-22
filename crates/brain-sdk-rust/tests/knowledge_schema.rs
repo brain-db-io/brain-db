@@ -12,7 +12,7 @@
 //!   `SchemaUploadOutcome { schema_version: None, errors: [...] }`.
 //!
 //! Full end-to-end against a real shard lives in
-//! `crates/brain-server/tests/knowledge_schema_*.rs`; this file
+//! `crates/brain-server/tests/schema_*.rs`; this file
 //! covers the SDK side without the storage stack.
 
 mod common;
@@ -26,7 +26,7 @@ use brain_protocol::schema::{
     AttrType, AttributeDecl, EntityTypeDef, ObjectTypeDecl, PredicateDef, StatementKindAst,
 };
 use brain_protocol::{RequestBody, ResponseBody};
-use brain_sdk_rust::knowledge::SchemaBuilder;
+use brain_sdk_rust::ops::SchemaBuilder;
 use brain_sdk_rust::Client;
 
 const ACME_V1: &str = "namespace acme\n\
@@ -128,6 +128,7 @@ async fn upload_via_builder_round_trip() {
             object: ObjectTypeDecl::Value {
                 value_type: AttrType::Text,
             },
+            stateful: None,
             description: None,
         })
         .build();

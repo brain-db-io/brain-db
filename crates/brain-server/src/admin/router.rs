@@ -22,7 +22,8 @@ use http::{Method, Request, Response};
 use hyper::body::Incoming;
 
 use crate::admin::handlers::{
-    agent, audit, config, diagnostics, extract, healthz, metrics, rebuild, shard, snapshot, worker,
+    agent, api_keys, audit, config, diagnostics, extract, healthz, metrics, rebuild, shard,
+    snapshot, worker,
 };
 use crate::admin::AdminState;
 
@@ -127,6 +128,29 @@ fn attach_v1_routes(r: Router<Incoming>, state: Arc<AdminState>) -> Router<Incom
         "/v1/audit/export",
         state.clone(),
         audit::export,
+    );
+
+    // ──────── /v1/api-keys (W2.5) ──────────────────────────────────────
+    let r = with_state(
+        r,
+        Method::POST,
+        "/v1/api-keys",
+        state.clone(),
+        api_keys::handle,
+    );
+    let r = with_state(
+        r,
+        Method::GET,
+        "/v1/api-keys",
+        state.clone(),
+        api_keys::handle,
+    );
+    let r = with_state_prefix(
+        r,
+        Method::DELETE,
+        "/v1/api-keys/",
+        state.clone(),
+        api_keys::handle,
     );
 
     // ──────── /v1/agents ───────────────────────────────────────────────

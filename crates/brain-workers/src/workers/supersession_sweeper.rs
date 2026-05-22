@@ -9,7 +9,7 @@ use std::future::Future;
 use std::pin::Pin;
 use std::time::SystemTime;
 
-use brain_metadata::sweeper_ops::{sweep_superseded_statements, SweepSummary};
+use brain_metadata::extractor::sweep::{sweep_superseded_statements, SweepSummary};
 
 use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;

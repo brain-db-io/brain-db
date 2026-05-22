@@ -29,7 +29,7 @@
 //!   — `MetadataSink` in sub-task 3.11 owns the conversion from
 //!   `CheckpointReport` to [`CheckpointMeta`], filling
 //!   `metadata_version_at_checkpoint` from
-//!   [`crate::schema::CURRENT_SCHEMA_VERSION`].
+//!   [`crate::storage_version::CURRENT_SCHEMA_VERSION`].
 //! - **Retention sweep** (delete old checkpoints) — spec §05/09 §6;
 //!   Phase 8 maintenance worker.
 //! - **Recovery handshake** (read [`latest`], replay WAL after its

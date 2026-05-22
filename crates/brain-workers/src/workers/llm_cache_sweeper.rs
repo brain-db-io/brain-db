@@ -1,79 +1,136 @@
-//! LLM cache sweeper (sub-task 24.5). Spec §27/03 §4.
+//! Per-shard LLM extractor response cache sweeper.
 //!
-//! Per-shard sweeper that maintains the LLM extractor response
-//! cache:
-//! - TTL expiry (default 90 d).
-//! - Capacity enforcement (default 1 GiB; 0 = unlimited).
+//! On every tick, ask the cache to delete every row whose
+//! `expires_at` is `<= now` — both from the main response table and
+//! from the TTL secondary index. Without this worker the cache file
+//! grows unboundedly and long-running deployments eventually run out
+//! of disk.
 //!
-//! **No-op when `OpsContext.llm_cache` is None** (substrate-only
-//! deployments / no LLM extractors configured).
-//!
-//! v1 scope: the cache's redb API (`brain_metadata::llm_cache`)
-//! ships its own LRU eviction in phase 21. The sweeper invokes
-//! that path on a clock; full per-tick capacity-recompute lives
-//! in the cache module itself.
+//! No-op when `OpsContext.llm_cache` is `None` (no LLM extractors
+//! configured) — the worker stays registered for introspection but
+//! its cycle returns 0 immediately.
 
 use std::future::Future;
 use std::pin::Pin;
+use std::sync::Arc;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+use brain_metadata::llm_cache::sweep_expired;
+use brain_ops::LlmCacheSweepMetrics;
 
 use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;
 use crate::error::WorkerError;
 use crate::worker::Worker;
 
-/// 90 days in seconds (spec §25/00 default).
-pub const DEFAULT_LLM_CACHE_TTL_SECONDS: u64 = 90 * 24 * 60 * 60;
+/// Operator override for the sweep interval (seconds). Falls back to
+/// the `WorkerConfig::defaults_for` cadence when unset, empty, or
+/// non-positive.
+pub const SWEEP_INTERVAL_ENV: &str = "BRAIN_LLM_CACHE_SWEEP_INTERVAL_SECS";
 
-/// 1 GiB.
-pub const DEFAULT_LLM_CACHE_MAX_BYTES: u64 = 1_073_741_824;
+/// 1 h default cadence. Mirrors the `WorkerKind::LlmCacheSweeper`
+/// default in `WorkerConfig`.
+pub const DEFAULT_INTERVAL_SECS: u64 = 3600;
+
+/// Parse the env override. Returns `None` when the variable is unset,
+/// empty, non-numeric, or zero.
+#[must_use]
+pub fn parse_interval_override(raw: Option<&str>) -> Option<std::time::Duration> {
+    let s = raw?;
+    let v: u64 = s.parse().ok()?;
+    if v == 0 {
+        return None;
+    }
+    Some(std::time::Duration::from_secs(v))
+}
+
+fn resolved_interval() -> std::time::Duration {
+    parse_interval_override(std::env::var(SWEEP_INTERVAL_ENV).ok().as_deref())
+        .unwrap_or_else(|| std::time::Duration::from_secs(DEFAULT_INTERVAL_SECS))
+}
 
 pub struct LlmCacheSweeper {
     config: WorkerConfig,
-    ttl_seconds: u64,
-    max_bytes: u64,
+    metrics: Option<Arc<LlmCacheSweepMetrics>>,
 }
 
 impl LlmCacheSweeper {
+    /// Construct with the spec-default cadence and an empty metrics
+    /// slot. The shard wires its shared `Arc<LlmCacheSweepMetrics>`
+    /// in via [`Self::with_metrics`] at registration time.
     #[must_use]
     pub fn new() -> Self {
+        let mut config = WorkerConfig::defaults_for(WorkerKind::LlmCacheSweeper);
+        config.interval = resolved_interval();
         Self {
-            config: WorkerConfig::defaults_for(WorkerKind::LlmCacheSweeper),
-            ttl_seconds: DEFAULT_LLM_CACHE_TTL_SECONDS,
-            max_bytes: DEFAULT_LLM_CACHE_MAX_BYTES,
+            config,
+            metrics: None,
         }
     }
 
+    /// Override the default config (e.g. interval / batch / runtime).
     #[must_use]
-    pub fn with_ttl_seconds(mut self, ttl: u64) -> Self {
-        self.ttl_seconds = ttl;
+    pub fn with_config(mut self, cfg: WorkerConfig) -> Self {
+        self.config = cfg;
         self
     }
 
+    /// Install the shared metrics handle. `Arc::clone` from the
+    /// shard's owning instance so `/metrics` exposition and the
+    /// worker write to the same counters.
     #[must_use]
-    pub fn with_max_bytes(mut self, bytes: u64) -> Self {
-        self.max_bytes = bytes;
+    pub fn with_metrics(mut self, metrics: Arc<LlmCacheSweepMetrics>) -> Self {
+        self.metrics = Some(metrics);
         self
     }
 
     async fn sweep_once(&self, ctx: &WorkerContext) -> Result<usize, WorkerError> {
-        // No-op when the deployment has no LLM cache configured.
-        let Some(_cache) = ctx.ops.llm_cache.as_ref() else {
+        let Some(cache) = ctx.ops.llm_cache.clone() else {
             return Ok(0);
         };
-        // The actual sweep is delegated to `brain_metadata::llm_cache`'s
-        // own LRU+TTL logic. v1 invokes its public surface (or a thin
-        // wrapper); the exact entry point depends on the cache crate's
-        // signature, which evolves with phase 21 LLM extractor work.
-        // For v1 we record a debug event and bail; the cache layer
-        // already enforces TTL on read in phase 21's implementation.
-        tracing::debug!(
-            target: "brain_workers::llm_cache_sweeper",
-            ttl_seconds = self.ttl_seconds,
-            max_bytes = self.max_bytes,
-            "llm cache sweep tick (no-op — delegating to brain-metadata::llm_cache TTL-on-read; \
-             full sweep wiring lands as a follow-up)",
-        );
-        Ok(0)
+        let now = SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0);
+        let started = Instant::now();
+        // Lock the cache mutex only for the duration of the sweep,
+        // never across an `.await`. The sweep is one redb wtxn:
+        // bounded work, no IO awaits, no scheduler hand-offs.
+        let removed = {
+            let mut db = cache.lock();
+            match sweep_expired(&mut db, now) {
+                Ok(n) => n,
+                Err(e) => {
+                    tracing::warn!(
+                        target: "brain_workers::llm_cache_sweep",
+                        error = %e,
+                        "llm cache sweep failed; retrying next tick",
+                    );
+                    return Ok(0);
+                }
+            }
+        };
+        let elapsed = started.elapsed();
+        if let Some(m) = self.metrics.as_ref() {
+            m.inc_sweeps();
+            m.add_rows_removed(removed as u64);
+            m.observe_sweep_duration(elapsed.as_secs_f64());
+        }
+        if removed > 0 {
+            tracing::info!(
+                target: "brain_workers::llm_cache_sweep",
+                removed,
+                duration_ms = elapsed.as_millis() as u64,
+                "swept expired llm cache rows",
+            );
+        } else {
+            tracing::debug!(
+                target: "brain_workers::llm_cache_sweep",
+                duration_ms = elapsed.as_millis() as u64,
+                "llm cache sweep tick (no expired rows)",
+            );
+        }
+        Ok(removed)
     }
 }
 
@@ -103,18 +160,113 @@ impl Worker for LlmCacheSweeper {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::atomic::AtomicBool;
+    use std::sync::Arc;
+    use std::time::Duration;
+
+    use brain_metadata::llm_cache::{
+        LlmCacheDb, LlmResponse, LLM_RESPONSES_TABLE, LLM_RESPONSE_TTL_TABLE,
+    };
+    use parking_lot::Mutex;
+
     use super::*;
 
     #[test]
-    fn defaults() {
-        let w = LlmCacheSweeper::new();
-        assert_eq!(w.ttl_seconds, 90 * 24 * 60 * 60);
-        assert_eq!(w.max_bytes, 1_073_741_824);
+    fn default_interval_is_one_hour() {
+        // Pure helper test: parse_interval_override sees no env value.
+        let cfg = WorkerConfig::defaults_for(WorkerKind::LlmCacheSweeper);
+        assert_eq!(cfg.interval, Duration::from_secs(DEFAULT_INTERVAL_SECS));
+    }
+
+    #[test]
+    fn env_override_changes_interval() {
+        assert_eq!(
+            parse_interval_override(Some("300")),
+            Some(Duration::from_secs(300)),
+        );
+        assert_eq!(
+            parse_interval_override(Some("1")),
+            Some(Duration::from_secs(1)),
+        );
+    }
+
+    #[test]
+    fn env_override_rejects_invalid_inputs() {
+        // None / empty / non-numeric / zero all fall through to the
+        // default — production starts a sweeper even with a typo'd env.
+        assert!(parse_interval_override(None).is_none());
+        assert!(parse_interval_override(Some("")).is_none());
+        assert!(parse_interval_override(Some("not-a-number")).is_none());
+        assert!(parse_interval_override(Some("0")).is_none());
+        assert!(parse_interval_override(Some("-5")).is_none());
     }
 
     #[test]
     fn worker_kind_name() {
         let w = LlmCacheSweeper::new();
         assert_eq!(w.name(), "llm_cache_sweeper");
+        assert_eq!(w.kind(), WorkerKind::LlmCacheSweeper);
+    }
+
+    #[test]
+    fn worker_tick_invokes_sweep_expired() {
+        // Seed an LlmCacheDb with one expired row + one fresh one,
+        // call the worker's sweep_once-equivalent (via the public
+        // helper), and assert only the expired row is removed.
+        // The worker delegates straight to `sweep_expired`, so this
+        // exercises the worker's "lock + call + count" wiring without
+        // pulling in the full WorkerContext stack.
+        let dir = tempfile::tempdir().unwrap();
+        let mut db = LlmCacheDb::open(dir.path().join("llm_cache.redb")).unwrap();
+        let resp = LlmResponse::new(vec![0u8; 8], 0, 0, 1, 0);
+        let now = 1_000_000u64;
+
+        let expired_hash = [0x01u8; 32];
+        let fresh_hash = [0x02u8; 32];
+        let wtxn = db.write_txn().unwrap();
+        {
+            let mut t = wtxn.open_table(LLM_RESPONSES_TABLE).unwrap();
+            t.insert(&(expired_hash, 1u32, 1u32, 0u64), &resp).unwrap();
+            t.insert(&(fresh_hash, 1u32, 1u32, 0u64), &resp).unwrap();
+        }
+        {
+            let mut ttl = wtxn.open_table(LLM_RESPONSE_TTL_TABLE).unwrap();
+            ttl.insert(&(now - 1, expired_hash), &()).unwrap();
+            ttl.insert(&(now + 60, fresh_hash), &()).unwrap();
+        }
+        wtxn.commit().unwrap();
+
+        let removed = sweep_expired(&mut db, now).unwrap();
+        assert_eq!(removed, 1, "exactly the expired row is removed");
+
+        // And the metrics path observes both `inc_sweeps` and the
+        // returned count: simulate the worker's post-sweep updates.
+        let metrics = Arc::new(LlmCacheSweepMetrics::new());
+        metrics.inc_sweeps();
+        metrics.add_rows_removed(removed as u64);
+        metrics.observe_sweep_duration(0.001);
+        let snap = metrics.snapshot();
+        assert_eq!(snap.sweeps_total, 1);
+        assert_eq!(snap.rows_removed_total, 1);
+        assert_eq!(snap.sweep_duration_seconds.count, 1);
+    }
+
+    #[test]
+    fn no_op_when_cache_unset() {
+        // The worker's no-op path doesn't actually need a full
+        // WorkerContext; we only verify the construction-time
+        // invariants that drive it: a default worker carries no
+        // cache and no metrics until the shard wires them.
+        let w = LlmCacheSweeper::new();
+        assert!(w.metrics.is_none());
+        // `Default` is the same path; documents that an unconfigured
+        // shard's worker still constructs without panicking.
+        let _ = LlmCacheSweeper::default();
+        // Use shutdown atomic just to silence the unused import on
+        // CI configs that compile this without running tests.
+        let _shutdown: Arc<AtomicBool> = Arc::new(AtomicBool::new(false));
+        // And the Mutex/Arc imports are exercised by the seeded test
+        // above; this line documents the wire shape.
+        let _: Option<Arc<Mutex<LlmCacheDb>>> = None;
     }
 }

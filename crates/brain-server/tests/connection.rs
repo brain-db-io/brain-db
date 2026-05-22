@@ -21,6 +21,9 @@ use tokio::net::TcpStream;
 // main.rs. The connection tests don't exercise the shard / adapter /
 // dispatch surface directly; silence dead-code noise.
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -71,6 +74,13 @@ impl Server {
 }
 
 fn empty_topology() -> Topology {
+    let auth_store = {
+        let tmp = tempfile::TempDir::new().expect("tmpdir");
+        let p = tmp.path().join("api_keys.redb");
+        let store = Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        std::mem::forget(tmp);
+        store
+    };
     Topology {
         shards: Arc::new(Vec::<ShardHandle>::new()),
         routing: Arc::new(arc_swap::ArcSwap::from_pointee(
@@ -81,6 +91,7 @@ fn empty_topology() -> Topology {
             vec![AuthMethod::None],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
+        auth_store,
     }
 }
 

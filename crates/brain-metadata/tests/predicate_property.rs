@@ -20,7 +20,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::sync::Arc;
 use std::thread;
 
-use brain_metadata::predicate_ops::{
+use brain_metadata::schema::predicate::{
     predicate_intern_or_get, predicate_list, predicate_lookup_by_qname,
 };
 use proptest::prelude::*;

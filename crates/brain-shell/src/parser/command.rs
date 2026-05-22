@@ -685,11 +685,13 @@ pub struct EncodeArgs {
     /// Read memory text from stdin (shorthand for `--from-file -`).
     #[arg(long = "from-stdin", conflicts_with_all = ["text", "from_file"])]
     pub from_stdin: bool,
-    /// Block until the extractor has produced knowledge for this
-    /// memory. Honours the global `--timeout`. Requires the server to
-    /// emit the `ExtractionCompleted` event variant on the change feed.
-    #[arg(long = "wait-for-extraction")]
-    pub wait_for_extraction: bool,
+    /// Wait for all pending background stages (extractor, auto_edge,
+    /// temporal_edge, …) to complete before returning. Bounded by the
+    /// shell's internal stages timeout (currently 10 s). Stages that
+    /// don't land in time are surfaced under a "timed out waiting for"
+    /// line so the operator sees the gap explicitly.
+    #[arg(long = "wait")]
+    pub wait: bool,
     /// After the encode response renders, open a filtered subscribe
     /// stream for up to N milliseconds and amend the card with a
     /// delta line listing the auto-edges the AutoEdgeWorker writes.
@@ -786,7 +788,7 @@ pub struct RecallArgs {
     /// incident to those entities. Costs additional reads against the
     /// knowledge tables; results are capped server-side
     /// (16 entities / 5 statements / 5 relations per hit) so the
-    /// response stays bounded. `None` on substrate-only deployments
+    /// response stays bounded. `None` on no-schema deployments
     /// and for memories that never went through the extractors.
     #[arg(long = "include-graph", default_value_t = false)]
     pub include_graph: bool,

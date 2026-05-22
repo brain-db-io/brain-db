@@ -123,6 +123,9 @@ pub async fn start_in(data_dir: &Path, n_shards: usize) -> Server {
     ));
     let request_metrics = Arc::new(crate::metrics::request::RequestMetrics::new());
 
+    let auth_store_path = data_dir.join("api_keys.redb");
+    let auth_store =
+        Arc::new(crate::auth::AuthStore::open(&auth_store_path, false).expect("open auth store"));
     let topology = Topology {
         shards: shards.clone(),
         routing,
@@ -131,6 +134,7 @@ pub async fn start_in(data_dir: &Path, n_shards: usize) -> Server {
             vec![AuthMethod::None],
         )),
         request_metrics: request_metrics.clone(),
+        auth_store: auth_store.clone(),
     };
 
     let connections = Arc::new(ConnectionMetrics::default());
@@ -153,6 +157,7 @@ pub async fn start_in(data_dir: &Path, n_shards: usize) -> Server {
         connections,
         Arc::new(config::Config::for_tests()),
         request_metrics,
+        auth_store,
     ));
     let admin = AdminServer::new("127.0.0.1:0".parse().unwrap(), admin_state, signal);
     let bound_admin = admin.bind().await.expect("bind admin");

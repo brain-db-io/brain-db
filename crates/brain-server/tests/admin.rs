@@ -18,6 +18,9 @@ use tokio::net::TcpStream;
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -100,11 +103,19 @@ impl Bringup {
 async fn start_admin_only() -> Bringup {
     let (trigger, signal) = ShutdownSignal::channel();
     let connections = Arc::new(ConnectionMetrics::default());
+    let auth_store = {
+        let tmp = tempfile::TempDir::new().expect("tmpdir");
+        let p = tmp.path().join("api_keys.redb");
+        let store = Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        std::mem::forget(tmp);
+        store
+    };
     let state = Arc::new(AdminState::new(
         Arc::new(Vec::new()),
         connections,
         Arc::new(config::Config::for_tests()),
         Arc::new(metrics::request::RequestMetrics::new()),
+        auth_store,
     ));
     let admin = AdminServer::new("127.0.0.1:0".parse().unwrap(), state, signal);
     let bound = admin.bind().await.expect("bind admin");
@@ -141,6 +152,14 @@ async fn start_admin_with_shards(n_shards: usize) -> Bringup {
         RoutingTable::new(n_shards as u16, std::collections::HashMap::new()).unwrap(),
     ));
     let request_metrics = Arc::new(metrics::request::RequestMetrics::new());
+    let __auth_store = {
+        let tmp = tempfile::TempDir::new().expect("tmpdir");
+        let p = tmp.path().join("api_keys.redb");
+        let store =
+            std::sync::Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        std::mem::forget(tmp);
+        store
+    };
     let topology = Topology {
         shards: shards.clone(),
         routing,
@@ -149,6 +168,7 @@ async fn start_admin_with_shards(n_shards: usize) -> Bringup {
             vec![AuthMethod::None],
         )),
         request_metrics: request_metrics.clone(),
+        auth_store: __auth_store.clone(),
     };
     let connections = Arc::new(ConnectionMetrics::default());
 
@@ -170,6 +190,7 @@ async fn start_admin_with_shards(n_shards: usize) -> Bringup {
         connections,
         Arc::new(config::Config::for_tests()),
         request_metrics,
+        __auth_store.clone(),
     ));
     let admin = AdminServer::new("127.0.0.1:0".parse().unwrap(), state, signal);
     let bound_admin = admin.bind().await.expect("bind admin");

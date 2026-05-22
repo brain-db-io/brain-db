@@ -15,6 +15,7 @@ brain-embed = { path = "../brain-embed" }
 brain-extractors = { path = "../brain-extractors" }
 brain-index = { path = "../brain-index" }
 brain-metadata = { path = "../brain-metadata" }
+brain-rerank = { path = "../brain-rerank" }
 brain-storage = { path = "../brain-storage" }
 rkyv.workspace = true
 redb.workspace = true
@@ -48,3 +49,8 @@ tempfile.workspace = true
 uuid.workspace = true
 tokio = { version = "1", features = ["macros", "rt", "rt-multi-thread", "sync", "time"] }
 proptest.workspace = true
+# `futures_lite::future::block_on` for synchronous tests of the
+# encode-helpers' async fetch path. Production code uses Glommio's
+# executor; tests drive the futures via the lightweight block-on so
+# they don't pull in tokio for a single async helper.
+futures-lite.workspace = true

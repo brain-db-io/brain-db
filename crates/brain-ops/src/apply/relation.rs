@@ -4,7 +4,7 @@
 //! Supersede(Relation) all real.
 
 use brain_core::knowledge::Relation;
-use brain_metadata::relation_ops::{relation_create, relation_supersede, relation_tombstone};
+use brain_metadata::relation::ops::{relation_create, relation_supersede, relation_tombstone};
 use redb::WriteTransaction;
 
 use super::ApplyError;
@@ -27,11 +27,14 @@ pub fn apply_upsert_relation(
         is_symmetric,
         extractor,
         extracted_at_unix_nanos,
+        properties_blob,
+        valid_from_unix_nanos,
+        valid_to_unix_nanos,
     } = phase
     else {
         return Err(ApplyError::PhaseMisShape("expected UpsertRelation"));
     };
-    let r = Relation::new_root(
+    let mut r = Relation::new_root(
         *id,
         *ty,
         *from,
@@ -42,6 +45,9 @@ pub fn apply_upsert_relation(
         *extracted_at_unix_nanos,
         *is_symmetric,
     );
+    r.properties_blob = properties_blob.clone();
+    r.valid_from_unix_nanos = *valid_from_unix_nanos;
+    r.valid_to_unix_nanos = *valid_to_unix_nanos;
     relation_create(wtxn, &r, *extracted_at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("relation_create: {e}")))?;
     Ok(PhaseAck::UpsertedRelation(*id, 1))
@@ -91,5 +97,8 @@ pub fn apply_tombstone_relation(
     };
     relation_tombstone(wtxn, *id, *at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("relation_tombstone: {e}")))?;
-    Ok(PhaseAck::Tombstoned(*target))
+    Ok(PhaseAck::Tombstoned {
+        target: *target,
+        tombstoned_at_unix_nanos: *at_unix_nanos,
+    })
 }

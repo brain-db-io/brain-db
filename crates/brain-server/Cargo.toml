@@ -28,6 +28,7 @@ brain-core = { path = "../brain-core" }
 
 anyhow.workspace = true
 arc-swap.workspace = true
+base64.workspace = true
 blake3.workspace = true
 flume.workspace = true
 parking_lot.workspace = true

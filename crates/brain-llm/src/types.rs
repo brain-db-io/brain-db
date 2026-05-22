@@ -1,4 +1,4 @@
-//! Provider-agnostic request / response shapes. Spec §22/09 §1.
+//! Provider-agnostic request / response shapes.
 
 use serde::{Deserialize, Serialize};
 
@@ -16,6 +16,43 @@ pub enum LlmRole {
     Assistant,
 }
 
+/// A system content block that may be marked for server-side prompt
+/// caching.
+///
+/// Anthropic caches blocks tagged `cache_control: ephemeral` for 5
+/// minutes (rolling) and returns `cache_creation_input_tokens` +
+/// `cache_read_input_tokens` on the response. Steady-state target
+/// for repeated extractor / judge calls is a read ratio ≥ 0.7.
+///
+/// Up to 4 cache breakpoints per request — typically used for a
+/// stable role block + a stable schema block, leaving the per-call
+/// user message uncached.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct SystemBlock {
+    pub text: String,
+    pub cache: bool,
+}
+
+impl SystemBlock {
+    /// Block whose text is stable across calls — mark it for server-side
+    /// caching so repeated requests amortise its input-token cost.
+    pub fn cached(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cache: true,
+        }
+    }
+
+    /// Block whose text changes call-to-call. Not eligible for caching;
+    /// counts toward the live input-token tally every time.
+    pub fn live(text: impl Into<String>) -> Self {
+        Self {
+            text: text.into(),
+            cache: false,
+        }
+    }
+}
+
 /// A single completion request. Provider clients translate to
 /// the wire shape Anthropic / OpenAI expects.
 #[derive(Debug, Clone, PartialEq)]
@@ -24,9 +61,11 @@ pub struct LlmRequest {
     /// `"claude-haiku-4-5"`). The provider client may add a
     /// provider prefix on the wire.
     pub model: String,
-    /// Optional system prompt; provider-specific positioning
-    /// (top-level field for Anthropic; first message for OpenAI).
-    pub system: Option<String>,
+    /// Ordered system content blocks. Anthropic emits these as the
+    /// top-level `system` array (with per-block `cache_control`
+    /// honoured); OpenAI flattens them into one system message.
+    /// Empty vec → no system context.
+    pub system_blocks: Vec<SystemBlock>,
     /// Conversation turns. The LLM extractor typically sends one
     /// `User` message with the rendered prompt + memory text.
     pub messages: Vec<LlmMessage>,
@@ -48,7 +87,7 @@ impl LlmRequest {
     pub fn new(model: impl Into<String>, user_text: impl Into<String>) -> Self {
         Self {
             model: model.into(),
-            system: None,
+            system_blocks: Vec::new(),
             messages: vec![LlmMessage {
                 role: LlmRole::User,
                 content: user_text.into(),
@@ -60,16 +99,23 @@ impl LlmRequest {
         }
     }
 
-    /// Approximate input-token count for cost estimation (spec
-    /// §22/09 §5). `chars / 4` is a coarse proxy good enough for
-    /// budget gating; phase 22+ swaps in real tokenizers.
+    /// Convenience: set a single uncached system block. Replaces any
+    /// existing system blocks. Use field assignment on `system_blocks`
+    /// directly for the role + schema split that gets prompt caching.
+    pub fn with_system(mut self, text: impl Into<String>) -> Self {
+        self.system_blocks = vec![SystemBlock::live(text)];
+        self
+    }
+
+    /// Approximate input-token count for cost estimation.
+    /// `chars / 4` is a coarse proxy good enough for budget gating.
     #[must_use]
     pub fn approx_input_tokens(&self) -> u64 {
         let mut chars: usize = self
-            .system
-            .as_deref()
-            .map(|s| s.chars().count())
-            .unwrap_or(0);
+            .system_blocks
+            .iter()
+            .map(|b| b.text.chars().count())
+            .sum();
         for m in &self.messages {
             chars += m.content.chars().count();
         }
@@ -77,16 +123,18 @@ impl LlmRequest {
     }
 
     /// Composite prompt used by retry-on-validation-fail. Joins
-    /// system + user messages with line separators.
+    /// system blocks + user messages with line separators.
     #[must_use]
     pub fn combined_prompt(&self) -> String {
         let mut out = String::new();
-        if let Some(s) = &self.system {
-            out.push_str(s);
-            out.push_str("\n\n");
+        for b in &self.system_blocks {
+            if !out.is_empty() {
+                out.push_str("\n\n");
+            }
+            out.push_str(&b.text);
         }
-        for (i, m) in self.messages.iter().enumerate() {
-            if i > 0 {
+        for m in &self.messages {
+            if !out.is_empty() {
                 out.push_str("\n\n");
             }
             out.push_str(&m.content);
@@ -103,17 +151,27 @@ pub struct LlmResponse {
     /// requests this is the JSON string ready for schema
     /// validation.
     pub content: String,
-    /// Input token count as reported by the provider.
+    /// Input token count as reported by the provider. Excludes
+    /// cached-read and cache-creation tokens (Anthropic reports
+    /// them separately).
     pub tokens_in: u64,
     /// Output token count as reported by the provider.
     pub tokens_out: u64,
+    /// Tokens billed at the cache-write rate (Anthropic returns this
+    /// on the first call that populates a cache breakpoint).
+    /// Zero when the provider doesn't expose prompt caching or no
+    /// cache hit / write happened.
+    pub cache_creation_input_tokens: u64,
+    /// Tokens served from the server-side cache (Anthropic). These
+    /// are billed at a discount and don't count toward `tokens_in`.
+    pub cache_read_input_tokens: u64,
     /// Estimated cost in dollar micro-units (1e-6 USD). Computed
     /// from token counts via the operator's pricing config; the
     /// LLM extractor writes this to the audit row.
     pub cost_micro_usd: u64,
     /// Concrete model version string from the provider (e.g.,
-    /// `"claude-haiku-4-5-20240307"`). Phase 22+ uses this for
-    /// drift detection.
+    /// `"claude-haiku-4-5-20240307"`). Used downstream for drift
+    /// detection.
     pub model_version: String,
 }
 
@@ -128,28 +186,41 @@ mod tests {
     }
 
     #[test]
-    fn approx_tokens_includes_system_prompt() {
+    fn approx_tokens_includes_system_blocks() {
         let mut req = LlmRequest::new("claude-haiku", "x");
-        req.system = Some("y".repeat(40)); // 40 chars system + 1 char user = 41 chars
+        req.system_blocks = vec![SystemBlock::cached("y".repeat(40))]; // 40 + 1 = 41 chars
         assert_eq!(req.approx_input_tokens(), 10);
     }
 
     #[test]
+    fn approx_tokens_sums_multiple_system_blocks() {
+        let mut req = LlmRequest::new("m", "");
+        req.system_blocks = vec![
+            SystemBlock::cached("a".repeat(20)),
+            SystemBlock::live("b".repeat(20)),
+        ];
+        assert_eq!(req.approx_input_tokens(), 40 / 4);
+    }
+
+    #[test]
     fn approx_tokens_unicode_safe() {
-        // "héllo" is 5 chars (one of them multi-byte). `chars()`
-        // counts characters, not bytes.
         let req = LlmRequest::new("m", "héllo");
         assert_eq!(req.approx_input_tokens(), 5 / 4);
     }
 
     #[test]
-    fn combined_prompt_joins_system_and_user() {
+    fn combined_prompt_joins_system_blocks_and_user() {
         let mut req = LlmRequest::new("m", "user-body");
-        req.system = Some("system-instr".into());
+        req.system_blocks = vec![
+            SystemBlock::cached("role-block"),
+            SystemBlock::cached("schema-block"),
+        ];
         let combined = req.combined_prompt();
-        assert!(combined.contains("system-instr"));
+        assert!(combined.contains("role-block"));
+        assert!(combined.contains("schema-block"));
         assert!(combined.contains("user-body"));
-        assert!(combined.find("system-instr").unwrap() < combined.find("user-body").unwrap());
+        assert!(combined.find("role-block").unwrap() < combined.find("schema-block").unwrap());
+        assert!(combined.find("schema-block").unwrap() < combined.find("user-body").unwrap());
     }
 
     #[test]
@@ -159,7 +230,16 @@ mod tests {
         assert_eq!(req.max_tokens, 1024);
         assert_eq!(req.timeout.as_secs(), 30);
         assert!(req.response_schema.is_none());
+        assert!(req.system_blocks.is_empty());
         assert_eq!(req.messages.len(), 1);
+    }
+
+    #[test]
+    fn with_system_replaces_blocks_uncached() {
+        let req = LlmRequest::new("m", "u").with_system("sys");
+        assert_eq!(req.system_blocks.len(), 1);
+        assert!(!req.system_blocks[0].cache);
+        assert_eq!(req.system_blocks[0].text, "sys");
     }
 
     #[test]
@@ -172,5 +252,11 @@ mod tests {
         assert!(s.contains("\"role\":\"user\""));
         let back: LlmMessage = serde_json::from_str(&s).unwrap();
         assert_eq!(back, m);
+    }
+
+    #[test]
+    fn system_block_constructors_set_cache_flag() {
+        assert!(SystemBlock::cached("x").cache);
+        assert!(!SystemBlock::live("x").cache);
     }
 }

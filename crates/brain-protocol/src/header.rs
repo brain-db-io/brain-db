@@ -31,7 +31,16 @@ use crate::error::ProtocolError;
 use crate::{MAGIC, MAX_PAYLOAD_BYTES};
 
 /// Wire protocol version. See spec §03/03 §3.2.
-pub const VERSION: u8 = 1;
+///
+/// ## Changelog
+///
+/// - **v1** — initial release (substrate + knowledge layer through
+///   `0x0163 RECALL_HYBRID`).
+/// - **v2** — adds `0x0164 MATERIALIZE_PROCEDURAL` /
+///   `0x01E4 MATERIALIZE_PROCEDURAL_RESP`. Renders an agent's stored
+///   procedural-memory Preferences (brain:behavior_*) as a system
+///   block ready for LLM-prompt injection.
+pub const VERSION: u8 = 2;
 
 /// 32-byte frame header. Layout matches spec §03/03 §1 exactly.
 ///
@@ -284,7 +293,7 @@ mod tests {
             h.validate(),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 1
+                expected: 2
             })
         ));
     }

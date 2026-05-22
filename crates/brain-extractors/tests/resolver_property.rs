@@ -20,7 +20,7 @@ use brain_core::{Entity, EntityId, EntityType};
 use brain_extractors::resolver::{
     resolve_or_create, Resolution, ResolutionTier, DEFAULT_FUZZY_THRESHOLD,
 };
-use brain_metadata::entity_ops::{entity_put, normalize_name};
+use brain_metadata::entity::ops::{entity_put, normalize_name};
 use brain_metadata::MetadataDb;
 use proptest::collection::vec as pvec;
 use proptest::prelude::*;

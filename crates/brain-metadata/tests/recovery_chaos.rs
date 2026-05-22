@@ -15,10 +15,8 @@ use brain_core::{
     RelationId, RelationTypeId, RequestId,
 };
 use brain_metadata::tables::edge::EDGES_TABLE;
-use brain_metadata::tables::knowledge::relation::{
-    RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE,
-};
 use brain_metadata::tables::memory::MEMORIES_TABLE;
+use brain_metadata::tables::relation::{RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE};
 use brain_metadata::MetadataDb;
 use brain_storage::arena::file::ArenaFile;
 use brain_storage::recovery::{recover, MetadataSinkError, RecoveryError};

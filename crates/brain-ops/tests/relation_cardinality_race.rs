@@ -31,13 +31,13 @@ use std::thread;
 
 use brain_core::knowledge::{Entity, Relation, RelationType};
 use brain_core::{Cardinality, EntityId, EntityTypeId, ExtractorId, RelationId, RelationTypeId};
-use brain_metadata::entity_ops::entity_put;
-use brain_metadata::entity_type_ops::entity_type_intern;
-use brain_metadata::relation_ops::{
+use brain_metadata::entity::ops::entity_put;
+use brain_metadata::entity::types::entity_type_intern;
+use brain_metadata::relation::ops::{
     relation_create, relation_get, relation_history, relation_list_from, RelationListFilter,
     RelationOpError,
 };
-use brain_metadata::relation_type_ops::relation_type_intern;
+use brain_metadata::relation::types::relation_type_intern;
 use redb::ReadableDatabase;
 
 const T0: u64 = 1_700_000_000_000_000_000;

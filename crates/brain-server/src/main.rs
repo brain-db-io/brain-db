@@ -32,7 +32,7 @@ mod shard;
 #[cfg(target_os = "linux")]
 use bootstrap::{logging, shutdown, tls};
 #[cfg(target_os = "linux")]
-use network::{connection, dispatch, routing, subscribe};
+use network::{auth, connection, dispatch, routing, subscribe};
 #[cfg(target_os = "linux")]
 #[allow(unused_imports)] // re-export kept for symmetry; binary doesn't reach it directly
 use shard::adapters as shard_adapters;
@@ -238,11 +238,34 @@ mod linux_main {
             }
         };
 
-        // v1 dev policy: accept `AuthMethod::None`. Real auth backends
-        // (token / mTLS) land post-Phase-9.
+        // W2.5: scope-bound API keys. The store lives in its own redb
+        // file under the configured data dir; strict enforcement is
+        // opt-in via `BRAIN_REQUIRE_SCOPED_API_KEYS`. In permissive
+        // mode the server still advertises `AuthMethod::Token` so
+        // scoped clients can opt in client-side; the AUTH path treats
+        // both methods uniformly when strict mode is off.
+        let strict_scope = crate::auth::require_scoped_keys_from_env();
+        let auth_store_path = cfg.storage.data_dir.join("api_keys.redb");
+        let auth_store = match crate::auth::AuthStore::open(&auth_store_path, strict_scope) {
+            Ok(s) => Arc::new(s),
+            Err(e) => {
+                tracing::error!(
+                    error = %e,
+                    path = %auth_store_path.display(),
+                    "failed to open API-key store",
+                );
+                return ExitCode::FAILURE;
+            }
+        };
+        tracing::info!(
+            strict = strict_scope,
+            path = %auth_store_path.display(),
+            "API-key scope store opened",
+        );
+
         let server_caps = Arc::new(ServerCapabilities::v1_default(
             format!("brain-server/{}", env!("CARGO_PKG_VERSION")),
-            vec![AuthMethod::None],
+            vec![AuthMethod::Token, AuthMethod::None],
         ));
 
         // Keep an extra `Arc<Vec<ShardHandle>>` clone outside the
@@ -258,6 +281,7 @@ mod linux_main {
             routing,
             server_caps,
             request_metrics: request_metrics.clone(),
+            auth_store,
         };
 
         let runtime = match tokio::runtime::Builder::new_multi_thread()
@@ -294,6 +318,7 @@ mod linux_main {
                 connection_metrics.clone(),
                 Arc::new(cfg.clone()),
                 request_metrics.clone(),
+                topology.auth_store.clone(),
             ));
 
             let public = crate::admin::AdminServer::public(
@@ -446,6 +471,7 @@ mod linux_main {
                     .llm_budget_per_cycle_micro_usd,
                 channel_capacity: cfg.workers.extractor.channel_capacity,
                 skip_already_extracted: cfg.workers.extractor.skip_already_extracted,
+                batch_size: cfg.workers.extractor.batch_size,
             };
             // Phase T: ferry the operator's `[workers.temporal_edge]`
             // overrides into the per-shard spawn config.
@@ -457,6 +483,7 @@ mod linux_main {
                 weight_min: cfg.workers.temporal_edge.weight_min,
                 channel_capacity: cfg.workers.temporal_edge.channel_capacity,
                 cross_context: cfg.workers.temporal_edge.cross_context,
+                topical_threshold: cfg.workers.temporal_edge.topical_threshold,
             };
             // Phase C: ferry the operator's `[workers.causal_edge]`
             // overrides. The whitelist strings are split into

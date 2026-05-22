@@ -63,6 +63,8 @@ fn bench_pattern_extract(c: &mut Criterion) {
         schema_version: 1,
         now_unix_nanos: 0,
         registry: &reg,
+        prior_tier_items: None,
+        extractor_context: None,
     };
 
     c.bench_function("pattern_extract 4KiB / 5 regexes", |b| {
@@ -81,6 +83,8 @@ fn bench_pattern_extract_short(c: &mut Criterion) {
         schema_version: 1,
         now_unix_nanos: 0,
         registry: &reg,
+        prior_tier_items: None,
+        extractor_context: None,
     };
 
     c.bench_function("pattern_extract 256B / 5 regexes", |b| {
@@ -99,6 +103,8 @@ fn print_corpus_summary() {
         schema_version: 1,
         now_unix_nanos: 0,
         registry: &reg,
+        prior_tier_items: None,
+        extractor_context: None,
     };
     let r = block_on(ext.run(&ctx, &mem));
     eprintln!(

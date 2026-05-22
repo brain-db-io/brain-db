@@ -36,6 +36,9 @@
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -62,23 +65,19 @@ mod support_harness;
 use std::time::{Duration, Instant};
 
 use brain_core::MemoryId;
-use brain_metadata::tables::knowledge::audit::{
-    ENTITY_RESOLUTION_AUDIT_TABLE, EXTRACTOR_AUDIT_TABLE,
-};
-use brain_metadata::tables::knowledge::entity::{
+use brain_metadata::tables::audit::{ENTITY_RESOLUTION_AUDIT_TABLE, EXTRACTOR_AUDIT_TABLE};
+use brain_metadata::tables::entity::{
     ENTITIES_TABLE, ENTITY_ALIASES_TABLE, ENTITY_BY_CANONICAL_NAME_TABLE, ENTITY_MENTIONS_TABLE,
     ENTITY_TRIGRAMS_TABLE,
 };
-use brain_metadata::tables::knowledge::entity_type::ENTITY_TYPES_TABLE;
-use brain_metadata::tables::knowledge::extractor::EXTRACTORS_TABLE;
-use brain_metadata::tables::knowledge::merge::MERGE_LOG_TABLE;
-use brain_metadata::tables::knowledge::predicate::PREDICATES_TABLE;
-use brain_metadata::tables::knowledge::relation::{
-    RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE,
-};
-use brain_metadata::tables::knowledge::relation_type::RELATION_TYPES_TABLE;
-use brain_metadata::tables::knowledge::schema_version::SCHEMA_VERSIONS_TABLE;
-use brain_metadata::tables::knowledge::statement::{
+use brain_metadata::tables::entity_type::ENTITY_TYPES_TABLE;
+use brain_metadata::tables::extractor::EXTRACTORS_TABLE;
+use brain_metadata::tables::merge::MERGE_LOG_TABLE;
+use brain_metadata::tables::predicate::PREDICATES_TABLE;
+use brain_metadata::tables::relation::{RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE};
+use brain_metadata::tables::relation_type::RELATION_TYPES_TABLE;
+use brain_metadata::tables::schema_version::SCHEMA_VERSIONS_TABLE;
+use brain_metadata::tables::statement::{
     EVIDENCE_OVERFLOW_TABLE, STATEMENTS_BY_EVENT_TIME_TABLE, STATEMENTS_BY_EVIDENCE_TABLE,
     STATEMENTS_BY_OBJECT_ENTITY_TABLE, STATEMENTS_BY_PREDICATE_TABLE, STATEMENTS_BY_SUBJECT_TABLE,
     STATEMENTS_TABLE, STATEMENT_CHAIN_TABLE,
@@ -114,9 +113,8 @@ async fn schema_off_substrate_round_trips_and_keeps_knowledge_dormant() {
     let mut encoded_ids: Vec<MemoryId> = Vec::with_capacity(ENCODE_COUNT);
     let mut encode_latencies: Vec<Duration> = Vec::with_capacity(ENCODE_COUNT);
     for i in 0..ENCODE_COUNT {
-        let text = format!(
-            "phase-15.5 substrate-only test fixture, memory index {i:03} of {ENCODE_COUNT}"
-        );
+        let text =
+            format!("phase-15.5 no-schema test fixture, memory index {i:03} of {ENCODE_COUNT}");
         let start = Instant::now();
         let resp = client.encode(text).send().await.expect("encode");
         encode_latencies.push(start.elapsed());

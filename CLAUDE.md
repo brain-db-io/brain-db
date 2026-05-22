@@ -10,18 +10,15 @@ This file is loaded automatically by Claude Code at the start of every session. 
 
 **Brain** is a cognitive substrate for AI agents — a database where the primitives are cognitive operations (encode, recall, plan, reason, forget) instead of tables/documents/vectors.
 
-v1.0 ships in two layers:
+Brain is **one system, one write path**. There is one `Write { phases: Vec<Phase> }` model, one writer (`submit(Write)`), one apply layer dispatching every phase variant. Capabilities are differentiated by what kind of state they touch (memories, entities, statements, relations, edges, schema, audit, slots) — not by which "layer" they belong to. The spec is organized in two parts (§00–§16 covering memory/WAL/HNSW/wire primitives, §17–§31 covering typed entities/statements/relations/extractors/hybrid retrieval) as a documentation reading order, **not** as an architectural split inside the codebase.
 
-- **Substrate** (spec §00–§16, phases 0–14): vector memory store. WAL, HNSW, wire protocol, cognitive primitives (ENCODE/RECALL/PLAN/REASON/FORGET), HTTP/WS/SSE, observability.
-- **Knowledge layer** (spec §17–§31, phases 15–24): typed entities, statements (Fact/Preference/Event), relations, schema DSL, three-tier extractors (pattern → classifier → LLM), hybrid retrieval (semantic + lexical + graph with RRF fusion).
-
-The knowledge layer activates only when a schema is declared via `SCHEMA_UPLOAD`. A deployment that never declares a schema runs as a pure vector substrate (substrate-only mode) — a first-class deployment posture, not a legacy mode. The `v1.0.0` tag lands at the end of Phase 24, after the combined acceptance suite passes.
+A handful of capabilities (typed-entity wire ops, statement/relation graph, hybrid retrieval RRF fusion, extractor pipeline) gate on a schema having been declared via `SCHEMA_UPLOAD`. The gate is a runtime feature flag; the code paths are unified. The `v1.0.0` tag lands at the end of Phase 24, after the combined acceptance suite passes.
 
 We are **building the implementation**. The design is already done.
 
 ## 2. Single source of truth
 
-The `spec/` directory is **authoritative**. 32 specification sections — 17 substrate (§00–§16) + 15 knowledge layer (§17–§31).
+The `spec/` directory is **authoritative**. 32 specification sections, conventionally read in two parts — §00–§16 (storage, memory, wire primitives) and §17–§31 (typed entities, statements, relations, extractors, hybrid retrieval). The two-part organization is a TOC, not a runtime architecture boundary.
 
 - **The spec is read-only.** Don't edit it. Spec changes go through the user.
 - **The spec wins.** If code disagrees with spec, fix the code.
@@ -127,18 +124,18 @@ Added without justification → reject.
 crates/
 ├── brain-core/          Shared types: MemoryId, EdgeKind, Error, EntityId, StatementId, ...
 ├── brain-protocol/      Wire protocol: frame, opcodes, codec, schema DSL parser
-├── brain-storage/       Arena + WAL + recovery (substrate + knowledge frame types)
-├── brain-metadata/      redb wrapper: substrate tables + knowledge tables (entities, statements, relations, predicates, audits)
+├── brain-storage/       Arena + WAL + recovery (all frame types)
+├── brain-metadata/      redb wrapper: memory + entity + statement + relation + predicate + audit tables
 ├── brain-index/         HNSW (memory + entity + statement); tantivy integration (phase 22)
 ├── brain-embed/         BGE embedding service
-├── brain-planner/       Query planner + executor (substrate + hybrid query router, phase 23)
-├── brain-ops/           Cognitive operations
-├── brain-workers/       Background workers (substrate + extractors + sweepers)
+├── brain-planner/       Query planner + executor (memory recall + hybrid query router)
+├── brain-ops/           One write path (`handlers/` per opcode → `apply/` per table → `writer/submit`) + `index/` retrievers + `extractor_writes`
+├── brain-workers/       Background workers (auto-edge, temporal-edge, extractor, decay, …)
 ├── brain-extractors/    Pattern + classifier extractors (introduced phase 20)
 ├── brain-llm/           LLM client + cache + budget (introduced phase 21)
 ├── brain-http/          HTTP/WS/SSE transport
 ├── brain-server/        Server binary, wires it all together
-├── brain-sdk-rust/      Rust SDK (substrate + typed knowledge SDK with derive macros)
+├── brain-sdk-rust/      Rust SDK (`ops/` per opcode + `models/` typed handles)
 └── brain-cli/           Admin CLI
 ```
 

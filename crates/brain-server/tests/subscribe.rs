@@ -21,6 +21,9 @@ use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -104,6 +107,14 @@ async fn start_with_shards(n_shards: usize) -> Server {
     let routing = Arc::new(arc_swap::ArcSwap::from_pointee(
         RoutingTable::new(n_shards as u16, std::collections::HashMap::new()).unwrap(),
     ));
+    let __auth_store = {
+        let tmp = tempfile::TempDir::new().expect("tmpdir");
+        let p = tmp.path().join("api_keys.redb");
+        let store =
+            std::sync::Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        std::mem::forget(tmp);
+        store
+    };
     let topology = Topology {
         shards: Arc::new(handles.clone()),
         routing,
@@ -112,6 +123,7 @@ async fn start_with_shards(n_shards: usize) -> Server {
             vec![AuthMethod::None],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
+        auth_store: __auth_store.clone(),
     };
 
     let (trigger, signal) = ShutdownSignal::channel();

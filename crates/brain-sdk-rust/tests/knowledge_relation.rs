@@ -16,7 +16,7 @@ use brain_protocol::opcode::Opcode;
 use brain_protocol::responses::error::ErrorResponse;
 use brain_protocol::responses::types::{ErrorCategoryWire, ErrorCodeWire};
 use brain_protocol::{RequestBody, ResponseBody};
-use brain_sdk_rust::knowledge::errors::{ClientErrorRelationExt, RelationErrorKind};
+use brain_sdk_rust::models::errors::{ClientErrorRelationExt, RelationErrorKind};
 use brain_sdk_rust::{Client, EntityId, RelationId, TraverseDirection};
 
 fn sample_view(id: [u8; 16], from: [u8; 16], to: [u8; 16]) -> RelationView {

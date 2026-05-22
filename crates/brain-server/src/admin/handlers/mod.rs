@@ -9,6 +9,7 @@
 //! from the `crate::admin::router` family of `build_*` functions.
 
 pub mod agent;
+pub mod api_keys;
 pub mod audit;
 pub mod config;
 pub mod diagnostics;

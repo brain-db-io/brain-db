@@ -1,9 +1,9 @@
 //! # brain-metadata
 //!
 //! redb-backed metadata store: agents, contexts, memory metadata, edges,
-//! idempotency table, and the durable LSN checkpoint. Phase 2's
-//! [`brain_storage::recovery::MetadataSink`] trait gets its real impl
-//! here (sub-task 3.11).
+//! idempotency table, and the durable LSN checkpoint. WAL recovery
+//! lives in `recovery/` (one file per WalPayload family), implementing
+//! `brain_storage::recovery::MetadataSink` for `MetadataDb`.
 //!
 //! See `spec/07_metadata_graph/` for the authoritative design.
 
@@ -14,66 +14,76 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod audit_ops;
-pub mod cascade_ops;
+pub mod api_keys;
+pub mod audit;
+pub mod cascade;
 pub mod db;
-pub mod entity_merge_ops;
-pub mod entity_ops;
-pub mod entity_type_ops;
-pub mod extractor_ops;
+pub mod entity;
+pub mod extractor;
 pub mod llm_cache;
-pub mod predicate_ops;
-pub mod relation_ops;
-pub mod relation_traversal;
-pub mod relation_type_ops;
+pub mod recovery;
+pub mod relation;
 pub mod schema;
-pub mod schema_apply;
-pub mod schema_store;
-pub mod sink;
-pub mod statement_ops;
-pub mod sweeper_ops;
+pub mod statement;
+pub mod storage_version;
 pub mod system_schema;
 pub mod tables;
-pub mod trigram_ops;
 
-pub use audit_ops::{
+// Item-level re-exports surface frequently-used functions and types at the
+// crate root so callers can import them directly instead of walking the
+// per-domain directories on every import.
+pub use api_keys::{
+    api_key_create, api_key_list_for_agent, api_key_lookup_by_hash, api_key_lookup_by_secret,
+    api_key_revoke, api_key_touch_last_used, hash_secret, ApiKeyDb, ApiKeyError, ResolvedScope,
+};
+pub use audit::ops::{
     audit_by_extractor, audit_by_memory, audit_get, audit_recent, audit_recent_failures,
     audit_write, AuditOpError,
 };
 pub use db::{MetadataDb, MetadataDbError};
-pub use entity_ops::{
+pub use entity::ops::{
     entity_add_alias, entity_get, entity_list_by_type, entity_lookup_by_alias,
     entity_lookup_by_canonical_name, entity_put, entity_remove_alias, entity_rename,
     entity_tombstone, entity_update, normalize_name, EntityOpError,
 };
-pub use entity_type_ops::{entity_type_intern, entity_type_lookup_by_name, EntityTypeOpError};
-pub use extractor_ops::{
+pub use entity::review::{
+    enqueue_merge_proposal, list_proposals_by_status, proposal_get, proposal_get_inside_wtxn,
+    update_proposal_recheck, update_proposal_status, MergeReviewError,
+};
+pub use entity::trigram::{
+    candidates_for_query, extract_trigrams, index_entity_trigrams, jaccard,
+    lookup_candidates_by_trigram, remove_entity_trigrams, trigrams_of_entity, TrigramOpError,
+};
+pub use entity::types::{entity_type_intern, entity_type_lookup_by_name, EntityTypeOpError};
+pub use extractor::ops::{
     extractor_get, extractor_intern, extractor_list, extractor_lookup_by_qname,
     extractor_set_enabled, ExtractorOpError,
 };
-pub use llm_cache::{LlmCacheDb, LlmCacheError, LlmResponse};
-pub use predicate_ops::{
-    predicate_get, predicate_intern, predicate_list, predicate_lookup_by_qname, PredicateOpError,
+pub use llm_cache::{
+    sweep_expired as llm_cache_sweep_expired, LlmCacheDb, LlmCacheError, LlmResponse,
 };
-pub use relation_ops::{
+pub use relation::ops::{
     relation_create, relation_get, relation_history, relation_list_from, relation_list_to,
     relation_supersede, relation_tombstone, relations_with_evidence, RelationListFilter,
     RelationOpError,
 };
-pub use relation_traversal::{
+pub use relation::traversal::{
     traverse, TraversalConfig, TraversalDirection, TraversalPath, TraversalStep,
     DEFAULT_MAX_BRANCHING, DEFAULT_MAX_DEPTH, MAX_BRANCHING, MAX_DEPTH, MAX_TOTAL_VISITED,
 };
-pub use relation_type_ops::{
+pub use relation::types::{
     relation_type_get, relation_type_intern, relation_type_list, relation_type_lookup_by_qname,
     RelationTypeOpError,
 };
-pub use schema_apply::{apply_schema_definitions, SchemaApplyError};
-pub use schema_store::{
+pub use schema::apply::{apply_schema_definitions, SchemaApplyError};
+pub use schema::predicate::{
+    predicate_get, predicate_intern, predicate_list, predicate_lookup_by_qname, PredicateOpError,
+};
+pub use schema::store::{
     schema_active, schema_active_row, schema_get, schema_list, schema_namespaces, schema_upload,
     SchemaStoreError,
 };
-pub use statement_ops::{
+pub use statement::{
     allocate_evidence_overflow, evidence_overflow_load, statement_create, statement_get,
     statement_history, statement_list, statement_retract, statement_supersede, statement_tombstone,
     statements_contradicting, StatementListFilter, StatementOpError, DEFAULT_LIST_LIMIT,
@@ -84,10 +94,6 @@ pub use tables::extractor_audit::{
     record_extracted as pipeline_record_extracted, tier_status, ExtractorItemCounts,
     ExtractorPipelineAuditEntry, ExtractorPipelineAuditError, EXTRACTOR_PIPELINE_AUDIT_TABLE,
 };
-pub use tables::knowledge::schema_version::{
+pub use tables::schema_version::{
     SchemaVersionRow, SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE, VALIDATOR_VERSION,
-};
-pub use trigram_ops::{
-    candidates_for_query, extract_trigrams, index_entity_trigrams, jaccard,
-    lookup_candidates_by_trigram, remove_entity_trigrams, trigrams_of_entity, TrigramOpError,
 };

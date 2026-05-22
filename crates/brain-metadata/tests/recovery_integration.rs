@@ -758,9 +758,7 @@ fn relation_link_payload(
 
 #[test]
 fn scenario_h_relation_link_supersede_tombstone_replays() {
-    use brain_metadata::tables::knowledge::relation::{
-        RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE,
-    };
+    use brain_metadata::tables::relation::{RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE};
 
     let env = Env::new();
 

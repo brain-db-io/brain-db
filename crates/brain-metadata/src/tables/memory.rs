@@ -197,7 +197,7 @@ pub struct MemoryMetadata {
     /// slot reclamation to evict the matching `FINGERPRINTS` row
     /// in the same write txn as the tombstone. `None` for the
     /// dedup-off path so we don't pay 32 B per row in
-    /// substrate-only deployments.
+    /// no-schema deployments.
     pub content_hash: Option<[u8; 32]>,
 
     // -- Provenance: WAL position of the ENCODE that wrote this row --

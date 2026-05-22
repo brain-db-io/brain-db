@@ -34,6 +34,8 @@ tempfile.workspace = true
 uuid.workspace = true
 # Hosts the async WAL writer in integration tests (sub-task 9.6a port).
 glommio.workspace = true
+# block_on for tiered supersession decider tests (judge is async).
+futures-lite.workspace = true
 
 [[bench]]
 name = "entity_resolve"

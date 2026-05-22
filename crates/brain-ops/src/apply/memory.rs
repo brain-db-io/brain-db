@@ -203,7 +203,10 @@ pub fn apply_tombstone_memory(
             .map_err(|e| ApplyError::Storage(format!("FINGERPRINTS remove: {e:?}")))?;
     }
 
-    Ok(PhaseAck::Tombstoned(*target))
+    Ok(PhaseAck::Tombstoned {
+        target: *target,
+        tombstoned_at_unix_nanos: *at_unix_nanos,
+    })
 }
 
 /// Apply [`Phase::UpdateSalience`].
@@ -450,7 +453,7 @@ mod tests {
         {
             let wtxn = db.write_txn().unwrap();
             let ack = apply_tombstone_memory(&wtxn, &tombstone_phase, &write).unwrap();
-            assert!(matches!(ack, PhaseAck::Tombstoned(_)));
+            assert!(matches!(ack, PhaseAck::Tombstoned { .. }));
             wtxn.commit().unwrap();
         }
 

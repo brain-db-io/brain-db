@@ -25,53 +25,57 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod access_buffer;
 pub mod apply;
 pub mod context;
 pub mod dispatch;
 pub mod error;
-pub mod idempotency;
-pub mod ops;
-pub mod schema_gate;
+pub mod handlers;
+pub mod index;
+pub mod metrics;
+pub mod state;
 #[doc(hidden)]
 pub mod test_support;
-pub mod txn_lens;
-pub mod worker_metrics;
 pub mod write;
+pub mod writer;
 
-// Module-level re-exports preserve `brain_ops::<op>::*` paths so
-// external callers (brain-server, brain-planner) don't churn.
-pub use ops::{
-    encode, extractor_pipeline, extractor_writes, forget, knowledge_entity, knowledge_extractor,
-    knowledge_query, knowledge_relation, knowledge_schema, knowledge_statement, link, plan, reason,
-    recall, subscribe, txn, writer,
+// Module-level re-exports so external callers (brain-server, brain-planner)
+// can write `brain_ops::encode::*` rather than `brain_ops::handlers::encode::*`.
+pub use handlers::{
+    encode, entity, extractor_admin, forget, link, plan, query, reason, recall, relation, schema,
+    statement, subscribe, txn,
 };
 
-pub use access_buffer::{AccessBuffer, DEFAULT_ACCESS_BUFFER_CAPACITY};
 pub use brain_planner::PlannerContext;
 pub use context::OpsContext;
 pub use dispatch::{dispatch, RequestCaller};
 pub use error::{ErrorCode, OpError};
-pub use ops::subscribe::{
+pub use handlers::subscribe::{
     parse_filter, EventBus, EventEnvelope, LsnAllocator, ParsedFilter, SubscriptionHandle,
     SubscriptionRegistry, DEFAULT_EVENT_CHANNEL_CAPACITY,
 };
-pub use ops::txn::{TxnState, TxnStore};
-pub use ops::writer::{
-    AutoEdgeEnqueue, CausalEdgeEnqueue, ExtractorEnqueue, RealWriterHandle, TemporalEdgeEnqueue,
-};
-pub use schema_gate::SchemaGate;
-pub use worker_metrics::{
+pub use handlers::txn::{TxnState, TxnStore};
+pub use metrics::{
+    AmbiguityResolverMetrics, AmbiguityResolverMetricsSnapshot, ApplyErrorSnapshot,
     AutoEdgeMetrics, AutoEdgeMetricsSnapshot, CausalEdgeMetrics, CausalEdgeMetricsSnapshot,
-    CausalSkipReason, ExtractorItemKind, ExtractorMetrics, ExtractorMetricsSnapshot,
-    ResolverOutcome, TemporalEdgeMetrics, TemporalEdgeMetricsSnapshot, TemporalSkipReason,
-    TierKind, TierStatus, WorkerBucketSnapshot, WorkerHistogram, WorkerHistogramSnapshot,
-    ITEM_KIND_LABELS, RESOLVER_OUTCOME_LABELS, TIER_LABELS, TIER_STATUS_LABELS,
+    CausalSkipReason, ConfidenceSweepMetrics, ConfidenceSweepMetricsSnapshot, ExtractorItemKind,
+    ExtractorMetrics, ExtractorMetricsSnapshot, ForgetCascadeMetrics, ForgetCascadeMetricsSnapshot,
+    IdempotencyOutcome, LlmCacheMetrics, LlmCacheMetricsSnapshot, LlmCacheModelCounts,
+    LlmCacheSweepMetrics, LlmCacheSweepMetricsSnapshot, PerPhaseSnapshot, ResolverOutcome,
+    SchemaMigrationMetrics, SchemaMigrationMetricsSnapshot, StatementEmbedMetrics,
+    StatementEmbedMetricsSnapshot, SubmitOutcome, TemporalEdgeMetrics, TemporalEdgeMetricsSnapshot,
+    TemporalSkipReason, TierKind, TierStatus, WorkerBucketSnapshot, WorkerHistogram,
+    WorkerHistogramSnapshot, WriterMetrics, WriterMetricsSnapshot, ITEM_KIND_LABELS,
+    RESOLVER_OUTCOME_LABELS, TIER_LABELS, TIER_STATUS_LABELS,
 };
+pub use state::access_buffer::{AccessBuffer, DEFAULT_ACCESS_BUFFER_CAPACITY};
+pub use state::schema_gate::SchemaGate;
 pub use write::{
-    AllocatedId, AttributeTarget, EntityAttributesUpdate, EvidenceRefPhase, IdKind, Phase,
-    PhaseAck, ResolveContext, SupersedeReplacement, SupersedeReplacementId, SupersedeTarget,
-    TombstoneTarget, TriggerEvent, TriggerKind, TriggerMask, Write, WriteAck, WriteId,
+    AllocatedId, EvidenceRefPhase, IdKind, Phase, PhaseAck, SupersedeReplacement,
+    SupersedeReplacementId, SupersedeTarget, TombstoneTarget, Write, WriteAck, WriteId,
+};
+pub use writer::{
+    AutoEdgeEnqueue, CausalEdgeEnqueue, ExtractorEnqueue, ForgetCascadeJob, ForgetCascadeKind,
+    ForgetCascadeMode, RealWriterHandle, SchemaFlagSweepJob, TemporalEdgeEnqueue,
 };
 
 #[cfg(test)]

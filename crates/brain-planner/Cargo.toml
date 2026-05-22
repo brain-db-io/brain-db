@@ -13,6 +13,7 @@ brain-protocol = { path = "../brain-protocol" }
 brain-embed = { path = "../brain-embed" }
 brain-index = { path = "../brain-index" }
 brain-metadata = { path = "../brain-metadata" }
+brain-rerank = { path = "../brain-rerank" }
 thiserror.workspace = true
 tracing.workspace = true
 parking_lot.workspace = true
@@ -27,6 +28,10 @@ redb = { workspace = true }
 # computed in `execute_encode` so the writer hot path stays
 # pure-redb under the metadata lock.
 blake3 = { workspace = true }
+# HRR (Vector Symbolic Architecture) bind/unbind are circular
+# convolutions. The `vsa` module routes them through rustfft's
+# split-radix planner so bind on D=512 stays well under 100 µs.
+rustfft = { workspace = true }
 
 [dev-dependencies]
 uuid.workspace = true
@@ -41,4 +46,8 @@ harness = false
 
 [[bench]]
 name = "relation_traverse"
+harness = false
+
+[[bench]]
+name = "vsa_ops"
 harness = false

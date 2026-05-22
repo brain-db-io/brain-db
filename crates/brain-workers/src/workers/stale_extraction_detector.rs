@@ -20,7 +20,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use brain_metadata::sweeper_ops::scan_stale_statements;
+use brain_metadata::extractor::sweep::scan_stale_statements;
 
 use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;
@@ -72,7 +72,7 @@ impl StaleExtractionDetector {
 }
 
 fn current_schema_version(rtxn: &redb::ReadTransaction) -> Option<u32> {
-    use brain_metadata::tables::knowledge::schema_version::SCHEMA_ACTIVE_VERSIONS_TABLE;
+    use brain_metadata::tables::schema_version::SCHEMA_ACTIVE_VERSIONS_TABLE;
     let table = match rtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE) {
         Ok(t) => t,
         Err(_) => return None,

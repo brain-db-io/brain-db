@@ -71,6 +71,12 @@ pub struct StatementMention {
     pub confidence: f32,
     pub extractor_id: u32,
     pub extractor_version: u32,
+    /// LLM's per-extraction statefulness signal. The extractor pipeline
+    /// uses this verbatim for `brain:fact` wildcard-sink rows; for
+    /// schema-declared predicates the registry's
+    /// `PredicateDefinition.is_stateful` wins.
+    #[serde(default)]
+    pub is_stateful: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -123,6 +129,7 @@ mod tests {
             confidence: 0.85,
             extractor_id: 2,
             extractor_version: 1,
+            is_stateful: true,
         };
         let s = serde_json::to_string(&ExtractedItem::StatementMention(m.clone())).unwrap();
         assert!(s.contains("\"subject_text\":\"Alice\""));

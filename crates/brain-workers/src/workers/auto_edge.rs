@@ -20,11 +20,18 @@
 //!    because of auto-edge backpressure).
 //! 2. AutoEdgeWorker drains the receiver in bounded batches on its
 //!    cycle interval (default 100 ms). For each drained memory it
-//!    runs HNSW knn and writes `SimilarTo` edges whose cosine
-//!    similarity is above the configured threshold.
-//! 3. `brain_metadata::tables::edge::link` handles the symmetric
-//!    mirror automatically (each logical pair = two physical forward
-//!    rows + two reverse rows).
+//!    runs HNSW knn and collects `(source, neighbour, similarity)`
+//!    triples whose cosine similarity clears the configured threshold.
+//! 3. The worker batches the triples into a single
+//!    `Write { phases: Vec<Phase::Link> }` and calls
+//!    `RealWriterHandle::submit`. The unified write path appends a
+//!    WAL record per Link, commits the redb rows, publishes the
+//!    `EdgeAdded` envelope on the subscribe bus, and stamps idempotency
+//!    via the BLAKE3-hashed sorted batch — retries of the same cycle
+//!    collapse to the cached ack.
+//! 4. `brain_metadata::tables::edge::link` (invoked from the apply
+//!    layer) handles the symmetric mirror automatically (each logical
+//!    pair = two physical forward rows + two reverse rows).
 //!
 //! ## Idempotency and FORGET
 //!
@@ -41,11 +48,16 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
-use brain_ops::{AutoEdgeEnqueue, AutoEdgeMetrics, EventEnvelope};
+use brain_core::{AgentId, ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef};
+use brain_metadata::tables::edge::{derived_by, origin, zero_disambiguator};
+use brain_ops::{
+    AutoEdgeEnqueue, AutoEdgeMetrics, EventEnvelope, Phase, RealWriterHandle, Write, WriteId,
+};
 use brain_protocol::responses::types::{
     EventType, StageAutoEdgePayload, StageKind, StageOutcome, StagePayload,
 };
+use futures_lite::FutureExt;
+use glommio::timer::sleep;
 use tracing::trace;
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -77,14 +89,69 @@ pub struct AutoEdgeKnobs {
 /// Knob defaults. Override via [`AutoEdgeWorker::with_knobs`] from
 /// the server's config materialiser.
 pub const DEFAULT_TOP_K: usize = 5;
-pub const DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD: f32 = 0.85;
+/// Cosine similarity floor for auto-derived `SimilarTo` edges.
+///
+/// 0.85 is the classical "near-duplicate" floor (paraphrases of the
+/// same sentence; same agent restating itself). For an agent
+/// journaling its day, that threshold is too tight — "Priya works at
+/// Stripe" and "Priya now works at OpenAI" describe the same entity
+/// but their BGE-small embeddings sit around 0.75–0.80. 0.75 catches
+/// the "same topic / same entity" cluster the planner's graph
+/// retriever actually wants; operators who want strict deduping push
+/// it back to 0.85 via `BRAIN_AUTO_EDGE_THRESHOLD`.
+pub const DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD: f32 = 0.75;
 pub const DEFAULT_EF_SEARCH: usize = 64;
+
+/// Environment variable for overriding [`DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD`].
+/// Accepts an `f32` in `[0.0, 1.0]`. Values outside the range or
+/// unparseable strings fall back to the default with a tracing warn —
+/// silently ignoring a misconfigured threshold would let auto-edge
+/// fire on everything (or nothing) for a whole deployment.
+pub const AUTO_EDGE_THRESHOLD_ENV: &str = "BRAIN_AUTO_EDGE_THRESHOLD";
+
+/// Resolve the threshold from the env var (if set + valid) or fall
+/// back to `default`. Lives outside [`AutoEdgeKnobs::default`] so
+/// callers wiring `AutoEdgeKnobs` programmatically (tests, server
+/// config) can pick the same precedence.
+#[must_use]
+pub fn resolved_threshold(default: f32) -> f32 {
+    resolved_threshold_from(std::env::var(AUTO_EDGE_THRESHOLD_ENV).ok(), default)
+}
+
+/// Pure parse step extracted from [`resolved_threshold`] so tests can
+/// exercise the value-validation logic without mutating process-wide
+/// env state (forbidden under the project's no-`unsafe` rule).
+#[must_use]
+pub fn resolved_threshold_from(raw: Option<String>, default: f32) -> f32 {
+    let Some(raw) = raw else {
+        return default;
+    };
+    match raw.parse::<f32>() {
+        Ok(v) if (0.0..=1.0).contains(&v) => v,
+        Ok(v) => {
+            tracing::warn!(
+                env = AUTO_EDGE_THRESHOLD_ENV,
+                value = v,
+                "auto-edge threshold out of [0.0, 1.0]; using default"
+            );
+            default
+        }
+        Err(e) => {
+            tracing::warn!(
+                env = AUTO_EDGE_THRESHOLD_ENV,
+                error = %e,
+                "auto-edge threshold not a valid f32; using default"
+            );
+            default
+        }
+    }
+}
 
 impl Default for AutoEdgeKnobs {
     fn default() -> Self {
         Self {
             top_k: DEFAULT_TOP_K,
-            similarity_threshold: DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD,
+            similarity_threshold: resolved_threshold(DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD),
             ef_search: Some(DEFAULT_EF_SEARCH),
         }
     }
@@ -98,8 +165,8 @@ pub struct AutoEdgeWorker {
     queue: flume::Receiver<AutoEdgeEnqueue>,
     /// Shared with the writer's enqueue path; both sides bump the
     /// same atomics. Defaults to a fresh local instance when the
-    /// scheduler doesn't wire one — keeps tests / substrate-only
-    /// fixtures compiling without an extra setter call.
+    /// scheduler doesn't wire one — keeps tests and fixtures with
+    /// no metrics sink compiling without an extra setter call.
     metrics: Arc<AutoEdgeMetrics>,
 }
 
@@ -210,9 +277,28 @@ async fn do_auto_edge_cycle(
         if ctx.is_shutdown() {
             break;
         }
-        let Ok((source_id, vector)) = worker.queue.try_recv() else {
-            break;
+        // First iteration blocks on the queue (raced against the
+        // tick interval) so an enqueue from the writer wakes the
+        // cycle immediately — no per-interval latency floor.
+        // Subsequent iterations drain without blocking so a burst
+        // batches into one cycle.
+        let item = if processed == 0 {
+            let recv = async { worker.queue.recv_async().await.ok() };
+            let tick = async {
+                sleep(cfg.interval).await;
+                None
+            };
+            match recv.or(tick).await {
+                Some(item) => item,
+                None => break,
+            }
+        } else {
+            match worker.queue.try_recv() {
+                Ok(item) => item,
+                Err(_) => break,
+            }
         };
+        let (source_id, vector) = item;
         processed += 1;
         drained_sources.push(source_id);
 
@@ -251,7 +337,7 @@ async fn do_auto_edge_cycle(
             // NaN/Inf filter. The threshold comparison alone won't
             // reject NaN because `NaN < threshold` is `false` per IEEE
             // 754, so an unguarded path would push NaN-weighted edges
-            // into write_auto_edges. Belt-and-suspenders alongside the
+            // into the link Phase. Belt-and-suspenders alongside the
             // zero-vector guard above: that guard covers the source
             // side, this one covers the neighbour-side path if HNSW
             // ever returns a non-finite score for any other reason.
@@ -274,15 +360,45 @@ async fn do_auto_edge_cycle(
         }
     }
 
-    // Write phase: one wtxn for the whole cycle. The auto-mirror
-    // inside `edge::link` doubles the row count; `write_auto_edges`
-    // returns the *logical* count (matches what we asked for).
+    // Write phase: one Write per cycle, one Phase::Link per derived
+    // edge. submit() handles WAL append, redb commit, HNSW maint, and
+    // the EdgeAdded event burst — same path as explicit LINK. Workers
+    // that retry on transient errors collapse to the cached ack via
+    // the BLAKE3-hashed batch (sorted source/target/kind tuples).
+    let created_at = now_unix_nanos();
     let written = if to_link.is_empty() {
         0
     } else {
-        ctx.ops
-            .write_auto_edges(&to_link)
-            .map_err(WorkerError::Ops)?
+        let phases: Vec<Phase> = to_link
+            .iter()
+            .map(|(from, to, sim)| Phase::Link {
+                from: NodeRef::Memory(*from),
+                to: NodeRef::Memory(*to),
+                kind: EdgeKindRef::Builtin(EdgeKind::SimilarTo),
+                weight: *sim,
+                origin: origin::AUTO_DERIVED,
+                derived_by: derived_by::SIMILARITY_WORKER,
+                disambiguator: zero_disambiguator(),
+                created_at_unix_nanos: created_at,
+            })
+            .collect();
+        let request_hash = hash_link_batch(&to_link);
+        let write = Write::from_phases(WriteId::new(), AgentId::default(), phases)
+            .with_request_hash(request_hash);
+        let real_writer = ctx
+            .ops
+            .executor
+            .writer
+            .as_any()
+            .downcast_ref::<RealWriterHandle>()
+            .ok_or_else(|| {
+                WorkerError::Ops("auto_edge: unified path requires RealWriterHandle".into())
+            })?;
+        real_writer
+            .submit(write)
+            .await
+            .map_err(|e| WorkerError::Ops(format!("submit: {e:?}")))?;
+        to_link.len()
     };
 
     let elapsed = started.elapsed();
@@ -337,4 +453,61 @@ fn now_unix_nanos() -> u64 {
         .duration_since(UNIX_EPOCH)
         .map(|d| d.as_nanos() as u64)
         .unwrap_or(0)
+}
+
+/// Deterministic hash of a batch of `(source, target, weight)` tuples.
+/// Sorted by `(source, target)` first so two retries of the same batch
+/// produce the same hash regardless of HNSW result ordering. Weight is
+/// excluded because the similarity threshold makes the set of pairs the
+/// invariant the writer's idempotency cache should key on — re-running
+/// HNSW with the same threshold over the same memory must round-trip
+/// to the same `request_hash`.
+fn hash_link_batch(pairs: &[(MemoryId, MemoryId, f32)]) -> [u8; 32] {
+    let mut sorted: Vec<(MemoryId, MemoryId)> = pairs.iter().map(|(s, t, _)| (*s, *t)).collect();
+    sorted.sort();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"auto_edge:similar_to:v1");
+    for (s, t) in &sorted {
+        hasher.update(&s.to_be_bytes());
+        hasher.update(&t.to_be_bytes());
+    }
+    *hasher.finalize().as_bytes()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // We test the *parse step* (`resolved_threshold_from`) instead of
+    // the env-reading wrapper. Mutating process-wide env state would
+    // require `unsafe` (forbidden in this crate); the wrapper itself
+    // is two lines and exercised in integration tests via the
+    // configured worker.
+
+    #[test]
+    fn auto_edge_threshold_default_when_none() {
+        assert!((resolved_threshold_from(None, 0.75) - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn auto_edge_threshold_env_overrides_default() {
+        let v = resolved_threshold_from(Some("0.6".to_string()), 0.75);
+        assert!((v - 0.6).abs() < 1e-6);
+    }
+
+    #[test]
+    fn auto_edge_threshold_invalid_falls_back() {
+        let v = resolved_threshold_from(Some("not-a-number".to_string()), 0.75);
+        assert!((v - 0.75).abs() < f32::EPSILON);
+    }
+
+    #[test]
+    fn auto_edge_threshold_out_of_range_falls_back() {
+        assert!(
+            (resolved_threshold_from(Some("1.5".to_string()), 0.75) - 0.75).abs() < f32::EPSILON
+        );
+        assert!(
+            (resolved_threshold_from(Some("-0.1".to_string()), 0.75) - 0.75).abs() < f32::EPSILON
+        );
+    }
 }

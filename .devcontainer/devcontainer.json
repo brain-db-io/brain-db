@@ -26,7 +26,13 @@
     // `DatabaseAlreadyOpen`, even though no other process holds the
     // lock. Putting data/ on a named volume (Linux ext4) sidesteps this
     // entirely. Production on bare Linux is unaffected.
-    "source=brain-data,target=/workspaces/brain/data,type=volume"
+    "source=brain-data,target=/workspaces/brain/data,type=volume",
+    // BGE-small embed + BERT NER model artifacts (~550 MiB total).
+    // Persisted across container rebuilds so post-create.sh's
+    // bootstrap-model.sh invocation is a no-op on every iteration
+    // after the first. Without this volume the models redownload
+    // on every `devcontainer up` after a rebuild.
+    "source=brain-models,target=/root/.local/share/brain/models,type=volume"
   ],
 
   "remoteEnv": {

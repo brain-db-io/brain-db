@@ -15,9 +15,9 @@ use brain_core::knowledge::{
 use brain_core::{
     ContextId, EntityId, EntityTypeId, ExtractorId, MemoryId, StatementId, StatementKind,
 };
-use brain_metadata::entity_ops::entity_put;
-use brain_metadata::predicate_ops::predicate_intern_or_get;
-use brain_metadata::statement_ops::{statement_create, statement_get};
+use brain_metadata::entity::ops::entity_put;
+use brain_metadata::schema::predicate::predicate_intern_or_get;
+use brain_metadata::statement::{statement_create, statement_get};
 use brain_metadata::MetadataDb;
 use proptest::prelude::*;
 use redb::ReadableDatabase;

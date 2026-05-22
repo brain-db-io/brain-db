@@ -99,7 +99,7 @@ impl<'a> RecallBuilder<'a> {
     /// Ask the server to populate `MemoryResult.graph` with each hit's
     /// knowledge-layer enrichment (mentioned entities, sourced
     /// statements, incident relations). Costs additional reads against
-    /// the knowledge tables; `None` on substrate-only deployments and
+    /// the knowledge tables; `None` on no-schema deployments and
     /// for memories that never went through the extractors.
     #[must_use]
     pub fn include_graph(mut self, on: bool) -> Self {
@@ -170,6 +170,7 @@ impl<'a> RecallBuilder<'a> {
                         include_text,
                         request_id: request_id_bytes,
                         txn_id,
+                        rerank: false,
                     });
                     let mut guard = client.acquire().await?;
                     let stream_id = guard.next_stream_id();
@@ -234,6 +235,7 @@ impl<'a> RecallBuilder<'a> {
             include_text: self.include_text,
             request_id: request_id_bytes,
             txn_id: self.txn_id,
+            rerank: false,
         });
         let mut guard = self.client.acquire().await?;
         let stream_id = guard.next_stream_id();

@@ -193,8 +193,8 @@ fn help_encode() -> HelpVerb {
             row("--edge KIND:ID", "add edge at create time; repeatable"),
             row("--request-id UUID", "idempotency key (24h cache)"),
             row(
-                "--wait-for-extraction",
-                "block until knowledge layer extracts",
+                "--wait",
+                "wait for all pending background stages (up to 10 s)",
             ),
             row(
                 "--wait-auto-edges-ms N",
@@ -598,7 +598,7 @@ mod tests {
             "--allow-duplicate",
             "--edge",
             "--request-id",
-            "--wait-for-extraction",
+            "--wait",
             "--wait-auto-edges-ms",
             "--txn",
         ] {

@@ -5,7 +5,7 @@
 //! helper that runs inside the wtxn.
 
 use brain_core::knowledge::{EvidenceRef, Statement, TombstoneReason};
-use brain_metadata::statement_ops::{statement_create, statement_supersede, statement_tombstone};
+use brain_metadata::statement::{statement_create, statement_supersede, statement_tombstone};
 use redb::WriteTransaction;
 use smallvec::SmallVec;
 
@@ -101,7 +101,10 @@ pub fn apply_tombstone_statement(
     let reason = TombstoneReason::from_u8(*reason).unwrap_or(TombstoneReason::UserRequest);
     statement_tombstone(wtxn, *id, reason, *at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("statement_tombstone: {e}")))?;
-    Ok(PhaseAck::Tombstoned(*target))
+    Ok(PhaseAck::Tombstoned {
+        target: *target,
+        tombstoned_at_unix_nanos: *at_unix_nanos,
+    })
 }
 
 fn build_evidence_ref(phase_ref: &EvidenceRefPhase) -> EvidenceRef {

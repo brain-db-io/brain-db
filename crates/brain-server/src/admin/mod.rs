@@ -44,6 +44,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use brain_http::server::{BoundServer, HttpServer, ShutdownHandle};
 use tracing::{info, warn};
 
+use crate::auth::AuthStore;
 use crate::config::Config;
 use crate::connection::{ConnectionMetrics, ShutdownSignal};
 use crate::metrics::format::{BuildInfo, Snapshot as MetricsSnapshot};
@@ -80,6 +81,9 @@ pub struct AdminState {
     /// 12.1b: per-op request counters / histograms / in-flight gauges.
     /// Same instance shared with `Topology::request_metrics`.
     pub request_metrics: Arc<RequestMetrics>,
+    /// Scope-bound API key store (W2.5). Mint / revoke / list endpoints
+    /// read and write through this handle.
+    pub auth_store: Arc<AuthStore>,
 }
 
 impl AdminState {
@@ -88,6 +92,7 @@ impl AdminState {
         connections: Arc<ConnectionMetrics>,
         config: Arc<Config>,
         request_metrics: Arc<RequestMetrics>,
+        auth_store: Arc<AuthStore>,
     ) -> Self {
         let started_at_unix_secs = SystemTime::now()
             .duration_since(UNIX_EPOCH)
@@ -101,6 +106,7 @@ impl AdminState {
             connections,
             config,
             request_metrics,
+            auth_store,
         }
     }
 

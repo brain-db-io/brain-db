@@ -73,7 +73,7 @@
 pub mod client;
 pub mod config;
 pub mod error;
-pub mod knowledge;
+pub mod models;
 pub mod observability;
 pub mod ops;
 pub mod pool;
@@ -86,22 +86,27 @@ pub use brain_core::{EntityId, MemoryId, RelationId, RequestId, StatementId, Sta
 pub use client::Client;
 pub use config::{AuthMethod, ClientConfig};
 pub use error::ClientError;
-pub use knowledge::{
-    BrainEntityType, ClientErrorEntityExt, ClientErrorRelationExt, ClientErrorStatementExt,
-    EntityClient, EntityCreateBuilder, EntityErrorKind, EntityHandle, EntityHandleFromViewError,
-    EntityListBuilder, EntityMergeBuilder, EntityResolveBuilder, EntityUpdateBuilder, EventBuilder,
-    ExplainResult, FactBuilder, FusionConfig, ItemKind, ItemRef, MergeOutcome, Person,
-    PersonAttributes, PreferenceBuilder, QueryBuilder, QueryBuilderError, QueryHit, QueryResult,
-    RelationBuilder, RelationErrorKind, RelationHandle, RelationListFromBuilder,
-    RelationListToBuilder, RelationTraverseBuilder, RelationsClient, ResolutionOutcome, Retriever,
-    RetrieverContribution, RetrieverOutcome, RetrieverOutcomeStatus, RetrieverSelection,
-    StatementErrorKind, StatementHandle, StatementListBuilder, StatementsClient, TimeRange,
-    TraceResult, TraversalPath, TraversalStep, TraverseDirection,
+pub use models::entity::{
+    BrainEntityType, EntityHandle, EntityHandleFromViewError, Person, PersonAttributes,
+};
+pub use models::errors::{
+    ClientErrorEntityExt, ClientErrorRelationExt, ClientErrorStatementExt, EntityErrorKind,
+    RelationErrorKind, StatementErrorKind,
 };
 pub use observability::{MetricsSnapshot, OpMetrics};
 pub use ops::{
-    EncodeBuilder, EncodeResponseExt, ForgetBuilder, FrameStream, LinkBuilder, PlanBuilder,
-    PlanOutcome, ReasonBuilder, RecallBuilder, SubscribeBuilder, UnlinkBuilder,
+    EncodeBuilder, EncodeResponseExt, EntityClient, EntityCreateBuilder, EntityListBuilder,
+    EntityMergeBuilder, EntityResolveBuilder, EntityUpdateBuilder, EventBuilder, ExplainResult,
+    FactBuilder, ForgetBuilder, FrameStream, FusionConfig, ItemKind, ItemRef, LinkBuilder,
+    MaterializeProceduralBuilder, MergeOutcome, PlanBuilder, PlanOutcome, PreferenceBuilder,
+    QueryBuilder, QueryBuilderError, QueryHit, QueryResult, ReasonBuilder, RecallBuilder,
+    RelationBuilder, RelationHandle, RelationListFromBuilder, RelationListToBuilder,
+    RelationTraverseBuilder, RelationsClient, ResolutionOutcome, Retriever, RetrieverContribution,
+    RetrieverOutcome, RetrieverOutcomeStatus, RetrieverSelection, SchemaBuilder, SchemaClient,
+    SchemaListEntry, SchemaListView, SchemaUploadOutcome, SchemaValidateOutcome,
+    SchemaValidationIssue, SchemaView, StatementHandle, StatementListBuilder, StatementsClient,
+    SubscribeBuilder, TimeRange, TraceResult, TraversalPath, TraversalStep, TraverseDirection,
+    UnlinkBuilder,
 };
 pub use pool::{Connection, Pool, PoolConfig, PoolGuard};
 pub use proto::handshake::{ClientIdentity, NegotiatedSession};

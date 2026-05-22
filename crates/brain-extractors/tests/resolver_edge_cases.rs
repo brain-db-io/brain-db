@@ -10,7 +10,7 @@
 
 use brain_core::EntityId;
 use brain_extractors::resolver::{resolve_or_create, ResolutionTier};
-use brain_metadata::entity_ops::{entity_get, normalize_name};
+use brain_metadata::entity::ops::{entity_get, normalize_name};
 use brain_metadata::MetadataDb;
 use tempfile::TempDir;
 

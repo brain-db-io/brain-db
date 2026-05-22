@@ -24,7 +24,7 @@ use brain_protocol::opcode::Opcode;
 use brain_protocol::responses::error::ErrorResponse;
 use brain_protocol::responses::types::{ErrorCategoryWire, ErrorCodeWire};
 use brain_protocol::{RequestBody, ResponseBody};
-use brain_sdk_rust::knowledge::errors::{ClientErrorStatementExt, StatementErrorKind};
+use brain_sdk_rust::models::errors::{ClientErrorStatementExt, StatementErrorKind};
 use brain_sdk_rust::{Client, EntityId, StatementId, StatementKind, TombstoneReason};
 
 fn sample_view(id: [u8; 16], predicate: &str, kind: StatementKindWire) -> StatementView {
@@ -51,6 +51,8 @@ fn sample_view(id: [u8; 16], predicate: &str, kind: StatementKindWire) -> Statem
         tombstoned_at_unix_nanos: 0,
         tombstone_reason: 0,
         flags: 0,
+        original_predicate_qname: String::new(),
+        is_stateful: false,
     }
 }
 

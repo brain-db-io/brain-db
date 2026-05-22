@@ -48,9 +48,35 @@ pub enum WorkerKind {
     /// Walks the statement-by-subject index to find the cause-side
     /// memories anchoring the statement's object entity, and writes
     /// memory→memory edges from cause to effect. Knowledge-layer only:
-    /// substrate-only deployments resolve an empty whitelist and the
+    /// no-schema deployments resolve an empty whitelist and the
     /// worker no-ops.
     CausalEdge,
+    /// Drains the per-shard `STATEMENT_EMBED_QUEUE` redb table,
+    /// embeds each pending statement's `subject + predicate + object`
+    /// text via the shared BGE dispatcher, and inserts the resulting
+    /// 384-d vector into the per-shard `StatementHnswIndex`. Without
+    /// this worker the statement HNSW stays empty forever and the
+    /// hybrid query path's statement-corpus semantic retriever returns
+    /// zero hits — hybrid recall over statements degenerates to
+    /// BM25 + graph only.
+    StatementEmbed,
+    /// Walks active Statement rows and re-aggregates their stored
+    /// confidence via noisy-OR with kind-specific decay. Without this
+    /// worker long-running deployments accumulate overly-high
+    /// confidence on Facts/Preferences whose evidence has aged out,
+    /// because confidence is snapshotted at write/touch time and never
+    /// lazily recomputed at read.
+    ConfidenceSweep,
+    /// Sweeps the `merge_review_queue` re-evaluating Pending entity-
+    /// merge proposals that the resolver filed in the
+    /// `[0.7, 0.78)` partial-match band. As the entity HNSW absorbs
+    /// new aliases and paraphrases, the cosine between a queued
+    /// `source` and its `candidate` shifts; this worker promotes
+    /// proposals whose recomputed cosine clears the auto-apply
+    /// threshold (default 0.95), rejects ones that have dropped below
+    /// the partial-match floor (default 0.7), and expires proposals
+    /// older than `expire_after_secs` (default 30 days).
+    AmbiguityResolver,
 }
 
 impl WorkerKind {
@@ -82,6 +108,9 @@ impl WorkerKind {
             Self::Extractor => "extractor",
             Self::TemporalEdge => "temporal_edge",
             Self::CausalEdge => "causal_edge",
+            Self::StatementEmbed => "statement_embed",
+            Self::ConfidenceSweep => "confidence_sweep",
+            Self::AmbiguityResolver => "ambiguity_resolver",
         }
     }
 }
@@ -150,6 +179,28 @@ impl WorkerConfig {
             // less wakeup churn. max_runtime=5s caps any pathological
             // statement-by-subject scan.
             WorkerKind::CausalEdge => (true, Duration::from_millis(200), 64, 5_000),
+            // Statement-embed drains a redb queue, embeds in batches,
+            // and inserts into HNSW. 1s tick is more than enough to
+            // keep up with extractor throughput (statements/sec is
+            // bounded by LLM cost); batch_size=256 caps the per-cycle
+            // queue scan; max_runtime=5s caps a pathological embed
+            // batch that exceeds the BGE-small forward-pass budget.
+            WorkerKind::StatementEmbed => (true, Duration::from_secs(1), 256, 5_000),
+            // Confidence sweep is a heavy-ish scan (each row touches
+            // STATEMENTS_TABLE) but the per-row cost is small. 1 h tick
+            // matches the decay worker; batch_size=256 paces the read
+            // phase so a single cycle never holds the metadata lock
+            // long enough to block a writer; max_runtime=10s caps the
+            // pathological "huge predicate bucket" case.
+            WorkerKind::ConfidenceSweep => (true, Duration::from_secs(3600), 256, 10_000),
+            // Ambiguity resolver re-checks merge-review-queue rows.
+            // 1 h tick matches the spec band: a proposal's confidence
+            // shifts only as the HNSW absorbs new aliases (hours, not
+            // seconds). batch_size=64 caps per-cycle wall-clock at
+            // 64 * (1 embed + 1 HNSW knn + 1 possible merge_entity) ≈
+            // ~ low seconds; max_runtime=10s defends against a stuck
+            // embedder.
+            WorkerKind::AmbiguityResolver => (true, Duration::from_secs(3600), 64, 10_000),
         };
         Self {
             enabled,

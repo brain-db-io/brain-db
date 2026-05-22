@@ -33,9 +33,9 @@ use brain_index::{
     SemanticError, SemanticQuery, SemanticRetriever, SemanticRetrieverConfig, SemanticScope,
 };
 use brain_metadata::MetadataDb;
-use brain_planner::knowledge::executor::{execute, HybridExecutorContext};
-use brain_planner::knowledge::planner::{plan, QueryPlan};
-use brain_planner::knowledge::router::{QueryRequest as PlannerQueryRequest, RetrieverSelection};
+use brain_planner::hybrid::executor::{execute, HybridExecutorContext};
+use brain_planner::hybrid::planner::{plan, QueryPlan};
+use brain_planner::hybrid::router::{QueryRequest as PlannerQueryRequest, RetrieverSelection};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use parking_lot::Mutex;
 use tempfile::TempDir;
@@ -128,6 +128,7 @@ fn build_fixture(
         graph: graph
             .map(|items| Arc::new(CannedGraphRetriever { items }) as Arc<dyn GraphRetriever>),
         metadata,
+        cross_encoder: None,
     };
 
     Fixture { _dir: dir, ctx }
@@ -143,9 +144,11 @@ fn text_anchor_request() -> PlannerQueryRequest {
         confidence_min: None,
         include_tombstoned: false,
         include_superseded: false,
+        as_of_record_time_unix_nanos: None,
         limit: 20,
         retrievers: RetrieverSelection::Auto,
         fusion_config: None,
+        rerank: false,
     }
 }
 
@@ -159,9 +162,11 @@ fn text_only_request() -> PlannerQueryRequest {
         confidence_min: None,
         include_tombstoned: false,
         include_superseded: false,
+        as_of_record_time_unix_nanos: None,
         limit: 20,
         retrievers: RetrieverSelection::Auto,
         fusion_config: None,
+        rerank: false,
     }
 }
 

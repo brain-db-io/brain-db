@@ -137,7 +137,7 @@ pub enum RelationWireError {
 // ---------------------------------------------------------------------------
 
 /// One step in a `RELATION_TRAVERSE` path. Mirrors
-/// `brain_metadata::relation_traversal::TraversalStep` but uses wire
+/// `brain_metadata::relation::traversal::TraversalStep` but uses wire
 /// primitives + canonical type string.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]

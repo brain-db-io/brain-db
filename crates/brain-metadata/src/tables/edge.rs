@@ -491,14 +491,14 @@ fn range_scan(
 }
 
 // ---------------------------------------------------------------------------
-// Substrate-only convenience.
+// Memory-only edge convenience.
 // ---------------------------------------------------------------------------
 
-/// Substrate-only outgoing walk. Returns `(EdgeKind, MemoryId,
+/// Memory-only outgoing walk. Returns `(EdgeKind, MemoryId,
 /// EdgeData)` triples for every Memory↔Memory `Builtin` edge anchored
 /// at `from`. Non-builtin kinds and non-memory neighbours are filtered
 /// out — graph retrievers that don't know about entities or typed
-/// relations rely on this to keep returning the substrate-only view.
+/// relations rely on this to keep returning the memory-anchored view.
 pub fn list_memory_edges_from(
     rtxn: &ReadTransaction,
     from: MemoryId,

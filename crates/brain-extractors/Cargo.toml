@@ -13,6 +13,11 @@ brain-protocol = { path = "../brain-protocol" }
 # 20.6: materialize loads `ExtractorDefinition` rows persisted by
 # brain-metadata::schema_apply.
 brain-metadata = { path = "../brain-metadata" }
+# Resolver Tier 3 (embedding HNSW tie-break) calls into the per-shard
+# `EntityHnswIndex` and uses the embedder `Dispatcher` trait directly
+# from inside the redb write txn that owns the resolve.
+brain-index = { path = "../brain-index" }
+brain-embed = { path = "../brain-embed" }
 # Resolver writes entity rows + indexes inside the caller's redb txn.
 redb = { workspace = true }
 blake3 = { workspace = true }
@@ -66,6 +71,10 @@ harness = false
 
 [[bench]]
 name = "llm_pipeline"
+harness = false
+
+[[bench]]
+name = "statement_kind_pattern"
 harness = false
 
 [[test]]

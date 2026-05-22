@@ -1,0 +1,497 @@
+//! Scope-bound API key store.
+//!
+//! API keys bind `(org_id, user_id, namespace, agent_id, permissions)`
+//! at issuance — the server derives every request's scope from the
+//! AUTH-time key, so client-supplied agent / namespace fields can never
+//! escalate beyond what the key permits.
+//!
+//! The store lives in its own redb file (`api_keys.redb`) — independent
+//! of the per-shard `MetadataDb` so the connection layer can resolve
+//! credentials before pinning a shard.
+
+use std::path::{Path, PathBuf};
+
+use redb::{
+    Database, ReadTransaction, ReadableDatabase, ReadableTable, TableError, WriteTransaction,
+};
+
+use crate::tables::api_keys::{permissions, ApiKeyRow, API_KEYS_BY_AGENT_TABLE, API_KEYS_TABLE};
+
+pub use crate::tables::api_keys::permissions as bits;
+
+/// Errors returned by the API-key store.
+#[derive(thiserror::Error, Debug)]
+pub enum ApiKeyError {
+    #[error("opening api-key store at {path}: {source}")]
+    Open {
+        path: PathBuf,
+        #[source]
+        source: redb::DatabaseError,
+    },
+
+    #[error("transaction: {0}")]
+    Transaction(#[from] redb::TransactionError),
+
+    #[error("table: {0}")]
+    Table(#[from] redb::TableError),
+
+    #[error("storage: {0}")]
+    Storage(#[from] redb::StorageError),
+
+    #[error("commit: {0}")]
+    Commit(#[from] redb::CommitError),
+
+    #[error("duplicate key hash on insert")]
+    Duplicate,
+}
+
+/// Hash a raw secret into the lookup key (BLAKE3-256).
+#[must_use]
+pub fn hash_secret(secret: &[u8]) -> [u8; 32] {
+    *blake3::hash(secret).as_bytes()
+}
+
+/// Standalone wrapper for the API-key redb file.
+///
+/// Mirrors [`crate::llm_cache::LlmCacheDb`]'s `&mut self` writer
+/// discipline. The auth path holds the store behind a mutex / once-cell
+/// since multiple connection tasks need read access concurrently.
+pub struct ApiKeyDb {
+    db: Database,
+    path: PathBuf,
+}
+
+impl ApiKeyDb {
+    pub fn open(path: impl AsRef<Path>) -> Result<Self, ApiKeyError> {
+        let path = path.as_ref().to_path_buf();
+        let db = Database::create(&path).map_err(|source| ApiKeyError::Open {
+            path: path.clone(),
+            source,
+        })?;
+        // Ensure both tables exist (creating empty ones on a fresh file).
+        let wtxn = db.begin_write()?;
+        {
+            let _ = wtxn.open_table(API_KEYS_TABLE)?;
+            let _ = wtxn.open_table(API_KEYS_BY_AGENT_TABLE)?;
+        }
+        wtxn.commit()?;
+        Ok(Self { db, path })
+    }
+
+    /// Begin a read transaction. Many concurrent readers allowed.
+    pub fn read_txn(&self) -> Result<ReadTransaction, redb::TransactionError> {
+        self.db.begin_read()
+    }
+
+    /// Begin a write transaction. `&mut self` enforces single-writer
+    /// at compile time.
+    pub fn write_txn(&mut self) -> Result<WriteTransaction, redb::TransactionError> {
+        self.db.begin_write()
+    }
+
+    #[must_use]
+    pub fn path(&self) -> &Path {
+        &self.path
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Ops — work directly on `redb` transactions so the caller controls
+// batching with other tables if needed.
+// ---------------------------------------------------------------------------
+
+/// Insert a fresh key row, populating both the primary table and the
+/// per-agent index. Fails with [`ApiKeyError::Duplicate`] if the key
+/// hash is already present (collision means the same secret was minted
+/// twice, which the caller should treat as a server bug).
+#[allow(clippy::too_many_arguments)]
+pub fn api_key_create(
+    wtxn: &WriteTransaction,
+    secret: &[u8],
+    org_id: [u8; 16],
+    user_id: [u8; 16],
+    namespace: String,
+    agent_id: [u8; 16],
+    permissions: u32,
+    now_unix_nanos: u64,
+) -> Result<ApiKeyRow, ApiKeyError> {
+    let key_hash = hash_secret(secret);
+    let row = ApiKeyRow::new(
+        key_hash,
+        org_id,
+        user_id,
+        namespace,
+        agent_id,
+        permissions,
+        now_unix_nanos,
+    );
+
+    let mut primary = wtxn.open_table(API_KEYS_TABLE)?;
+    if primary.get(&key_hash)?.is_some() {
+        return Err(ApiKeyError::Duplicate);
+    }
+    primary.insert(&key_hash, &row)?;
+
+    let mut by_agent = wtxn.open_table(API_KEYS_BY_AGENT_TABLE)?;
+    by_agent.insert(&(agent_id, key_hash), &())?;
+
+    Ok(row)
+}
+
+/// Resolve a presented secret to its row. `None` when no matching key
+/// exists; the caller decides whether to surface that as `Unknown` or
+/// `Missing`. The returned row may still be `revoked = true` — the
+/// caller must check.
+pub fn api_key_lookup_by_secret(
+    rtxn: &ReadTransaction,
+    secret: &[u8],
+) -> Result<Option<ApiKeyRow>, ApiKeyError> {
+    let key_hash = hash_secret(secret);
+    api_key_lookup_by_hash(rtxn, &key_hash)
+}
+
+/// Resolve a hashed secret to its row.
+pub fn api_key_lookup_by_hash(
+    rtxn: &ReadTransaction,
+    key_hash: &[u8; 32],
+) -> Result<Option<ApiKeyRow>, ApiKeyError> {
+    let table = match rtxn.open_table(API_KEYS_TABLE) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
+        Err(e) => return Err(e.into()),
+    };
+    Ok(table.get(key_hash)?.map(|g| g.value()))
+}
+
+/// Mark a key revoked. Idempotent — calling twice is a no-op. Returns
+/// `false` if the key wasn't found.
+pub fn api_key_revoke(wtxn: &WriteTransaction, key_hash: &[u8; 32]) -> Result<bool, ApiKeyError> {
+    let mut table = wtxn.open_table(API_KEYS_TABLE)?;
+    let Some(existing) = table.get(key_hash)? else {
+        return Ok(false);
+    };
+    let mut row = existing.value();
+    drop(existing);
+    if !row.revoked {
+        row.revoked = true;
+        table.insert(key_hash, &row)?;
+    }
+    Ok(true)
+}
+
+/// Update the `last_used_at_unix_nanos` watermark. Called from a
+/// background touch task off the AUTH hot path.
+pub fn api_key_touch_last_used(
+    wtxn: &WriteTransaction,
+    key_hash: &[u8; 32],
+    now_unix_nanos: u64,
+) -> Result<bool, ApiKeyError> {
+    let mut table = wtxn.open_table(API_KEYS_TABLE)?;
+    let Some(existing) = table.get(key_hash)? else {
+        return Ok(false);
+    };
+    let mut row = existing.value();
+    drop(existing);
+    if row.last_used_at_unix_nanos < now_unix_nanos {
+        row.last_used_at_unix_nanos = now_unix_nanos;
+        table.insert(key_hash, &row)?;
+    }
+    Ok(true)
+}
+
+/// List every (non-tombstoned) key issued to `agent_id`. Used by admin
+/// `list keys for agent X`.
+pub fn api_key_list_for_agent(
+    rtxn: &ReadTransaction,
+    agent_id: &[u8; 16],
+) -> Result<Vec<ApiKeyRow>, ApiKeyError> {
+    let index = match rtxn.open_table(API_KEYS_BY_AGENT_TABLE) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let primary = match rtxn.open_table(API_KEYS_TABLE) {
+        Ok(t) => t,
+        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+
+    let lo = (*agent_id, [0u8; 32]);
+    let hi = (*agent_id, [0xFFu8; 32]);
+    let mut out = Vec::new();
+    for entry in index.range(lo..=hi)? {
+        let (k, _) = entry?;
+        let (_agent, key_hash) = k.value();
+        if let Some(row) = primary.get(&key_hash)? {
+            out.push(row.value());
+        }
+    }
+    Ok(out)
+}
+
+// ---------------------------------------------------------------------------
+// Scope projection helpers
+// ---------------------------------------------------------------------------
+
+/// Resolved scope a connection inherits from its AUTH credential. The
+/// connection-layer's auth path constructs one of these and stores it
+/// on `ConnPhase::Established`; every subsequent request reads from
+/// here instead of trusting client-supplied fields.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct ResolvedScope {
+    pub key_hash: [u8; 32],
+    pub org_id: [u8; 16],
+    pub user_id: [u8; 16],
+    pub namespace: String,
+    pub agent_id: [u8; 16],
+    pub permissions: u32,
+}
+
+impl ResolvedScope {
+    /// Build a scope from a key row.
+    #[must_use]
+    pub fn from_row(row: &ApiKeyRow) -> Self {
+        Self {
+            key_hash: row.key_hash,
+            org_id: row.org_id,
+            user_id: row.user_id,
+            namespace: row.namespace.clone(),
+            agent_id: row.agent_id,
+            permissions: row.permissions,
+        }
+    }
+
+    /// Permissive scope used when scope-binding is disabled (the v1.0
+    /// default). Carries the agent the client claimed, full
+    /// permissions, no namespace lock, zero org/user.
+    #[must_use]
+    pub fn permissive(agent_id: [u8; 16]) -> Self {
+        Self {
+            key_hash: [0u8; 32],
+            org_id: [0u8; 16],
+            user_id: [0u8; 16],
+            namespace: String::new(),
+            agent_id,
+            permissions: permissions::FULL,
+        }
+    }
+
+    /// True iff every bit in `op` is set on this scope.
+    #[must_use]
+    pub fn allows(&self, op: u32) -> bool {
+        self.permissions & op == op
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Tests
+// ---------------------------------------------------------------------------
+
+#[cfg(all(test, not(miri)))]
+mod tests {
+    use super::*;
+
+    fn db(dir: &tempfile::TempDir) -> ApiKeyDb {
+        ApiKeyDb::open(dir.path().join("api_keys.redb")).expect("open")
+    }
+
+    fn agent(byte: u8) -> [u8; 16] {
+        let mut a = [0u8; 16];
+        a[15] = byte;
+        a
+    }
+
+    fn org(byte: u8) -> [u8; 16] {
+        let mut o = [0u8; 16];
+        o[15] = byte;
+        o
+    }
+
+    #[test]
+    fn api_key_create_then_lookup_roundtrips() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = db(&dir);
+        let secret = b"raw-secret-bytes";
+
+        let row_created = {
+            let wtxn = store.write_txn().unwrap();
+            let row = api_key_create(
+                &wtxn,
+                secret,
+                org(1),
+                [0u8; 16],
+                "acme".into(),
+                agent(7),
+                bits::STANDARD_AGENT,
+                1_700_000_000_000_000_000,
+            )
+            .unwrap();
+            wtxn.commit().unwrap();
+            row
+        };
+
+        let rtxn = store.read_txn().unwrap();
+        let row_found = api_key_lookup_by_secret(&rtxn, secret).unwrap().unwrap();
+        assert_eq!(row_found, row_created);
+        assert!(row_found.allows(bits::ENCODE));
+        assert!(!row_found.allows(bits::ADMIN));
+    }
+
+    #[test]
+    fn api_key_lookup_by_unknown_secret_returns_none() {
+        let dir = tempfile::tempdir().unwrap();
+        let store = db(&dir);
+        let rtxn = store.read_txn().unwrap();
+        assert!(api_key_lookup_by_secret(&rtxn, b"never-minted")
+            .unwrap()
+            .is_none());
+    }
+
+    #[test]
+    fn api_key_revoked_still_lookups_but_is_marked() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = db(&dir);
+        let secret = b"to-be-revoked";
+
+        let key_hash = {
+            let wtxn = store.write_txn().unwrap();
+            let row = api_key_create(
+                &wtxn,
+                secret,
+                org(2),
+                [0u8; 16],
+                "acme".into(),
+                agent(2),
+                bits::READ_ONLY,
+                1_700_000_000_000_000_000,
+            )
+            .unwrap();
+            wtxn.commit().unwrap();
+            row.key_hash
+        };
+
+        {
+            let wtxn = store.write_txn().unwrap();
+            assert!(api_key_revoke(&wtxn, &key_hash).unwrap());
+            wtxn.commit().unwrap();
+        }
+
+        let rtxn = store.read_txn().unwrap();
+        let found = api_key_lookup_by_secret(&rtxn, secret).unwrap().unwrap();
+        assert!(found.revoked);
+
+        // Idempotent.
+        {
+            let wtxn = store.write_txn().unwrap();
+            assert!(api_key_revoke(&wtxn, &key_hash).unwrap());
+            wtxn.commit().unwrap();
+        }
+    }
+
+    #[test]
+    fn api_key_list_for_agent_returns_only_that_agents_keys() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = db(&dir);
+
+        for (n, who) in [(b"k-a-1".as_ref(), 1u8), (b"k-a-2", 1), (b"k-b-1", 2)] {
+            let wtxn = store.write_txn().unwrap();
+            api_key_create(
+                &wtxn,
+                n,
+                org(who),
+                [0u8; 16],
+                "acme".into(),
+                agent(who),
+                bits::STANDARD_AGENT,
+                1_700_000_000_000_000_000,
+            )
+            .unwrap();
+            wtxn.commit().unwrap();
+        }
+
+        let rtxn = store.read_txn().unwrap();
+        let agent_1 = api_key_list_for_agent(&rtxn, &agent(1)).unwrap();
+        let agent_2 = api_key_list_for_agent(&rtxn, &agent(2)).unwrap();
+        assert_eq!(agent_1.len(), 2);
+        assert_eq!(agent_2.len(), 1);
+        for row in &agent_1 {
+            assert_eq!(row.agent_id, agent(1));
+        }
+    }
+
+    #[test]
+    fn duplicate_create_rejects() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = db(&dir);
+        let secret = b"once-only";
+
+        let wtxn = store.write_txn().unwrap();
+        api_key_create(
+            &wtxn,
+            secret,
+            org(1),
+            [0u8; 16],
+            "n".into(),
+            agent(1),
+            bits::STANDARD_AGENT,
+            1,
+        )
+        .unwrap();
+        wtxn.commit().unwrap();
+
+        let wtxn = store.write_txn().unwrap();
+        let err = api_key_create(
+            &wtxn,
+            secret,
+            org(1),
+            [0u8; 16],
+            "n".into(),
+            agent(1),
+            bits::STANDARD_AGENT,
+            2,
+        );
+        assert!(matches!(err, Err(ApiKeyError::Duplicate)));
+    }
+
+    #[test]
+    fn touch_last_used_advances_watermark() {
+        let dir = tempfile::tempdir().unwrap();
+        let mut store = db(&dir);
+        let secret = b"touch-me";
+        let key_hash = {
+            let wtxn = store.write_txn().unwrap();
+            let row = api_key_create(
+                &wtxn,
+                secret,
+                org(1),
+                [0u8; 16],
+                "n".into(),
+                agent(1),
+                bits::STANDARD_AGENT,
+                1_000,
+            )
+            .unwrap();
+            wtxn.commit().unwrap();
+            row.key_hash
+        };
+
+        {
+            let wtxn = store.write_txn().unwrap();
+            api_key_touch_last_used(&wtxn, &key_hash, 5_000).unwrap();
+            wtxn.commit().unwrap();
+        }
+
+        let rtxn = store.read_txn().unwrap();
+        let row = api_key_lookup_by_hash(&rtxn, &key_hash).unwrap().unwrap();
+        assert_eq!(row.last_used_at_unix_nanos, 5_000);
+    }
+
+    #[test]
+    fn resolved_scope_permissive_grants_full() {
+        let scope = ResolvedScope::permissive(agent(9));
+        assert!(scope.allows(bits::ENCODE));
+        assert!(scope.allows(bits::ADMIN));
+        assert!(scope.allows(bits::FULL));
+        assert_eq!(scope.agent_id, agent(9));
+    }
+}

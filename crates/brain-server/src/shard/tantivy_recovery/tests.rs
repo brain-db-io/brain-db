@@ -8,10 +8,10 @@ use brain_core::knowledge::{
 use brain_core::{Entity, EntityId, EntityTypeId};
 use brain_core::{ExtractorId, PredicateId, StatementId};
 use brain_index::{IndexStatus, TantivyShard};
-use brain_metadata::entity_ops::entity_put;
-use brain_metadata::entity_type_ops::entity_type_intern;
-use brain_metadata::predicate_ops::predicate_intern;
-use brain_metadata::statement_ops::statement_create;
+use brain_metadata::entity::ops::entity_put;
+use brain_metadata::entity::types::entity_type_intern;
+use brain_metadata::schema::predicate::predicate_intern;
+use brain_metadata::statement::statement_create;
 use brain_metadata::MetadataDb;
 use tempfile::TempDir;
 
@@ -118,7 +118,8 @@ fn recover_rebuilds_statements_with_join() {
     }
     let pred: PredicateId = {
         let wtxn = metadata.write_txn().expect("wtxn");
-        let id = predicate_intern(&wtxn, "brain", "knows", None, 0, 1, "", 0).expect("predicate");
+        let id =
+            predicate_intern(&wtxn, "brain", "knows", None, 0, 1, "", false, 0).expect("predicate");
         wtxn.commit().expect("commit");
         id
     };

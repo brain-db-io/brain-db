@@ -279,6 +279,14 @@ impl Default for WorkerScheduler {
 /// - `controls.wake_rx`: races against `sleep(interval)`. A
 ///   `WorkerScheduler::run_now` send wakes the loop early; the
 ///   next cycle runs immediately.
+///
+/// Queue-bearing workers (extractor, auto_edge, temporal_edge,
+/// causal_edge) additionally block inside their `run_cycle` on a
+/// `recv_async().or(sleep(interval))` race so a fresh enqueue
+/// during the cycle's wait window drains immediately. The combined
+/// effect is: idle workers sleep at most `cfg.interval` between
+/// cycles; once the next cycle starts, the queue's own wake fires
+/// instantly — no per-interval latency floor inside the active cycle.
 async fn worker_loop(
     worker: Arc<dyn Worker>,
     ctx: WorkerContext,

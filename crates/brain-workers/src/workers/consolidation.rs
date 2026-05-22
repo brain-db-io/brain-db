@@ -41,8 +41,8 @@ use brain_core::{
 };
 use brain_embed::VECTOR_DIM;
 use brain_metadata::tables::memory::MEMORIES_TABLE;
-use brain_ops::ops::writer::RealWriterHandle;
 use brain_ops::write::{Phase, Write, WriteId};
+use brain_ops::writer::RealWriterHandle;
 use redb::ReadableTable;
 use tracing::trace;
 use uuid::Uuid;

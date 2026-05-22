@@ -112,6 +112,7 @@ async fn recall_one(ctx: &OpsContext, cue: &str) -> usize {
         include_text: false,
         request_id: None,
         txn_id: None,
+        rerank: false,
     };
     match dispatch(
         RequestBody::Recall(req),

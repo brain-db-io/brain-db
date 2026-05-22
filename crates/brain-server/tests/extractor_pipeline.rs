@@ -13,7 +13,7 @@ use std::time::Duration;
 use brain_core::{EdgeKindRef, MemoryId, NodeRef};
 use brain_metadata::pipeline_has_extracted;
 use brain_metadata::tables::edge::{EdgeKey, EDGES_TABLE};
-use brain_metadata::tables::knowledge::entity::ENTITIES_TABLE;
+use brain_metadata::tables::entity::ENTITIES_TABLE;
 use brain_metadata::MetadataDb;
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
@@ -31,6 +31,9 @@ use uuid::Uuid;
 #[allow(dead_code)]
 #[path = "../src/admin/mod.rs"]
 mod admin;
+#[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
 #[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;

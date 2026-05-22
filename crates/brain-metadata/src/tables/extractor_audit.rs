@@ -12,7 +12,7 @@
 //!    last week?", "which memories partial-failed?".
 //!
 //! This is distinct from `extractor_audit` (per-extractor, per-run)
-//! in [`crate::tables::knowledge::audit`]. That table records each
+//! in [`crate::tables::audit`]. That table records each
 //! individual `Extractor::run` invocation; this one records the
 //! per-memory dispatch outcome the worker decided to commit.
 

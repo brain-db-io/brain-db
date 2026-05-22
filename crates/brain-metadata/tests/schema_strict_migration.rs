@@ -22,11 +22,12 @@ use brain_core::knowledge::{
 use brain_core::{
     ContextId, EntityId, EntityTypeId, ExtractorId, MemoryId, StatementId, StatementKind,
 };
-use brain_metadata::entity_ops::entity_put;
-use brain_metadata::predicate_ops::predicate_intern_or_get;
-use brain_metadata::schema_store::schema_upload;
-use brain_metadata::statement_ops::{statement_create, statement_get};
-use brain_metadata::tables::knowledge::statement::{statement_flags, STATEMENTS_TABLE};
+use brain_metadata::entity::ops::entity_put;
+use brain_metadata::schema::apply::flag_statements_outside_schema;
+use brain_metadata::schema::predicate::{predicate_intern_or_get, predicates_active_for_schema};
+use brain_metadata::schema::store::schema_upload;
+use brain_metadata::statement::{statement_create, statement_get};
+use brain_metadata::tables::statement::{statement_flags, STATEMENTS_TABLE};
 use brain_metadata::MetadataDb;
 use brain_protocol::schema::{parse_schema, validate, ValidatedSchema};
 use redb::{ReadableDatabase, ReadableTable};
@@ -112,6 +113,20 @@ fn statement_flags_word(db: &redb::Database, sid: StatementId) -> u32 {
         .flags
 }
 
+/// Drive the `OUTSIDE_ACTIVE_SCHEMA` flag-sweep that the
+/// SchemaMigrationWorker runs post-commit. Tests at this layer can't
+/// spin up the full worker scheduler, so we invoke the same metadata
+/// helper the worker's `tick` calls — same wtxn shape, same effect.
+fn drive_flag_sweep(db: &redb::Database, namespace: &str, version: u32) {
+    let active = {
+        let rtxn = db.begin_read().unwrap();
+        predicates_active_for_schema(&rtxn, namespace, version).unwrap()
+    };
+    let wtxn = db.begin_write().unwrap();
+    flag_statements_outside_schema(&wtxn, namespace, &active).unwrap();
+    wtxn.commit().unwrap();
+}
+
 // ---------------------------------------------------------------------------
 // Core migration: pre-existing rows remain readable; in-schema ones stay
 // clean, out-of-schema ones get the flag.
@@ -142,6 +157,10 @@ fn schemaless_to_strict_flags_only_out_of_vocabulary_rows() {
         assert_eq!(v, 1);
         wtxn.commit().unwrap();
     }
+    // Sweep is post-commit work owned by the SchemaMigrationWorker;
+    // drive it inline at the metadata layer (same helper the worker
+    // calls).
+    drive_flag_sweep(db, "acme", 1);
 
     // The two `prefers` rows must stay clean; the `ghost` row must
     // be flagged.
@@ -186,6 +205,7 @@ fn statement_in_unrelated_namespace_is_not_touched() {
         schema_upload(&wtxn, &schema_with_predicates("acme", &["prefers"]), T0).unwrap();
         wtxn.commit().unwrap();
     }
+    drive_flag_sweep(db, "acme", 1);
 
     assert!(
         statement_flags_word(db, s_acme) & statement_flags::OUTSIDE_ACTIVE_SCHEMA != 0,
@@ -206,7 +226,7 @@ fn statement_in_unrelated_namespace_is_not_touched() {
 
 #[test]
 fn schema_upload_adopts_implicit_predicate_and_keeps_rows_clean() {
-    use brain_metadata::tables::knowledge::predicate::{PredicateDefinition, PREDICATES_TABLE};
+    use brain_metadata::tables::predicate::{PredicateDefinition, PREDICATES_TABLE};
 
     let dir = tempfile::tempdir().unwrap();
     let md = open_metadata(&dir);
@@ -224,6 +244,7 @@ fn schema_upload_adopts_implicit_predicate_and_keeps_rows_clean() {
         schema_upload(&wtxn, &schema_with_predicates("acme", &["prefers"]), T0).unwrap();
         wtxn.commit().unwrap();
     }
+    drive_flag_sweep(db, "acme", 1);
 
     // `prefers` row was adopted: SchemaDeclared, stable PredicateId
     // (no rewrite of statements that referenced it). The statement

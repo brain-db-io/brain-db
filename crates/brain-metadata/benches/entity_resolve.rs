@@ -17,10 +17,10 @@
 //! phase 21 alongside the entity HNSW wiring.
 
 use brain_core::{Entity, EntityId, EntityType, EntityTypeId};
-use brain_metadata::entity_ops::{
+use brain_metadata::entity::ops::{
     entity_lookup_by_alias, entity_lookup_by_canonical_name, entity_put, normalize_name,
 };
-use brain_metadata::trigram_ops::{
+use brain_metadata::entity::trigram::{
     candidates_for_query, extract_trigrams, jaccard, trigrams_of_components,
 };
 use brain_metadata::MetadataDb;
@@ -166,7 +166,7 @@ fn bench_tier2_full_resolve(c: &mut Criterion) {
             for cand in candidates {
                 // Re-fetch the candidate's name to compute its trigram set.
                 let cand_entity =
-                    brain_metadata::entity_ops::entity_get(&rtxn, cand).expect("entity_get");
+                    brain_metadata::entity::ops::entity_get(&rtxn, cand).expect("entity_get");
                 if let Some(e) = cand_entity {
                     let cand_trigrams = trigrams_of_components(&e.canonical_name, &e.aliases);
                     let score = jaccard(&q_trigrams, &cand_trigrams);

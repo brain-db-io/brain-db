@@ -58,6 +58,7 @@ fn duplicate_predicate_fails() {
             object: ObjectTypeDecl::Value {
                 value_type: AttrType::Text,
             },
+            stateful: None,
             description: None,
         })
     };
@@ -88,6 +89,7 @@ fn preference_entity_object_mismatches() {
         object: ObjectTypeDecl::Entity {
             entity_type: "Person".into(),
         },
+        stateful: None,
         description: None,
     });
     let s = s_with_items(vec![person_entity(), p]);
@@ -100,6 +102,7 @@ fn event_statement_object_mismatches() {
         name: "scheduled".into(),
         kind: StatementKindAst::Event,
         object: ObjectTypeDecl::Statement,
+        stateful: None,
         description: None,
     });
     let s = s_with_items(vec![p]);

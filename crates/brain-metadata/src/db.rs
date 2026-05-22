@@ -8,7 +8,7 @@
 //! ## Surface
 //!
 //! - [`MetadataDb::open`] — opens or creates the redb file at the given
-//!   path, then runs [`crate::schema::open_or_init_schema`] to either
+//!   path, then runs [`crate::storage_version::open_or_init_schema`] to either
 //!   initialise a fresh DB at the current schema version or verify an
 //!   existing file's version is compatible.
 //! - [`MetadataDb::read_txn`] — `&self`; many can coexist (redb MVCC).
@@ -39,7 +39,7 @@ use std::path::{Path, PathBuf};
 
 use redb::{Database, ReadTransaction, ReadableDatabase, TransactionError, WriteTransaction};
 
-use crate::schema::{open_or_init_schema, SchemaError};
+use crate::storage_version::{open_or_init_schema, SchemaError};
 use crate::system_schema::{seed_system_schema, SystemSchemaError};
 use crate::tables::checkpoint::{latest as latest_checkpoint, CHECKPOINTS_TABLE};
 
@@ -92,7 +92,7 @@ impl MetadataDb {
     ///
     /// On a fresh file, writes the current schema version. On an
     /// existing file, verifies the schema version is compatible (≤
-    /// [`crate::schema::CURRENT_SCHEMA_VERSION`]) and reads it back.
+    /// [`crate::storage_version::CURRENT_SCHEMA_VERSION`]) and reads it back.
     /// Refuses to open files written by a newer binary.
     pub fn open(path: impl AsRef<Path>) -> Result<Self, MetadataDbError> {
         let path = path.as_ref().to_path_buf();
@@ -181,8 +181,8 @@ impl MetadataDb {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
-    use crate::schema::{CURRENT_SCHEMA_VERSION, SCHEMA_META_TABLE, SCHEMA_VERSION_KEY};
-    use crate::tables::knowledge::entity_type::{EntityTypeDefinition, ENTITY_TYPES_TABLE};
+    use crate::storage_version::{CURRENT_SCHEMA_VERSION, SCHEMA_META_TABLE, SCHEMA_VERSION_KEY};
+    use crate::tables::entity_type::{EntityTypeDefinition, ENTITY_TYPES_TABLE};
     use crate::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
     use brain_core::{AgentId, ContextId, EntityType, MemoryId, MemoryKind};
     use redb::ReadableTable;
@@ -401,40 +401,59 @@ mod tests {
     // Sub-task 16.1: Person bootstrap.
     // -----------------------------------------------------------------
 
+    /// The system schema seeds the six built-in entity types in
+    /// declaration order: Person, Organization, Project, Event,
+    /// Place, Concept. Person stays at id 1 (`EntityType::PERSON_ID`)
+    /// for back-compat with the original single-entity seed.
+    const SEEDED_ENTITY_TYPES: &[(u32, &str)] = &[
+        (1, "Person"),
+        (2, "Organization"),
+        (3, "Project"),
+        (4, "Event"),
+        (5, "Place"),
+        (6, "Concept"),
+    ];
+
     #[test]
-    fn person_entity_type_seeded_on_fresh_open() {
+    fn builtin_entity_types_seeded_on_fresh_open() {
         let dir = tempfile::tempdir().unwrap();
         let db = MetadataDb::open(db_path(&dir)).unwrap();
 
         let rtxn = db.read_txn().unwrap();
         let t = rtxn.open_table(ENTITY_TYPES_TABLE).unwrap();
-        let mut rows = 0u32;
-        let mut saw_person = false;
-        for entry in t.iter().unwrap() {
-            let (_k, v) = entry.unwrap();
-            let def = v.value();
-            rows += 1;
-            if def.id() == EntityType::PERSON_ID && def.name == EntityType::PERSON_NAME {
-                saw_person = true;
-            }
-        }
-        assert_eq!(rows, 1, "fresh open should seed exactly one entity type");
-        assert!(saw_person, "the seeded row must be the Person row");
+        let mut got: Vec<(u32, String)> = t
+            .iter()
+            .unwrap()
+            .map(|e| {
+                let (k, v) = e.unwrap();
+                (k.value(), v.value().name)
+            })
+            .collect();
+        got.sort_by_key(|(id, _)| *id);
+        let expected: Vec<(u32, String)> = SEEDED_ENTITY_TYPES
+            .iter()
+            .map(|(id, n)| (*id, (*n).to_string()))
+            .collect();
+        assert_eq!(got, expected, "fresh open seeds the built-in noun set");
+        assert_eq!(EntityType::PERSON_ID.raw(), 1);
+        assert_eq!(EntityType::PERSON_NAME, "Person");
     }
 
     #[test]
-    fn person_seed_is_idempotent() {
+    fn builtin_entity_types_seed_is_idempotent() {
         let dir = tempfile::tempdir().unwrap();
         let path = db_path(&dir);
 
-        // First open seeds.
         drop(MetadataDb::open(&path).unwrap());
-        // Second open must NOT add another row.
         let db = MetadataDb::open(&path).unwrap();
         let rtxn = db.read_txn().unwrap();
         let t = rtxn.open_table(ENTITY_TYPES_TABLE).unwrap();
         let rows: usize = t.iter().unwrap().count();
-        assert_eq!(rows, 1, "re-open must not duplicate the Person seed");
+        assert_eq!(
+            rows,
+            SEEDED_ENTITY_TYPES.len(),
+            "re-open must not duplicate the built-in entity-type seeds",
+        );
     }
 
     #[test]
@@ -445,11 +464,12 @@ mod tests {
         // First open seeds the system schema → schema_active("brain") = Some(1).
         drop(MetadataDb::open(&path).unwrap());
 
-        // Inject a NON-Person type with id=42 between opens. This
-        // mimics a hypothetical user-namespace registration. Because
-        // schema_active("brain") is already set, the next open must
-        // NOT re-run the system schema seed (which would otherwise
-        // double-register the brain entity types).
+        // Inject a fresh user-namespace entity type with id=42 between
+        // opens. The injected name doesn't collide with any built-in,
+        // so a hypothetical re-seed would surface as either a
+        // duplicate-name error or an extra Person row at the next id.
+        // Because schema_active("brain") is already set, the next open
+        // must NOT re-run the system schema seed.
         {
             let db = redb::Database::create(&path).unwrap();
             let wtxn = db.begin_write().unwrap();
@@ -457,7 +477,7 @@ mod tests {
                 let mut t = wtxn.open_table(ENTITY_TYPES_TABLE).unwrap();
                 let row = EntityTypeDefinition::new(
                     brain_core::EntityTypeId(42),
-                    "Project".into(),
+                    "UserCustomNoun".into(),
                     Vec::new(),
                     1_700_000_000_000_000_000,
                 );
@@ -471,10 +491,15 @@ mod tests {
         let db = MetadataDb::open(&path).unwrap();
         let rtxn = db.read_txn().unwrap();
         let t = rtxn.open_table(ENTITY_TYPES_TABLE).unwrap();
-        let rows: Vec<u32> = t.iter().unwrap().map(|e| e.unwrap().0.value()).collect();
-        // Person from first seed (id=1) + injected Project (id=42).
-        // No second Person registration.
-        assert_eq!(rows, vec![1, 42], "second open must not re-seed");
+        let mut rows: Vec<u32> = t.iter().unwrap().map(|e| e.unwrap().0.value()).collect();
+        rows.sort_unstable();
+        // The six built-in nouns (ids 1..=6) from the first seed plus
+        // the injected user row at id 42. No re-registration.
+        assert_eq!(
+            rows,
+            vec![1, 2, 3, 4, 5, 6, 42],
+            "second open must not re-seed",
+        );
     }
 
     // -----------------------------------------------------------------
@@ -488,12 +513,12 @@ mod tests {
 
         let rtxn = db.read_txn().unwrap();
         let got =
-            crate::relation_type_ops::relation_type_lookup_by_qname(&rtxn, "brain", "related_to")
+            crate::relation::types::relation_type_lookup_by_qname(&rtxn, "brain", "related_to")
                 .unwrap()
                 .expect("brain:related_to seeded");
         assert_eq!(got.canonical(), "brain:related_to");
         assert_eq!(got.cardinality, brain_core::Cardinality::ManyToMany);
-        assert!(!got.is_symmetric);
+        assert!(got.is_symmetric);
         assert!(got.from_type.is_none());
         assert!(got.to_type.is_none());
     }
@@ -506,7 +531,7 @@ mod tests {
         let db = MetadataDb::open(&path).unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let all = crate::relation_type_ops::relation_type_list(&rtxn, Some("brain")).unwrap();
+        let all = crate::relation::types::relation_type_list(&rtxn, Some("brain")).unwrap();
         // Phase 19.7: system schema seeds 3 brain relation types
         // (`related_to`, `reports_to`, `co_authored`). Idempotent
         // on reopen — count stays at 3, not 6.

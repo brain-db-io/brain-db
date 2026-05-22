@@ -16,9 +16,9 @@
 //!   phases) do that ahead of submit; apply functions only mutate redb.
 
 use brain_core::knowledge::{
-    EntityAttributes, EntityId, EntityTypeId, EvidenceEntry, EvidenceOverflowId, ExtractorId,
-    PredicateId, Relation, RelationId, RelationTypeId, Statement, StatementId, StatementKind,
-    StatementObject, SubjectRef,
+    Entity, EntityAttributes, EntityId, EntityTypeId, EvidenceEntry, EvidenceOverflowId,
+    ExtractorId, MergeId, PredicateId, Relation, RelationId, RelationTypeId, Statement,
+    StatementId, StatementKind, StatementObject, SubjectRef,
 };
 use brain_core::{ContextId, EdgeKindRef, MemoryId, MemoryKind, NodeRef, Salience};
 use brain_embed::VECTOR_DIM;
@@ -27,14 +27,13 @@ use brain_embed::VECTOR_DIM;
 // Phase
 // ---------------------------------------------------------------------------
 
-/// One irreducible mutation. About 19 variants — the database's grammar.
+/// One irreducible mutation — the database's grammar.
 ///
 /// The variants are NOT classified by layer. `Link` writes the same edge
 /// table whether `from` and `to` are memories, entities, or statements;
 /// `Tombstone` is polymorphic over its target via [`TombstoneTarget`];
-/// `Supersede` is polymorphic via [`SupersedeTarget`]; `UpdateAttribute`
-/// is polymorphic via [`AttributeTarget`]. The redb-row dispatch lives
-/// inside the apply function, not in the phase enum.
+/// `Supersede` is polymorphic via [`SupersedeTarget`]. The redb-row
+/// dispatch lives inside the apply function, not in the phase enum.
 ///
 /// Ownership: every field is owned (no borrows). A `Phase` crosses the
 /// writer's queue, possibly the WAL, possibly recovery — borrowing would
@@ -75,6 +74,10 @@ pub enum Phase {
         ty: EntityTypeId,
         canonical: String,
         normalized: String,
+        /// Alternate surface forms for entity resolution. Empty
+        /// vector = no aliases (the common case for fresh creates;
+        /// rename/merge may add).
+        aliases: Vec<String>,
         attributes: EntityAttributes,
         created_at_unix_nanos: u64,
     },
@@ -107,6 +110,14 @@ pub enum Phase {
         is_symmetric: bool,
         extractor: ExtractorId,
         extracted_at_unix_nanos: u64,
+        /// Opaque rkyv-encoded relation properties; `Vec::new()` for
+        /// extractor-derived relations and any caller that didn't
+        /// supply properties.
+        properties_blob: Vec<u8>,
+        /// Validity window start (inclusive). `None` = no lower bound.
+        valid_from_unix_nanos: Option<u64>,
+        /// Validity window end (exclusive). `None` = open-ended.
+        valid_to_unix_nanos: Option<u64>,
     },
 
     /// Apply a schema upload — interns predicates / relation-types /
@@ -189,43 +200,81 @@ pub enum Phase {
         new_vector: Box<[f32; VECTOR_DIM]>,
     },
 
-    /// Mutate a typed attribute on an existing row.
-    UpdateAttribute {
-        target: AttributeTarget,
-        key: String,
-        value: Vec<u8>,
+    /// Full-row replace of an existing entity. Carries the post-edit
+    /// state; apply re-reads the current row to preserve immutable
+    /// fields (id, entity_type, created_at) and applies the replacement
+    /// under the wtxn.
+    UpdateEntity {
+        id: EntityId,
+        canonical_name: String,
+        aliases: Vec<String>,
+        attributes_blob: Vec<u8>,
+        at_unix_nanos: u64,
     },
 
-    /// Resolve a surface form to an entity inside the wtxn (read +
-    /// write inside one txn). Used by the extractor pipeline before
-    /// any statement / relation phase that references the entity.
-    /// The result lands in the [`PhaseAck::Resolved`] for this phase
-    /// so subsequent phases in the same Write can reference it.
-    Resolve {
-        surface: String,
-        ty_qname: String,
-        confidence: f32,
-        context: ResolveContext,
+    /// Rename — atomic canonical_name swap with the old name moved into
+    /// aliases. Apply delegates to brain_metadata's entity_rename, which
+    /// always applies the alias-trail policy.
+    RenameEntity {
+        id: EntityId,
+        new_canonical_name: String,
+        at_unix_nanos: u64,
+    },
+
+    /// Reverse a prior merge — restores `merged` as an independent
+    /// entity. Apply returns the survivor the merged entity was
+    /// originally merged into.
+    UnmergeEntities {
+        merged: EntityId,
+        actor: brain_metadata::entity::merge::MergeActor,
+        at_unix_nanos: u64,
     },
 
     /// Merge `source` into `target`. Aliases / attributes / inbound and
     /// outbound edges all rewrite. `source` ends up tombstoned in the
     /// same txn.
+    ///
+    /// `retain_aliases` / `retain_attributes` are reserved for future
+    /// merge-policy tuning; the v1 metadata helper always merges both.
     MergeEntities {
         source: EntityId,
         target: EntityId,
         retain_aliases: bool,
         retain_attributes: bool,
         at_unix_nanos: u64,
+        /// Operator-supplied confidence (≥ 0.6 per `spec/18/03 §3`).
+        confidence: f32,
+        /// Free-form reason for the audit row.
+        reason: String,
+        /// Who initiated the merge — typically the caller agent's
+        /// id bytes, or a system identifier.
+        actor: brain_metadata::entity::merge::MergeActor,
+        /// Grace window before `source` is reclaimed.
+        grace_seconds: u64,
+    },
+
+    /// Approve a Pending merge proposal sitting on the
+    /// `merge_review_queue`. Apply executes the underlying
+    /// `merge_entity(source → candidate)` and stamps the proposal row
+    /// `Approved`. The operator's `actor` flows into the `MergeRecord`
+    /// audit so a downstream unmerge can trace it back.
+    ApproveMerge {
+        proposal_id: MergeId,
+        actor: brain_metadata::entity::merge::MergeActor,
+        grace_seconds: u64,
+        at_unix_nanos: u64,
+    },
+
+    /// Reject a Pending merge proposal. Apply stamps the proposal row
+    /// `Rejected` without invoking `merge_entity` — the source and
+    /// candidate entities stay independent.
+    RejectMerge {
+        proposal_id: MergeId,
+        at_unix_nanos: u64,
     },
 
     /// Toggle an extractor's enabled flag.
     SetExtractorEnabled { id: ExtractorId, enabled: bool },
-
-    /// Append an audit row (extractor pipeline outcome, schema
-    /// migration, admin op). Body is opaque to the writer — typed
-    /// by `kind`.
-    StampAudit { kind: AuditKind, body: Vec<u8> },
 
     /// Free physical storage for the given memory slots. Triggered by
     /// the reclamation worker after grace period.
@@ -293,33 +342,6 @@ pub enum SupersedeReplacementId {
     Relation(RelationId),
 }
 
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum AttributeTarget {
-    Memory(MemoryId),
-    Entity(EntityId),
-    Statement(StatementId),
-    Relation(RelationId),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub enum ResolveContext {
-    /// Within the substrate's entity registry, no namespace constraint.
-    Global,
-    /// Restrict to a specific namespace + version.
-    Namespaced { namespace: String, version: u32 },
-}
-
-/// Audit kind discriminant. Matches the existing
-/// `brain_metadata::tables::extractor_audit` byte values so persisted
-/// rows don't shift on this refactor.
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-#[repr(u8)]
-pub enum AuditKind {
-    ExtractorPipeline = 1,
-    SchemaMigration = 2,
-    AdminOp = 3,
-}
-
 /// Evidence carried inside a [`Phase::UpsertStatement`].
 ///
 /// Inline form is used for the common case (≤8 backing memories). The
@@ -331,18 +353,6 @@ pub enum AuditKind {
 pub enum EvidenceRefPhase {
     Inline(Vec<EvidenceEntry>),
     Overflow(EvidenceOverflowId),
-}
-
-// ---------------------------------------------------------------------------
-// EntityAttributesUpdate — the value carried by `UpdateAttribute` for
-// entity rows. Kept as its own type because attribute updates are
-// merge-vs-replace and the apply function needs to know which.
-// ---------------------------------------------------------------------------
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum EntityAttributesUpdate {
-    Replace,
-    Merge,
 }
 
 // ---------------------------------------------------------------------------
@@ -364,37 +374,64 @@ pub enum PhaseAck {
     },
     Linked,
     Unlinked,
-    Tombstoned(TombstoneTarget),
+    /// A row was tombstoned. Carries the post-commit timestamp the apply
+    /// stamped onto the row so handlers can echo it in the wire response
+    /// without a post-commit re-read (and so idempotency replays surface
+    /// the original timestamp rather than today's clock — the cached ack
+    /// is what gets returned on replay).
+    Tombstoned {
+        target: TombstoneTarget,
+        tombstoned_at_unix_nanos: u64,
+    },
     Superseded(SupersedeTarget, SupersedeReplacementId),
     SalienceUpdated,
     KindUpdated,
     ContextUpdated,
     EmbeddingUpdated,
-    AttributeUpdated,
-    Resolved {
-        result_id: EntityId,
-        tier: ResolveTier,
+    EntityUpdated {
+        id: EntityId,
+        /// Snapshotted post-commit entity row so the handler can return
+        /// the persisted view without a re-read RPC.
+        snapshot: Box<Entity>,
+    },
+    EntityRenamed {
+        id: EntityId,
+        old_canonical_name: String,
+        snapshot: Box<Entity>,
+    },
+    EntitiesUnmerged {
+        restored: EntityId,
+        /// The survivor the merged entity was originally merged into.
+        survivor: EntityId,
     },
     EntityMerged {
         source: EntityId,
         target: EntityId,
+        /// Audit row id minted inside `merge_entity` — surfaced so the
+        /// wire response can include it without a post-commit lookup
+        /// (the audit log is keyed by `(timestamp, merge_id)`, not by
+        /// survivor/merged, so reverse lookup is awkward).
+        audit_id: MergeId,
+    },
+    /// A merge proposal was promoted: the underlying merge was applied
+    /// and the proposal row stamped Approved (or AutoApplied for the
+    /// worker path — the apply function takes the status as input).
+    MergeProposalApproved {
+        proposal_id: MergeId,
+        /// Audit row id minted by the inner `merge_entity` call.
+        audit_id: MergeId,
+    },
+    /// A merge proposal was rejected without merging.
+    MergeProposalRejected {
+        proposal_id: MergeId,
     },
     ExtractorEnabledSet {
         id: ExtractorId,
         enabled: bool,
     },
-    AuditStamped(AuditKind),
     SlotsReclaimed {
         count: usize,
     },
-}
-
-#[derive(Clone, Copy, Debug, Eq, PartialEq)]
-pub enum ResolveTier {
-    Exact,
-    Alias,
-    Fuzzy,
-    Created,
 }
 
 impl Phase {
@@ -415,11 +452,13 @@ impl Phase {
             Self::UpdateKind { .. } => "update_kind",
             Self::UpdateContext { .. } => "update_context",
             Self::UpdateEmbedding { .. } => "update_embedding",
-            Self::UpdateAttribute { .. } => "update_attribute",
-            Self::Resolve { .. } => "resolve",
+            Self::UpdateEntity { .. } => "update_entity",
+            Self::RenameEntity { .. } => "rename_entity",
+            Self::UnmergeEntities { .. } => "unmerge_entities",
             Self::MergeEntities { .. } => "merge_entities",
+            Self::ApproveMerge { .. } => "approve_merge",
+            Self::RejectMerge { .. } => "reject_merge",
             Self::SetExtractorEnabled { .. } => "set_extractor_enabled",
-            Self::StampAudit { .. } => "stamp_audit",
             Self::ReclaimSlots { .. } => "reclaim_slots",
         }
     }
@@ -467,11 +506,19 @@ impl Phase {
                     + declared_entity_types.iter().map(String::len).sum::<usize>()
             }
             Self::UpdateEmbedding { new_vector, .. } => new_vector.len() * size_of::<f32>(),
-            Self::UpdateAttribute { key, value, .. } => key.len() + value.len(),
-            Self::Resolve {
-                surface, ty_qname, ..
-            } => surface.len() + ty_qname.len(),
-            Self::StampAudit { body, .. } => body.len(),
+            Self::UpdateEntity {
+                canonical_name,
+                aliases,
+                attributes_blob,
+                ..
+            } => {
+                canonical_name.len()
+                    + aliases.iter().map(String::len).sum::<usize>()
+                    + attributes_blob.len()
+            }
+            Self::RenameEntity {
+                new_canonical_name, ..
+            } => new_canonical_name.len(),
             Self::ReclaimSlots { slots } => slots.len() * size_of::<u64>(),
             _ => 0,
         };

@@ -15,7 +15,7 @@ use brain_index::{
     IndexStatus, LexicalScope, TantivyShard, TantivyShardError, TantivyShardStartup,
 };
 use brain_metadata::MetadataDb;
-use brain_ops::ops::text_indexer::{
+use brain_ops::index::text_indexer::{
     rebuild_memory_text, rebuild_statements, RebuildError, RebuildReport,
 };
 use thiserror::Error;

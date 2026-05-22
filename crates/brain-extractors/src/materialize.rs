@@ -1,5 +1,5 @@
 //! Convert persisted
-//! [`brain_metadata::tables::knowledge::extractor::ExtractorDefinition`]
+//! [`brain_metadata::tables::extractor::ExtractorDefinition`]
 //! rows into runtime `Arc<dyn Extractor>` instances. Spec §22 +
 //! §21/05 §1.
 //!
@@ -15,7 +15,7 @@ use std::time::Duration;
 
 use brain_core::ExtractorKind;
 use brain_llm::ModelRouter;
-use brain_metadata::tables::knowledge::extractor::ExtractorDefinition;
+use brain_metadata::tables::extractor::ExtractorDefinition;
 use brain_metadata::LlmCacheDb;
 use brain_protocol::schema::ast::{CacheConfig, CostExpr, CostUnit, DurationAst, DurationUnit};
 use brain_protocol::schema::{ExtractorDef, ExtractorField, ExtractorKindAst, ExtractorTarget};
@@ -32,13 +32,19 @@ const DEFAULT_LLM_CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const DEFAULT_LLM_CONFIDENCE_THRESHOLD: f32 = 0.7;
 
 /// Bundle of optional dependencies the materializer needs to
-/// build the three extractor kinds. Phase 21.5 wires `model_router`
-/// and `llm_cache` at shard startup; before that, callers pass
-/// [`MaterializeDeps::default()`] (every field `None`) and LLM
-/// rows register as degraded.
+/// build the three extractor kinds.
+///
+/// `entity_type_qnames` snapshots the active schema's entity-type
+/// qnames at shard startup. Classifier extractors use the snapshot
+/// as the per-call label set passed to
+/// [`crate::classifier::ClassifierModel::predict`], so the model
+/// emits spans tagged with the live schema's vocabulary verbatim.
+/// An empty snapshot (e.g. before the system schema is seeded)
+/// produces classifier extractors that skip on every dispatch.
 #[derive(Clone, Default)]
 pub struct MaterializeDeps {
     pub classifier_model: Option<Arc<dyn ClassifierModel>>,
+    pub entity_type_qnames: Arc<Vec<String>>,
     pub model_router: Option<Arc<ModelRouter>>,
     pub llm_cache: Option<Arc<Mutex<LlmCacheDb>>>,
 }
@@ -66,13 +72,17 @@ pub fn materialize_pattern_extractor(
     )
 }
 
-/// Materialise a classifier extractor from a persisted row. If
-/// `model` is `Some`, the extractor runs against it; if `None`,
-/// returns a degraded extractor whose every dispatch writes
-/// `Failure(reason: ...)` audit rows.
+/// Materialise a classifier extractor from a persisted row.
+///
+/// `model` carries the loaded GLiNER weights; `entity_type_qnames`
+/// is the per-call label set passed to
+/// [`crate::classifier::ClassifierModel::predict`]. Missing either
+/// produces a degraded extractor whose dispatches skip with an
+/// actionable reason — never silently emit zero results.
 pub fn materialize_classifier_extractor(
     def: &ExtractorDefinition,
     model: Option<Arc<dyn ClassifierModel>>,
+    entity_type_qnames: Arc<Vec<String>>,
 ) -> Result<ClassifierExtractor, ExtractorError> {
     if def.kind() != Some(ExtractorKind::Classifier) {
         return Err(ExtractorError::OutputDecodeFailed {
@@ -82,6 +92,14 @@ pub fn materialize_classifier_extractor(
     let ast = decode_definition_blob(&def.definition_blob)?;
     let threshold = extract_confidence_threshold(&ast).unwrap_or(0.6);
     let ext = match model {
+        Some(_) if entity_type_qnames.is_empty() => ClassifierExtractor::degraded(
+            def.id(),
+            def.qname(),
+            ast.target,
+            def.schema_version,
+            threshold,
+            "no entity-type labels declared by the active schema",
+        ),
         Some(m) => ClassifierExtractor::new(
             def.id(),
             def.qname(),
@@ -89,6 +107,7 @@ pub fn materialize_classifier_extractor(
             def.schema_version,
             threshold,
             m,
+            entity_type_qnames,
         ),
         None => ClassifierExtractor::degraded(
             def.id(),
@@ -108,9 +127,10 @@ pub fn materialize_classifier_extractor(
 /// kind mismatch). Every operator-visible misconfiguration —
 /// missing required field, unknown model, schema compile failure,
 /// unsupported cost-unit — returns a wired
-/// [`LlmExtractor::degraded`] whose dispatches emit a `Failure`
-/// audit row with the captured reason. The registry stays
-/// populated; ENCODE stays non-blocking.
+/// [`LlmExtractor::degraded`] whose dispatches emit a
+/// `SkippedDisabled` audit row with the captured reason. The
+/// registry stays populated; ENCODE stays non-blocking, and a
+/// missing API key does not look like a runtime failure.
 pub fn materialize_llm_extractor(
     def: &ExtractorDefinition,
     deps: &MaterializeDeps,
@@ -263,7 +283,11 @@ pub fn build_registry_from_definitions(
                 Err(e) => errors.push((id, e)),
             },
             Some(ExtractorKind::Classifier) => {
-                match materialize_classifier_extractor(def, deps.classifier_model.clone()) {
+                match materialize_classifier_extractor(
+                    def,
+                    deps.classifier_model.clone(),
+                    deps.entity_type_qnames.clone(),
+                ) {
                     Ok(c) => registry.register(Arc::new(c)),
                     Err(e) => errors.push((id, e)),
                 }
@@ -554,7 +578,8 @@ mod tests {
     #[test]
     fn materialize_classifier_without_model_is_degraded() {
         let r = row(1, ExtractorKind::Classifier, classifier_def_blob());
-        let c = materialize_classifier_extractor(&r, None).expect("materialize");
+        let labels = Arc::new(vec!["brain:Person".to_string()]);
+        let c = materialize_classifier_extractor(&r, None, labels).expect("materialize");
         assert!(!c.is_loaded());
     }
 
@@ -565,7 +590,8 @@ mod tests {
             fn predict(
                 &self,
                 _text: &str,
-            ) -> Result<Vec<crate::classifier::TokenClassification>, ExtractorError> {
+                _labels: &[&str],
+            ) -> Result<Vec<crate::classifier::ClassifiedSpan>, ExtractorError> {
                 Ok(vec![])
             }
             fn version(&self) -> &str {
@@ -573,8 +599,68 @@ mod tests {
             }
         }
         let r = row(1, ExtractorKind::Classifier, classifier_def_blob());
-        let c = materialize_classifier_extractor(&r, Some(Arc::new(DummyModel))).unwrap();
+        let labels = Arc::new(vec!["brain:Person".to_string()]);
+        let c = materialize_classifier_extractor(&r, Some(Arc::new(DummyModel)), labels).unwrap();
         assert!(c.is_loaded());
+        assert_eq!(c.target_labels(), &["brain:Person".to_string()]);
+    }
+
+    #[test]
+    fn materialize_classifier_with_model_but_empty_labels_is_degraded() {
+        struct DummyModel;
+        impl ClassifierModel for DummyModel {
+            fn predict(
+                &self,
+                _text: &str,
+                _labels: &[&str],
+            ) -> Result<Vec<crate::classifier::ClassifiedSpan>, ExtractorError> {
+                Ok(vec![])
+            }
+            fn version(&self) -> &str {
+                "dummy"
+            }
+        }
+        let r = row(1, ExtractorKind::Classifier, classifier_def_blob());
+        let c =
+            materialize_classifier_extractor(&r, Some(Arc::new(DummyModel)), Arc::new(Vec::new()))
+                .unwrap();
+        assert!(!c.is_loaded(), "empty label snapshot must degrade");
+    }
+
+    #[test]
+    fn materialize_classifier_threads_entity_type_qnames_through_deps() {
+        struct DummyModel;
+        impl ClassifierModel for DummyModel {
+            fn predict(
+                &self,
+                _text: &str,
+                _labels: &[&str],
+            ) -> Result<Vec<crate::classifier::ClassifiedSpan>, ExtractorError> {
+                Ok(vec![])
+            }
+            fn version(&self) -> &str {
+                "dummy"
+            }
+        }
+        let labels = Arc::new(vec![
+            "brain:Person".to_string(),
+            "brain:Organization".to_string(),
+            "brain:Project".to_string(),
+        ]);
+        let deps = MaterializeDeps {
+            classifier_model: Some(Arc::new(DummyModel)),
+            entity_type_qnames: labels.clone(),
+            model_router: None,
+            llm_cache: None,
+        };
+        let defs = vec![row(1, ExtractorKind::Classifier, classifier_def_blob())];
+        let (reg, errs) = build_registry_from_definitions(&defs, &deps);
+        assert!(errs.is_empty());
+        let ext = reg.lookup(brain_core::ExtractorId::from(1)).unwrap();
+        // We can't downcast Arc<dyn Extractor>, but we can verify
+        // kind + presence; the label thread-through is exercised in
+        // the classifier::tests label-capture test.
+        assert_eq!(ext.kind(), brain_core::knowledge::ExtractorKind::Classifier);
     }
 
     #[test]
@@ -684,6 +770,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).expect("materialize");
         assert!(l.is_wired(), "fully configured row should be wired");
@@ -718,6 +805,8 @@ mod tests {
             schema_version: 1,
             now_unix_nanos: 0,
             registry: &reg,
+            prior_tier_items: None,
+            extractor_context: None,
         };
         let r2 = futures_lite::future::block_on(l.run(&ctx, &mem));
         assert!(r2.status_reason.contains("no llm clients configured"));
@@ -737,6 +826,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -757,6 +847,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -770,6 +861,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -783,6 +875,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -804,6 +897,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -827,6 +921,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let l = materialize_llm_extractor(&r, &deps).unwrap();
         assert!(!l.is_wired());
@@ -880,6 +975,7 @@ mod tests {
             classifier_model: None,
             model_router: Some(anthropic_router()),
             llm_cache: None,
+            ..MaterializeDeps::default()
         };
         let (reg, errs) = build_registry_from_definitions(&[pat, llm], &deps);
         assert!(errs.is_empty());

@@ -13,30 +13,33 @@
 )]
 #![forbid(unsafe_code)]
 
-mod candle_runtime;
 pub mod classifier;
+pub mod enricher_hook;
 pub mod extractor;
+pub mod gliner;
 pub mod idempotency;
 pub mod item;
-pub mod labels;
 pub mod llm;
 pub mod materialize;
 pub mod options;
 pub mod pattern;
 pub mod registry;
 pub mod resolver;
+pub mod supersede_source;
 
 pub use classifier::{
-    BertTokenClassifier, ClassifierConfig, ClassifierExtractor, ClassifierModel,
-    TokenClassification,
+    classify_statement_kind_pattern, default_xdg_model_dir, ClassifiedSpan, ClassifierConfig,
+    ClassifierExtractor, ClassifierModel, GlinerClassifier, NER_MODEL_DIR_NAME, NER_MODEL_PATH_ENV,
+    NER_MODEL_REQUIRED_FILES, STATEMENT_KIND_PATTERN_THRESHOLD,
 };
+pub use enricher_hook::{run_pipeline_enrichers, EnricherHook, EnricherHookOutcome};
 pub use extractor::{
     ExtractionContext, ExtractionFuture, ExtractionResult, ExtractionStatus, Extractor,
-    ExtractorError,
+    ExtractorContext, ExtractorError, NeighborMemory,
 };
+pub use gliner::{GlinerConfig, GlinerError, GlinerModel, Span as GlinerSpan};
 pub use idempotency::{hash_memory_text, IdempotencyKey};
 pub use item::{EntityMention, ExtractedItem, RelationMention, StatementMention};
-pub use labels::{decode_bio, load_labels_file, BioSpan};
 pub use llm::{estimate_cost, CostBudget, LlmExtractor, LlmExtractorInner, Pricing};
 pub use materialize::{
     build_registry_from_definitions, materialize_classifier_extractor, materialize_llm_extractor,
@@ -46,3 +49,4 @@ pub use options::ExtractorRunOptions;
 pub use pattern::{CompiledRegex, PatternExtractor};
 pub use registry::ExtractorRegistry;
 pub use resolver::{resolve_or_create, Resolution, ResolutionTier, ResolverError};
+pub use supersede_source::StatementHnswSource;

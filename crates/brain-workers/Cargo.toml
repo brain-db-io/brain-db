@@ -34,7 +34,11 @@ brain-embed = { path = "../brain-embed" }
 brain-index = { path = "../brain-index" }
 brain-metadata = { path = "../brain-metadata" }
 brain-planner = { path = "../brain-planner" }
+brain-storage = { path = "../brain-storage" }
+blake3.workspace = true
 parking_lot.workspace = true
+redb.workspace = true
+smallvec.workspace = true
 tempfile.workspace = true
 uuid.workspace = true
 tokio = { version = "1", features = ["sync", "time", "rt", "rt-multi-thread", "macros"] }

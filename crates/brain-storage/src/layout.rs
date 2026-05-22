@@ -258,8 +258,9 @@ mod tests {
 
     #[test]
     fn ensure_dirs_preserves_existing_substrate_files() {
-        // Simulate an upgrade: a pre-existing substrate-only shard
-        // with arena.bin, metadata.redb, shard.uuid, and a WAL segment.
+        // Simulate an upgrade: a pre-existing shard with no schema
+        // declared yet — arena.bin, metadata.redb, shard.uuid, and a
+        // WAL segment, but no knowledge-layer files on disk.
         let dir = tempfile::tempdir().unwrap();
         let root = dir.path().join("shard-0");
         std::fs::create_dir_all(&root).unwrap();

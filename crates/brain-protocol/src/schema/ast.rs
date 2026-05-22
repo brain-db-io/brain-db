@@ -95,8 +95,31 @@ pub struct PredicateDef {
     pub name: String,
     pub kind: StatementKindAst,
     pub object: ObjectTypeDecl,
+    /// Explicit per-predicate supersession flag. When set, a new
+    /// statement with the same `(subject, predicate)` tombstones the
+    /// prior active one; when unset, observations accumulate. `None`
+    /// defers to the kind-derived default (Preference → true; Fact,
+    /// Event, Any → false) — declared predicates inherit kind's
+    /// natural semantics unless the schema author overrides them.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stateful: Option<bool>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub description: Option<String>,
+}
+
+impl PredicateDef {
+    /// Resolve the `stateful` flag against its kind-derived default.
+    /// Preference predicates default to stateful (each new preference
+    /// supersedes the prior one); Fact and Event default to cumulative.
+    /// `Any` is treated as Fact-like — no auto-supersession unless the
+    /// author opts in explicitly.
+    #[must_use]
+    pub fn resolved_stateful(&self) -> bool {
+        self.stateful.unwrap_or(match self.kind {
+            StatementKindAst::Preference => true,
+            StatementKindAst::Fact | StatementKindAst::Event | StatementKindAst::Any => false,
+        })
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
@@ -357,6 +380,7 @@ mod tests {
             object: ObjectTypeDecl::Value {
                 value_type: AttrType::Text,
             },
+            stateful: None,
             description: Some("user preference".into()),
         };
         let back: PredicateDef = serde_json::from_str(&serde_json::to_string(&p).unwrap()).unwrap();
@@ -481,6 +505,7 @@ mod tests {
                     object: ObjectTypeDecl::Value {
                         value_type: AttrType::Text,
                     },
+                    stateful: None,
                     description: None,
                 }),
                 SchemaItem::Predicate(PredicateDef {
@@ -489,6 +514,7 @@ mod tests {
                     object: ObjectTypeDecl::Value {
                         value_type: AttrType::Text,
                     },
+                    stateful: None,
                     description: None,
                 }),
                 SchemaItem::RelationType(RelationTypeDef {

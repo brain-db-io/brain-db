@@ -1,15 +1,75 @@
 //! `Extractor` trait + execution context + result types. Spec §22/01,
 //! §22/02, §22/05.
 
+use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
 use brain_core::knowledge::ExtractorKind;
 use brain_core::ExtractorId;
 use brain_core::Memory;
+use brain_core::MemoryId;
 
 use crate::item::ExtractedItem;
 use crate::registry::ExtractorRegistry;
+
+// ---------------------------------------------------------------------------
+// Bounded LLM context.
+// ---------------------------------------------------------------------------
+
+/// Bounded inferential context handed to the LLM extractor before each
+/// call. Without it the LLM only sees the memory currently being
+/// extracted and can't anchor predicates like "Alice mentioned earlier"
+/// against any history. With it the prompt grows by at most a few
+/// thousand tokens (top-m semantic neighbors + an optional rolling
+/// summary), which is bounded so the cost-per-extraction stays
+/// predictable even on long-running deployments.
+///
+/// Always construct via [`ExtractorContext::empty`] when no real
+/// context is available — the LLM extractor's prompt builder handles
+/// the empty case without emitting the context sections.
+#[derive(Debug, Clone, Default)]
+pub struct ExtractorContext {
+    /// Most-similar prior memories from the same scope, ranked by
+    /// descending cosine similarity. Capped at the caller-chosen
+    /// `top_m` (10 by default) so the prompt budget can't grow
+    /// unbounded.
+    pub neighbors: Vec<NeighborMemory>,
+    /// Optional rolling summary of recent activity in the same
+    /// context. `None` when no summarizer is wired (v1 default);
+    /// `Some(s)` when a future summarizer worker provides one.
+    pub summary: Option<String>,
+}
+
+impl ExtractorContext {
+    /// The zero-value: no neighbors, no summary. Callers pass this
+    /// when they explicitly want to skip bounded-context injection
+    /// (tests that compare against the no-context baseline, fallback
+    /// paths after a context-fetch failure).
+    #[must_use]
+    pub fn empty() -> Self {
+        Self::default()
+    }
+
+    /// True when this context has no usable signal — the prompt
+    /// builder uses this to short-circuit the section rendering.
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.neighbors.is_empty() && self.summary.is_none()
+    }
+}
+
+/// One bounded-context neighbor entry — the text content (truncated to
+/// keep the prompt budget predictable), the similarity score it earned
+/// against the cue, and its wall-clock creation time so the prompt can
+/// render a "T-3h" recency hint.
+#[derive(Debug, Clone)]
+pub struct NeighborMemory {
+    pub memory_id: MemoryId,
+    pub text: String,
+    pub similarity_score: f32,
+    pub created_at_unix_nanos: u64,
+}
 
 // ---------------------------------------------------------------------------
 // Trait.
@@ -39,6 +99,41 @@ pub trait Extractor: Send + Sync {
     /// including `started_at` / `completed_at` timestamps; the
     /// caller writes the audit row from these.
     fn run<'a>(&'a self, ctx: &'a ExtractionContext<'a>, mem: &'a Memory) -> ExtractionFuture<'a>;
+
+    /// Run this extractor over a batch of memories in one logical
+    /// invocation. The classifier tier overrides this to amortise the
+    /// model forward pass across rows (single-input GLiNER inference
+    /// is ~4s on CPU; a batched backbone pass over 8 memories
+    /// completes in ~1-2x the single-input cost). Pattern + LLM
+    /// extractors don't benefit from batching, so they fall through
+    /// to the default impl that sequentially calls [`run`].
+    ///
+    /// Output is aligned to input order: `result[i]` is the result for
+    /// `mems[i]`. An empty `mems` returns an empty `Vec`.
+    fn run_batch<'a>(
+        &'a self,
+        ctx: &'a ExtractionContext<'a>,
+        mems: &'a [Memory],
+    ) -> Pin<Box<dyn Future<Output = Vec<ExtractionResult>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut out = Vec::with_capacity(mems.len());
+            for m in mems {
+                out.push(self.run(ctx, m).await);
+            }
+            out
+        })
+    }
+
+    /// True iff the underlying capability is actually configured.
+    /// Pattern + fully-wired classifier/LLM extractors return true;
+    /// the `degraded` variants (missing API key, missing model
+    /// files, schema compile failure, …) return false. Used by the
+    /// encode response so the renderer can tell operators when 0
+    /// statements is a "set ANTHROPIC_API_KEY" condition versus a
+    /// content-coverage condition.
+    fn is_wired(&self) -> bool {
+        true
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -52,6 +147,20 @@ pub struct ExtractionContext<'a> {
     pub schema_version: u32,
     pub now_unix_nanos: u64,
     pub registry: &'a ExtractorRegistry,
+    /// Items produced by earlier tiers in this cycle, keyed by
+    /// memory id. The classifier tier (GLiNER) populates this so
+    /// the LLM tier can reference canonical entity names in its
+    /// prompt without re-extracting. `None` for the first tier in
+    /// the pipeline (pattern) and for callers that don't run a
+    /// multi-tier pipeline.
+    pub prior_tier_items: Option<&'a HashMap<MemoryId, Vec<ExtractedItem>>>,
+    /// Bounded inferential context (top-m similar memories + optional
+    /// rolling summary) keyed by the memory being extracted. The LLM
+    /// tier reads from this map and injects the per-memory context
+    /// into its prompt; absent (or absent for a given memory id)
+    /// means context-free extraction. Pattern + classifier tiers
+    /// ignore this field.
+    pub extractor_context: Option<&'a HashMap<MemoryId, ExtractorContext>>,
 }
 
 // ---------------------------------------------------------------------------

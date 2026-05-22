@@ -7,10 +7,11 @@
 //!   * `--from-stdin` (shortcut for `--from-file -`).
 //!   * positional `TEXT`.
 //!
-//! `--wait-for-extraction` opens a subscribe stream right after the
-//! encode returns and blocks until the extractor stage of the write
-//! emits a `StageCompleted` event for the new memory id (or the
-//! global `--timeout` elapses).
+//! `--wait` opens a subscribe stream right after the encode returns
+//! and blocks until every pending background stage of the write
+//! (extractor, auto_edge, temporal_edge, …) emits a `StageCompleted`
+//! event for the new memory id, or the shell's internal stages
+//! timeout elapses.
 
 use std::io::Read;
 use std::time::Duration;
@@ -54,36 +55,36 @@ pub async fn run(
     let deduplicate = !args.allow_duplicate;
 
     // Print the wait-status line IMMEDIATELY when the operator
-    // passed `--wait-for-extraction`, before any wire I/O. Silence
-    // between Enter and the encode response reads as a freeze
-    // even when everything is healthy; one printed line tells the
-    // user the shell is alive and what it's about to do. Flush
-    // explicitly because stderr is line-buffered when piped.
-    if args.wait_for_extraction {
+    // passed `--wait`, before any wire I/O. Silence between Enter
+    // and the encode response reads as a freeze even when everything
+    // is healthy; one printed line tells the user the shell is
+    // alive and what it's about to do. Flush explicitly because
+    // stderr is line-buffered when piped.
+    if args.wait {
         use std::io::Write as _;
         let mut stderr = std::io::stderr().lock();
         let _ = writeln!(
             stderr,
-            "→ encode + waiting for background stages (extractor up to {} s)…",
+            "→ encode + waiting for background stages (up to {} s)…",
             WAIT_STAGES_TIMEOUT_SECS,
         );
         let _ = stderr.flush();
     }
 
     // If the operator asked us to wait for background stages, open
-    // the subscribe stream BEFORE sending the encode. The worker
-    // may publish `StageCompleted` between when the encode response
+    // the subscribe stream BEFORE sending the encode. Workers may
+    // publish `StageCompleted` between when the encode response
     // returns and when we'd otherwise open the stream — a race that
-    // makes `--wait*` look "stuck" (we hit the timeout instead of
+    // makes `--wait` look "stuck" (we hit the timeout instead of
     // matching the event we missed). Holding an open stream from
     // before the write closes the window.
-    let pre_subscribe_stream = if args.wait_for_extraction {
+    let pre_subscribe_stream = if args.wait {
         match client.subscribe().send_stream().await {
             Ok(s) => Some(s),
             Err(e) => {
                 tracing::warn!(
                     target: "brain_shell",
-                    "encode --wait-for-extraction: subscribe failed ({e}); \
+                    "encode --wait: subscribe failed ({e}); \
                      proceeding without a wait — the encode itself is unaffected."
                 );
                 None
@@ -114,21 +115,15 @@ pub async fn run(
     let resp = b.send().await?;
     session.push_recent_id(MemoryId::from_raw(resp.memory_id));
 
-    let stage_results = if args.wait_for_extraction {
-        // `--wait-for-extraction` is sugar for "wait for the extractor
-        // stage of this write to finish." Filter the ack's
-        // pending_stages to just the extractor entry; an empty filter
-        // returns a zero-result delta immediately so the operator
-        // still sees a "stages completed" section in the card,
-        // making clear the flag was a no-op (substrate-only deploy,
-        // dedup hit, or extractor not wired).
-        use brain_protocol::responses::StageKind;
-        let stages: Vec<StageKind> = resp
-            .pending_stages
-            .iter()
-            .copied()
-            .filter(|k| *k == StageKind::Extractor)
-            .collect();
+    let stage_results = if args.wait {
+        // `--wait` blocks until every pending background stage on
+        // this write emits a `StageCompleted` event. Empty
+        // `pending_stages` returns a zero-result delta immediately
+        // so the operator still sees a "stages completed" section
+        // in the card, making clear the flag was a no-op (no
+        // workers wired, dedup hit, or no schema declared so the
+        // extractor lane never fired).
+        let stages: Vec<brain_protocol::responses::StageKind> = resp.pending_stages.to_vec();
         Some(
             wait_for_stages(
                 pre_subscribe_stream,

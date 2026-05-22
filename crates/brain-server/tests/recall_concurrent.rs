@@ -28,6 +28,9 @@ use tokio::net::TcpStream;
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -162,6 +165,7 @@ fn recall_request(cue: &str, txn_id: Option<[u8; 16]>) -> RecallRequest {
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
         txn_id,
+        rerank: false,
     }
 }
 

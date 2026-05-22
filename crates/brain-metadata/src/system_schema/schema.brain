@@ -1,19 +1,60 @@
 # Brain system schema. Loaded at MetadataDb::open via include_str!.
 #
-# Defines the built-in entity types, predicates, and relation types
-# the substrate uses for bootstrapping. Users CANNOT redefine
-# anything under the `brain:` namespace — the user-facing
+# Defines the built-in entity types, predicates, relation types, and
+# extractors the substrate uses for bootstrapping. Users CANNOT
+# redefine anything under the `brain:` namespace — the user-facing
 # `validate()` rejects it; this seed path uses
 # `validate_system_schema()` instead.
 #
-# Order matters: the intern fan-out allocates ids monotonically, so
-# Person == EntityTypeId(1), brain:is_a == PredicateId(1),
-# brain:related_to (relation type) == RelationTypeId(1), etc. Phase
-# 19.7 verifies these match the pre-19 hand-seeded ids.
+# Order matters: each intern path allocates ids monotonically, so
+# source order in this file pins the seed ids. On a fresh DB:
+#   EntityTypeId(1)  = Person
+#   EntityTypeId(2)  = Organization
+#   EntityTypeId(3)  = Project
+#   EntityTypeId(4)  = Event
+#   EntityTypeId(5)  = Place
+#   EntityTypeId(6)  = Concept
+#   PredicateId(1)   = brain:is_a
+#   PredicateId(2)   = brain:has_name
+#   PredicateId(3)   = brain:mentions
+#   PredicateId(4)   = brain:fact
+#   PredicateId(5)   = brain:related_to
+#   PredicateId(6)   = brain:prefers
+#   PredicateId(7)   = brain:scheduled
+#   PredicateId(8)   = brain:works_at
+#   PredicateId(9)   = brain:member_of
+#   PredicateId(10)  = brain:lives_in
+#   PredicateId(11)  = brain:located_in
+#   PredicateId(12)  = brain:owns
+#   PredicateId(13)  = brain:current_role
+#   PredicateId(14)  = brain:speaks
+#   PredicateId(15)  = brain:has_skill
+#   PredicateId(16)  = brain:likes
+#   PredicateId(17)  = brain:dislikes
+#   PredicateId(18)  = brain:occurred_at
+#   PredicateId(19)  = brain:mentioned_in
+#   PredicateId(20)  = brain:participated_in
+#   PredicateId(21)  = brain:behavior_tone
+#   PredicateId(22)  = brain:behavior_style
+#   PredicateId(23)  = brain:behavior_avoids
+#   PredicateId(24)  = brain:behavior_prefers
+#   PredicateId(25)  = brain:behavior_constraint
+#   RelationTypeId(1) = brain:related_to
+#   RelationTypeId(2) = brain:reports_to
+#   RelationTypeId(3) = brain:co_authored
+#   ExtractorId(1) = brain:entity_mentions
+#   ExtractorId(2) = brain:gliner
+#   ExtractorId(3) = brain:llm_predicate
 
 namespace brain
 
 # --- Entity types -------------------------------------------------
+#
+# The six built-in nouns are passed verbatim (as `brain:<Name>`) to
+# the zero-shot GLiNER classifier as its label set, so the classifier
+# tracks the active schema's vocabulary without any per-schema
+# retraining. Optional attributes are advisory hints the extractors /
+# user code can populate but never required by the substrate.
 
 define entity_type Person {
     attributes {
@@ -24,7 +65,50 @@ define entity_type Person {
     }
 }
 
+define entity_type Organization {
+    attributes {
+        domain:   text optional
+        industry: text optional
+    }
+}
+
+define entity_type Project {
+    attributes {
+        status:      text optional
+        owner_qname: text optional
+    }
+}
+
+define entity_type Event {
+    attributes {
+        occurred_at_unix_nanos: number optional
+        location_qname:         text optional
+    }
+}
+
+define entity_type Place {
+    attributes {
+        country: text optional
+        kind:    text optional
+    }
+}
+
+define entity_type Concept {
+    attributes {
+        description: text optional
+    }
+}
+
 # --- Predicates ---------------------------------------------------
+#
+# The first six are the original generic substrate predicates kept
+# for back-compat with seeded callers (statement / relation wire
+# layers, `brain:fact` wildcard sink). The remaining fifteen are the
+# declared vocabulary the extractor pipeline can promote LLM-coined
+# predicates into. Statefulness follows the kind-derived default
+# (Preference → stateful, Fact / Event → cumulative) unless the
+# predicate is single-valued at a point in time — in which case
+# `stateful: true` makes the new observation supersede the prior.
 
 define predicate is_a {
     kind: Fact
@@ -42,6 +126,12 @@ define predicate mentions {
     kind: Fact
     object: Any
     description: "Generic mention — subject mentions object."
+}
+
+define predicate fact {
+    kind: Fact
+    object: Any
+    description: "Wildcard Fact sink for LLM-coined predicates that don't match any declared predicate. The original predicate qname is preserved on the statement so a later schema upload can promote it."
 }
 
 define predicate related_to {
@@ -62,20 +152,156 @@ define predicate scheduled {
     description: "Generic Event scheduled at event_at_unix_nanos."
 }
 
+define predicate works_at {
+    kind: Fact
+    object: Entity<Organization>
+    stateful: true
+    description: "Active employment / engagement relationship at a point in time."
+}
+
+define predicate member_of {
+    kind: Fact
+    object: Entity<Organization>
+    stateful: true
+    description: "Subject is a member of the object organization."
+}
+
+define predicate lives_in {
+    kind: Fact
+    object: Entity<Place>
+    stateful: true
+    description: "Subject's primary place of residence."
+}
+
+define predicate located_in {
+    kind: Fact
+    object: Entity<Place>
+    stateful: true
+    description: "Physical location of an organization, event, or place."
+}
+
+define predicate owns {
+    kind: Fact
+    object: Any
+    stateful: true
+    description: "Subject owns the object — single owner at a point in time."
+}
+
+define predicate current_role {
+    kind: Fact
+    object: Value<text>
+    stateful: true
+    description: "Person's current role title."
+}
+
+define predicate speaks {
+    kind: Fact
+    object: Value<text>
+    stateful: false
+    description: "Languages a person speaks — cumulative; multiple values coexist."
+}
+
+define predicate has_skill {
+    kind: Fact
+    object: Value<text>
+    stateful: false
+    description: "A skill the person has — cumulative; multiple values coexist."
+}
+
+define predicate likes {
+    kind: Preference
+    object: Any
+    description: "Subject likes the object — supersedes prior likes of the same target."
+}
+
+define predicate dislikes {
+    kind: Preference
+    object: Any
+    description: "Subject dislikes the object — supersedes prior dislikes of the same target."
+}
+
+define predicate occurred_at {
+    kind: Event
+    object: Value<timestamp>
+    description: "Timestamp at which the subject event occurred."
+}
+
+define predicate mentioned_in {
+    kind: Fact
+    object: Any
+    stateful: false
+    description: "Soft link from any entity to a memory that referenced it."
+}
+
+define predicate participated_in {
+    kind: Fact
+    object: Entity<Event>
+    stateful: false
+    description: "Subject person participated in the object event."
+}
+
+# --- Procedural memory --------------------------------------------
+#
+# Behaviors an agent learns about itself over prior sessions. All five
+# are Preference (stateful) — a fresh observation supersedes the prior
+# one for the same `(subject, predicate)` pair. The object is always a
+# free-text prompt fragment because procedural memory is consumed by
+# an LLM, not the typed-graph retriever. `MATERIALIZE_PROCEDURAL` walks
+# these predicates and renders them as a system block.
+
+define predicate behavior_tone {
+    kind: Preference
+    object: Value<text>
+    stateful: true
+    description: "How the agent should phrase responses (e.g. 'concise', 'verbose', 'formal'). Single value at a time."
+}
+
+define predicate behavior_style {
+    kind: Preference
+    object: Value<text>
+    stateful: true
+    description: "Stylistic conventions the agent has learned to follow."
+}
+
+define predicate behavior_avoids {
+    kind: Preference
+    object: Value<text>
+    stateful: true
+    description: "Actions or topics the agent has learned to avoid."
+}
+
+define predicate behavior_prefers {
+    kind: Preference
+    object: Value<text>
+    stateful: true
+    description: "Approaches the agent has learned to favor."
+}
+
+define predicate behavior_constraint {
+    kind: Preference
+    object: Value<text>
+    stateful: true
+    description: "Hard rules the agent must follow across all sessions."
+}
+
 # --- Relation types -----------------------------------------------
+#
+# Typed edges between entities. Distinct from predicates — relations
+# carry no object value, only a from / to entity pair.
 
 define relation_type related_to {
     from: Any
     to: Any
     cardinality: many-to-many
-    description: "Generic relation between two entities."
+    symmetric: true
+    description: "Generic relation between entities when no more specific type fits."
 }
 
 define relation_type reports_to {
     from: Any
     to: Any
     cardinality: many-to-one
-    description: "Generic ManyToOne relation; second create on same `from` auto-supersedes."
+    description: "Organizational reporting line. Second create on same `from` auto-supersedes."
 }
 
 define relation_type co_authored {
@@ -83,24 +309,30 @@ define relation_type co_authored {
     to: Any
     cardinality: many-to-many
     symmetric: true
-    description: "Generic symmetric ManyToMany relation; canonicalises from/to byte-wise."
+    description: "Symmetric co-authorship of a memory or artifact; canonicalises from / to byte-wise."
 }
 
 # --- Built-in extractors -----------------------------------------
 #
-# Phase 20.7. These two register at MetadataDb::open (via the
-# system-schema bootstrap → schema_apply → extractor_intern path).
-# brain-server's shard spawn materialises them into the runtime
-# `ExtractorRegistry` so they fire on every ENCODE.
+# Three tiers register at MetadataDb::open via the system-schema
+# bootstrap → schema_apply → extractor_intern path. brain-server's
+# shard spawn materialises them into the runtime `ExtractorRegistry`
+# so they fire on every ENCODE.
 #
 # Extractor IDs are stable across reopens because intern allocates
 # `max(existing) + 1`; on a fresh DB:
 #   entity_mentions → ExtractorId(1)
-#   basic_ner       → ExtractorId(2)
+#   gliner          → ExtractorId(2)
+#   llm_predicate   → ExtractorId(3)
+#
+# Targets use `entity_or_statement` because each tier emits across
+# the full six-entity-type label space (Person / Organization /
+# Project / Event / Place / Concept) plus statements; the runtime
+# kind-routing in brain-extractors fans out per emitted item.
 
 define extractor entity_mentions {
     kind: pattern
-    target: entity Person
+    target: entity_or_statement
     patterns [
         /\b([A-Z][a-z]+\s+[A-Z][a-z]+)\b/,
         /\b([A-Z]\.\s*[A-Z][a-z]+)\b/
@@ -108,11 +340,70 @@ define extractor entity_mentions {
     confidence: 0.7
 }
 
-define extractor basic_ner {
+define extractor gliner {
     kind: classifier
-    target: entity Person
-    model: "brain-basic-ner-v1"
+    target: entity_or_statement
+    model: "gliner-small-v2.1"
     feature_extraction: builtin
-    confidence_threshold: 0.6
+    confidence_threshold: 0.5
     trigger: on encode
+}
+
+define extractor llm_predicate {
+    kind: llm
+    target: entity_or_statement
+    model: "gpt-4o-mini"
+    prompt: """You are extracting structured knowledge from one memory at a time.
+
+The active schema declares these entity types:
+- brain:Person
+- brain:Organization
+- brain:Project
+- brain:Event
+- brain:Place
+- brain:Concept
+
+These predicates are declared (use these verbatim as `predicate`):
+- brain:is_a, brain:has_name, brain:mentions, brain:related_to
+- brain:works_at, brain:member_of, brain:lives_in, brain:located_in
+- brain:owns, brain:current_role, brain:speaks, brain:has_skill
+- brain:prefers, brain:likes, brain:dislikes
+- brain:scheduled, brain:occurred_at, brain:participated_in
+- brain:mentioned_in
+
+These relation types are declared (use these verbatim as `relation_type`):
+- brain:related_to, brain:reports_to, brain:co_authored
+
+Output STRICT JSON matching this shape, and nothing else:
+{
+  "statements": [
+    {
+      "subject": "Alice Wong",
+      "predicate": "brain:works_at",
+      "object": "Acme Corp",
+      "is_stateful": true,
+      "confidence": 0.92
+    }
+  ],
+  "relations": [
+    {
+      "subject": "Priya Sharma",
+      "relation_type": "brain:reports_to",
+      "object": "Alice Wong",
+      "confidence": 0.85
+    }
+  ]
+}
+
+Rules:
+- Only emit a statement whose `predicate` is in the declared list above. If the most natural predicate is not listed, set `predicate` to `brain:fact` so the wildcard sink keeps the original assertion.
+- Only emit a relation whose `relation_type` is in the declared list above. If no declared type fits, omit the relation entirely.
+- Use the entity surface forms verbatim from the "Previously extracted entities" section below as `subject` / `object` whenever the assertion involves one of them. Do not invent new entity surface forms for those concepts.
+- If there are no statements or relations, return `{ "statements": [], "relations": [] }`.
+{PRIOR_ENTITIES}
+Input text:
+```
+{TEXT}
+```"""
+    confidence_threshold: 0.7
 }

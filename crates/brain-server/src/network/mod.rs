@@ -4,6 +4,8 @@
 //! (`subscribe`).
 
 #[cfg(target_os = "linux")]
+pub mod auth;
+#[cfg(target_os = "linux")]
 pub mod connection;
 #[cfg(target_os = "linux")]
 pub mod dispatch;

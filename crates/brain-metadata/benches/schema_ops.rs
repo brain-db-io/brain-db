@@ -14,7 +14,7 @@
 //!
 //! Run: `cargo bench -p brain-metadata --bench schema_ops`.
 
-use brain_metadata::schema_store::{schema_get, schema_list, schema_upload};
+use brain_metadata::schema::store::{schema_get, schema_list, schema_upload};
 use brain_metadata::MetadataDb;
 use brain_protocol::schema::{parse_schema, validate, ValidatedSchema};
 use criterion::{black_box, criterion_group, Criterion};

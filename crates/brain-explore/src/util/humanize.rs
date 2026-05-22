@@ -10,9 +10,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 /// Format an event's age relative to *now* (wall clock).
 ///
 /// `event_unix_nanos == 0` is the wire sentinel for "no timestamp"
-/// (substrate-only / test paths). We return `"just now"` in that case
-/// so the line still reads cleanly; the LSN sentinel handling lives
-/// upstream.
+/// (memory not extracted yet / test paths). We return `"just now"`
+/// in that case so the line still reads cleanly; the LSN sentinel
+/// handling lives upstream.
 ///
 /// Buckets:
 ///   * `< 1s`     → `N ms ago` (or `just now` for ≤ 1ms)

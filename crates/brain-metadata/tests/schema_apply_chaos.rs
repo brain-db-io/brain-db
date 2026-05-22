@@ -1,6 +1,6 @@
 //! Atomicity / chaos coverage for the `SCHEMA_UPLOAD` write path.
 //!
-//! `schema_upload` performs four storage actions inside one redb
+//! `schema_upload` performs three storage actions inside one redb
 //! `WriteTransaction`:
 //!
 //! 1. Insert the version row into `SCHEMA_VERSIONS_TABLE`.
@@ -8,22 +8,22 @@
 //!    `SCHEMA_ACTIVE_VERSIONS_TABLE`.
 //! 3. Fan-out via `apply_schema_definitions` — predicate / relation
 //!    type / entity type / extractor interns.
-//! 4. Re-flag pre-existing statements via
-//!    `flag_statements_outside_schema`.
+//!
+//! The `OUTSIDE_ACTIVE_SCHEMA` flag-sweep is **not** part of this
+//! wtxn — it runs post-commit in the SchemaMigrationWorker — so the
+//! atomicity contract here covers just the three definition writes.
 //!
 //! If the caller's process were killed before commit, redb's WAL
-//! semantics guarantee none of the four are observable. These tests
+//! semantics guarantee none of the three are observable. These tests
 //! simulate that crash by dropping the `WriteTransaction` without
 //! calling `commit()` after each phase. The DB is a raw `redb::Database`
 //! (no `MetadataDb::open` seeding) so id allocation observations stay
 //! deterministic.
 
-use brain_metadata::predicate_ops::predicate_intern_or_get;
-use brain_metadata::schema_store::{schema_active, schema_get, schema_upload};
-use brain_metadata::tables::knowledge::predicate::{PredicateDefinition, PREDICATES_TABLE};
-use brain_metadata::tables::knowledge::schema_version::{
-    SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE,
-};
+use brain_metadata::schema::predicate::predicate_intern_or_get;
+use brain_metadata::schema::store::{schema_active, schema_get, schema_upload};
+use brain_metadata::tables::predicate::{PredicateDefinition, PREDICATES_TABLE};
+use brain_metadata::tables::schema_version::{SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE};
 use brain_protocol::schema::{parse_schema, validate, ValidatedSchema};
 use redb::{Database, ReadableDatabase, ReadableTable};
 

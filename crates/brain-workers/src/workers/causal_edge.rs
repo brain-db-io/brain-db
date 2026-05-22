@@ -24,12 +24,16 @@
 //!    walk `STATEMENTS_BY_SUBJECT` keyed on the object entity to find
 //!    cause-side statements, intersect their evidence (cause side),
 //!    cap fan-out, and build (cause_mem, effect_mem, weight) tuples.
-//! 3. `OpsContext::write_causal_edges` persists the edges +
-//!    publishes `EdgeAdded(AUTO_DERIVED, kind=Caused)` events.
+//! 3. The worker builds a single
+//!    `Write { phases: Vec<Phase::Link(kind=Caused, derived_by=CAUSAL_WORKER)> }`
+//!    and calls `RealWriterHandle::submit`. The unified write path
+//!    WALs every edge, commits the redb rows, and publishes the
+//!    `EdgeAdded(AUTO_DERIVED)` envelope on the subscribe bus so
+//!    subscribe replay reconstructs derived edges from the WAL.
 //!
 //! ## Predicate-whitelist resolver
 //!
-//! Predicates are deployment-shaped: a substrate-only build never
+//! Predicates are deployment-shaped: a no-schema build never
 //! declares `brain:caused_by`, so the worker must gracefully no-op on
 //! deployments without a causal vocabulary. On first cycle the worker
 //! opens a read txn and runs `predicate_lookup_by_qname` for each
@@ -55,16 +59,23 @@ use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::sync::OnceLock;
-use std::time::Instant;
+use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
 use brain_core::knowledge::{EvidenceRef, Statement, StatementObject};
-use brain_core::{EntityId, MemoryId, PredicateId, StatementId};
-use brain_metadata::predicate_ops::predicate_lookup_by_qname;
-use brain_metadata::statement_ops::{
+use brain_core::{
+    AgentId, EdgeKind, EdgeKindRef, EntityId, MemoryId, NodeRef, PredicateId, StatementId,
+};
+use brain_metadata::schema::predicate::predicate_lookup_by_qname;
+use brain_metadata::statement::{
     evidence_overflow_load, statement_get, statement_list, StatementListFilter, StatementOpError,
 };
+use brain_metadata::tables::edge::{derived_by, origin, zero_disambiguator};
 use brain_metadata::tables::memory::MEMORIES_TABLE;
-use brain_ops::{CausalEdgeEnqueue, CausalEdgeMetrics, CausalSkipReason};
+use brain_ops::{
+    CausalEdgeEnqueue, CausalEdgeMetrics, CausalSkipReason, Phase, RealWriterHandle, Write, WriteId,
+};
+use futures_lite::FutureExt;
+use glommio::timer::sleep;
 use tracing::{trace, warn};
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -133,8 +144,9 @@ pub struct CausalEdgeWorker {
     queue: flume::Receiver<CausalEdgeEnqueue>,
     metrics: Arc<CausalEdgeMetrics>,
     /// Cached predicate-id set, resolved lazily on the first cycle.
-    /// An empty resolved set is a valid steady state on substrate-only
-    /// deployments — the worker drains the queue without writing.
+    /// An empty resolved set is a valid steady state when no schema
+    /// has declared any causal predicate — the worker drains the queue
+    /// without writing.
     resolved: OnceLock<HashSet<PredicateId>>,
 }
 
@@ -203,8 +215,9 @@ pub fn resolve_whitelist(
             }
             Ok(None) => {
                 // The deployment hasn't declared this predicate. Expected
-                // on substrate-only or partially-overlapping schemas;
-                // not an error.
+                // when no schema has been uploaded yet, or when the
+                // declared schema partially overlaps the configured
+                // whitelist; not an error.
                 trace!(
                     target: "brain_workers::causal_edge",
                     namespace = %ns,
@@ -278,8 +291,27 @@ async fn do_causal_edge_cycle(
         if ctx.is_shutdown() {
             break;
         }
-        let Ok(statement_id) = worker.queue.try_recv() else {
-            break;
+        // First iteration blocks on the queue (raced against the
+        // tick interval). The queue's wake fires when the
+        // ExtractorWorker fans out a causal statement, so the
+        // statement-commit→edge-derive path has no per-interval
+        // latency floor. Subsequent iterations drain without
+        // blocking so a burst batches into one cycle.
+        let statement_id = if processed == 0 {
+            let recv = async { worker.queue.recv_async().await.ok() };
+            let tick = async {
+                sleep(cfg.interval).await;
+                None
+            };
+            match recv.or(tick).await {
+                Some(item) => item,
+                None => break,
+            }
+        } else {
+            match worker.queue.try_recv() {
+                Ok(item) => item,
+                Err(_) => break,
+            }
         };
         processed += 1;
         if whitelist.is_empty() {
@@ -300,9 +332,37 @@ async fn do_causal_edge_cycle(
     let written = if pairs.is_empty() {
         0usize
     } else {
-        ctx.ops
-            .write_causal_edges(&pairs)
-            .map_err(WorkerError::Ops)?
+        let created_at = now_unix_nanos_causal();
+        let phases: Vec<Phase> = pairs
+            .iter()
+            .map(|(cause, effect, weight)| Phase::Link {
+                from: NodeRef::Memory(*cause),
+                to: NodeRef::Memory(*effect),
+                kind: EdgeKindRef::Builtin(EdgeKind::Caused),
+                weight: *weight,
+                origin: origin::AUTO_DERIVED,
+                derived_by: derived_by::CAUSAL_WORKER,
+                disambiguator: zero_disambiguator(),
+                created_at_unix_nanos: created_at,
+            })
+            .collect();
+        let request_hash = hash_causal_batch(&pairs);
+        let write = Write::from_phases(WriteId::new(), AgentId::default(), phases)
+            .with_request_hash(request_hash);
+        let real_writer = ctx
+            .ops
+            .executor
+            .writer
+            .as_any()
+            .downcast_ref::<RealWriterHandle>()
+            .ok_or_else(|| {
+                WorkerError::Ops("causal_edge: unified path requires RealWriterHandle".into())
+            })?;
+        real_writer
+            .submit(write)
+            .await
+            .map_err(|e| WorkerError::Ops(format!("submit: {e:?}")))?;
+        pairs.len()
     };
     worker.metrics.add_edges_written(written as u64);
 
@@ -493,10 +553,34 @@ fn related_statements_for_entity(
     })
 }
 
+fn now_unix_nanos_causal() -> u64 {
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0)
+}
+
+/// Deterministic hash of a batch of `(cause, effect, weight)` tuples.
+/// Sorted by `(cause, effect)` so retries of the same drained
+/// statement set hash the same way regardless of fan-out walk
+/// ordering. Weight is excluded — the cause/effect set is the
+/// invariant the idempotency cache keys on.
+fn hash_causal_batch(pairs: &[(MemoryId, MemoryId, f32)]) -> [u8; 32] {
+    let mut sorted: Vec<(MemoryId, MemoryId)> = pairs.iter().map(|(c, e, _)| (*c, *e)).collect();
+    sorted.sort();
+    let mut hasher = blake3::Hasher::new();
+    hasher.update(b"causal_edge:caused:v1");
+    for (c, e) in &sorted {
+        hasher.update(&c.to_be_bytes());
+        hasher.update(&e.to_be_bytes());
+    }
+    *hasher.finalize().as_bytes()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_metadata::predicate_ops::predicate_intern_or_get;
+    use brain_metadata::schema::predicate::predicate_intern_or_get;
     use brain_metadata::MetadataDb;
     use tempfile::TempDir;
 
@@ -507,7 +591,7 @@ mod tests {
     }
 
     #[test]
-    fn resolver_returns_empty_for_substrate_only_deployment() {
+    fn resolver_returns_empty_when_no_schema_declares_predicates() {
         // No predicates declared → all whitelist qnames resolve to None.
         let (_dir, db) = open_db();
         let qnames = vec![
@@ -517,7 +601,7 @@ mod tests {
         let resolved = resolve_whitelist(&db, &qnames).expect("resolver runs cleanly");
         assert!(
             resolved.is_empty(),
-            "substrate-only must produce no resolved predicates"
+            "no declared predicates must produce no resolved predicates"
         );
     }
 

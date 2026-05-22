@@ -30,6 +30,9 @@ use tokio::net::TcpStream;
 #[path = "../src/admin/mod.rs"]
 mod admin;
 #[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
+#[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
 #[allow(dead_code)]
@@ -58,7 +61,7 @@ use support_harness::start;
 const FLAG_EOS: u8 = 1 << 7;
 
 // ---------------------------------------------------------------------------
-// Wire helpers — copied from knowledge_schema_wire.rs.
+// Wire helpers — copied from schema_wire.rs.
 // ---------------------------------------------------------------------------
 
 async fn read_one_frame<S>(stream: &mut S) -> Frame

@@ -314,6 +314,8 @@ mod tests {
             tombstoned_at_unix_nanos: 0,
             tombstone_reason: 0,
             flags: 0,
+            original_predicate_qname: String::new(),
+            is_stateful: false,
         }
     }
 

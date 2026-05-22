@@ -10,8 +10,8 @@
 //! Run: `cargo bench -p brain-metadata --bench audit_ops`.
 
 use brain_core::{AuditId, MemoryId};
-use brain_metadata::audit_ops::{audit_by_extractor, audit_by_memory, audit_write};
-use brain_metadata::tables::knowledge::audit::{output_kind, ExtractionAudit, OutputRef};
+use brain_metadata::audit::ops::{audit_by_extractor, audit_by_memory, audit_write};
+use brain_metadata::tables::audit::{output_kind, ExtractionAudit, OutputRef};
 use brain_metadata::MetadataDb;
 use criterion::{black_box, criterion_group, Criterion};
 use tempfile::TempDir;

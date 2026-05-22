@@ -12,8 +12,10 @@ members = [
     "crates/brain-metadata",
     "crates/brain-index",
     "crates/brain-embed",
+    "crates/brain-rerank",
     "crates/brain-planner",
     "crates/brain-extractors",
+    "crates/brain-plugins",
     "crates/brain-llm",
     "crates/brain-ops",
     "crates/brain-workers",
@@ -117,6 +119,10 @@ tokenizers = "0.21"
 # Math / SIMD
 matrixmultiply = "0.3"
 wide = "0.7"
+# Holographic Reduced Representations (brain-planner::vsa) bind/unbind
+# are circular convolutions; we lean on rustfft's well-tuned radix-N
+# planner. Pure-Rust, no external BLAS/FFTW link.
+rustfft = "6"
 
 # Concurrency primitives
 arc-swap = "1"

@@ -13,7 +13,7 @@
 //!   pipeline on schema-declared deployments (spec §28/08 §5).
 //!
 //! Complements the per-sub-task wire tests
-//! (`knowledge_query_wire.rs`, `recall_hybrid_routing.rs`) — those
+//! (`query_wire.rs`, `recall_hybrid_routing.rs`) — those
 //! check each opcode in isolation; this one checks them all against
 //! a populated shard.
 //!
@@ -38,6 +38,9 @@ use tokio::net::TcpStream;
 #[allow(dead_code)]
 #[path = "../src/admin/mod.rs"]
 mod admin;
+#[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
 #[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
@@ -218,6 +221,7 @@ fn recall_request(text: &str) -> RequestBody {
         include_text: false,
         request_id: Some(*uuid::Uuid::now_v7().as_bytes()),
         txn_id: None,
+        rerank: false,
     })
 }
 

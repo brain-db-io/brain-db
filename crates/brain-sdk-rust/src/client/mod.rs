@@ -23,8 +23,8 @@ use crate::error::ClientError;
 use crate::observability::{MetricsSnapshot, MetricsState};
 use crate::ops::{
     txn::{txn_abort, txn_begin, txn_commit, DEFAULT_TXN_TIMEOUT_SECONDS},
-    EncodeBuilder, ForgetBuilder, LinkBuilder, PlanBuilder, ReasonBuilder, RecallBuilder,
-    SubscribeBuilder, UnlinkBuilder,
+    EncodeBuilder, ForgetBuilder, LinkBuilder, MaterializeProceduralBuilder, PlanBuilder,
+    ReasonBuilder, RecallBuilder, SubscribeBuilder, UnlinkBuilder,
 };
 use crate::pool::{Pool, PoolConfig, PoolGuard};
 use crate::proto::handshake::NegotiatedSession;
@@ -221,6 +221,15 @@ impl Client {
         target: MemoryId,
     ) -> UnlinkBuilder<'_> {
         UnlinkBuilder::new(self, source, kind, target)
+    }
+
+    /// Materialize the calling agent's `brain:behavior_*` Preferences
+    /// into a rendered system block ready for LLM prompt injection
+    /// (W3.1, wire v2). Returns a [`MaterializeProceduralBuilder`];
+    /// chain `top_k`, `min_confidence`, etc., and call `.send()`.
+    #[must_use]
+    pub fn materialize_procedural(&self) -> MaterializeProceduralBuilder<'_> {
+        MaterializeProceduralBuilder::new(self)
     }
 
     /// SUBSCRIBE to change events. `collect(N)` returns a batch;

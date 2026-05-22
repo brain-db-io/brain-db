@@ -5,7 +5,7 @@
 //! active=2 → assert v1 still readable → validate dry-run → assert
 //! list still has 2 entries → system-schema sanity (brain v1).
 //!
-//! Companion to `knowledge_schema_wire.rs` (per-op smoke).
+//! Companion to `schema_wire.rs` (per-op smoke).
 
 #![cfg(target_os = "linux")]
 
@@ -25,6 +25,9 @@ use tokio::net::TcpStream;
 #[allow(dead_code)]
 #[path = "../src/admin/mod.rs"]
 mod admin;
+#[allow(dead_code)]
+#[path = "../src/network/auth.rs"]
+mod auth;
 #[allow(dead_code)]
 #[path = "../src/config/mod.rs"]
 mod config;
@@ -61,7 +64,7 @@ const ACME_V2: &str = "namespace acme\n\
                        define predicate prefers { kind: Preference object: Value<text> }\n";
 
 // ---------------------------------------------------------------------------
-// Wire helpers — same as knowledge_schema_wire.rs.
+// Wire helpers — same as schema_wire.rs.
 // ---------------------------------------------------------------------------
 
 async fn read_one_frame<S>(stream: &mut S) -> Frame

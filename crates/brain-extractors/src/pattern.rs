@@ -126,6 +126,9 @@ impl PatternExtractor {
                     confidence: self.confidence,
                     extractor_id: id_raw,
                     extractor_version: self.extractor_version,
+                    // Pattern extractor can't infer statefulness — schemaless
+                    // pattern matches default to cumulative.
+                    is_stateful: false,
                 }))
             }
             ExtractorTarget::Relation { .. } => None, // handled by run_for_relation below
@@ -273,6 +276,8 @@ mod tests {
             schema_version: 1,
             now_unix_nanos: 0,
             registry: reg,
+            prior_tier_items: None,
+            extractor_context: None,
         }
     }
 

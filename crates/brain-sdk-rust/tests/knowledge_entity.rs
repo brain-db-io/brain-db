@@ -24,8 +24,8 @@ use brain_protocol::opcode::Opcode;
 use brain_protocol::responses::error::ErrorResponse;
 use brain_protocol::responses::types::{ErrorCategoryWire, ErrorCodeWire};
 use brain_protocol::{RequestBody, ResponseBody};
-use brain_sdk_rust::knowledge::errors::{ClientErrorEntityExt, EntityErrorKind};
-use brain_sdk_rust::knowledge::ResolutionOutcome;
+use brain_sdk_rust::models::errors::{ClientErrorEntityExt, EntityErrorKind};
+use brain_sdk_rust::ops::ResolutionOutcome;
 use brain_sdk_rust::{BrainEntityType, Client, EntityId, Person, PersonAttributes};
 
 const PERSON_TYPE_ID: u32 = 1;

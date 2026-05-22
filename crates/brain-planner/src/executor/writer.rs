@@ -50,8 +50,9 @@ pub trait WriterHandle {
     /// Used by the admin `EXTRACT_BACKFILL` op — operators replay
     /// existing memories through the three-tier extractor pipeline
     /// after enabling the worker or uploading a new schema. The
-    /// default implementation drops on the floor so test fakes /
-    /// substrate-only writers keep working without overriding.
+    /// default implementation drops on the floor so test fakes and
+    /// writers without an extractor channel wired keep working
+    /// without overriding.
     fn enqueue_for_extraction(&self, _memory_id: MemoryId, _text: &str) -> bool {
         false
     }

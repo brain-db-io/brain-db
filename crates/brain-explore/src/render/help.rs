@@ -246,7 +246,7 @@ impl Render for HelpVerb {
 
         // ── Flags block ──
         // Per-section col-1 width keeps short-flag verbs (forget) tight
-        // while still accommodating long flags (--wait-for-extraction).
+        // while still accommodating long flags (--wait-auto-edges-ms).
         if !self.flags.is_empty() {
             writeln!(w)?;
             let flags_label = lbl(&pad_verb_label("Flags"));

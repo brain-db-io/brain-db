@@ -21,11 +21,11 @@ use brain_core::{
     Entity, EntityId, EntityType, EntityTypeId, ExtractorId, PredicateId, StatementId,
     StatementKind,
 };
-use brain_metadata::entity_ops::{entity_put, normalize_name};
-use brain_metadata::statement_ops::{
+use brain_metadata::entity::ops::{entity_put, normalize_name};
+use brain_metadata::statement::{
     statement_create, statement_get, statement_list, statement_supersede, StatementListFilter,
 };
-use brain_metadata::tables::knowledge::predicate::{PREDICATES_BY_QNAME_TABLE, PREDICATES_TABLE};
+use brain_metadata::tables::predicate::{PREDICATES_BY_QNAME_TABLE, PREDICATES_TABLE};
 use brain_metadata::MetadataDb;
 use criterion::{black_box, criterion_group, Criterion};
 use tempfile::TempDir;

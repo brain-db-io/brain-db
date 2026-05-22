@@ -41,7 +41,7 @@ pub struct RecallHit {
     pub last_accessed_at_unix_nanos: u64,
     /// WAL LSN this memory was encoded at — copied from
     /// `MemoryMetadata.encoded_at_lsn`. `0` when unknown (test
-    /// fixtures, substrate-only deployments without a WAL sink).
+    /// fixtures, no-schema deployments without a WAL sink).
     /// Surfaced as `MemoryResult.lsn` so clients can chain
     /// `recall → subscribe --start-lsn lsn+1`.
     pub encoded_at_lsn: u64,

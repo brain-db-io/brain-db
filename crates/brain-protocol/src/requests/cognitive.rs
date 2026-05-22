@@ -50,9 +50,9 @@ pub struct RecallRequest {
     /// `graph: GraphEnrichment` field listing entities mentioned by
     /// the memory, statements sourced from it, and typed relations
     /// incident to those entities. Server-side knowledge-layer
-    /// queries; if the memory wasn't extracted (substrate-only
-    /// deployment, mention-less memory), the field is `None` even
-    /// when this flag is set.
+    /// queries; if the memory wasn't extracted (no schema declared,
+    /// no extractors registered, or a mention-less memory), the
+    /// field is `None` even when this flag is set.
     pub include_graph: bool,
     /// When set, each `MemoryResult` carries the memory's stored UTF-8
     /// text. Costs one batched read against the per-shard `texts`
@@ -62,6 +62,12 @@ pub struct RecallRequest {
     /// Spec §09/08 §5: when set, RECALL reads against a snapshot
     /// that includes the txn's pending writes (read-your-writes).
     pub txn_id: Option<WireUuid>,
+    /// Opt-in cross-encoder rerank over the RRF-fused candidates.
+    /// Defaults to `false` so existing clients see no behaviour
+    /// change. When set, the server runs `bge-reranker-base` over
+    /// the top fused candidates and re-sorts; if the model isn't
+    /// loaded the request still succeeds with RRF-only ordering.
+    pub rerank: bool,
 }
 
 /// Spec §07/4.

@@ -129,6 +129,10 @@ pub enum ResponseBody {
     QueryTrace(crate::knowledge::QueryTraceResponse),
     RecallHybrid(crate::knowledge::RecallHybridResponse),
 
+    // Procedural-memory materialization (wire v2). Carries the
+    // rendered system block + the statement ids that contributed.
+    MaterializeProcedural(crate::knowledge::MaterializeProceduralResponse),
+
     Error(ErrorResponse),
 }
 
@@ -198,6 +202,7 @@ impl ResponseBody {
             Self::QueryExplain(_) => Opcode::QueryExplainResp,
             Self::QueryTrace(_) => Opcode::QueryTraceResp,
             Self::RecallHybrid(_) => Opcode::RecallHybridResp,
+            Self::MaterializeProcedural(_) => Opcode::MaterializeProceduralResp,
             Self::Error(_) => Opcode::Error,
         }
     }
@@ -291,6 +296,7 @@ impl ResponseBody {
             Self::QueryExplain(r) => to_rkyv_bytes(r),
             Self::QueryTrace(r) => to_rkyv_bytes(r),
             Self::RecallHybrid(r) => to_rkyv_bytes(r),
+            Self::MaterializeProcedural(r) => to_rkyv_bytes(r),
             Self::Error(r) => to_rkyv_bytes(r),
         }
     }
@@ -363,6 +369,9 @@ impl ResponseBody {
             Opcode::QueryExplainResp => Self::QueryExplain(from_rkyv_bytes(bytes)?),
             Opcode::QueryTraceResp => Self::QueryTrace(from_rkyv_bytes(bytes)?),
             Opcode::RecallHybridResp => Self::RecallHybrid(from_rkyv_bytes(bytes)?),
+            Opcode::MaterializeProceduralResp => {
+                Self::MaterializeProcedural(from_rkyv_bytes(bytes)?)
+            }
             Opcode::Error => Self::Error(from_rkyv_bytes(bytes)?),
             other => return Err(ProtocolError::UnknownOpcode(other.as_u16())),
         })
@@ -417,6 +426,8 @@ mod tests {
                 crate::responses::StageKind::TemporalEdge,
                 crate::responses::StageKind::Extractor,
             ],
+            has_active_schema: true,
+            has_llm_extractor: true,
         }));
     }
 
