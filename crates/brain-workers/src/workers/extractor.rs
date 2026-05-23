@@ -54,7 +54,10 @@ use brain_core::{
 };
 use brain_extractors::{
     classify_statement_kind_pattern,
-    resolver::{resolve_or_create_with_hnsw, EmbeddingDeps, ResolutionTier, ResolverError},
+    resolver::{
+        resolve_or_create_with_deps, EmbeddingDeps, EntityDisambiguator, ResolutionTier,
+        ResolverError,
+    },
     EntityMention, ExtractedItem, ExtractionContext, ExtractionResult, ExtractionStatus, Extractor,
     ExtractorContext, ExtractorRegistry, StatementMention, STATEMENT_KIND_PATTERN_THRESHOLD,
 };
@@ -249,6 +252,13 @@ pub struct ExtractorWorker {
     /// production shards stamp the per-shard `EntityHnswIndex` +
     /// shared embedder dispatcher.
     embed_deps: Option<EmbeddingDeps>,
+    /// Optional disambiguator consulted when the embedding probe lands
+    /// in the ambiguous band. `None` means the resolver keeps its
+    /// existing behaviour (Create + enqueue merge proposal) for every
+    /// partial match. Production shards stamp this with the
+    /// `EntityDisambiguator` built from the shared LLM client when
+    /// `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` are present at startup.
+    entity_disambiguator: Option<Arc<EntityDisambiguator>>,
 }
 
 impl ExtractorWorker {
@@ -265,6 +275,7 @@ impl ExtractorWorker {
             metrics: Arc::new(ExtractorMetrics::new()),
             causal_edge: None,
             embed_deps: None,
+            entity_disambiguator: None,
         }
     }
 
@@ -276,6 +287,17 @@ impl ExtractorWorker {
     #[must_use]
     pub fn with_embed_deps(mut self, deps: EmbeddingDeps) -> Self {
         self.embed_deps = Some(deps);
+        self
+    }
+
+    /// Wire the partial-match disambiguator. Without this call the
+    /// resolver keeps its existing behaviour (mint + enqueue merge
+    /// proposal) for every ambiguous-band candidate. Production shards
+    /// set this when the LLM tier is provisioned via env; tests that
+    /// don't care about disambiguation leave it unset.
+    #[must_use]
+    pub fn with_entity_disambiguator(mut self, disambiguator: Arc<EntityDisambiguator>) -> Self {
+        self.entity_disambiguator = Some(disambiguator);
         self
     }
 
@@ -1008,9 +1030,11 @@ async fn apply_outcome(
     // statements + relations a populated `entity_map` to look up
     // surface forms against.
     let embed_deps = worker.embed_deps.as_ref();
+    let entity_disambiguator = worker.entity_disambiguator.as_deref();
     for item in &outcome.items {
         if let ExtractedItem::EntityMention(em) = item {
-            let (entity_id, tier) = resolve_entity_mention(&wtxn, em, now, embed_deps)?;
+            let (entity_id, tier) =
+                resolve_entity_mention(&wtxn, em, now, embed_deps, entity_disambiguator)?;
             worker
                 .metrics
                 .inc_resolver_outcome(resolution_tier_to_metric(tier));
@@ -1399,14 +1423,16 @@ fn resolve_entity_mention(
     em: &EntityMention,
     now: u64,
     embed_deps: Option<&EmbeddingDeps>,
+    entity_disambiguator: Option<&EntityDisambiguator>,
 ) -> Result<(EntityId, ResolutionTier), ApplyError> {
-    let res = resolve_or_create_with_hnsw(
+    let res = resolve_or_create_with_deps(
         wtxn,
         &em.text,
         &em.entity_type_qname,
         em.confidence,
         now,
         embed_deps,
+        entity_disambiguator,
     )
     .map_err(ApplyError::from)?;
     Ok((res.entity_id, res.tier))
@@ -1418,6 +1444,12 @@ fn resolution_tier_to_metric(tier: ResolutionTier) -> ResolverOutcome {
         ResolutionTier::Alias => ResolverOutcome::Alias,
         ResolutionTier::Fuzzy => ResolverOutcome::Fuzzy,
         ResolutionTier::Embedding => ResolverOutcome::Embedding,
+        // Disambiguated paths share the resolver-outcome bucket with
+        // the embedding tier — the metric exposes "the embedding path
+        // accepted this candidate", which the disambiguator just
+        // ratified. Splitting them needs an enum-variant bump tracked
+        // alongside the audit-counter widening.
+        ResolutionTier::Disambiguated => ResolverOutcome::Embedding,
         ResolutionTier::Created => ResolverOutcome::Create,
     }
 }

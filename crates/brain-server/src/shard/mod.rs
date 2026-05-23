@@ -1320,6 +1320,11 @@ pub fn spawn_shard(
             // an LLM cache or API keys configured stay unchanged.
             let llm_deps = llm_setup::build_llm_deps(&shard_dir_for_executor);
             let llm_cache_for_ops = llm_deps.cache.clone();
+            // Snapshot the disambiguator before `llm_deps` is consumed
+            // by `into_materialize_deps` below — the extractor worker
+            // wires it directly into the resolver path so ambiguous-
+            // band partial matches get a second opinion.
+            let entity_disambiguator_for_worker = llm_deps.disambiguator.clone();
 
             // 22.1 + 22.7: open the per-shard tantivy indexes
             // (`memory_text.tantivy/` + `statements.tantivy/`)
@@ -1853,6 +1858,9 @@ pub fn spawn_shard(
                         hnsw: entity_hnsw_for_shard.clone(),
                         embedder: dispatcher.clone(),
                     });
+                if let Some(d) = entity_disambiguator_for_worker.clone() {
+                    extractor_worker = extractor_worker.with_entity_disambiguator(d);
+                }
                 if let Some(m) = extractor_metrics_for_closure.clone() {
                     extractor_worker = extractor_worker.with_metrics(m);
                 }

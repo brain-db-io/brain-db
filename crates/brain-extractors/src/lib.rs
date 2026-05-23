@@ -60,6 +60,9 @@ pub use materialize::{
     materialize_pattern_extractor, MaterializeDeps,
 };
 pub use pattern::{CompiledRegex, PatternExtractor};
-pub use resolver::{resolve_or_create, Resolution, ResolutionTier, ResolverError};
+pub use resolver::{
+    resolve_or_create, EntityDisambiguator, MatchVerdict, Resolution, ResolutionTier,
+    ResolverError, DEFAULT_DISAMBIGUATOR_MIN_CONFIDENCE,
+};
 pub use resolver_llm::{BrainLlmDisambiguator, LlmCandidateView};
 pub use supersede_source::StatementHnswSource;

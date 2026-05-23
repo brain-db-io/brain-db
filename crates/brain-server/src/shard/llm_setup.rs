@@ -32,7 +32,7 @@
 use std::path::Path;
 use std::sync::Arc;
 
-use brain_extractors::{ClassifierModel, MaterializeDeps};
+use brain_extractors::{ClassifierModel, EntityDisambiguator, MaterializeDeps};
 use brain_llm::{AnthropicClient, LlmClient, ModelRouter, OpenAIClient};
 use brain_metadata::LlmCacheDb;
 use parking_lot::Mutex;
@@ -43,10 +43,17 @@ const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
 /// LLM-tier deps assembled at shard startup. Threaded into both
 /// `MaterializeDeps` (so LLM-kind rows decode into wired
 /// extractors) and `OpsContext.llm_cache` (so future ops can
-/// reach the cache directly).
+/// reach the cache directly). The optional `disambiguator` slot
+/// feeds the extractor worker so the resolver can second-opinion
+/// ambiguous-band partial matches.
 pub struct LlmDeps {
     pub router: Option<Arc<ModelRouter>>,
     pub cache: Option<Arc<Mutex<LlmCacheDb>>>,
+    /// Optional partial-match disambiguator. Populated when at least
+    /// one provider client is available; the disambiguator shares
+    /// that client (Anthropic preferred, OpenAI as fallback) so
+    /// there's no duplicate API key handling.
+    pub disambiguator: Option<Arc<EntityDisambiguator>>,
 }
 
 impl LlmDeps {
@@ -54,6 +61,11 @@ impl LlmDeps {
     /// entity-type qname list into a full [`MaterializeDeps`].
     /// The qname list is what the classifier passes as labels on
     /// every `predict()` call.
+    ///
+    /// The [`disambiguator`](Self::disambiguator) slot is intentionally
+    /// dropped here: it's wired directly into the extractor worker, not
+    /// through `MaterializeDeps`. Callers that need it must
+    /// [`Arc::clone`] the field before invoking this consumer.
     #[must_use]
     pub fn into_materialize_deps(
         self,
@@ -73,9 +85,13 @@ impl LlmDeps {
 /// Always returns a value; missing keys / unopenable cache files
 /// produce `None` slots.
 pub fn build_llm_deps(shard_dir: &Path) -> LlmDeps {
+    let (primary_client, primary_model) = build_primary_client();
+    let disambiguator =
+        primary_client.map(|c| Arc::new(EntityDisambiguator::new(c, primary_model)));
     LlmDeps {
         router: build_router(),
         cache: open_cache(shard_dir),
+        disambiguator,
     }
 }
 
@@ -91,6 +107,25 @@ fn openai_model() -> String {
         .ok()
         .filter(|s| !s.is_empty())
         .unwrap_or_else(|| DEFAULT_OPENAI_MODEL.to_string())
+}
+
+/// Pick the primary client for single-call surfaces (today: the
+/// partial-match disambiguator). Anthropic wins ties — it's the
+/// reference path Brain optimises prompt caching against.
+///
+/// Returns `(None, String::new())` when no provider is configured.
+fn build_primary_client() -> (Option<Arc<dyn LlmClient>>, String) {
+    let model_a = anthropic_model();
+    if let Some(c) = AnthropicClient::from_env(model_a.clone()) {
+        let client: Arc<dyn LlmClient> = Arc::new(c);
+        return (Some(client), model_a);
+    }
+    let model_o = openai_model();
+    if let Some(c) = OpenAIClient::from_env(model_o.clone()) {
+        let client: Arc<dyn LlmClient> = Arc::new(c);
+        return (Some(client), model_o);
+    }
+    (None, String::new())
 }
 
 fn build_router() -> Option<Arc<ModelRouter>> {
@@ -294,6 +329,7 @@ mod tests {
         let deps = LlmDeps {
             router: None,
             cache: open_cache(dir.path()),
+            disambiguator: None,
         };
         let labels = Arc::new(vec!["brain:Person".to_string()]);
         let materialize = deps.into_materialize_deps(None, labels.clone());
@@ -353,11 +389,13 @@ mod tests {
         let deps_a = LlmDeps {
             router: None,
             cache: Some(Arc::clone(&cache_arc)),
+            disambiguator: None,
         }
         .into_materialize_deps(None, labels.clone());
         let deps_b = LlmDeps {
             router: None,
             cache: Some(Arc::clone(&cache_arc)),
+            disambiguator: None,
         }
         .into_materialize_deps(None, labels.clone());
 

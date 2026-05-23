@@ -52,6 +52,7 @@ use brain_core::{Entity, EntityId, EntityTypeId};
 use brain_embed::Dispatcher;
 use brain_index::entity_hnsw::EntityHnswIndex;
 use brain_index::VECTOR_DIM;
+use brain_llm::LlmClient;
 use brain_metadata::entity::ops::{entity_add_alias, entity_put, normalize_name, EntityOpError};
 use brain_metadata::entity::review::{enqueue_merge_proposal, MergeReviewError};
 use brain_metadata::entity::trigram::TrigramOpError;
@@ -65,6 +66,8 @@ use brain_metadata::tables::entity::{
 use brain_metadata::tables::merge_review_queue::proposal_tier;
 use parking_lot::RwLock;
 use redb::{ReadableTable, WriteTransaction};
+
+use crate::resolver_llm::LlmCandidateView;
 
 /// Jaccard floor for tier-3 fuzzy matching. Below this, the resolver
 /// treats the candidate as a near-miss and skips it. Tuned conservatively
@@ -150,6 +153,13 @@ pub enum ResolutionTier {
     Alias,
     Fuzzy,
     Embedding,
+    /// A second-opinion check confirmed an ambiguous-band candidate as
+    /// the same entity — the surface form was aliased onto the existing
+    /// entity instead of minting a new one. The check happens after the
+    /// embedding probe lands in the partial-match band; the backend is
+    /// pluggable (LLM today; heuristics or classifier later) but the
+    /// outcome shape is the same.
+    Disambiguated,
     Created,
 }
 
@@ -304,9 +314,103 @@ impl std::fmt::Debug for EmbeddingDeps {
     }
 }
 
+/// Per-shard handle to a disambiguator capable of distinguishing
+/// near-duplicate entities at resolution time.
+///
+/// When the embedding tier returns a candidate in the ambiguous band
+/// (`[PARTIAL_MATCH_FLOOR, EMBED_RESOLVE_THRESHOLD)`), the resolver
+/// asks the disambiguator whether the surface form is the same entity,
+/// a different one, or genuinely unclear. The verdict decides whether
+/// to alias onto the candidate, mint a fresh entity, or fall back to
+/// the existing merge-proposal flow.
+///
+/// The current backend is LLM-driven: the disambiguator owns an
+/// [`LlmClient`] + model identifier and issues a single yes/no/uncertain
+/// prompt per ambiguous partial match. The prompt grammar is narrower
+/// than the multi-candidate one [`BrainLlmDisambiguator`] uses because
+/// the resolver's question is binary. Swapping in a heuristic or
+/// classifier backend later is a localised change to
+/// [`confirm_partial_match`].
+pub struct EntityDisambiguator {
+    client: Arc<dyn LlmClient>,
+    model: String,
+    /// Confidence floor for accepting a [`MatchVerdict::Confirmed`].
+    /// Below this, the resolver treats the verdict as
+    /// [`MatchVerdict::Uncertain`] and falls through to Create.
+    pub min_confidence: f32,
+}
+
+/// Default floor for accepting a confirmed match. Mirrors the
+/// brain-core resolver-config `llm_threshold` default so an operator
+/// who tightens one expects the other to follow.
+pub const DEFAULT_DISAMBIGUATOR_MIN_CONFIDENCE: f32 = 0.85;
+
+impl EntityDisambiguator {
+    /// Construct from an LLM client + model identifier. The default
+    /// [`min_confidence`](Self::min_confidence) is
+    /// [`DEFAULT_DISAMBIGUATOR_MIN_CONFIDENCE`]; use
+    /// [`with_min_confidence`](Self::with_min_confidence) to tighten or
+    /// loosen.
+    #[must_use]
+    pub fn new(client: Arc<dyn LlmClient>, model: impl Into<String>) -> Self {
+        Self {
+            client,
+            model: model.into(),
+            min_confidence: DEFAULT_DISAMBIGUATOR_MIN_CONFIDENCE,
+        }
+    }
+
+    /// Override the confidence floor. Returns `self` for builder-style
+    /// configuration at construction time.
+    #[must_use]
+    pub fn with_min_confidence(mut self, min_confidence: f32) -> Self {
+        self.min_confidence = min_confidence;
+        self
+    }
+}
+
+impl std::fmt::Debug for EntityDisambiguator {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("EntityDisambiguator")
+            .field("model", &self.model)
+            .field("min_confidence", &self.min_confidence)
+            .finish_non_exhaustive()
+    }
+}
+
+/// What the disambiguator concluded about a single ambiguous-band
+/// candidate.
+///
+/// Distinct from the multi-candidate
+/// [`brain_core::resolution::ResolverLlmDecision`] because the
+/// production resolver's question is narrower: "is this candidate the
+/// same entity as the surface form?". The four variants spell out how
+/// the resolver should act on the answer.
+#[derive(Debug, Clone, PartialEq)]
+pub enum MatchVerdict {
+    /// The surface form refers to the same entity as the candidate.
+    /// The resolver aliases the surface form onto `entity` and skips
+    /// the merge-proposal enqueue (no ambiguity left to review).
+    Confirmed { entity: EntityId, confidence: f32 },
+    /// The candidate is a different entity. The resolver mints a fresh
+    /// entity and skips the merge-proposal enqueue — the two are
+    /// confirmed distinct, no review needed.
+    Rejected,
+    /// The disambiguator declined to commit either way. The resolver
+    /// proceeds with its existing fallback: mint a fresh entity and
+    /// enqueue a Pending merge proposal so the ambiguity-resolver
+    /// worker can re-check the pair later.
+    Uncertain,
+    /// The disambiguator was not invoked — either no backend was wired
+    /// or a soft failure occurred while preparing the candidate view.
+    /// Treated identically to [`Uncertain`](Self::Uncertain); carries a
+    /// short reason for log correlation.
+    Skipped { reason: String },
+}
+
 /// Resolve `surface_form` against the entity registry without the
-/// embedding tier. Equivalent to
-/// [`resolve_or_create_with_hnsw`] called with `deps: None`.
+/// embedding tier or the disambiguator. Equivalent to
+/// [`resolve_or_create_with_deps`] called with both dep slots `None`.
 pub fn resolve_or_create(
     wtxn: &WriteTransaction,
     surface_form: &str,
@@ -314,12 +418,36 @@ pub fn resolve_or_create(
     confidence: f32,
     now_unix_nanos: u64,
 ) -> Result<Resolution, ResolverError> {
-    resolve_or_create_with_hnsw(
+    resolve_or_create_with_deps(
         wtxn,
         surface_form,
         entity_type_qname,
         confidence,
         now_unix_nanos,
+        None,
+        None,
+    )
+}
+
+/// Transitional alias: existing callers wired before the disambiguator
+/// landed pass only the embedding bundle here. Forwards to
+/// [`resolve_or_create_with_deps`] with the disambiguator slot empty.
+/// New code should call [`resolve_or_create_with_deps`] directly.
+pub fn resolve_or_create_with_hnsw(
+    wtxn: &WriteTransaction,
+    surface_form: &str,
+    entity_type_qname: &str,
+    confidence: f32,
+    now_unix_nanos: u64,
+    embed_deps: Option<&EmbeddingDeps>,
+) -> Result<Resolution, ResolverError> {
+    resolve_or_create_with_deps(
+        wtxn,
+        surface_form,
+        entity_type_qname,
+        confidence,
+        now_unix_nanos,
+        embed_deps,
         None,
     )
 }
@@ -333,16 +461,25 @@ pub fn resolve_or_create(
 /// HNSW between the trigram-fuzzy tier and the create tier, and
 /// inserts the canonical-name embedding of every newly-minted entity
 /// into the HNSW so the next resolve of a paraphrase can short-circuit
-/// at tier-3b. Failures inside the embedding path (embedder errors,
-/// HNSW lock contention) degrade gracefully: the resolver logs at
-/// `warn` and falls through to the next tier, never aborts the txn.
-pub fn resolve_or_create_with_hnsw(
+/// at the embedding tier. Failures inside the embedding path (embedder
+/// errors, HNSW lock contention) degrade gracefully: the resolver logs
+/// at `warn` and falls through to the next tier, never aborts the txn.
+///
+/// When `disambiguator` is `Some` *and* the embedding probe lands in
+/// the ambiguous band, the resolver asks the disambiguator whether the
+/// surface form matches that candidate. A
+/// [`MatchVerdict::Confirmed`] aliases onto the existing entity; a
+/// [`MatchVerdict::Rejected`] mints a fresh entity with no merge
+/// proposal (the two are confirmed distinct); the other verdicts fall
+/// through to the existing Create + enqueue-merge-proposal flow.
+pub fn resolve_or_create_with_deps(
     wtxn: &WriteTransaction,
     surface_form: &str,
     entity_type_qname: &str,
     _confidence: f32,
     now_unix_nanos: u64,
     embed_deps: Option<&EmbeddingDeps>,
+    disambiguator: Option<&EntityDisambiguator>,
 ) -> Result<Resolution, ResolverError> {
     let normalized = normalize_name(surface_form);
     if normalized.is_empty() {
@@ -435,6 +572,49 @@ pub fn resolve_or_create_with_hnsw(
                     surface_form,
                     reason,
                     "tier-3 embedding probe failed; falling through to create",
+                );
+            }
+        }
+    }
+
+    // Disambiguation step — second opinion on the partial match.
+    //
+    // The embedding tier just landed a candidate in the ambiguous
+    // band. Ask the disambiguator whether it's actually the same
+    // entity: a confirmed match aliases and returns; an explicit
+    // rejection lets us skip the (now-unnecessary) merge proposal;
+    // uncertainty falls through to the existing Create + enqueue path.
+    if let (Some(disambiguator), Some((candidate, _score))) = (disambiguator, partial_match) {
+        match confirm_partial_match(disambiguator, candidate, surface_form, wtxn, entity_type_qname)
+        {
+            MatchVerdict::Confirmed { entity, confidence } => {
+                entity_add_alias(wtxn, entity, surface_form.to_string(), now_unix_nanos)?;
+                tracing::info!(
+                    target: "brain_extractors::resolver",
+                    ?entity,
+                    confidence,
+                    "partial match confirmed by disambiguator",
+                );
+                return Ok(Resolution {
+                    entity_id: entity,
+                    tier: ResolutionTier::Disambiguated,
+                });
+            }
+            MatchVerdict::Rejected => {
+                // Confirmed distinct: drop the partial match so the
+                // Create branch below doesn't enqueue a merge proposal
+                // for a pair the disambiguator already ruled apart.
+                partial_match = None;
+            }
+            MatchVerdict::Uncertain => {
+                // Existing behaviour: Create + enqueue merge proposal.
+            }
+            MatchVerdict::Skipped { reason } => {
+                tracing::warn!(
+                    target: "brain_extractors::resolver",
+                    surface_form,
+                    %reason,
+                    "disambiguator skipped; falling through to create",
                 );
             }
         }
@@ -603,6 +783,164 @@ fn insert_into_entity_hnsw(
     hnsw.insert(entity_id, &vector)
         .map_err(|e| format!("hnsw insert failed: {e}"))?;
     Ok(())
+}
+
+/// Ask the disambiguator whether `surface_form` refers to the existing
+/// `candidate` entity. Returns [`MatchVerdict::Skipped`] on any soft
+/// failure (entity row missing, backend transport error, unparseable
+/// reply) — never aborts the surrounding write transaction.
+///
+/// Builds the candidate snapshot from the live write transaction so
+/// the disambiguator sees the same canonical name + alias set the
+/// resolver just considered. Issues a single yes/no/uncertain LLM call
+/// inside the txn; the reply grammar (`YES <conf>` / `NO` /
+/// `UNCERTAIN`) is intentionally narrower than the multi-candidate
+/// grammar handled by [`BrainLlmDisambiguator`] — the resolver's
+/// partial-match question is a binary one.
+fn confirm_partial_match(
+    disambiguator: &EntityDisambiguator,
+    candidate: EntityId,
+    surface_form: &str,
+    wtxn: &WriteTransaction,
+    entity_type_qname: &str,
+) -> MatchVerdict {
+    let view = match read_candidate_view(wtxn, candidate, entity_type_qname) {
+        Ok(Some(v)) => v,
+        Ok(None) => {
+            return MatchVerdict::Skipped {
+                reason: format!("candidate entity {candidate:?} not found"),
+            };
+        }
+        Err(e) => {
+            return MatchVerdict::Skipped {
+                reason: format!("read candidate row: {e}"),
+            };
+        }
+    };
+
+    match ask_if_same_entity(disambiguator, &view, surface_form) {
+        Ok(SameEntityReply::Yes(confidence)) => {
+            if confidence >= disambiguator.min_confidence {
+                MatchVerdict::Confirmed {
+                    entity: candidate,
+                    confidence,
+                }
+            } else {
+                MatchVerdict::Uncertain
+            }
+        }
+        Ok(SameEntityReply::No) => MatchVerdict::Rejected,
+        Ok(SameEntityReply::Uncertain) => MatchVerdict::Uncertain,
+        Err(reason) => MatchVerdict::Skipped { reason },
+    }
+}
+
+/// Three-way reply to the "is this the same entity?" question. Mirrors
+/// [`MatchVerdict`] minus the [`Skipped`](MatchVerdict::Skipped) case,
+/// which represents preparation failure rather than a backend opinion.
+#[derive(Debug, Clone, PartialEq)]
+enum SameEntityReply {
+    Yes(f32),
+    No,
+    Uncertain,
+}
+
+/// Send the candidate view + surface form to the LLM backend and parse
+/// the reply. Sync-over-async via `block_on` — the resolver runs
+/// inside a redb write transaction, and the LLM future is `Send +
+/// 'static`-safe to block on a single-threaded executor.
+fn ask_if_same_entity(
+    disambiguator: &EntityDisambiguator,
+    view: &LlmCandidateView,
+    surface_form: &str,
+) -> Result<SameEntityReply, String> {
+    use brain_llm::{LlmMessage, LlmRequest, LlmRole};
+
+    let system = build_confirm_system_prompt();
+    let user = build_confirm_user_prompt(view, surface_form);
+    let req = LlmRequest {
+        model: disambiguator.model.clone(),
+        system_blocks: vec![brain_llm::types::SystemBlock::cached(system)],
+        messages: vec![LlmMessage {
+            role: LlmRole::User,
+            content: user,
+        }],
+        response_schema: None,
+        temperature: 0.0,
+        max_tokens: 64,
+        timeout: std::time::Duration::from_secs(30),
+    };
+    let resp = futures_lite::future::block_on(disambiguator.client.complete(req))
+        .map_err(|e| format!("llm transport: {e}"))?;
+    parse_confirm_reply(&resp.content)
+        .ok_or_else(|| format!("unparseable disambiguator reply: {:?}", resp.content))
+}
+
+fn build_confirm_system_prompt() -> String {
+    // Cacheable: stable across calls in a session. Anthropic prompt
+    // caching keys on byte-identical blocks — any drift wipes the
+    // cache, so the wording is fixed.
+    "You decide whether a candidate surface name refers to the same \
+real-world entity as a known entity record. Reply with EXACTLY ONE of: \
+`YES <confidence>` where confidence is a decimal in [0.0, 1.0] when the \
+candidate is the same entity; `NO` when the candidate is a different \
+entity; or `UNCERTAIN` when you cannot tell from the given information. \
+Do not explain. Do not add any other text. Reply on a single line."
+        .to_owned()
+}
+
+fn build_confirm_user_prompt(view: &LlmCandidateView, surface_form: &str) -> String {
+    let mut out = String::new();
+    out.push_str("Surface form: ");
+    out.push_str(surface_form);
+    out.push_str("\nKnown entity:\n  Canonical name: ");
+    out.push_str(&view.canonical_name);
+    out.push_str("\n  Type: ");
+    out.push_str(&view.entity_type_name);
+    if !view.aliases.is_empty() {
+        out.push_str("\n  Aliases: ");
+        out.push_str(&view.aliases.join(", "));
+    }
+    out.push_str("\n\nReply with one of: YES <confidence>, NO, UNCERTAIN.\n");
+    out
+}
+
+fn parse_confirm_reply(content: &str) -> Option<SameEntityReply> {
+    let line = content.trim().lines().next()?.trim();
+    if line.eq_ignore_ascii_case("NO") {
+        return Some(SameEntityReply::No);
+    }
+    if line.eq_ignore_ascii_case("UNCERTAIN") {
+        return Some(SameEntityReply::Uncertain);
+    }
+    let mut parts = line.split_whitespace();
+    if !parts.next()?.eq_ignore_ascii_case("YES") {
+        return None;
+    }
+    let conf: f32 = parts.next()?.parse().ok()?;
+    if (0.0..=1.0).contains(&conf) {
+        Some(SameEntityReply::Yes(conf))
+    } else {
+        None
+    }
+}
+
+/// Snapshot the canonical name + aliases for `id` from the live write
+/// transaction. Returns `Ok(None)` when the row doesn't exist — the
+/// caller turns that into [`MatchVerdict::Skipped`].
+fn read_candidate_view(
+    wtxn: &WriteTransaction,
+    id: EntityId,
+    entity_type_qname: &str,
+) -> Result<Option<LlmCandidateView>, ResolverError> {
+    let t = wtxn.open_table(ENTITIES_TABLE)?;
+    let row: Option<EntityMetadata> = t.get(&id.to_bytes())?.map(|g| g.value());
+    Ok(row.map(|m| LlmCandidateView {
+        entity_id: id,
+        canonical_name: m.canonical_name,
+        aliases: m.aliases,
+        entity_type_name: qname_to_type_name(entity_type_qname).to_string(),
+    }))
 }
 
 // ---------------------------------------------------------------------------
@@ -1173,5 +1511,72 @@ mod tests {
             resolve_or_create_with_hnsw(&wtxn, "Solo", "brain:Person", 0.9, NOW, None).unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
+    }
+
+    // ----- Disambiguator helpers (pure-logic) -----------------------------
+
+    #[test]
+    fn parse_confirm_reply_accepts_canonical_forms() {
+        assert_eq!(
+            parse_confirm_reply("YES 0.92\n"),
+            Some(SameEntityReply::Yes(0.92)),
+        );
+        assert_eq!(
+            parse_confirm_reply("yes 0.5"),
+            Some(SameEntityReply::Yes(0.5)),
+        );
+        assert_eq!(parse_confirm_reply("NO"), Some(SameEntityReply::No));
+        assert_eq!(parse_confirm_reply("no\n"), Some(SameEntityReply::No));
+        assert_eq!(
+            parse_confirm_reply("UNCERTAIN"),
+            Some(SameEntityReply::Uncertain),
+        );
+        assert_eq!(
+            parse_confirm_reply("uncertain"),
+            Some(SameEntityReply::Uncertain),
+        );
+    }
+
+    #[test]
+    fn parse_confirm_reply_rejects_out_of_range_confidence() {
+        assert!(parse_confirm_reply("YES -0.1").is_none());
+        assert!(parse_confirm_reply("YES 1.5").is_none());
+    }
+
+    #[test]
+    fn parse_confirm_reply_rejects_garbage() {
+        assert!(parse_confirm_reply("").is_none());
+        assert!(parse_confirm_reply("MAYBE").is_none());
+        assert!(parse_confirm_reply("YES").is_none());
+        assert!(parse_confirm_reply("YES not-a-number").is_none());
+    }
+
+    #[test]
+    fn build_confirm_user_prompt_renders_surface_form_and_aliases() {
+        let view = LlmCandidateView {
+            entity_id: EntityId::new(),
+            canonical_name: "Priya Patel".into(),
+            aliases: vec!["Priya".into()],
+            entity_type_name: "Person".into(),
+        };
+        let out = build_confirm_user_prompt(&view, "Priya P.");
+        assert!(out.contains("Surface form: Priya P."));
+        assert!(out.contains("Canonical name: Priya Patel"));
+        assert!(out.contains("Type: Person"));
+        assert!(out.contains("Aliases: Priya"));
+        assert!(out.contains("YES <confidence>"));
+    }
+
+    #[test]
+    fn build_confirm_user_prompt_omits_alias_line_when_empty() {
+        let view = LlmCandidateView {
+            entity_id: EntityId::new(),
+            canonical_name: "Solo".into(),
+            aliases: vec![],
+            entity_type_name: "Person".into(),
+        };
+        let out = build_confirm_user_prompt(&view, "solo");
+        assert!(!out.contains("Aliases:"));
+        assert!(out.contains("Canonical name: Solo"));
     }
 }
