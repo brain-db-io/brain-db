@@ -13,7 +13,7 @@ use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::MetadataDb;
 use brain_ops::test_support::run_in_glommio;
-use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
+use brain_ops::{dispatch, DispatchOutcome, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_protocol::envelope::request::{
     EdgeKindWire, EncodeRequest, ForgetMode, ForgetRequest, LinkRequest, MemoryKindWire,
@@ -184,72 +184,124 @@ fn reason_req(base: u128, depth: u32, txn: Option<[u8; 16]>) -> ReasonRequest {
 }
 
 async fn encode(fix: &Fixture, rid: [u8; 16], text: &str, txn: Option<[u8; 16]>) -> u128 {
-    match dispatch(
-        RequestBody::Encode(encode_req(rid, text, txn)),
-        brain_ops::RequestCaller::anonymous(),
-        &fix.ctx,
-    )
-    .await
-    .unwrap()
-    {
+    match single_body(
+        dispatch(
+            RequestBody::Encode(encode_req(rid, text, txn)),
+            brain_ops::RequestCaller::anonymous(),
+            &fix.ctx,
+        )
+        .await
+        .unwrap(),
+    ) {
         ResponseBody::Encode(EncodeResponse { memory_id, .. }) => memory_id,
         other => panic!("expected Encode, got {other:?}"),
     }
 }
 
-fn unwrap_begin(r: ResponseBody) -> TxnBeginResponse {
-    match r {
+/// Unwrap a non-streaming dispatch outcome. Streaming ops (PLAN /
+/// REASON) collect via `unwrap_plan` / `unwrap_reason`, which drain
+/// the per-frame projections.
+fn single_body(outcome: DispatchOutcome) -> ResponseBody {
+    match outcome {
+        DispatchOutcome::Single(b) => b,
+        DispatchOutcome::Stream(_) => panic!("expected DispatchOutcome::Single, got Stream"),
+    }
+}
+
+fn unwrap_begin(r: DispatchOutcome) -> TxnBeginResponse {
+    match single_body(r) {
         ResponseBody::TxnBegin(b) => b,
         other => panic!("expected TxnBegin, got {other:?}"),
     }
 }
-fn unwrap_commit(r: ResponseBody) -> TxnCommitResponse {
-    match r {
+fn unwrap_commit(r: DispatchOutcome) -> TxnCommitResponse {
+    match single_body(r) {
         ResponseBody::TxnCommit(c) => c,
         other => panic!("expected TxnCommit, got {other:?}"),
     }
 }
-fn unwrap_abort(r: ResponseBody) -> TxnAbortResponse {
-    match r {
+fn unwrap_abort(r: DispatchOutcome) -> TxnAbortResponse {
+    match single_body(r) {
         ResponseBody::TxnAbort(a) => a,
         other => panic!("expected TxnAbort, got {other:?}"),
     }
 }
-fn unwrap_link(r: ResponseBody) -> LinkResponse {
-    match r {
+fn unwrap_link(r: DispatchOutcome) -> LinkResponse {
+    match single_body(r) {
         ResponseBody::Link(l) => l,
         other => panic!("expected Link, got {other:?}"),
     }
 }
-fn unwrap_unlink(r: ResponseBody) -> UnlinkResponse {
-    match r {
+fn unwrap_unlink(r: DispatchOutcome) -> UnlinkResponse {
+    match single_body(r) {
         ResponseBody::Unlink(u) => u,
         other => panic!("expected Unlink, got {other:?}"),
     }
 }
 #[allow(dead_code)]
-fn unwrap_forget(r: ResponseBody) -> ForgetResponse {
-    match r {
+fn unwrap_forget(r: DispatchOutcome) -> ForgetResponse {
+    match single_body(r) {
         ResponseBody::Forget(f) => f,
         other => panic!("expected Forget, got {other:?}"),
     }
 }
-fn unwrap_recall(r: ResponseBody) -> RecallResponseFrame {
-    match r {
+fn unwrap_recall(r: DispatchOutcome) -> RecallResponseFrame {
+    match single_body(r) {
         ResponseBody::Recall(r) => r,
         other => panic!("expected Recall, got {other:?}"),
     }
 }
-fn unwrap_plan(r: ResponseBody) -> PlanResponseFrame {
-    match r {
-        ResponseBody::Plan(p) => p,
-        other => panic!("expected Plan, got {other:?}"),
+
+/// Collapse the streamed PLAN frames into the v1 single-frame shape
+/// the tests assert against.
+fn unwrap_plan(outcome: DispatchOutcome) -> PlanResponseFrame {
+    let mut steps = Vec::new();
+    let mut terminal: Option<PlanResponseFrame> = None;
+    match outcome {
+        DispatchOutcome::Stream(bodies) => {
+            for b in bodies {
+                match b {
+                    ResponseBody::Plan(f) if f.is_final => terminal = Some(f),
+                    ResponseBody::Plan(f) => steps.extend(f.steps),
+                    other => panic!("expected Plan frame, got {other:?}"),
+                }
+            }
+        }
+        DispatchOutcome::Single(other) => {
+            panic!("expected Stream of Plan, got Single({other:?})")
+        }
+    }
+    let t = terminal.expect("PLAN stream must end with a terminal frame");
+    PlanResponseFrame {
+        steps,
+        is_final: t.is_final,
+        plan_status: t.plan_status,
     }
 }
-fn unwrap_reason(r: ResponseBody) -> ReasonResponseFrame {
-    match r {
-        ResponseBody::Reason(r) => r,
-        other => panic!("expected Reason, got {other:?}"),
+
+/// Collapse the streamed REASON frames into the v1 single-frame shape.
+fn unwrap_reason(outcome: DispatchOutcome) -> ReasonResponseFrame {
+    let mut inferences = Vec::new();
+    let mut terminal: Option<ReasonResponseFrame> = None;
+    match outcome {
+        DispatchOutcome::Stream(bodies) => {
+            for b in bodies {
+                match b {
+                    ResponseBody::Reason(f) if f.is_final => terminal = Some(f),
+                    ResponseBody::Reason(f) => inferences.extend(f.inferences),
+                    other => panic!("expected Reason frame, got {other:?}"),
+                }
+            }
+        }
+        DispatchOutcome::Single(other) => {
+            panic!("expected Stream of Reason, got Single({other:?})")
+        }
+    }
+    let t = terminal.expect("REASON stream must end with a terminal frame");
+    ReasonResponseFrame {
+        inferences,
+        is_final: t.is_final,
+        reason_status: t.reason_status,
     }
 }
 

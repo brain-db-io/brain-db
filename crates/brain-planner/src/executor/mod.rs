@@ -15,12 +15,13 @@ pub mod writer;
 
 pub use context::{ExecutorContext, PendingMemorySnapshot, SharedMetadataDb, TxnSnapshot};
 pub use error::ExecError;
-pub use path::execute_path;
-pub use reason::execute_reason;
+pub use path::{execute_path, execute_path_stream};
+pub use reason::{execute_reason, execute_reason_stream};
 pub use recall::execute_recall;
 pub use result::{
-    EncodeResult, EvidenceItem, ForgetResult, Path, PathResult, PlanStatus, ReasonResult,
-    ReasonStatus, RecallHit, RecallResult,
+    EncodeResult, EvidenceItem, ForgetResult, InferenceStep, InferenceStream,
+    InferenceStreamTerminal, Path, PathFrame, PathResult, PathStream, PathStreamTerminal,
+    PlanStatus, ReasonResult, ReasonStatus, RecallHit, RecallResult,
 };
 pub use writer::{
     EdgeOutcome, EncodeOp, EncodeOpEdge, ForgetOp, ForgetOutcome, LinkOp, UnlinkOp, WriterError,

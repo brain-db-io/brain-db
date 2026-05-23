@@ -87,6 +87,38 @@ pub struct PathResult {
     pub status: PlanStatus,
 }
 
+/// One scored start-to-goal path, ready to be encoded as a single
+/// PLAN stream frame. The executor emits these in score-descending
+/// order — clients see the best path first and can stop polling once
+/// they have what they need.
+#[derive(Debug, Clone)]
+pub struct PathFrame {
+    /// Position in the emission order; first emitted path is 0. Mid-
+    /// stream paths share this with the `step_index` field on the
+    /// wire frame.
+    pub path_index: u32,
+    pub path: Path,
+}
+
+/// Closing summary emitted after every `PathFrame`. Carries the
+/// reason traversal stopped (goal reached, budget exhausted, no path
+/// found, timeout) and the total count of paths the stream produced.
+/// Maps onto the final PLAN wire frame (the one with `is_final = true`).
+#[derive(Debug, Clone, Copy)]
+pub struct PathStreamTerminal {
+    pub status: PlanStatus,
+    pub paths_emitted: u32,
+}
+
+/// Output of `execute_path_stream` — the per-path frames followed by
+/// the terminal summary. The handler walks `paths` to emit mid-stream
+/// frames and then writes a single terminal frame carrying `terminal`.
+#[derive(Debug, Clone)]
+pub struct PathStream {
+    pub paths: Vec<PathFrame>,
+    pub terminal: PathStreamTerminal,
+}
+
 /// One node-and-edge chain from a start memory to a goal memory.
 /// `edges[i]` is the edge that connects `nodes[i]` → `nodes[i + 1]`;
 /// `edge_weights[i]` is its weight (LINK default 1.0; arbitrary if
@@ -148,4 +180,44 @@ pub enum ReasonStatus {
     BudgetExhausted,
     DepthLimitReached,
     Cancelled,
+}
+
+/// One inference step emitted as REASON streams. In v1 the executor
+/// always produces exactly one step — the aggregate of all supporting
+/// + contradicting evidence — so the stream is length-1. The shape
+/// is kept multi-frame-ready: future iterations that walk supporting
+/// and contradicting passes independently can emit one step per
+/// pass without changing the framing.
+#[derive(Debug, Clone)]
+pub struct InferenceStep {
+    /// Position in the emission order; first emitted step is 0.
+    pub step_index: u32,
+    pub base_memories: Vec<MemoryId>,
+    pub supporting: Vec<EvidenceItem>,
+    pub contradicting: Vec<EvidenceItem>,
+    /// `(sum_s - sum_c) / (sum_s + sum_c)`; in `[-1, 1]`; `0` when
+    /// the denominator is zero.
+    pub confidence: f32,
+}
+
+/// Closing summary emitted after every `InferenceStep`. Maps onto the
+/// final REASON wire frame.
+#[derive(Debug, Clone, Copy)]
+pub struct InferenceStreamTerminal {
+    pub status: ReasonStatus,
+    /// Aggregate confidence across the whole stream. Equals the lone
+    /// step's confidence in v1; future multi-step iterations will
+    /// average / combine here.
+    pub confidence: f32,
+    pub steps_emitted: u32,
+}
+
+/// Output of `execute_reason_stream` — the inference-step frames
+/// followed by the terminal summary. The handler walks `steps` to
+/// emit mid-stream frames and writes a single terminal frame
+/// carrying `terminal`.
+#[derive(Debug, Clone)]
+pub struct InferenceStream {
+    pub steps: Vec<InferenceStep>,
+    pub terminal: InferenceStreamTerminal,
 }

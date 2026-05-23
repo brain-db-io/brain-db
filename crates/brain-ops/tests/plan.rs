@@ -18,7 +18,7 @@ use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::test_support::run_in_glommio;
-use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
+use brain_ops::{dispatch, DispatchOutcome, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_protocol::envelope::request::{
     EdgeKindWire, LinkRequest, PlanBudget, PlanRequest, PlanState, RequestBody,
@@ -154,10 +154,41 @@ fn plan_request(start: MemoryId, goal: MemoryId, max_depth: u32) -> PlanRequest 
     }
 }
 
-fn unwrap_plan_resp(body: ResponseBody) -> PlanResponseFrame {
-    match body {
-        ResponseBody::Plan(p) => p,
-        other => panic!("expected ResponseBody::Plan, got {other:?}"),
+/// Collapse the streamed PLAN frames into a single observation:
+/// concatenated steps from every mid-stream frame and the terminal
+/// frame's `plan_status` + `is_final`. Mirrors the v1 single-frame
+/// shape so the existing assertions read unchanged.
+fn collect_plan_outcome(outcome: DispatchOutcome) -> PlanResponseFrame {
+    let frames = unwrap_plan_stream(outcome);
+    let mut steps = Vec::new();
+    let mut terminal = None;
+    for f in frames {
+        if f.is_final {
+            terminal = Some(f);
+        } else {
+            steps.extend(f.steps);
+        }
+    }
+    let terminal = terminal.expect("PLAN stream must end with a terminal frame");
+    PlanResponseFrame {
+        steps,
+        is_final: terminal.is_final,
+        plan_status: terminal.plan_status,
+    }
+}
+
+fn unwrap_plan_stream(outcome: DispatchOutcome) -> Vec<PlanResponseFrame> {
+    match outcome {
+        DispatchOutcome::Stream(bodies) => bodies
+            .into_iter()
+            .map(|b| match b {
+                ResponseBody::Plan(p) => p,
+                other => panic!("expected ResponseBody::Plan in stream, got {other:?}"),
+            })
+            .collect(),
+        DispatchOutcome::Single(other) => {
+            panic!("expected DispatchOutcome::Stream of Plan frames, got Single({other:?})")
+        }
     }
 }
 
@@ -170,7 +201,7 @@ fn plan_full_pipeline_returns_path() {
     run_in_glommio(|| async {
         let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1), (1, EdgeKind::FollowedBy, 2)]).await;
         let req = plan_request(fix.ids[0], fix.ids[2], 4);
-        let frame = unwrap_plan_resp(
+        let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -201,7 +232,7 @@ fn plan_no_path_returns_no_path_status() {
     run_in_glommio(|| async {
         let fix = build_fixture(3, &[(0, EdgeKind::Caused, 1)]).await;
         let req = plan_request(fix.ids[0], fix.ids[2], 4);
-        let frame = unwrap_plan_resp(
+        let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -224,7 +255,7 @@ fn plan_step_transitions_map_correctly() {
     run_in_glommio(|| async {
         let fix = build_fixture(2, &[(0, EdgeKind::Caused, 1)]).await;
         let req = plan_request(fix.ids[0], fix.ids[1], 2);
-        let frame = unwrap_plan_resp(
+        let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -274,7 +305,7 @@ fn plan_by_memory_id_skips_recall() {
         // Plan with ByMemoryId on both endpoints; even though the
         // dispatcher is a no-op, the executor should not need to embed.
         let req = plan_request(fix.ids[0], fix.ids[1], 2);
-        let frame = unwrap_plan_resp(
+        let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
                 brain_ops::RequestCaller::anonymous(),

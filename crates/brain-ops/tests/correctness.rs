@@ -20,7 +20,7 @@ use brain_metadata::tables::edge::list_memory_edges_from;
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::test_support::run_in_glommio;
-use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
+use brain_ops::{dispatch, DispatchOutcome, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_protocol::envelope::request::{
     EdgeKindWire, EncodeRequest, ForgetMode, ForgetRequest, LinkRequest, MemoryKindWire,
@@ -114,16 +114,84 @@ mod common {
     }
 
     pub(super) async fn encode_with(fix: &Fixture, req: EncodeRequest) -> u128 {
-        match dispatch(
-            RequestBody::Encode(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .unwrap()
-        {
+        match single_body(
+            dispatch(
+                RequestBody::Encode(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        ) {
             ResponseBody::Encode(EncodeResponse { memory_id, .. }) => memory_id,
             other => panic!("expected Encode, got {other:?}"),
+        }
+    }
+
+    /// Unwrap a non-streaming dispatch outcome. Helper kept short so
+    /// every test that follows reads `match single_body(...) { ... }`.
+    /// Streaming ops (PLAN / REASON) collect their per-frame projections
+    /// via `collect_plan_stream` / `collect_reason_stream` below.
+    pub(super) fn single_body(outcome: DispatchOutcome) -> ResponseBody {
+        match outcome {
+            DispatchOutcome::Single(b) => b,
+            DispatchOutcome::Stream(_) => {
+                panic!("expected DispatchOutcome::Single, got Stream")
+            }
+        }
+    }
+
+    /// Collapse the PLAN-stream `DispatchOutcome` into the same shape
+    /// the pre-streaming tests inspected (concatenated steps + the
+    /// terminal frame's status + EOS flag).
+    pub(super) fn collect_plan_stream(outcome: DispatchOutcome) -> PlanResponseFrame {
+        let mut steps = Vec::new();
+        let mut terminal: Option<PlanResponseFrame> = None;
+        match outcome {
+            DispatchOutcome::Stream(bodies) => {
+                for b in bodies {
+                    match b {
+                        ResponseBody::Plan(f) if f.is_final => terminal = Some(f),
+                        ResponseBody::Plan(f) => steps.extend(f.steps),
+                        other => panic!("expected Plan frame, got {other:?}"),
+                    }
+                }
+            }
+            DispatchOutcome::Single(other) => {
+                panic!("expected DispatchOutcome::Stream of Plan, got Single({other:?})")
+            }
+        }
+        let t = terminal.expect("PLAN stream must end with a terminal frame");
+        PlanResponseFrame {
+            steps,
+            is_final: t.is_final,
+            plan_status: t.plan_status,
+        }
+    }
+
+    /// REASON-stream collapse helper. See [`collect_plan_stream`].
+    pub(super) fn collect_reason_stream(outcome: DispatchOutcome) -> ReasonResponseFrame {
+        let mut inferences = Vec::new();
+        let mut terminal: Option<ReasonResponseFrame> = None;
+        match outcome {
+            DispatchOutcome::Stream(bodies) => {
+                for b in bodies {
+                    match b {
+                        ResponseBody::Reason(f) if f.is_final => terminal = Some(f),
+                        ResponseBody::Reason(f) => inferences.extend(f.inferences),
+                        other => panic!("expected Reason frame, got {other:?}"),
+                    }
+                }
+            }
+            DispatchOutcome::Single(other) => {
+                panic!("expected DispatchOutcome::Stream of Reason, got Single({other:?})")
+            }
+        }
+        let t = terminal.expect("REASON stream must end with a terminal frame");
+        ReasonResponseFrame {
+            inferences,
+            is_final: t.is_final,
+            reason_status: t.reason_status,
         }
     }
 
@@ -150,14 +218,15 @@ mod common {
             txn_id: None,
             rerank: false,
         };
-        match dispatch(
-            RequestBody::Recall(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .unwrap()
-        {
+        match single_body(
+            dispatch(
+                RequestBody::Recall(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        ) {
             ResponseBody::Recall(f) => f,
             other => panic!("expected Recall, got {other:?}"),
         }
@@ -170,14 +239,15 @@ mod common {
             request_id: rid,
             txn_id: None,
         };
-        match dispatch(
-            RequestBody::Forget(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .unwrap()
-        {
+        match single_body(
+            dispatch(
+                RequestBody::Forget(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        ) {
             ResponseBody::Forget(r) => r,
             other => panic!("expected Forget, got {other:?}"),
         }
@@ -198,14 +268,15 @@ mod common {
             request_id: rid,
             txn_id: None,
         };
-        match dispatch(
-            RequestBody::Link(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .unwrap()
-        {
+        match single_body(
+            dispatch(
+                RequestBody::Link(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        ) {
             ResponseBody::Link(l) => l,
             other => panic!("expected Link, got {other:?}"),
         }
@@ -225,14 +296,15 @@ mod common {
             request_id: rid,
             txn_id: None,
         };
-        match dispatch(
-            RequestBody::Unlink(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
-        )
-        .await
-        .unwrap()
-        {
+        match single_body(
+            dispatch(
+                RequestBody::Unlink(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
+        ) {
             ResponseBody::Unlink(u) => u,
             other => panic!("expected Unlink, got {other:?}"),
         }
@@ -257,17 +329,15 @@ mod common {
             request_id: None,
             txn_id: None,
         };
-        match dispatch(
-            RequestBody::Plan(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
+        collect_plan_stream(
+            dispatch(
+                RequestBody::Plan(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
         )
-        .await
-        .unwrap()
-        {
-            ResponseBody::Plan(p) => p,
-            other => panic!("expected Plan, got {other:?}"),
-        }
     }
 
     pub(super) async fn reason_by_id(fix: &Fixture, base: u128, depth: u32) -> ReasonResponseFrame {
@@ -281,17 +351,15 @@ mod common {
             request_id: None,
             txn_id: None,
         };
-        match dispatch(
-            RequestBody::Reason(req),
-            brain_ops::RequestCaller::anonymous(),
-            &fix.ctx,
+        collect_reason_stream(
+            dispatch(
+                RequestBody::Reason(req),
+                brain_ops::RequestCaller::anonymous(),
+                &fix.ctx,
+            )
+            .await
+            .unwrap(),
         )
-        .await
-        .unwrap()
-        {
-            ResponseBody::Reason(r) => r,
-            other => panic!("expected Reason, got {other:?}"),
-        }
     }
 
     /// Insert a memory row directly so callers can pin a known

@@ -30,10 +30,43 @@ use crate::vsa::{cosine_to_centroid, semantic_centroid};
 
 use super::context::ExecutorContext;
 use super::error::ExecError;
-use super::result::{Path, PathResult, PlanStatus};
+use super::result::{Path, PathFrame, PathResult, PathStream, PathStreamTerminal, PlanStatus};
 
 const ENDPOINT_RECALL_K: usize = 5;
 const ENDPOINT_RECALL_EF: usize = 32;
+
+/// Score every candidate path produced by the bi-BFS, then emit them
+/// one frame at a time in score-descending order followed by a
+/// terminal summary. This is the streaming entrypoint the wire
+/// handler drives; `execute_path` is the aggregate convenience.
+///
+/// Truncation to `scoring.top_n` still applies — the stream caps at
+/// that count regardless of how many meeting points the BFS found.
+pub async fn execute_path_stream(
+    plan: PathPlan,
+    ctx: &ExecutorContext,
+) -> Result<PathStream, ExecError> {
+    let top_n = plan.scoring.top_n.max(1);
+    let result = execute_path(plan, ctx).await?;
+    let paths_emitted = u32::try_from(result.paths.len().min(top_n)).unwrap_or(u32::MAX);
+    let frames: Vec<PathFrame> = result
+        .paths
+        .into_iter()
+        .take(top_n)
+        .enumerate()
+        .map(|(i, p)| PathFrame {
+            path_index: u32::try_from(i).unwrap_or(u32::MAX),
+            path: p,
+        })
+        .collect();
+    Ok(PathStream {
+        paths: frames,
+        terminal: PathStreamTerminal {
+            status: result.status,
+            paths_emitted,
+        },
+    })
+}
 
 pub async fn execute_path(plan: PathPlan, ctx: &ExecutorContext) -> Result<PathResult, ExecError> {
     // 1. Resolve endpoints. ByMemoryId is direct; ByText runs a

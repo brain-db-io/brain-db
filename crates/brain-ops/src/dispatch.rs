@@ -138,11 +138,41 @@ impl RequestCaller {
     }
 }
 
+/// Result of dispatching a single wire request.
+///
+/// `Single` carries the one response body for ops that finish in a
+/// single frame (every op outside PLAN / REASON today). `Stream` carries
+/// the ordered sequence of response bodies an op chose to emit — each
+/// becomes one wire frame, with the last one tagged `is_final = true`
+/// on both the body and the frame header. Callers iterate the Vec when
+/// turning the outcome into wire frames; the connection layer is the
+/// only place that distinguishes them.
+#[derive(Debug, Clone)]
+pub enum DispatchOutcome {
+    Single(ResponseBody),
+    Stream(Vec<ResponseBody>),
+}
+
+impl DispatchOutcome {
+    /// True iff this is a streaming op that may emit multiple frames.
+    #[must_use]
+    pub fn is_stream(&self) -> bool {
+        matches!(self, DispatchOutcome::Stream(_))
+    }
+
+    /// Convenience for handlers that always produce one frame today.
+    /// Keeps every non-streaming op arm at one line.
+    #[inline]
+    pub fn single(body: ResponseBody) -> Self {
+        DispatchOutcome::Single(body)
+    }
+}
+
 pub async fn dispatch(
     req: RequestBody,
     caller: RequestCaller,
     ctx: &OpsContext,
-) -> Result<ResponseBody, OpError> {
+) -> Result<DispatchOutcome, OpError> {
     // First gate: every op carries a required-permission tag. In
     // permissive mode `caller.allows()` is unconditionally true so the
     // check is a no-op; in strict mode an API key without the bit
@@ -169,6 +199,8 @@ pub async fn dispatch(
         Some(owned)
     };
     let ctx = per_request_ctx.as_ref().unwrap_or(ctx);
+    // Shorthand: one frame, wrap into DispatchOutcome::Single.
+    let single = DispatchOutcome::Single;
     match req {
         // -----------------------------------------------------------
         // Cognitive primitives — real handlers land in 7.3-7.7.
@@ -179,34 +211,40 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         RequestBody::Encode(r) => crate::encode::handle_encode(r, ctx)
             .await
-            .map(ResponseBody::Encode),
+            .map(|b| single(ResponseBody::Encode(b))),
 
         RequestBody::Recall(r) => crate::recall::handle_recall(r, ctx)
             .await
-            .map(ResponseBody::Recall),
+            .map(|b| single(ResponseBody::Recall(b))),
 
-        RequestBody::Plan(r) => crate::plan::handle_plan(r, ctx)
-            .await
-            .map(ResponseBody::Plan),
+        // PLAN streams one frame per scored path plus a terminal frame
+        // carrying the aggregate status. The connection layer writes
+        // each frame to the wire; only the last carries the EOS flag.
+        RequestBody::Plan(r) => crate::plan::handle_plan(r, ctx).await.map(|frames| {
+            DispatchOutcome::Stream(frames.into_iter().map(ResponseBody::Plan).collect())
+        }),
 
-        RequestBody::Reason(r) => crate::reason::handle_reason(r, ctx)
-            .await
-            .map(ResponseBody::Reason),
+        // REASON streams one frame per inference step plus a terminal.
+        // v1 always produces a length-1 step stream; the framing is
+        // multi-frame-ready for future passes.
+        RequestBody::Reason(r) => crate::reason::handle_reason(r, ctx).await.map(|frames| {
+            DispatchOutcome::Stream(frames.into_iter().map(ResponseBody::Reason).collect())
+        }),
 
         RequestBody::Forget(r) => crate::forget::handle_forget(r, ctx)
             .await
-            .map(ResponseBody::Forget),
+            .map(|b| single(ResponseBody::Forget(b))),
 
         // -----------------------------------------------------------
         // LINK / UNLINK — 7.8.
         // -----------------------------------------------------------
         RequestBody::Link(r) => crate::link::handle_link(r, ctx)
             .await
-            .map(ResponseBody::Link),
+            .map(|b| single(ResponseBody::Link(b))),
 
         RequestBody::Unlink(r) => crate::link::handle_unlink(r, ctx)
             .await
-            .map(ResponseBody::Unlink),
+            .map(|b| single(ResponseBody::Unlink(b))),
 
         // -----------------------------------------------------------
         // Streaming — 7.10. First-event shape only; subsequent
@@ -214,26 +252,26 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         RequestBody::Subscribe(r) => crate::subscribe::handle_subscribe(r, ctx)
             .await
-            .map(ResponseBody::SubscribeEvent),
+            .map(|b| single(ResponseBody::SubscribeEvent(b))),
 
         RequestBody::Unsubscribe(r) => crate::subscribe::handle_unsubscribe(r, ctx)
             .await
-            .map(ResponseBody::Unsubscribe),
+            .map(|b| single(ResponseBody::Unsubscribe(b))),
 
         // -----------------------------------------------------------
         // Transactions — 7.9.
         // -----------------------------------------------------------
         RequestBody::TxnBegin(r) => crate::txn::handle_txn_begin(r, ctx)
             .await
-            .map(ResponseBody::TxnBegin),
+            .map(|b| single(ResponseBody::TxnBegin(b))),
 
         RequestBody::TxnCommit(r) => crate::txn::handle_txn_commit(r, ctx)
             .await
-            .map(ResponseBody::TxnCommit),
+            .map(|b| single(ResponseBody::TxnCommit(b))),
 
         RequestBody::TxnAbort(r) => crate::txn::handle_txn_abort(r, ctx)
             .await
-            .map(ResponseBody::TxnAbort),
+            .map(|b| single(ResponseBody::TxnAbort(b))),
 
         // -----------------------------------------------------------
         // Connection lifecycle — brain-server (Phase 9) owns these.
@@ -268,156 +306,156 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         RequestBody::EntityCreate(r) => crate::handlers::entity::handle_entity_create(r, ctx)
             .await
-            .map(ResponseBody::EntityCreate),
+            .map(|b| single(ResponseBody::EntityCreate(b))),
 
         RequestBody::EntityGet(r) => crate::handlers::entity::handle_entity_get(r, ctx)
             .await
-            .map(ResponseBody::EntityGet),
+            .map(|b| single(ResponseBody::EntityGet(b))),
 
         RequestBody::EntityUpdate(r) => crate::handlers::entity::handle_entity_update(r, ctx)
             .await
-            .map(ResponseBody::EntityUpdate),
+            .map(|b| single(ResponseBody::EntityUpdate(b))),
 
         RequestBody::EntityRename(r) => crate::handlers::entity::handle_entity_rename(r, ctx)
             .await
-            .map(ResponseBody::EntityRename),
+            .map(|b| single(ResponseBody::EntityRename(b))),
 
         RequestBody::EntityMerge(r) => crate::handlers::entity::handle_entity_merge(r, ctx)
             .await
-            .map(ResponseBody::EntityMerge),
+            .map(|b| single(ResponseBody::EntityMerge(b))),
 
         RequestBody::EntityUnmerge(r) => crate::handlers::entity::handle_entity_unmerge(r, ctx)
             .await
-            .map(ResponseBody::EntityUnmerge),
+            .map(|b| single(ResponseBody::EntityUnmerge(b))),
 
         RequestBody::EntityResolve(r) => crate::handlers::entity::handle_entity_resolve(r, ctx)
             .await
-            .map(ResponseBody::EntityResolve),
+            .map(|b| single(ResponseBody::EntityResolve(b))),
 
         RequestBody::EntityList(r) => crate::handlers::entity::handle_entity_list(r, ctx)
             .await
-            .map(ResponseBody::EntityList),
+            .map(|b| single(ResponseBody::EntityList(b))),
 
         RequestBody::EntityTombstone(r) => crate::handlers::entity::handle_entity_tombstone(r, ctx)
             .await
-            .map(ResponseBody::EntityTombstone),
+            .map(|b| single(ResponseBody::EntityTombstone(b))),
 
         // Statement ops — phase 17.7.
         RequestBody::StatementCreate(r) => {
             crate::handlers::statement::handle_statement_create(r, ctx)
                 .await
-                .map(ResponseBody::StatementCreate)
+                .map(|b| single(ResponseBody::StatementCreate(b)))
         }
         RequestBody::StatementGet(r) => crate::handlers::statement::handle_statement_get(r, ctx)
             .await
-            .map(ResponseBody::StatementGet),
+            .map(|b| single(ResponseBody::StatementGet(b))),
         RequestBody::StatementSupersede(r) => {
             crate::handlers::statement::handle_statement_supersede(r, ctx)
                 .await
-                .map(ResponseBody::StatementSupersede)
+                .map(|b| single(ResponseBody::StatementSupersede(b)))
         }
         RequestBody::StatementTombstone(r) => {
             crate::handlers::statement::handle_statement_tombstone(r, ctx)
                 .await
-                .map(ResponseBody::StatementTombstone)
+                .map(|b| single(ResponseBody::StatementTombstone(b)))
         }
         RequestBody::StatementRetract(r) => {
             crate::handlers::statement::handle_statement_retract(r, ctx)
                 .await
-                .map(ResponseBody::StatementRetract)
+                .map(|b| single(ResponseBody::StatementRetract(b)))
         }
         RequestBody::StatementHistory(r) => {
             crate::handlers::statement::handle_statement_history(r, ctx)
                 .await
-                .map(ResponseBody::StatementHistory)
+                .map(|b| single(ResponseBody::StatementHistory(b)))
         }
         RequestBody::StatementList(r) => crate::handlers::statement::handle_statement_list(r, ctx)
             .await
-            .map(ResponseBody::StatementList),
+            .map(|b| single(ResponseBody::StatementList(b))),
 
         // Relation ops — phase 18.7.
         RequestBody::RelationCreate(r) => crate::handlers::relation::handle_relation_create(r, ctx)
             .await
-            .map(ResponseBody::RelationCreate),
+            .map(|b| single(ResponseBody::RelationCreate(b))),
         RequestBody::RelationGet(r) => crate::handlers::relation::handle_relation_get(r, ctx)
             .await
-            .map(ResponseBody::RelationGet),
+            .map(|b| single(ResponseBody::RelationGet(b))),
         RequestBody::RelationSupersede(r) => {
             crate::handlers::relation::handle_relation_supersede(r, ctx)
                 .await
-                .map(ResponseBody::RelationSupersede)
+                .map(|b| single(ResponseBody::RelationSupersede(b)))
         }
         RequestBody::RelationTombstone(r) => {
             crate::handlers::relation::handle_relation_tombstone(r, ctx)
                 .await
-                .map(ResponseBody::RelationTombstone)
+                .map(|b| single(ResponseBody::RelationTombstone(b)))
         }
         RequestBody::RelationListFrom(r) => {
             crate::handlers::relation::handle_relation_list_from(r, ctx)
                 .await
-                .map(ResponseBody::RelationListFrom)
+                .map(|b| single(ResponseBody::RelationListFrom(b)))
         }
         RequestBody::RelationListTo(r) => {
             crate::handlers::relation::handle_relation_list_to(r, ctx)
                 .await
-                .map(ResponseBody::RelationListTo)
+                .map(|b| single(ResponseBody::RelationListTo(b)))
         }
         RequestBody::RelationTraverse(r) => {
             crate::handlers::relation::handle_relation_traverse(r, ctx)
                 .await
-                .map(ResponseBody::RelationTraverse)
+                .map(|b| single(ResponseBody::RelationTraverse(b)))
         }
 
         // Schema ops — phase 19.6.
         RequestBody::SchemaUpload(r) => crate::handlers::schema::handle_schema_upload(r, ctx)
             .await
-            .map(ResponseBody::SchemaUpload),
+            .map(|b| single(ResponseBody::SchemaUpload(b))),
         RequestBody::SchemaGet(r) => crate::handlers::schema::handle_schema_get(r, ctx)
             .await
-            .map(ResponseBody::SchemaGet),
+            .map(|b| single(ResponseBody::SchemaGet(b))),
         RequestBody::SchemaList(r) => crate::handlers::schema::handle_schema_list(r, ctx)
             .await
-            .map(ResponseBody::SchemaList),
+            .map(|b| single(ResponseBody::SchemaList(b))),
         RequestBody::SchemaValidate(r) => crate::handlers::schema::handle_schema_validate(r, ctx)
             .await
-            .map(ResponseBody::SchemaValidate),
+            .map(|b| single(ResponseBody::SchemaValidate(b))),
 
         // Extractor governance ops — phase 20.8-§7.
         RequestBody::ExtractorList(r) => {
             crate::handlers::extractor_admin::handle_extractor_list(r, ctx)
                 .await
-                .map(ResponseBody::ExtractorList)
+                .map(|b| single(ResponseBody::ExtractorList(b)))
         }
         RequestBody::ExtractorDisable(r) => {
             crate::handlers::extractor_admin::handle_extractor_disable(r, ctx)
                 .await
-                .map(ResponseBody::ExtractorDisable)
+                .map(|b| single(ResponseBody::ExtractorDisable(b)))
         }
         RequestBody::ExtractorEnable(r) => {
             crate::handlers::extractor_admin::handle_extractor_enable(r, ctx)
                 .await
-                .map(ResponseBody::ExtractorEnable)
+                .map(|b| single(ResponseBody::ExtractorEnable(b)))
         }
 
         // Hybrid query ops — phase 23.9.
         RequestBody::Query(r) => crate::query::handle_query(r, ctx)
             .await
-            .map(ResponseBody::Query),
+            .map(|b| single(ResponseBody::Query(b))),
         RequestBody::QueryExplain(r) => crate::query::handle_query_explain(r, ctx)
             .await
-            .map(ResponseBody::QueryExplain),
+            .map(|b| single(ResponseBody::QueryExplain(b))),
         RequestBody::QueryTrace(r) => crate::query::handle_query_trace(r, ctx)
             .await
-            .map(ResponseBody::QueryTrace),
+            .map(|b| single(ResponseBody::QueryTrace(b))),
         RequestBody::RecallHybrid(r) => crate::query::handle_recall_hybrid(r, ctx)
             .await
-            .map(ResponseBody::RecallHybrid),
+            .map(|b| single(ResponseBody::RecallHybrid(b))),
 
         // Procedural-memory materialization (W3.1, wire v2).
         RequestBody::MaterializeProcedural(r) => {
             crate::handlers::procedural::handle_materialize_procedural(r, ctx)
                 .await
-                .map(ResponseBody::MaterializeProcedural)
+                .map(|b| single(ResponseBody::MaterializeProcedural(b)))
         }
     }
 }

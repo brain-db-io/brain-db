@@ -1,12 +1,20 @@
-//! PLAN handler (sub-task 7.5).
+//! PLAN handler.
 //!
-//! Wires the planner (6.5) + the new BFS executor (7.5) through the
-//! dispatcher and maps `PathResult` into the wire `PlanResponseFrame`.
-//! Single-frame for v1: the wire carries one linear path; multi-path
-//! streaming is Phase 9 server work.
+//! Wires the planner + the bi-BFS path executor through the
+//! dispatcher and projects a `PathStream` (the executor's per-path
+//! frames plus a terminal summary) into a sequence of wire
+//! `PlanResponseFrame`s.
+//!
+//! One mid-stream frame per scored path (top-N after sort + truncate)
+//! followed by a single terminal frame carrying the `plan_status`. The
+//! terminal frame has `is_final = true`; mid-stream frames have
+//! `is_final = false` and `plan_status = None`. An empty path stream
+//! (no path found, base set empty, etc.) is surfaced as a single
+//! terminal frame — clients still see exactly one final frame
+//! regardless of how much the executor produced.
 
 use brain_core::EdgeKind;
-use brain_planner::{execute_path, plan_path_inner, Path, PlanStatus};
+use brain_planner::{execute_path_stream, plan_path_inner, Path, PathFrame, PlanStatus};
 use brain_protocol::envelope::request::PlanRequest;
 use brain_protocol::envelope::response::{
     PlanResponseFrame, PlanStatus as WirePlanStatus, PlanStep, TransitionKind,
@@ -16,23 +24,35 @@ use crate::context::OpsContext;
 use crate::error::OpError;
 use crate::state::txn_lens::build_executor_with_lens;
 
-pub async fn handle_plan(req: PlanRequest, ctx: &OpsContext) -> Result<PlanResponseFrame, OpError> {
+pub async fn handle_plan(
+    req: PlanRequest,
+    ctx: &OpsContext,
+) -> Result<Vec<PlanResponseFrame>, OpError> {
     let plan = plan_path_inner(&req, &ctx.planner_ctx)?;
     let exec_ctx = build_executor_with_lens(ctx, req.txn_id)?;
-    let result = execute_path(plan, &exec_ctx).await?;
+    let stream = execute_path_stream(plan, &exec_ctx).await?;
 
-    let wire_status = to_wire_status(result.status);
-
-    let steps = match result.paths.first() {
-        Some(p) => path_to_steps(p),
-        None => Vec::new(),
-    };
-
-    Ok(PlanResponseFrame {
-        steps,
+    let mut frames: Vec<PlanResponseFrame> = Vec::with_capacity(stream.paths.len() + 1);
+    for path_frame in stream.paths {
+        frames.push(path_frame_to_wire(path_frame));
+    }
+    // Terminal frame — always emitted, regardless of how many paths
+    // the stream produced. Carries the aggregate status and marks
+    // end-of-stream.
+    frames.push(PlanResponseFrame {
+        steps: Vec::new(),
         is_final: true,
-        plan_status: Some(wire_status),
-    })
+        plan_status: Some(to_wire_status(stream.terminal.status)),
+    });
+    Ok(frames)
+}
+
+fn path_frame_to_wire(frame: PathFrame) -> PlanResponseFrame {
+    PlanResponseFrame {
+        steps: path_to_steps(&frame.path),
+        is_final: false,
+        plan_status: None,
+    }
 }
 
 fn to_wire_status(s: PlanStatus) -> WirePlanStatus {
@@ -40,9 +60,8 @@ fn to_wire_status(s: PlanStatus) -> WirePlanStatus {
         PlanStatus::GoalReached => WirePlanStatus::GoalReached,
         PlanStatus::BudgetExhausted => WirePlanStatus::BudgetExhausted,
         PlanStatus::NoPathFound => WirePlanStatus::NoPathFound,
-        // The wire enum has no `Timeout` variant
-        // calls a wall-time stop a partial result. Surface it as
-        // BudgetExhausted for now; a future wire revision can add
+        // The wire enum has no `Timeout` variant — surface a wall-time
+        // stop as BudgetExhausted. A future wire revision can add
         // the variant.
         PlanStatus::Timeout => WirePlanStatus::BudgetExhausted,
     }

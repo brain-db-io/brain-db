@@ -119,7 +119,7 @@ pub(crate) enum ShardRequest {
     DispatchOp {
         req: Box<RequestBody>,
         caller: brain_ops::RequestCaller,
-        reply_tx: Sender<Result<ResponseBody, OpError>>,
+        reply_tx: Sender<Result<brain_ops::DispatchOutcome, OpError>>,
     },
     /// Append a pre-built record to the WAL. Returns the durable LSN.
     /// Stub op for 9.6 — 9.7's `RealWriterHandle` wraps the real
@@ -842,7 +842,7 @@ impl ShardHandle {
         &self,
         req: RequestBody,
         caller: brain_ops::RequestCaller,
-    ) -> Result<ResponseBody, DispatchError> {
+    ) -> Result<brain_ops::DispatchOutcome, DispatchError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
             .send_async(ShardRequest::DispatchOp {

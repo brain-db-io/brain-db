@@ -36,9 +36,50 @@ use crate::vsa::{cosine_to_centroid, semantic_centroid};
 
 use super::context::ExecutorContext;
 use super::error::ExecError;
-use super::result::{EvidenceItem, ReasonResult, ReasonStatus};
+use super::result::{
+    EvidenceItem, InferenceStep, InferenceStream, InferenceStreamTerminal, ReasonResult,
+    ReasonStatus,
+};
 
 const BASE_RECALL_EF: usize = 32;
+
+/// Run the evidence-traversal executor and project its result into a
+/// stream of `InferenceStep` frames followed by a terminal summary.
+///
+/// **Honest scope (v1):** the algorithm aggregates supporting +
+/// contradicting evidence into a single inference step — one (claim,
+/// supporting, contradicting, confidence) tuple per ReasonRequest.
+/// The stream therefore always has length 1 (or 0 when the base set
+/// is empty); the multi-frame framing is in place so future passes
+/// that split walks per traversal can emit a step per pass without
+/// changing the wire contract.
+pub async fn execute_reason_stream(
+    plan: ReasonPlan,
+    ctx: &ExecutorContext,
+) -> Result<InferenceStream, ExecError> {
+    let result = execute_reason(plan, ctx).await?;
+    let confidence = result.confidence;
+    let status = result.status;
+    let mut steps: Vec<InferenceStep> = Vec::new();
+    if !result.base_memories.is_empty() {
+        steps.push(InferenceStep {
+            step_index: 0,
+            base_memories: result.base_memories,
+            supporting: result.supporting,
+            contradicting: result.contradicting,
+            confidence,
+        });
+    }
+    let steps_emitted = u32::try_from(steps.len()).unwrap_or(u32::MAX);
+    Ok(InferenceStream {
+        steps,
+        terminal: InferenceStreamTerminal {
+            status,
+            confidence,
+            steps_emitted,
+        },
+    })
+}
 
 pub async fn execute_reason(
     plan: ReasonPlan,

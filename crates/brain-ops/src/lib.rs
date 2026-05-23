@@ -47,7 +47,7 @@ pub use handlers::{
 
 pub use brain_planner::PlannerContext;
 pub use context::OpsContext;
-pub use dispatch::{dispatch, RequestCaller};
+pub use dispatch::{dispatch, DispatchOutcome, RequestCaller};
 pub use error::{ErrorCode, OpError};
 pub use handlers::subscribe::{
     parse_filter, EventBus, EventEnvelope, LsnAllocator, ParsedFilter, SubscriptionHandle,

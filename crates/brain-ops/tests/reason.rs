@@ -9,7 +9,7 @@ use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::test_support::run_in_glommio;
-use brain_ops::{dispatch, ErrorCode, OpError, OpsContext, RealWriterHandle};
+use brain_ops::{dispatch, DispatchOutcome, ErrorCode, OpError, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_protocol::envelope::request::{
     EdgeKindWire, LinkRequest, ObservationInput, ReasonRequest, RequestBody,
@@ -137,10 +137,41 @@ fn reason_req(observation: ObservationInput, depth: u32, max_inferences: u32) ->
     }
 }
 
-fn unwrap_reason(body: ResponseBody) -> ReasonResponseFrame {
-    match body {
-        ResponseBody::Reason(r) => r,
-        other => panic!("expected ResponseBody::Reason, got {other:?}"),
+/// Collapse the streamed REASON frames into a single observation:
+/// concatenated inference steps from every mid-stream frame and the
+/// terminal frame's `reason_status` + `is_final`. Mirrors the v1
+/// single-frame shape so existing assertions read unchanged.
+fn collect_reason_outcome(outcome: DispatchOutcome) -> ReasonResponseFrame {
+    let frames = unwrap_reason_stream(outcome);
+    let mut inferences = Vec::new();
+    let mut terminal = None;
+    for f in frames {
+        if f.is_final {
+            terminal = Some(f);
+        } else {
+            inferences.extend(f.inferences);
+        }
+    }
+    let terminal = terminal.expect("REASON stream must end with a terminal frame");
+    ReasonResponseFrame {
+        inferences,
+        is_final: terminal.is_final,
+        reason_status: terminal.reason_status,
+    }
+}
+
+fn unwrap_reason_stream(outcome: DispatchOutcome) -> Vec<ReasonResponseFrame> {
+    match outcome {
+        DispatchOutcome::Stream(bodies) => bodies
+            .into_iter()
+            .map(|b| match b {
+                ResponseBody::Reason(r) => r,
+                other => panic!("expected ResponseBody::Reason in stream, got {other:?}"),
+            })
+            .collect(),
+        DispatchOutcome::Single(other) => {
+            panic!("expected DispatchOutcome::Stream of Reason frames, got Single({other:?})")
+        }
     }
 }
 
@@ -161,7 +192,7 @@ fn reason_full_pipeline_emits_one_inference() {
         )
         .await;
         let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
-        let frame = unwrap_reason(
+        let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -195,7 +226,7 @@ fn reason_isolated_base_returns_only_self() {
     run_in_glommio(|| async {
         let fix = build_fixture(1, &[]).await;
         let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
-        let frame = unwrap_reason(
+        let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -246,7 +277,7 @@ fn reason_kind_categorisation_uses_evidence_accumulation() {
     run_in_glommio(|| async {
         let fix = build_fixture(2, &[(0, EdgeKind::Supports, 1)]).await;
         let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 2, 10);
-        let frame = unwrap_reason(
+        let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
                 brain_ops::RequestCaller::anonymous(),
@@ -271,7 +302,7 @@ fn reason_by_text_preserves_claim() {
     run_in_glommio(|| async {
         let fix = build_fixture(1, &[]).await;
         let req = reason_req(ObservationInput::ByText("is the sky blue?".into()), 2, 5);
-        let frame = unwrap_reason(
+        let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
                 brain_ops::RequestCaller::anonymous(),
