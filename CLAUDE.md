@@ -22,7 +22,7 @@ We are **building the implementation**. The design is already done.
 
 ## 2. Single source of truth
 
-The `spec/` directory is **authoritative**. 25 specification sections (§00–§24), unified after the May 2026 consolidation. Substrate concerns (memory/WAL/HNSW/wire/workers) and knowledge-layer concerns (entities, statements, relations, extractors, hybrid retrieval) live side-by-side inside each section rather than being split into separate top-level groups: knowledge-layer wire opcodes live in §03, knowledge-layer workers in §11, knowledge-layer storage in §07, hybrid query in §23. Knowledge-layer features activate when a schema is declared via `SCHEMA_UPLOAD`.
+The `spec/` directory is **authoritative**. 20 specification sections (§00–§19), unified after the May 2026 consolidation and tightened by the §00..§19 hygiene sweep. Each section bundles all concerns at its layer: memory-record handling, WAL, HNSW, wire frames, workers, schema, extractors, retrievers, and metadata live in the section appropriate to their layer (e.g., wire opcodes in §04, workers in §15, storage in §08, metadata in §10, retrieval in §13). The typed-graph capabilities (typed-entity wire ops, statement/relation graph, hybrid retrieval, extractor pipeline) activate when a schema is declared via `SCHEMA_UPLOAD`; otherwise Brain runs in schemaless mode (memory-only).
 
 - **The spec is read-only.** Don't edit it. Spec changes go through the user.
 - **The spec wins.** If code disagrees with spec, fix the code.
@@ -68,11 +68,11 @@ The `/next-task` slash command finds it for you.
 
 ## 4. Architecture in one paragraph
 
-Linux server. Connection layer (Tokio) accepts TCP; each request dispatches to one of N **shards**. Each shard runs a **Glommio** executor (thread-per-core, io_uring) and owns its data: a memory-mapped **arena** for vectors, a **WAL** with O_DIRECT + `pwritev2(RWF_DSYNC)` group commit, a **redb** B-tree for metadata, an **HNSW** index in RAM. **Single-writer-per-shard**: writes don't lock; reads use **ArcSwap** + **crossbeam-epoch**. Twelve **background workers** handle decay, consolidation, HNSW maintenance, GC, etc. The substrate **owns the embedding model** (BGE-small via candle, 384-dim); clients send text.
+Linux server. Connection layer (Tokio) accepts TCP; each request dispatches to one of N **shards**. Each shard runs a **Glommio** executor (thread-per-core, io_uring) and owns its data: a memory-mapped **arena** for vectors, a **WAL** with O_DIRECT + `pwritev2(RWF_DSYNC)` group commit, a **redb** B-tree for metadata, and one or more **HNSW** indexes in RAM. **Single-writer-per-shard**: writes don't lock; reads use **ArcSwap** + **crossbeam-epoch**. Per-shard background workers handle decay, consolidation, HNSW maintenance, idempotency sweep, slot reclamation, WAL retention, snapshot — and, when a schema is declared, pattern/classifier/LLM extraction, entity resolution, tantivy indexing, FORGET cascade, supersession sweep, schema migration, and entity GC. Brain **owns the embedding model** (BGE-small via candle, 384-dim); clients send text.
 
-**Knowledge layer (activates when a schema is declared):** the same shard additionally owns an **entity HNSW**, a **statement HNSW**, two **tantivy** indexes (memory text + statement text), and an **LLM extractor cache** (separate redb). Background workers run pattern → classifier → LLM extractors on ENCODE and write entities/statements/relations into knowledge-layer redb tables. The **query router** routes a structured query through three retrievers (semantic / lexical / graph) and fuses ranks via **RRF** (`k=60`), then applies filters (type / temporal / confidence). `RECALL` transparently uses the hybrid path when a schema is declared; clients see the same response shape with extra metadata.
+**Schema-declared mode (activates via `SCHEMA_UPLOAD`):** the same shard additionally owns an **entity HNSW** (M=16, ef_c=100, ef_s=64), a **statement HNSW** (M=32, ef_c=200, ef_s=128), two **tantivy** indexes (memory text + statement text), and an **LLM extractor cache** (separate redb). The pattern → classifier → LLM extractor pipeline runs on ENCODE and writes entities/statements/relations into typed-graph redb tables. The **query router** routes a structured query through three retrievers (semantic / lexical / graph) and fuses ranks via **RRF** (`k=60`), then applies filters (type / temporal / confidence / tombstone / supersession). `RECALL` transparently uses the hybrid path when a schema is declared; clients see the same response shape with extra metadata.
 
-> **Note on slot size:** the arena slot is 1600 bytes (1536 vector capacity + 64 metadata/padding) for forward compatibility with larger embedding models. BGE-small uses 384 dims = 1536 bytes; the rest is reserved. Confirm in spec/05/02 before laying out.
+> **Note on slot size:** the arena slot is 1600 bytes (1536 vector capacity + 64 metadata/padding) for forward compatibility with larger embedding models. BGE-small uses 384 dims = 1536 bytes; the rest is reserved. Confirm in `spec/08_storage/01_arena.md` before laying out.
 
 ## 5. Core invariants — DO NOT violate
 
@@ -116,7 +116,7 @@ Added without justification → reject.
 ## 7. Code conventions
 
 - **Edition:** Rust 2021. **MSRV:** stable, latest minus one.
-- **Errors:** `thiserror` for libs; `anyhow` for bins. Stable error taxonomy per spec §02/10 statement.
+- **Errors:** `thiserror` for libs; `anyhow` for bins. Stable error taxonomy per `spec/02_data_model/07_statement.md`.
 - **No `unwrap()` outside tests.** Use `expect("invariant: <reason>")` for unreachable.
 - **Public APIs:** rustdoc + at least one example for non-trivial.
 - **No `unsafe` outside `crates/brain-storage`.** That crate needs it for mmap. Every `unsafe` block: `// SAFETY:` comment, smallest scope.

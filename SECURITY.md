@@ -56,7 +56,7 @@ Threats we model:
   records).
 - Idempotency-key collisions (`RequestId` UUID v7; spec §02/03).
 - LLM prompt injection (extractor sandboxing per
-  [`spec/22_extractors/`](spec/22_extractors/) + cost budget
+  [`spec/11_extractors/`](spec/11_extractors/00_purpose.md) + cost budget
   caps).
 - Out-of-bounds resource use (per-shard quotas, group commit
   caps, bounded queues with overflow metrics).
