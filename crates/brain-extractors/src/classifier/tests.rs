@@ -20,8 +20,8 @@ use super::{
     simple_label, DEFAULT_GLINER_THRESHOLD, DEFAULT_MAX_SEQ_LEN, NER_MODEL_DIR_NAME,
     NER_MODEL_PATH_ENV, NER_MODEL_REQUIRED_FILES,
 };
-use crate::framework::extractor::{Extractor, ExtractorError};
 use crate::framework::extractor::ExtractionContext;
+use crate::framework::extractor::{Extractor, ExtractorError};
 use crate::framework::item::ExtractedItem;
 use crate::framework::registry::ExtractorRegistry;
 
@@ -166,11 +166,7 @@ impl LabelCaptureModel {
 }
 
 impl ClassifierModel for LabelCaptureModel {
-    fn predict(
-        &self,
-        _text: &str,
-        labels: &[&str],
-    ) -> Result<Vec<ClassifiedSpan>, ExtractorError> {
+    fn predict(&self, _text: &str, labels: &[&str]) -> Result<Vec<ClassifiedSpan>, ExtractorError> {
         self.seen
             .lock()
             .push(labels.iter().map(|s| (*s).to_string()).collect());
@@ -375,7 +371,10 @@ fn run_filters_below_confidence_threshold() {
     );
     let reg = ExtractorRegistry::new();
     let r = futures_lite::future::block_on(ext.run(&ctx(&reg), &memory("Alice met Bob")));
-    assert_eq!(r.status, crate::framework::extractor::ExtractionStatus::Success);
+    assert_eq!(
+        r.status,
+        crate::framework::extractor::ExtractionStatus::Success
+    );
     assert_eq!(r.items.len(), 1);
     match &r.items[0] {
         ExtractedItem::EntityMention(em) => assert_eq!(em.text, "Alice"),
@@ -669,4 +668,3 @@ fn real_inference_returns_brain_qnames_for_alice() {
         .iter()
         .any(|s| s.label == "brain:Place" && s.text.contains("Paris")));
 }
-

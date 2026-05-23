@@ -40,13 +40,14 @@ brain-llm = { path = "../brain-llm" }
 jsonschema = { workspace = true }
 # 21.3: cache mutex (shared with the OpsContext wiring in 21.5).
 parking_lot = { workspace = true }
+# Tier-4 resolver disambiguator bridges async LlmClient::complete to
+# the sync ResolverLlm trait via futures_lite::future::block_on. Used
+# in tests too (Extractor::run is async).
+futures-lite = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
 criterion.workspace = true
-# 21.3: Extractor::run is async; tests block on the future via
-# futures-lite::future::block_on.
-futures-lite.workspace = true
 # E.9: property tests exercise resolver determinism + threshold
 # monotonicity over randomly-generated surface-form sequences.
 proptest = { workspace = true }

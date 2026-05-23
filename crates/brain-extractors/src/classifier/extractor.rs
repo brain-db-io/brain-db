@@ -3,11 +3,11 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 
-use brain_core::{ExtractorKind, Memory};
 use brain_core::ExtractorId;
+use brain_core::{ExtractorKind, Memory};
 use brain_protocol::schema::ExtractorTarget;
 
-use super::model::{ClassifierModel, ClassifiedSpan};
+use super::model::{ClassifiedSpan, ClassifierModel};
 use super::simple_label;
 use crate::framework::extractor::{
     ExtractionContext, ExtractionFuture, ExtractionResult, ExtractionStatus, Extractor,
@@ -346,4 +346,3 @@ impl Extractor for ClassifierExtractor {
         })
     }
 }
-

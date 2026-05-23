@@ -5,8 +5,8 @@ use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 
-use brain_core::ExtractorKind;
 use brain_core::ExtractorId;
+use brain_core::ExtractorKind;
 use brain_core::Memory;
 use brain_core::MemoryId;
 

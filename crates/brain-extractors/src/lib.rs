@@ -39,6 +39,7 @@ pub mod llm;
 pub mod materialize;
 pub mod pattern;
 pub mod resolver;
+pub mod resolver_llm;
 pub mod supersede_source;
 
 pub use classifier::{
@@ -60,4 +61,5 @@ pub use materialize::{
 };
 pub use pattern::{CompiledRegex, PatternExtractor};
 pub use resolver::{resolve_or_create, Resolution, ResolutionTier, ResolverError};
+pub use resolver_llm::{BrainLlmDisambiguator, LlmCandidateView};
 pub use supersede_source::StatementHnswSource;

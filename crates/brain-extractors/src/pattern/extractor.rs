@@ -4,8 +4,8 @@
 //! text on every dispatch, projects matches to typed mentions per
 //! the extractor's `target`.
 
-use brain_core::{ExtractorKind, StatementKind};
 use brain_core::{ExtractorId, Memory};
+use brain_core::{ExtractorKind, StatementKind};
 use brain_protocol::schema::{ExtractorTarget, StatementKindAst};
 use regex::{Regex, RegexBuilder};
 
@@ -389,7 +389,10 @@ mod tests {
         let mem = memory("nothing to see here");
         let result = futures_lite::future::block_on(ext.run(&ctx(&reg), &mem));
         assert!(result.items.is_empty());
-        assert_eq!(result.status, crate::framework::extractor::ExtractionStatus::Success);
+        assert_eq!(
+            result.status,
+            crate::framework::extractor::ExtractionStatus::Success
+        );
     }
 
     #[test]

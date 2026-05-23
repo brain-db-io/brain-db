@@ -26,9 +26,9 @@ pub use edges::{
 };
 pub use error::{Error, Result};
 pub use ids::{
-    AgentId, AuditId, ContextId, EntityId, EntityTypeId, EvidenceOverflowId, ExtractorId,
-    MemoryId, MergeId, PredicateId, RelationId, RelationTypeId, RequestId, ShardId, SlotIndex,
-    SlotVersion, StatementId, TxnId, MAX_SLOT_INDEX,
+    AgentId, AuditId, ContextId, EntityId, EntityTypeId, EvidenceOverflowId, ExtractorId, MemoryId,
+    MergeId, PredicateId, RelationId, RelationTypeId, RequestId, ShardId, SlotIndex, SlotVersion,
+    StatementId, TxnId, MAX_SLOT_INDEX,
 };
 pub use migration::{
     MigrationByReason, MigrationId, MigrationItem, MigrationPlan, MigrationReason, MigrationSummary,
@@ -47,7 +47,8 @@ pub use resolution::{
     confidence::{aggregate_confidence, ConfidenceConfig},
     resolver::{
         resolve_entity, ResolutionOutcome, ResolverConfig, ResolverEmbedder, ResolverError,
-        ResolverIndex, ResolverStorage, ResolverTier, TypeConstraint, VECTOR_DIM,
+        ResolverIndex, ResolverLlm, ResolverLlmDecision, ResolverStorage, ResolverTier,
+        TypeConstraint, VECTOR_DIM,
     },
     trigrams::{extract_trigrams, jaccard},
 };

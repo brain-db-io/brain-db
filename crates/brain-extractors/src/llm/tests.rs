@@ -26,7 +26,6 @@ use super::extractor::{
     collect_prior_entities, find_unfilled_placeholder, parse_verdict, relative_time_hint,
     render_prompt, truncate_chars, LlmExtractor, LlmExtractorInner, LLM_INPUT_TOKEN_BUDGET,
 };
-use brain_protocol::schema::ast::StatementKindAst;
 use super::pricing::{estimate_cost, CostBudget, Pricing};
 use crate::framework::extractor::{
     ExtractionContext, ExtractionStatus, Extractor, ExtractorContext, NeighborMemory,
@@ -35,6 +34,7 @@ use crate::framework::item::{EntityMention, ExtractedItem, StatementMention};
 use crate::framework::registry::ExtractorRegistry;
 use crate::idempotency::hash_memory_text;
 use brain_metadata::llm_cache::LLM_RESPONSES_TABLE;
+use brain_protocol::schema::ast::StatementKindAst;
 
 // ------------------------------------------------------------------- mock
 
@@ -746,10 +746,7 @@ fn entity_id() -> brain_core::EntityId {
     brain_core::EntityId::new()
 }
 
-fn fact_pair(
-    subj: brain_core::EntityId,
-    pred: brain_core::PredicateId,
-) -> (Statement, Statement) {
+fn fact_pair(subj: brain_core::EntityId, pred: brain_core::PredicateId) -> (Statement, Statement) {
     let old = Statement::new_root(
         brain_core::StatementId::new(),
         brain_core::StatementKind::Fact,
@@ -828,8 +825,8 @@ fn judge_supersedes_degraded_extractor_errors() {
     let md = open_md(&tmp);
     let rtxn = md.read_txn().unwrap();
     let (old, new) = fact_pair(entity_id(), brain_core::PredicateId::from(1));
-    let err = futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn))
-        .unwrap_err();
+    let err =
+        futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn)).unwrap_err();
     matches!(err, JudgeError::Transport(_))
         .then_some(())
         .expect("expected Transport error from degraded extractor");
@@ -863,8 +860,8 @@ fn judge_supersedes_budget_blocks_call() {
     let md = open_md(&tmp);
     let rtxn = md.read_txn().unwrap();
     let (old, new) = fact_pair(entity_id(), brain_core::PredicateId::from(1));
-    let err = futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn))
-        .unwrap_err();
+    let err =
+        futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn)).unwrap_err();
     matches!(err, JudgeError::Budget(_))
         .then_some(())
         .expect("expected Budget error");
@@ -886,8 +883,8 @@ fn judge_supersedes_unparseable_response_errors() {
     let md = open_md(&tmp);
     let rtxn = md.read_txn().unwrap();
     let (old, new) = fact_pair(entity_id(), brain_core::PredicateId::from(1));
-    let err = futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn))
-        .unwrap_err();
+    let err =
+        futures_lite::future::block_on(ext.judge_supersedes_call(&new, &old, &rtxn)).unwrap_err();
     matches!(err, JudgeError::Parse(_))
         .then_some(())
         .expect("expected Parse error");
@@ -1111,4 +1108,3 @@ fn truncate_chars_caps_long_strings_utf8_safe() {
     assert_eq!(out.chars().count(), 11); // 10 + ellipsis
     assert!(out.ends_with('…'));
 }
-

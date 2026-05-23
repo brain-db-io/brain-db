@@ -25,8 +25,8 @@
 
 use serde::{Deserialize, Serialize};
 
-use crate::ids::MemoryId;
 use crate::ids::EntityId;
+use crate::ids::MemoryId;
 
 /// Reference to one node in the unified edge graph.
 ///

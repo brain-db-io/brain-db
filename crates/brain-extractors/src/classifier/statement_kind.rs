@@ -380,4 +380,3 @@ fn has_year_anchor(text: &str) -> bool {
     }
     false
 }
-

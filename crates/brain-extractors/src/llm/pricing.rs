@@ -2,7 +2,6 @@
 
 use brain_llm::LlmRequest;
 
-
 /// Per-call cost ceiling. Phase 21 ships per-call only; the
 /// per-deployment global budget is post-v1 (§22/09 §5 + §22/07).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -257,6 +257,11 @@ pub enum ResolverError {
     Embedder(String),
     #[error("index: {0}")]
     Index(String),
+    /// Tier-4 LLM disambiguation failure: transport error, timeout,
+    /// schema-invalid response, etc. The impl crate (brain-extractors)
+    /// converts brain-llm errors and parse failures into this string.
+    #[error("llm: {0}")]
+    Llm(String),
 }
 
 // ---------------------------------------------------------------------------
@@ -314,6 +319,35 @@ pub trait ResolverIndex {
         query: &[f32; VECTOR_DIM],
         top_k: usize,
     ) -> Result<Vec<(EntityId, f32)>, ResolverError>;
+}
+
+/// Tier-4 LLM disambiguator. Given the original candidate string,
+/// surrounding context, and a list of candidate (EntityId, score)
+/// pairs from tiers 2-3, returns a decision.
+///
+/// Implementation lives outside brain-core (in brain-extractors)
+/// because LLM transport is async; the impl handles the async-to-sync
+/// boundary so the resolver itself stays sync.
+pub trait ResolverLlm {
+    fn disambiguate(
+        &self,
+        candidate: &str,
+        context: &str,
+        candidates: &[(EntityId, f32)],
+    ) -> Result<ResolverLlmDecision, ResolverError>;
+}
+
+/// Outcome of a tier-4 LLM disambiguation call.
+#[derive(Debug, Clone, PartialEq)]
+pub enum ResolverLlmDecision {
+    /// Pick one of the provided candidates; the LLM's confidence in
+    /// the choice in [0, 1].
+    Pick { entity: EntityId, confidence: f32 },
+    /// None of the candidates match — mint a new entity.
+    None,
+    /// LLM declines to pick — fall through to the ambiguity check
+    /// (which surfaces the candidates to the caller).
+    Ambiguous,
 }
 
 // ---------------------------------------------------------------------------
@@ -388,14 +422,24 @@ where
 ///    `fuzzy_threshold`. Single hit → Resolved. Multiple → carry.
 /// 3. **Tier 3** (embedding): HNSW top-k filtered by type
 ///    constraint; single hit above `embedding_threshold` → Resolved.
-/// 4. **Tier 4** (LLM): stubbed in 16.5 — emits a warn log and
-///    skips. Real impl lands in phase 21.
+/// 4. **Tier 4** (LLM): when `config.enable_llm` is set and an
+///    `llm` impl is provided, the merged tier-2 / tier-3 candidate
+///    pool (top 5 by score) is sent to the LLM disambiguator.
+///    `Pick` above `llm_threshold` → `Resolved { tier: Llm }`;
+///    `None` → `Created`; `Pick` below threshold or `Ambiguous` →
+///    fall through to the ambiguity check.
 /// 5. **Ambiguity check**: if tier-2 / tier-3 produced ≥2
 ///    candidates with top-two scores within `AMBIGUITY_DELTA` of
 ///    each other, return `Ambiguous`. Audit_id minted but NOT
 ///    persisted — caller writes the audit row if it wants one.
 /// 6. **Tier 5** (Created): mint a fresh `EntityId` and return
 ///    `Created`. The caller persists via `entity_put`.
+///
+/// The `llm` argument is `None` when the caller hasn't wired the
+/// LLM disambiguator (e.g., schemaless mode, or `enable_llm = false`
+/// at config time). Passing `None` while `enable_llm = true` emits a
+/// warn log and falls through (no panic, no error).
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_entity<S, E, I>(
     storage: &S,
     embedder: &E,
@@ -404,6 +448,7 @@ pub fn resolve_entity<S, E, I>(
     context: &str,
     entity_type_hint: Option<EntityTypeId>,
     config: &ResolverConfig,
+    llm: Option<&dyn ResolverLlm>,
 ) -> Result<ResolutionOutcome, ResolverError>
 where
     S: ResolverStorage + ?Sized,
@@ -541,11 +586,73 @@ where
         }
     }
 
-    // -------------------- Tier 4: LLM (stub) ----------------------------
+    // -------------------- Tier 4: LLM -----------------------------------
     if config.enable_llm {
-        tracing::warn!(
-            "LLM resolver tier enabled but not implemented in 16.5; skipping (phase 21 wires the real LLM extractor)"
-        );
+        if let Some(llm) = llm {
+            // Build the candidate pool from tier-2 + tier-3 above their
+            // respective thresholds. Only invoke the LLM if 2+ candidates
+            // are competitive (otherwise the lower tiers already
+            // resolved).
+            let mut llm_pool: Vec<(EntityId, f32)> = Vec::new();
+            for (id, score) in tier2_scored
+                .iter()
+                .filter(|(_, s)| *s >= config.fuzzy_threshold)
+            {
+                llm_pool.push((*id, *score));
+            }
+            for (id, score) in tier3_scored
+                .iter()
+                .filter(|(_, s)| *s >= config.embedding_threshold)
+            {
+                // Dedupe — keep the higher score per id.
+                if let Some(existing) = llm_pool.iter_mut().find(|(eid, _)| *eid == *id) {
+                    if *score > existing.1 {
+                        existing.1 = *score;
+                    }
+                } else {
+                    llm_pool.push((*id, *score));
+                }
+            }
+            llm_pool.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+            // Cap at top 5 — context-window economy.
+            const LLM_TOP_N: usize = 5;
+            if llm_pool.len() > LLM_TOP_N {
+                llm_pool.truncate(LLM_TOP_N);
+            }
+
+            if llm_pool.len() >= 2 {
+                match llm.disambiguate(candidate, context, &llm_pool)? {
+                    ResolverLlmDecision::Pick { entity, confidence }
+                        if confidence >= config.llm_threshold =>
+                    {
+                        return Ok(ResolutionOutcome::Resolved {
+                            entity,
+                            confidence,
+                            tier: ResolverTier::Llm,
+                        });
+                    }
+                    ResolverLlmDecision::Pick { .. } => {
+                        // Confidence below threshold — fall through to
+                        // ambiguity check.
+                    }
+                    ResolverLlmDecision::None => {
+                        // LLM declined every candidate; skip ambiguity
+                        // and go straight to Create.
+                        return Ok(ResolutionOutcome::Created {
+                            entity: EntityId::new(),
+                        });
+                    }
+                    ResolverLlmDecision::Ambiguous => {
+                        // LLM explicitly said ambiguous; fall through.
+                    }
+                }
+            }
+        } else {
+            tracing::warn!(
+                "config.enable_llm = true but no ResolverLlm impl provided to resolve_entity"
+            );
+        }
     }
 
     // -------------------- Ambiguity check -------------------------------
@@ -733,6 +840,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         assert!(matches!(
@@ -755,6 +863,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         assert!(matches!(
@@ -775,7 +884,7 @@ mod algorithm_tests {
             enable_embedding: false,
             ..Default::default()
         };
-        let out = resolve_entity(&m, &m, &m, "Priya", "", Some(person()), &cfg).unwrap();
+        let out = resolve_entity(&m, &m, &m, "Priya", "", Some(person()), &cfg, None).unwrap();
         assert!(out.is_created(), "all tiers disabled → Created");
     }
 
@@ -801,6 +910,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         assert!(matches!(
@@ -821,7 +931,8 @@ mod algorithm_tests {
             enable_embedding: false,
             ..Default::default()
         };
-        let out = resolve_entity(&m, &m, &m, "Priya Patel", "", Some(person()), &cfg).unwrap();
+        let out =
+            resolve_entity(&m, &m, &m, "Priya Patel", "", Some(person()), &cfg, None).unwrap();
         assert!(
             out.is_created(),
             "below-threshold fuzzy with no tier-3 → Created; got {out:?}"
@@ -846,6 +957,7 @@ mod algorithm_tests {
             "ctx",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         assert!(matches!(
@@ -871,6 +983,7 @@ mod algorithm_tests {
             "ctx",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         assert!(out.is_created());
@@ -888,7 +1001,7 @@ mod algorithm_tests {
             type_constraint: TypeConstraint::Strict,
             ..Default::default()
         };
-        let out = resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg).unwrap();
+        let out = resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, None).unwrap();
         assert!(
             out.is_created(),
             "Strict + wrong type → no tier-3 match → Created; got {out:?}"
@@ -915,6 +1028,7 @@ mod algorithm_tests {
             "ctx",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         match out {
@@ -944,6 +1058,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &ResolverConfig::default(),
+            None,
         )
         .unwrap();
         match out {
@@ -955,20 +1070,220 @@ mod algorithm_tests {
         }
     }
 
-    // --- LLM stub -----------------------------------------------------
+    // --- Tier 4 (LLM) -------------------------------------------------
+
+    /// One recorded LLM-disambiguator invocation. Fields are
+    /// inspectable for assertions; `dead_code` is fine because the
+    /// recorder exists primarily for the call-count check.
+    #[allow(dead_code)]
+    #[derive(Debug, Clone)]
+    struct MockLlmCall {
+        candidate: String,
+        context: String,
+        candidates: Vec<(EntityId, f32)>,
+    }
+
+    /// In-memory disambiguator that records every call and returns
+    /// a configured decision.
+    struct MockLlm {
+        decision: ResolverLlmDecision,
+        calls: RefCell<Vec<MockLlmCall>>,
+    }
+
+    impl MockLlm {
+        fn new(decision: ResolverLlmDecision) -> Self {
+            Self {
+                decision,
+                calls: RefCell::new(Vec::new()),
+            }
+        }
+        fn call_count(&self) -> usize {
+            self.calls.borrow().len()
+        }
+    }
+
+    impl ResolverLlm for MockLlm {
+        fn disambiguate(
+            &self,
+            candidate: &str,
+            context: &str,
+            candidates: &[(EntityId, f32)],
+        ) -> Result<ResolverLlmDecision, ResolverError> {
+            self.calls.borrow_mut().push(MockLlmCall {
+                candidate: candidate.to_owned(),
+                context: context.to_owned(),
+                candidates: candidates.to_vec(),
+            });
+            Ok(self.decision.clone())
+        }
+    }
+
+    /// Helper: build a resolver scenario where tier-3 finds two close
+    /// candidates (within `AMBIGUITY_DELTA`), so tier-4 + ambiguity
+    /// have something to chew on.
+    fn close_pair_scenario() -> (MockBackend, EntityId, EntityId) {
+        let m = MockBackend::new();
+        let a = EntityId::new();
+        let b = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(a, 0.90), (b, 0.89)]);
+        m.set_type(a, person());
+        m.set_type(b, person());
+        (m, a, b)
+    }
 
     #[test]
-    fn tier4_llm_enabled_is_silently_skipped() {
-        let m = MockBackend::new();
-        m.set_embedding("X", [0.5; VECTOR_DIM]);
-        m.set_index_results(vec![]);
+    fn tier4_llm_pick_above_threshold_resolves() {
+        let (m, a, _b) = close_pair_scenario();
+        let llm = MockLlm::new(ResolverLlmDecision::Pick {
+            entity: a,
+            confidence: 0.92,
+        });
         let cfg = ResolverConfig {
             enable_llm: true,
             ..Default::default()
         };
-        let out = resolve_entity(&m, &m, &m, "X", "", Some(person()), &cfg).unwrap();
-        // Tier-4 stub falls through; created.
-        assert!(out.is_created());
+
+        let out =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+
+        assert_eq!(llm.call_count(), 1, "LLM should be invoked exactly once");
+        match out {
+            ResolutionOutcome::Resolved {
+                entity,
+                tier,
+                confidence,
+            } => {
+                assert_eq!(entity, a);
+                assert_eq!(tier, ResolverTier::Llm);
+                assert!((confidence - 0.92).abs() < f32::EPSILON);
+            }
+            other => panic!("expected Resolved at tier Llm, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tier4_llm_pick_below_threshold_falls_through_to_ambiguity() {
+        let (m, a, _b) = close_pair_scenario();
+        let llm = MockLlm::new(ResolverLlmDecision::Pick {
+            entity: a,
+            confidence: 0.5, // below default 0.85 threshold
+        });
+        let cfg = ResolverConfig {
+            enable_llm: true,
+            ..Default::default()
+        };
+
+        let out =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+
+        assert_eq!(llm.call_count(), 1);
+        // Falls through to the ambiguity check; tier-3 candidates were
+        // close so we get Ambiguous.
+        assert!(
+            matches!(out, ResolutionOutcome::Ambiguous { .. }),
+            "expected Ambiguous, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn tier4_llm_none_creates_new_entity() {
+        let (m, _a, _b) = close_pair_scenario();
+        let llm = MockLlm::new(ResolverLlmDecision::None);
+        let cfg = ResolverConfig {
+            enable_llm: true,
+            ..Default::default()
+        };
+
+        let out =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+
+        assert_eq!(llm.call_count(), 1);
+        assert!(
+            matches!(out, ResolutionOutcome::Created { .. }),
+            "expected Created, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn tier4_llm_ambiguous_returns_ambiguity() {
+        let (m, _a, _b) = close_pair_scenario();
+        let llm = MockLlm::new(ResolverLlmDecision::Ambiguous);
+        let cfg = ResolverConfig {
+            enable_llm: true,
+            ..Default::default()
+        };
+
+        let out =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+
+        assert_eq!(llm.call_count(), 1);
+        // Falls through to ambiguity check, which fires because the
+        // tier-3 scores were within AMBIGUITY_DELTA.
+        assert!(
+            matches!(out, ResolutionOutcome::Ambiguous { .. }),
+            "expected Ambiguous, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn tier4_disabled_skips_llm_call() {
+        let (m, _a, _b) = close_pair_scenario();
+        let llm = MockLlm::new(ResolverLlmDecision::Pick {
+            entity: EntityId::new(),
+            confidence: 0.99,
+        });
+        // enable_llm = false by default.
+        let cfg = ResolverConfig::default();
+
+        let _ =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+
+        assert_eq!(llm.call_count(), 0, "LLM must not be invoked when disabled");
+    }
+
+    #[test]
+    fn tier4_no_llm_provided_skips_with_warn() {
+        let (m, _a, _b) = close_pair_scenario();
+        let cfg = ResolverConfig {
+            enable_llm: true,
+            ..Default::default()
+        };
+        // Pass None despite enable_llm = true; must not panic.
+        let out = resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, None).unwrap();
+        // Falls through to ambiguity check; tier-3 was close → Ambiguous.
+        assert!(
+            matches!(out, ResolutionOutcome::Ambiguous { .. }),
+            "expected Ambiguous fallthrough, got {out:?}"
+        );
+    }
+
+    #[test]
+    fn tier4_single_candidate_pool_skips_llm() {
+        // Only one above-threshold candidate — tier-3 already
+        // resolved before reaching tier-4. Sanity check that we never
+        // pay LLM cost when there's nothing to disambiguate.
+        let m = MockBackend::new();
+        let id = EntityId::new();
+        m.set_embedding("Priya ctx", [0.5; VECTOR_DIM]);
+        m.set_index_results(vec![(id, 0.95)]);
+        m.set_type(id, person());
+
+        let llm = MockLlm::new(ResolverLlmDecision::Pick {
+            entity: id,
+            confidence: 0.99,
+        });
+        let cfg = ResolverConfig {
+            enable_llm: true,
+            ..Default::default()
+        };
+        let _ =
+            resolve_entity(&m, &m, &m, "Priya", "ctx", Some(person()), &cfg, Some(&llm)).unwrap();
+        assert_eq!(
+            llm.call_count(),
+            0,
+            "Single-candidate path resolves at tier-3, LLM untouched"
+        );
     }
 
     // --- Helpers ------------------------------------------------------
@@ -1021,7 +1336,7 @@ mod algorithm_tests {
         // outcome.
         let m = MockBackend::new();
         m.set_embedding("", adv_vec_zeros());
-        let out = resolve_entity(&m, &m, &m, "", "", Some(person()), &adv_config()).unwrap();
+        let out = resolve_entity(&m, &m, &m, "", "", Some(person()), &adv_config(), None).unwrap();
         // Tier 1 yields no canonical / alias hit; tier 2 has no
         // trigrams (the empty-input split produces nothing); tier 3
         // is configured-out by default in this test path. Tier 5
@@ -1033,8 +1348,17 @@ mod algorithm_tests {
     fn whitespace_only_candidate_does_not_resolve_no_matches() {
         let m = MockBackend::new();
         m.set_embedding("", adv_vec_zeros());
-        let out =
-            resolve_entity(&m, &m, &m, "   \t  \n  ", "", Some(person()), &adv_config()).unwrap();
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "   \t  \n  ",
+            "",
+            Some(person()),
+            &adv_config(),
+            None,
+        )
+        .unwrap();
         assert!(matches!(out, ResolutionOutcome::Created { .. }));
     }
 
@@ -1045,7 +1369,8 @@ mod algorithm_tests {
         let huge = "a".repeat(64 * 1024);
         let m = MockBackend::new();
         m.set_embedding(huge.as_str(), adv_vec_zeros());
-        let out = resolve_entity(&m, &m, &m, &huge, "", Some(person()), &adv_config()).unwrap();
+        let out =
+            resolve_entity(&m, &m, &m, &huge, "", Some(person()), &adv_config(), None).unwrap();
         // No fixtures match; tier 5 fires.
         assert!(matches!(out, ResolutionOutcome::Created { .. }));
     }
@@ -1061,8 +1386,17 @@ mod algorithm_tests {
         m.set_canonical(person(), "山田 太郎", id);
         m.set_embedding("山田 太郎", adv_vec_zeros());
 
-        let out =
-            resolve_entity(&m, &m, &m, "山田 太郎", "", Some(person()), &adv_config()).unwrap();
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "山田 太郎",
+            "",
+            Some(person()),
+            &adv_config(),
+            None,
+        )
+        .unwrap();
         match out {
             ResolutionOutcome::Resolved { entity, tier, .. } => {
                 assert_eq!(entity, id);
@@ -1089,7 +1423,7 @@ mod algorithm_tests {
         m.set_canonical(person(), nfc, id);
         m.set_embedding(nfd, adv_vec_zeros());
 
-        let out = resolve_entity(&m, &m, &m, nfd, "", Some(person()), &adv_config()).unwrap();
+        let out = resolve_entity(&m, &m, &m, nfd, "", Some(person()), &adv_config(), None).unwrap();
         // NFD candidate doesn't tier-1 match the NFC stored entity;
         // tier 2 has no trigram fixture; tier 3 LLM disabled by
         // default; tier 5 creates a new entity.
@@ -1100,8 +1434,17 @@ mod algorithm_tests {
     fn emoji_in_candidate_does_not_panic() {
         let m = MockBackend::new();
         m.set_embedding("🚀 rocket", adv_vec_zeros());
-        let out =
-            resolve_entity(&m, &m, &m, "🚀 rocket", "", Some(person()), &adv_config()).unwrap();
+        let out = resolve_entity(
+            &m,
+            &m,
+            &m,
+            "🚀 rocket",
+            "",
+            Some(person()),
+            &adv_config(),
+            None,
+        )
+        .unwrap();
         // Emoji is a 4-byte codepoint; trigram windows slice mid-
         // codepoint. We just want "no panic" + a sane outcome.
         assert!(matches!(out, ResolutionOutcome::Created { .. }));
@@ -1115,7 +1458,8 @@ mod algorithm_tests {
         let huge_a = "a".repeat(10_000);
         let m = MockBackend::new();
         m.set_embedding(huge_a.as_str(), adv_vec_zeros());
-        let out = resolve_entity(&m, &m, &m, &huge_a, "", Some(person()), &adv_config()).unwrap();
+        let out =
+            resolve_entity(&m, &m, &m, &huge_a, "", Some(person()), &adv_config(), None).unwrap();
         assert!(matches!(out, ResolutionOutcome::Created { .. }));
     }
 
@@ -1134,6 +1478,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &adv_config(),
+            None,
         )
         .unwrap();
         // Normalised form ("priya patel") matches tier-1 canonical.
@@ -1161,6 +1506,7 @@ mod algorithm_tests {
             "",
             Some(person()),
             &adv_config(),
+            None,
         )
         .unwrap();
         assert!(matches!(out, ResolutionOutcome::Resolved { .. }));

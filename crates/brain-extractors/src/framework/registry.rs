@@ -107,7 +107,9 @@ impl ExtractorRegistry {
 mod tests {
     use super::*;
 
-    use crate::framework::extractor::{ExtractionContext, ExtractionFuture, ExtractionResult, Extractor};
+    use crate::framework::extractor::{
+        ExtractionContext, ExtractionFuture, ExtractionResult, Extractor,
+    };
     use brain_core::ExtractorKind;
     use brain_core::Memory;
 

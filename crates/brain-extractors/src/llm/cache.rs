@@ -76,4 +76,3 @@ pub(super) fn cache_put(
     wtxn.commit().map_err(|e| format!("cache commit: {e}"))?;
     Ok(())
 }
-

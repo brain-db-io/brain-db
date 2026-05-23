@@ -35,9 +35,9 @@
 use serde::{Deserialize, Serialize};
 use smallvec::SmallVec;
 
+use crate::ids::AuditId;
 use crate::ids::{EntityId, EvidenceOverflowId, ExtractorId, PredicateId, StatementId};
 use crate::nodes::kinds::StatementKind;
-use crate::ids::AuditId;
 use crate::MemoryId;
 
 // ---------------------------------------------------------------------------

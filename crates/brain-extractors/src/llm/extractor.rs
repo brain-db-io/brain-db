@@ -19,8 +19,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use brain_core::{ExtractorKind, Statement, StatementObject, StatementValue, SubjectRef};
 use brain_core::{ExtractorId, Memory};
+use brain_core::{ExtractorKind, Statement, StatementObject, StatementValue, SubjectRef};
 use brain_llm::types::SystemBlock;
 use brain_llm::{LlmClient, LlmError, LlmMessage, LlmRequest, LlmRole};
 use brain_metadata::entity::ops::entity_get;

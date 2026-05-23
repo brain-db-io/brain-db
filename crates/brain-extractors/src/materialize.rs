@@ -24,9 +24,9 @@ use serde_json::Value;
 
 use crate::classifier::{ClassifierExtractor, ClassifierModel};
 use crate::framework::extractor::ExtractorError;
+use crate::framework::registry::ExtractorRegistry;
 use crate::llm::{CostBudget, LlmExtractor};
 use crate::pattern::extractor::PatternExtractor;
-use crate::framework::registry::ExtractorRegistry;
 
 const DEFAULT_LLM_CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const DEFAULT_LLM_CONFIDENCE_THRESHOLD: f32 = 0.7;
