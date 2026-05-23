@@ -59,7 +59,7 @@ mod tests {
     fn opcode_byte_assignments() {
         assert_eq!(Opcode::MaterializeProceduralReq.as_u16(), 0x0164);
         assert!(Opcode::MaterializeProceduralReq.is_request());
-        assert!(Opcode::MaterializeProceduralReq.is_knowledge());
+        assert!(Opcode::MaterializeProceduralReq.is_typed_graph());
     }
 
     #[test]

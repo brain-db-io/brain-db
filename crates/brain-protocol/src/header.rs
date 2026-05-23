@@ -1,27 +1,29 @@
 //! Fixed 32-byte frame header.
 //!
-//! Implements `spec/04_wire_protocol/03_frame_header.md`. All multi-byte
-//! header fields are big-endian (§8).
+//! Implements `spec/04_wire_protocol/02_wire_format.md`. All multi-byte
+//! header fields are big-endian.
 //!
 //! Multi-byte fields are stored as raw big-endian byte arrays rather than
 //! native integers so the struct is trivially `bytemuck::Pod` and matches
 //! the on-wire layout byte-for-byte without endian conversion at cast
 //! boundaries.
 //!
-//! ## Phase 16.6a — u16 opcode
+//! ## Opcode + flags split
 //!
-//! The opcode field is `u16` (bytes 5-6, big-endian). The high byte is a
+//! The opcode field is a `u16` (bytes 5-6, big-endian). The high byte is a
 //! **namespace**:
-//! - `0x00xx` — substrate (cognitive primitives + connection mgmt + admin),
-//! - `0x01xx` — knowledge layer (entities / statements / relations /
-//!   queries / schema).
-//! - `0x02xx`–`0xFFxx` — reserved.
+//! - `0x00xx` — substrate ops (cognitive primitives + connection mgmt + admin),
+//! - `0x01xx` — typed-graph ops (schema / entities / statements / relations /
+//!   queries / extractors), active when a schema is declared,
+//! - `0x02xx`–`0xFFxx` — reserved for future namespaces.
 //!
-//! Within a namespace the low byte's high bit selects direction (request
-//! vs response), matching the substrate's existing `0x2N → 0xAN`
-//! convention. Flags shrank from `u16` to `u8` — only three bits were ever
-//! used (EOS / MPL / CMP) and the rest stayed reserved. The freed byte
-//! holds the opcode's high byte.
+//! Within a namespace the low byte's high bit selects direction (request vs
+//! response). Substrate's `0x2N → 0xAN` (encode→encode_resp) convention is
+//! preserved as `0x002N → 0x00AN`; typed-graph follows the same convention
+//! (e.g. `0x0130 ENTITY_CREATE` ↔ `0x01B0 ENTITY_CREATE_RESP`).
+//!
+//! Flags are a `u8` (byte 7) — three bits are defined (EOS / MPL / CMP) and
+//! the low five are reserved and rejected by [`Header::validate`].
 
 use bytemuck::{Pod, Zeroable};
 

@@ -1,26 +1,23 @@
-//! Wire-protocol opcodes (u16).
+//! Wire-protocol opcodes (u16). Canonical spec: `spec/04_wire_protocol/03_opcodes.md`.
 //!
 //! ## Namespaces (high byte)
 //!
-//! - `0x00xx` — substrate ops (cognitive primitives + connection mgmt +
-//!   admin).
-//! - `0x01xx` — knowledge layer (schema / entities / statements /
-//!   relations / queries / extractors).
+//! - `0x00xx` — substrate ops (cognitive primitives + connection mgmt + admin).
+//! - `0x01xx` — typed-graph ops (schema / entities / statements / relations /
+//!   queries / extractors), active when a schema is declared.
 //! - `0x02xx`–`0xFFxx` — reserved for future namespaces.
 //!
 //! ## Direction (low byte's high bit)
 //!
 //! Within a namespace, low byte `< 0x80` is server-bound (C→S, request);
 //! low byte `>= 0x80` is client-bound (S→C, response). Substrate's
-//! existing `0x2N → 0xAN` (encode→encode_resp) convention is preserved
-//! by promoting it to `0x002N → 0x00AN`. Knowledge follows the same
-//! convention: e.g. `0x0130 ENTITY_CREATE` (req) ↔ `0x01B0 ENTITY_CREATE_RESP`.
+//! `0x2N → 0xAN` (encode→encode_resp) convention is preserved as
+//! `0x002N → 0x00AN`; typed-graph follows the same convention: e.g.
+//! `0x0130 ENTITY_CREATE` (req) ↔ `0x01B0 ENTITY_CREATE_RESP`.
 //!
 //! ## Reserved ranges
 //!
-//! Substrate reserved (low byte): `0x70–0x7F` (server-bound, mostly used
-//! by knowledge gateway in prior designs — no longer; the knowledge layer
-//! now lives in its own namespace and 0x70–0x7F are open for future
+//! Substrate reserved (low byte): `0x70–0x7F` (server-bound, open for future
 //! substrate ops) and `0xF0–0xFE` (client-bound, reserved future).
 
 use crate::error::ProtocolError;
@@ -44,7 +41,7 @@ pub enum Opcode {
     ClientPong = 0x0011,
     Bye = 0x001F,
 
-    // §03/05 §1.2 Cognitive operations
+    // §04/03 §1.2 Cognitive operations
     EncodeReq = 0x0020,
     EncodeResp = 0x00A0,
     RecallReq = 0x0021,
@@ -59,14 +56,16 @@ pub enum Opcode {
     LinkResp = 0x00A5,
     UnlinkReq = 0x0026,
     UnlinkResp = 0x00A6,
+    EncodeVectorDirectReq = 0x002A,
+    EncodeVectorDirectResp = 0x00AA,
 
-    // §03/05 §1.3 Subscription
+    // §04/03 §1.3 Subscription
     SubscribeReq = 0x0030,
     SubscribeEvent = 0x00B0,
     UnsubscribeReq = 0x0031,
     UnsubscribeResp = 0x00B1,
 
-    // §03/05 §1.4 Transactions
+    // §04/03 §1.4 Transactions
     TxnBegin = 0x0040,
     TxnBeginResp = 0x00C0,
     TxnCommit = 0x0041,
@@ -74,11 +73,11 @@ pub enum Opcode {
     TxnAbort = 0x0042,
     TxnAbortResp = 0x00C2,
 
-    // §03/05 §1.5 Stream control
+    // §04/03 §1.5 Stream control
     CancelStream = 0x0050,
     CancelStreamAck = 0x00D0,
 
-    // §03/05 §1.6 Admin operations
+    // §04/03 §1.6 Admin operations
     AdminStatsReq = 0x0060,
     AdminStatsResp = 0x00E0,
     AdminSnapshotReq = 0x0061,
@@ -99,17 +98,26 @@ pub enum Opcode {
     AdminReclassifyResp = 0x00E8,
     AdminListTombstonedReq = 0x0069,
     AdminListTombstonedResp = 0x00E9,
+    // Embedding-layer admin ops (handler implementations pending — wire
+    // surface allocated in spec §04/03 §1.6 + §07).
+    AdminTokenizeReq = 0x006A,
+    AdminTokenizeResp = 0x00EA,
+    AdminRegisterModelReq = 0x006B,
+    AdminRegisterModelResp = 0x00EB,
+    AdminAbortMigrationReq = 0x006C,
+    AdminAbortMigrationResp = 0x00EC,
+    AdminRetireFingerprintReq = 0x006D,
+    AdminRetireFingerprintResp = 0x00ED,
 
-    // §03/05 §1.7 Errors
+    // §04/03 §1.7 Errors
     Error = 0x00FF,
 
     // ============================================================
-    // Knowledge namespace (high byte = 0x01).
-    // Phase 16.6c adds entity ops 0x0130-0x0133 + their responses.
-    // Other §28 opcodes land in phases 17-24.
+    // Typed-graph namespace (high byte = 0x01). Activates when a
+    // schema is declared via SCHEMA_UPLOAD.
     // ============================================================
 
-    // §28 schema operations (0x0120-0x0123 low-byte range) — phase 19.6.
+    // §04/03 §2.1 Schema operations (0x0120-0x0123 low-byte range).
     SchemaUploadReq = 0x0120,
     SchemaUploadResp = 0x01A0,
     SchemaGetReq = 0x0121,
@@ -119,7 +127,7 @@ pub enum Opcode {
     SchemaValidateReq = 0x0123,
     SchemaValidateResp = 0x01A3,
 
-    // §28 extractor governance (0x0124-0x0126 low-byte range) — phase 20.8.
+    // §04/03 §2.1 Extractor governance (0x0124-0x0126 low-byte range).
     ExtractorListReq = 0x0124,
     ExtractorListResp = 0x01A4,
     ExtractorDisableReq = 0x0125,
@@ -127,7 +135,7 @@ pub enum Opcode {
     ExtractorEnableReq = 0x0126,
     ExtractorEnableResp = 0x01A6,
 
-    // §28 entity operations (0x0130-0x013F low-byte range)
+    // §04/03 §2.2 Entity operations (0x0130-0x013F low-byte range).
     EntityCreateReq = 0x0130,
     EntityCreateResp = 0x01B0,
     EntityGetReq = 0x0131,
@@ -147,7 +155,7 @@ pub enum Opcode {
     EntityTombstoneReq = 0x0138,
     EntityTombstoneResp = 0x01B8,
 
-    // §28 statement operations (0x0140-0x014F low-byte range) — phase 17.6.
+    // §04/03 §2.3 Statement operations (0x0140-0x014F low-byte range).
     StatementCreateReq = 0x0140,
     StatementCreateResp = 0x01C0,
     StatementGetReq = 0x0141,
@@ -163,7 +171,7 @@ pub enum Opcode {
     StatementListReq = 0x0146,
     StatementListResp = 0x01C6,
 
-    // §28 relation operations (0x0150-0x015F low-byte range) — phase 18.6.
+    // §04/03 §2.4 Relation operations (0x0150-0x015F low-byte range).
     RelationCreateReq = 0x0150,
     RelationCreateResp = 0x01D0,
     RelationGetReq = 0x0151,
@@ -179,7 +187,7 @@ pub enum Opcode {
     RelationTraverseReq = 0x0156,
     RelationTraverseResp = 0x01D6,
 
-    // §28 hybrid query operations (0x0160-0x0163) — phase 23.9.
+    // §04/03 §2.5 Hybrid query operations (0x0160-0x0163).
     QueryReq = 0x0160,
     QueryResp = 0x01E0,
     QueryExplainReq = 0x0161,
@@ -226,6 +234,8 @@ impl Opcode {
             0x00A5 => Self::LinkResp,
             0x0026 => Self::UnlinkReq,
             0x00A6 => Self::UnlinkResp,
+            0x002A => Self::EncodeVectorDirectReq,
+            0x00AA => Self::EncodeVectorDirectResp,
 
             0x0030 => Self::SubscribeReq,
             0x00B0 => Self::SubscribeEvent,
@@ -262,10 +272,18 @@ impl Opcode {
             0x00E8 => Self::AdminReclassifyResp,
             0x0069 => Self::AdminListTombstonedReq,
             0x00E9 => Self::AdminListTombstonedResp,
+            0x006A => Self::AdminTokenizeReq,
+            0x00EA => Self::AdminTokenizeResp,
+            0x006B => Self::AdminRegisterModelReq,
+            0x00EB => Self::AdminRegisterModelResp,
+            0x006C => Self::AdminAbortMigrationReq,
+            0x00EC => Self::AdminAbortMigrationResp,
+            0x006D => Self::AdminRetireFingerprintReq,
+            0x00ED => Self::AdminRetireFingerprintResp,
 
             0x00FF => Self::Error,
 
-            // Knowledge namespace
+            // Typed-graph namespace
             0x0130 => Self::EntityCreateReq,
             0x01B0 => Self::EntityCreateResp,
             0x0131 => Self::EntityGetReq,
@@ -387,18 +405,18 @@ impl Opcode {
     }
 
     /// True if this opcode is in the substrate's admin range
-    /// low byte `0x60..=0x69` (req) or `0xE0..=0xE9`
+    /// low byte `0x60..=0x6D` (req) or `0xE0..=0xED`
     /// (resp), namespace 0x00.
     #[inline]
     #[must_use]
     pub fn is_admin(self) -> bool {
-        self.namespace() == 0x00 && matches!(self.low_byte(), 0x60..=0x69 | 0xE0..=0xE9)
+        self.namespace() == 0x00 && matches!(self.low_byte(), 0x60..=0x6D | 0xE0..=0xED)
     }
 
-    /// True if this opcode is in the knowledge namespace.
+    /// True if this opcode is in the typed-graph namespace (`0x01xx`).
     #[inline]
     #[must_use]
-    pub fn is_knowledge(self) -> bool {
+    pub fn is_typed_graph(self) -> bool {
         self.namespace() == 0x01
     }
 
@@ -432,10 +450,12 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    /// Every spec-assigned opcode. If a row is added/changed in spec
-    /// §03/05 or §28/00, this list is the single update site.
+    /// Every spec-assigned opcode. If a row is added/changed in
+    /// `spec/04_wire_protocol/03_opcodes.md`, this list is the single
+    /// update site. The `from_u16_covers_all` test prevents enum/decoder
+    /// drift; this `ALL` table prevents drift from the spec.
     const ALL: &[(u16, Opcode)] = &[
-        // Substrate
+        // Substrate — connection management
         (0x0001, Opcode::Hello),
         (0x0081, Opcode::Welcome),
         (0x0002, Opcode::Auth),
@@ -445,6 +465,7 @@ mod tests {
         (0x0091, Opcode::ServerPing),
         (0x0011, Opcode::ClientPong),
         (0x001F, Opcode::Bye),
+        // Substrate — cognitive operations
         (0x0020, Opcode::EncodeReq),
         (0x00A0, Opcode::EncodeResp),
         (0x0021, Opcode::RecallReq),
@@ -459,18 +480,24 @@ mod tests {
         (0x00A5, Opcode::LinkResp),
         (0x0026, Opcode::UnlinkReq),
         (0x00A6, Opcode::UnlinkResp),
+        (0x002A, Opcode::EncodeVectorDirectReq),
+        (0x00AA, Opcode::EncodeVectorDirectResp),
+        // Substrate — subscription
         (0x0030, Opcode::SubscribeReq),
         (0x00B0, Opcode::SubscribeEvent),
         (0x0031, Opcode::UnsubscribeReq),
         (0x00B1, Opcode::UnsubscribeResp),
+        // Substrate — transactions
         (0x0040, Opcode::TxnBegin),
         (0x00C0, Opcode::TxnBeginResp),
         (0x0041, Opcode::TxnCommit),
         (0x00C1, Opcode::TxnCommitResp),
         (0x0042, Opcode::TxnAbort),
         (0x00C2, Opcode::TxnAbortResp),
+        // Substrate — stream control
         (0x0050, Opcode::CancelStream),
         (0x00D0, Opcode::CancelStreamAck),
+        // Substrate — admin
         (0x0060, Opcode::AdminStatsReq),
         (0x00E0, Opcode::AdminStatsResp),
         (0x0061, Opcode::AdminSnapshotReq),
@@ -491,8 +518,33 @@ mod tests {
         (0x00E8, Opcode::AdminReclassifyResp),
         (0x0069, Opcode::AdminListTombstonedReq),
         (0x00E9, Opcode::AdminListTombstonedResp),
+        (0x006A, Opcode::AdminTokenizeReq),
+        (0x00EA, Opcode::AdminTokenizeResp),
+        (0x006B, Opcode::AdminRegisterModelReq),
+        (0x00EB, Opcode::AdminRegisterModelResp),
+        (0x006C, Opcode::AdminAbortMigrationReq),
+        (0x00EC, Opcode::AdminAbortMigrationResp),
+        (0x006D, Opcode::AdminRetireFingerprintReq),
+        (0x00ED, Opcode::AdminRetireFingerprintResp),
+        // Substrate — errors
         (0x00FF, Opcode::Error),
-        // Knowledge
+        // Typed-graph — schema
+        (0x0120, Opcode::SchemaUploadReq),
+        (0x01A0, Opcode::SchemaUploadResp),
+        (0x0121, Opcode::SchemaGetReq),
+        (0x01A1, Opcode::SchemaGetResp),
+        (0x0122, Opcode::SchemaListReq),
+        (0x01A2, Opcode::SchemaListResp),
+        (0x0123, Opcode::SchemaValidateReq),
+        (0x01A3, Opcode::SchemaValidateResp),
+        // Typed-graph — extractor governance
+        (0x0124, Opcode::ExtractorListReq),
+        (0x01A4, Opcode::ExtractorListResp),
+        (0x0125, Opcode::ExtractorDisableReq),
+        (0x01A5, Opcode::ExtractorDisableResp),
+        (0x0126, Opcode::ExtractorEnableReq),
+        (0x01A6, Opcode::ExtractorEnableResp),
+        // Typed-graph — entity
         (0x0130, Opcode::EntityCreateReq),
         (0x01B0, Opcode::EntityCreateResp),
         (0x0131, Opcode::EntityGetReq),
@@ -511,6 +563,46 @@ mod tests {
         (0x01B7, Opcode::EntityListResp),
         (0x0138, Opcode::EntityTombstoneReq),
         (0x01B8, Opcode::EntityTombstoneResp),
+        // Typed-graph — statement
+        (0x0140, Opcode::StatementCreateReq),
+        (0x01C0, Opcode::StatementCreateResp),
+        (0x0141, Opcode::StatementGetReq),
+        (0x01C1, Opcode::StatementGetResp),
+        (0x0142, Opcode::StatementSupersedeReq),
+        (0x01C2, Opcode::StatementSupersedeResp),
+        (0x0143, Opcode::StatementTombstoneReq),
+        (0x01C3, Opcode::StatementTombstoneResp),
+        (0x0144, Opcode::StatementRetractReq),
+        (0x01C4, Opcode::StatementRetractResp),
+        (0x0145, Opcode::StatementHistoryReq),
+        (0x01C5, Opcode::StatementHistoryResp),
+        (0x0146, Opcode::StatementListReq),
+        (0x01C6, Opcode::StatementListResp),
+        // Typed-graph — relation
+        (0x0150, Opcode::RelationCreateReq),
+        (0x01D0, Opcode::RelationCreateResp),
+        (0x0151, Opcode::RelationGetReq),
+        (0x01D1, Opcode::RelationGetResp),
+        (0x0152, Opcode::RelationSupersedeReq),
+        (0x01D2, Opcode::RelationSupersedeResp),
+        (0x0153, Opcode::RelationTombstoneReq),
+        (0x01D3, Opcode::RelationTombstoneResp),
+        (0x0154, Opcode::RelationListFromReq),
+        (0x01D4, Opcode::RelationListFromResp),
+        (0x0155, Opcode::RelationListToReq),
+        (0x01D5, Opcode::RelationListToResp),
+        (0x0156, Opcode::RelationTraverseReq),
+        (0x01D6, Opcode::RelationTraverseResp),
+        // Typed-graph — hybrid query
+        (0x0160, Opcode::QueryReq),
+        (0x01E0, Opcode::QueryResp),
+        (0x0161, Opcode::QueryExplainReq),
+        (0x01E1, Opcode::QueryExplainResp),
+        (0x0162, Opcode::QueryTraceReq),
+        (0x01E2, Opcode::QueryTraceResp),
+        (0x0163, Opcode::RecallHybridReq),
+        (0x01E3, Opcode::RecallHybridResp),
+        // Typed-graph — procedural memory materialization
         (0x0164, Opcode::MaterializeProceduralReq),
         (0x01E4, Opcode::MaterializeProceduralResp),
     ];
@@ -576,11 +668,49 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_predicate_split() {
-        assert!(!Opcode::EncodeReq.is_knowledge());
-        assert!(!Opcode::AdminStatsReq.is_knowledge());
-        assert!(Opcode::EntityCreateReq.is_knowledge());
-        assert!(Opcode::EntityRenameResp.is_knowledge());
+    fn typed_graph_predicate_split() {
+        assert!(!Opcode::EncodeReq.is_typed_graph());
+        assert!(!Opcode::AdminStatsReq.is_typed_graph());
+        assert!(Opcode::EntityCreateReq.is_typed_graph());
+        assert!(Opcode::EntityRenameResp.is_typed_graph());
+        assert!(Opcode::StatementCreateReq.is_typed_graph());
+        assert!(Opcode::QueryReq.is_typed_graph());
+    }
+
+    #[test]
+    fn admin_range_includes_embedding_admin_ops() {
+        // The four embedding-layer admin opcodes added alongside the
+        // canonical admin range (§04/03 §1.6). They MUST classify as admin
+        // so dispatch and authorization wrappers find them.
+        assert!(Opcode::AdminTokenizeReq.is_admin());
+        assert!(Opcode::AdminTokenizeResp.is_admin());
+        assert!(Opcode::AdminRegisterModelReq.is_admin());
+        assert!(Opcode::AdminRegisterModelResp.is_admin());
+        assert!(Opcode::AdminAbortMigrationReq.is_admin());
+        assert!(Opcode::AdminAbortMigrationResp.is_admin());
+        assert!(Opcode::AdminRetireFingerprintReq.is_admin());
+        assert!(Opcode::AdminRetireFingerprintResp.is_admin());
+    }
+
+    /// Drift guard: every enum variant MUST appear in `ALL`. If a new
+    /// opcode is added to the enum without a row in `ALL`, this test fails
+    /// and the new opcode escapes the `from_u16` / `as_u16` round-trip test.
+    ///
+    /// The check works by exhaustively decoding every u16 and counting the
+    /// successes; this number must equal `ALL.len()`. If they diverge, the
+    /// enum has a variant the `ALL` table forgot or the decoder forgot.
+    #[test]
+    fn from_u16_covers_all_enum_variants() {
+        let decoded = (0u16..=u16::MAX)
+            .filter(|&v| Opcode::from_u16(v).is_ok())
+            .count();
+        assert_eq!(
+            decoded,
+            ALL.len(),
+            "enum / ALL / from_u16 drift detected: decoder accepts {decoded} values \
+             but ALL has {}. Update the test table or the decoder.",
+            ALL.len()
+        );
     }
 
     #[test]

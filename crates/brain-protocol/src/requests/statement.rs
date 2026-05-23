@@ -352,7 +352,7 @@ mod tests {
         assert_eq!(Opcode::StatementListReq.as_u16(), 0x0146);
         assert_eq!(Opcode::StatementListResp.as_u16(), 0x01C6);
 
-        assert!(Opcode::StatementCreateReq.is_knowledge());
+        assert!(Opcode::StatementCreateReq.is_typed_graph());
         assert!(Opcode::StatementCreateReq.is_request());
         assert!(Opcode::StatementCreateResp.is_response());
     }

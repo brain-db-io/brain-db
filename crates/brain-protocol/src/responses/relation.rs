@@ -359,7 +359,7 @@ mod tests {
         assert_eq!(Opcode::RelationTraverseReq.as_u16(), 0x0156);
         assert_eq!(Opcode::RelationTraverseResp.as_u16(), 0x01D6);
 
-        assert!(Opcode::RelationCreateReq.is_knowledge());
+        assert!(Opcode::RelationCreateReq.is_typed_graph());
         assert!(Opcode::RelationCreateReq.is_request());
         assert!(Opcode::RelationCreateResp.is_response());
     }

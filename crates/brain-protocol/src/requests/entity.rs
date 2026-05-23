@@ -255,10 +255,10 @@ mod tests {
         assert_eq!(Opcode::EntityTombstoneResp.as_u16(), 0x01B8);
 
         assert_eq!(Opcode::EntityCreateReq.namespace(), 0x01);
-        assert!(Opcode::EntityCreateReq.is_knowledge());
+        assert!(Opcode::EntityCreateReq.is_typed_graph());
         assert!(Opcode::EntityCreateReq.is_request());
         assert!(Opcode::EntityCreateResp.is_response());
-        assert!(Opcode::EntityMergeReq.is_knowledge());
+        assert!(Opcode::EntityMergeReq.is_typed_graph());
         assert!(Opcode::EntityResolveReq.is_request());
         assert!(Opcode::EntityListResp.is_response());
     }
