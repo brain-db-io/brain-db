@@ -1,6 +1,6 @@
 //! Bit-packed tombstone bitmap.
 //!
-//! See `spec/06_ann_index/05_deletion.md`. HNSW doesn't support efficient
+//! See `spec/09_indexing/05_deletion.md`. HNSW doesn't support efficient
 //! eager deletion, so forgotten memories are *tombstoned*: their node
 //! stays in the graph and is filtered out at search time. This module
 //! owns the filter state; the search wiring lives in `hnsw.rs`
@@ -19,7 +19,7 @@
 //! ## Count is tracked incrementally
 //!
 //! `count()` returns an O(1) running counter — set/clear update it
-//! only on actual bit transitions. Spec §06/05 §13's `tombstone_ratio`
+//! only on actual bit transitions's `tombstone_ratio`
 //! metric is exposed at the request handler; a per-call O(N/64) sum
 //! would be wasteful.
 

@@ -2,14 +2,14 @@
 
 use brain_core::{ContextId, EdgeKind, MemoryId, MemoryKind};
 
-/// Logical shard reference. Spec §08/01 §11: "the plan is at a level
+/// Logical shard reference: "the plan is at a level
 /// of abstraction above transport. The executor maps shard references
 /// to actual destinations." We re-export the type alias from
 /// `brain_core` (`= u16`) so the planner and the storage layers share
 /// one shard-id encoding; Phase 12 (sharding) wires the routing.
 pub use brain_core::ShardId;
 
-/// Spec §08/03 §6 — whether a filter rule runs before or after ANN
+/// — whether a filter rule runs before or after ANN
 /// candidate gathering.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FilterStage {
@@ -17,7 +17,7 @@ pub enum FilterStage {
     PostFilter,
 }
 
-/// Merge-step sort key. Spec §08/03 §8.
+/// Merge-step sort key.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SortKey {
     Score,
@@ -25,7 +25,7 @@ pub enum SortKey {
     InsertedAt,
 }
 
-/// Concrete predicate the executor applies to candidates. Spec §08/03
+/// Concrete predicate the executor applies to candidates
 /// §6 names categories; we expand them into typed variants so the
 /// executor can dispatch without re-parsing.
 #[derive(Debug, Clone, PartialEq)]
@@ -48,7 +48,7 @@ pub struct EdgeSpec {
 }
 
 /// A sub-RECALL embedded inside a higher-level plan (PLAN, REASON).
-/// Spec §08/05 §3 calls this a `RecallStep`. We name it `RecallSubStep`
+/// calls this a `RecallStep`. We name it `RecallSubStep`
 /// to keep it distinct from the top-level `RecallPlan` (which is the
 /// shape returned by `plan_recall`).
 ///

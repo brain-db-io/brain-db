@@ -38,7 +38,7 @@ three-tier extractor pipeline.
 ## Where to start reading
 
 - [`README.md`](README.md) — what Brain is + capability tour.
-- [`spec/00_master_overview/`](spec/00_master_overview/) — design
+- [`spec/00_overview/`](spec/00_overview/00_index.md) — design
   start.
 - [`ROADMAP.md`](ROADMAP.md) — phase index.
 - [`CLAUDE.md`](CLAUDE.md) — operating rules + invariants.

@@ -1,6 +1,6 @@
 //! Model fingerprint computation.
 //!
-//! Literal implementation of `spec/04_embedding_layer/07_fingerprinting.md`
+//! Literal implementation of `spec/07_embedding/07_fingerprinting.md`
 //! §3's algorithm — byte-for-byte. Every memory's stored fingerprint
 //! depends on this; changing the algorithm orphans every stored vector.
 //! See `crates/brain-metadata/src/tables/model_fingerprint.rs` for the
@@ -24,7 +24,7 @@
 //!
 //! Note: `weights_file` is hashed *separately* into 32 bytes (the full
 //! BLAKE3 output), then those 32 bytes are appended to the outer
-//! hasher. Spec §07 §3 pseudocode is explicit.
+//! hasher pseudocode is explicit.
 
 use std::io::Read;
 use std::path::Path;
@@ -66,7 +66,7 @@ pub fn compute_fingerprint(
 }
 
 /// Compute the BLAKE3-truncated-16 of a text string. The cache in
-/// `crate::cache` uses this as its key, per spec
+/// `crate::dispatcher::cache` uses this as its key, per spec
 /// `04_embedding_layer/05_caching.md` §2 — 16 bytes are enough that
 /// collision probability at 10⁶ entries is ≈ 10⁻¹⁹.
 #[must_use]
@@ -136,7 +136,7 @@ mod tests {
 
     #[test]
     fn fingerprint_known_vector() {
-        // Pins spec §07 §3's byte ordering. Inputs were chosen to be
+        // Pins 's byte ordering. Inputs were chosen to be
         // short and recognisable. The expected value below is what
         // the algorithm produces today; any change to the algorithm
         // (field order, separators, dim encoding, etc.) flips this.

@@ -1,4 +1,4 @@
-//! Static schema validator (spec §21/03).
+//! Static schema validator.
 //!
 //! Pure function — no I/O, no async. Accumulates all errors before
 //! returning. The `ValidatedSchema` newtype proves the schema

@@ -5,11 +5,11 @@ declare entity types, predicates, relations, and extractors that
 flip a deployment from substrate-only mode into the knowledge
 layer.
 
-**Spec:** §21/01 (grammar), §21/02 (semantics), §21/03 (validation).
+**Spec:** §03/01 (grammar), §03/02 (semantics), §03/03 (validation).
 **Source:** `brain_protocol::schema::{parse_schema, validate}`.
 
 A schema document is uploaded via `SchemaUploadReq (0x0120)`. Max
-size 1 MiB (spec §21/03 §34).
+size 1 MiB (spec §03/03 §34).
 
 ## File shape
 
@@ -89,7 +89,7 @@ identifier_list  = identifier ("," ws? identifier)*
 literal          = string_literal | number_literal | bool_literal | date_literal
 ```
 
-Validation (spec §21/03):
+Validation (spec §03/03):
 - `unique` is invalid on `ref<…>` types.
 - `default <literal>` must match the declared `attr_type`.
 - An attribute is exactly one of `required` or `optional`; defaulting to `optional` if neither given.
@@ -111,7 +111,7 @@ object_type      = "Value"     ws? "<" attr_type   ">"
                  | "Any"
 ```
 
-Validation (spec §21/03 §103–111):
+Validation (spec §03/03 §103–111):
 - `kind = Preference` rejects `Entity<…>` and `Statement` object types.
 - `kind = Event` rejects `Statement` object type.
 
@@ -130,7 +130,7 @@ cardinality      = "one-to-one"  | "one-to-many"
                  | "many-to-one" | "many-to-many"
 ```
 
-Validation (spec §21/03 §118–124):
+Validation (spec §03/03 §118–124):
 - `symmetric: true` is invalid for `one-to-many` and `many-to-one`.
 - `from` and `to` must resolve to declared entity types (or the
   literal `Any`).
@@ -172,7 +172,7 @@ trigger_expr     = "on encode" (ws "where" ws condition)?
                  | "periodic" ws "at" ws string_literal      (* cron *)
 ```
 
-Per-kind required fields (spec §21/03 §161–177):
+Per-kind required fields (spec §03/03 §161–177):
 - `pattern` — requires `patterns:` and `confidence:`.
 - `classifier` — requires `model:` and `confidence_threshold:`.
 - `llm` — requires `model:`, `prompt:`, and `confidence_threshold:`.
@@ -214,4 +214,4 @@ Checks performed:
 - [`../wire-protocol/opcodes.md`](../wire-protocol/opcodes.md) — `SchemaUpload*` opcodes.
 - [`../../concepts/substrate-vs-knowledge.md`](../../concepts/substrate-vs-knowledge.md) — when and why to declare a schema.
 
-**Spec:** §21/01 (grammar), §21/02 (semantics), §21/03 (validation).
+**Spec:** §03/01 (grammar), §03/02 (semantics), §03/03 (validation).

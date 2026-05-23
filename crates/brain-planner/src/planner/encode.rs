@@ -3,7 +3,7 @@
 //! Maps a wire `EncodeRequest` (from `brain-protocol`) into an
 //! 8-step `EncodePlan`. Pure: no I/O, no async, no state.
 //!
-//! See `spec/08_query_planner/04_encode_planning.md` for the
+//! See `spec/12_query_optimizer/04_encode_planning.md` for the
 //! authoritative shape:
 //! 1. Idempotency check
 //! 2. Embedding
@@ -26,7 +26,7 @@ use crate::plan::{
     EncodeResponseStep, ExecutionPlan, IdempotencyCheckStep, SlotAllocationStep, WalAppendStep,
 };
 
-/// Spec §08/04 §15: "the text is non-empty and within size limits".
+/// "the text is non-empty and within size limits".
 /// 1 MiB is a generous upper bound; an embed text approaching this
 /// size will saturate the tokeniser anyway.
 pub const MAX_TEXT_BYTES: usize = 1024 * 1024;

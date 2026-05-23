@@ -121,7 +121,7 @@ impl<const D: usize> RebuildSource<D> for ArenaRebuildSource<D> {
 // ---------------------------------------------------------------------------
 
 /// Backs `WalRetentionWorker` against the shard's on-disk WAL
-/// directory. Spec §11/07 + §05/10.
+/// directory.
 ///
 /// `current_checkpoint` reads `MetadataDb::durable_lsn` (cheap,
 /// in-memory after open). `list_segments` opens a fresh `WalReader`
@@ -147,7 +147,7 @@ impl WalDirRetentionSource {
     fn segment_path(&self, segment_seq: u64) -> PathBuf {
         // Mirrors brain_storage::wal::wal::segment_path. The WAL crate
         // doesn't export it (it's a module-private helper); we replicate
-        // the format here. Spec §05/06 §3: zero-padded 10-digit decimal.
+        // the format here: zero-padded 10-digit decimal.
         self.wal_dir.join(format!("{:010}.wal", segment_seq))
     }
 }
@@ -215,7 +215,6 @@ impl WalRetentionSource for WalDirRetentionSource {
 // ---------------------------------------------------------------------------
 
 /// Backs `SnapshotWorker` against the per-shard arena + WAL + metadata.
-/// Spec §05/09 §3.
 ///
 /// Snapshot directory layout:
 ///
@@ -227,7 +226,7 @@ impl WalRetentionSource for WalDirRetentionSource {
 ///     manifest.toml   ({ shard_uuid, durable_lsn, taken_at, ... })
 /// ```
 ///
-/// `take_snapshot` runs the spec §05/09 §3 procedure (CHECKPOINT_BEGIN →
+/// `take_snapshot` runs the procedure (CHECKPOINT_BEGIN →
 /// msync arena → CHECKPOINT_END), copies the on-disk arena + metadata
 /// files, then asks the per-shard `SharedHnsw` to write its snapshot
 /// triple (`hnsw.graph` / `hnsw.data` / `hnsw.brain` per SD-4.5-1)
@@ -294,7 +293,7 @@ impl SnapshotSource for ShardSnapshotSource {
             let ckpt_id = self.next_ckpt_id();
             let started = now_unix_nanos();
 
-            // 1-3. Inline the spec §05/09 §3 checkpoint sequence so the
+            // 1-3. Inline the checkpoint sequence so the
             //      arena borrow only lives across the sync msync_all
             //      step — never across a `.await`. The wal RefCell is
             //      borrowed immutably across the wal.append awaits; the

@@ -1,4 +1,4 @@
-//! Worker configuration. Spec §11/01 §3 + §11/01 §11.
+//! Worker configuration.
 //!
 //! `WorkerKind` enumerates the 12 workers shipped by sub-tasks
 //! 8.2 – 8.13. `WorkerConfig` is the shared bag of knobs every worker
@@ -6,7 +6,7 @@
 
 use std::time::Duration;
 
-/// Spec §11/00 §14 — one variant per shipped worker.
+/// — one variant per shipped worker.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum WorkerKind {
     Decay,
@@ -115,23 +115,23 @@ impl WorkerKind {
     }
 }
 
-/// Spec §11/01 §3 — knobs every worker shares.
+/// — knobs every worker shares.
 #[derive(Clone, Debug)]
 pub struct WorkerConfig {
     /// Disabled workers stay registered (for introspection) but their
-    /// loop never calls `run_cycle`. Spec §11/01 §13: operator command
+    /// loop never calls `run_cycle`: operator command
     /// `ADMIN_WORKER_STOP` flips this to `false`.
     pub enabled: bool,
-    /// Sleep between cycles. Spec §11/01 §11.
+    /// Sleep between cycles.
     pub interval: Duration,
-    /// Soft cap on units of work per cycle. Spec §11/01 §5.
+    /// Soft cap on units of work per cycle.
     pub batch_size: usize,
-    /// Soft cap on wall-clock time per cycle. Spec §11/01 §5.
+    /// Soft cap on wall-clock time per cycle.
     pub max_runtime: Duration,
 }
 
 impl WorkerConfig {
-    /// Spec §11/01 §11 default cadence table. Per-worker sub-tasks
+    /// default cadence table. Per-worker sub-tasks
     /// may tune (e.g., HNSW maintenance bumps `max_runtime` for the
     /// rebuild). Snapshot defaults disabled — operators opt in via
     /// `ADMIN_*_SNAPSHOT` (Phase 9).

@@ -1,4 +1,4 @@
-//! I/O fault injection chaos test. Spec §15/07 §6.
+//! I/O fault injection chaos test.
 //!
 //! Models a metadata-sink failure during recovery — the on-disk WAL
 //! is healthy, but the downstream sink (e.g. redb) returns an error
@@ -12,7 +12,7 @@
 //!    transient fault clears) replays from the durable LSN and ends
 //!    in a consistent state.
 //!
-//! The contract is spec §15/07 §13's "expected vs unexpected" rule:
+//! The contract is 's "expected vs unexpected" rule:
 //! an I/O error during recovery is *expected* — surfacing it cleanly
 //! is the substrate's job; the operator decides how to retry.
 

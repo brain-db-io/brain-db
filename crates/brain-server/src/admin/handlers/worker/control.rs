@@ -57,7 +57,7 @@ pub async fn control(
         }
     };
 
-    // Fan out to every configured shard. Spec §14/06 §6: control
+    // Fan out to every configured shard: control
     // applies to "the named worker" — each shard has its own
     // instance of every worker (decay, consolidation, …); the admin
     // surface applies the action to all of them.

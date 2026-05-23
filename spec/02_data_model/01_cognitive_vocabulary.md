@@ -1,12 +1,12 @@
 # 02.01 Cognitive Vocabulary
 
-The words we use shape what's easy to think and what's hard. Brain chose its vocabulary deliberately. This file documents the choices and the alternatives rejected.
+The words Brain uses shape what's easy to think and what's hard. Brain chose its vocabulary deliberately. This file documents the choices and the alternatives rejected.
 
-The vocabulary is summarized in [01.09 Glossary](../01_system_architecture/09_glossary.md) and mirrored in [00.01 Glossary](../00_master_overview/01_glossary.md). This document explains *why* the chosen terms — not what they mean.
+The vocabulary is summarized in [01.09 Glossary](../01_architecture/08_glossary.md) and mirrored in [00.01 Glossary](../00_overview/01_glossary.md). This document explains *why* the chosen terms — not what they mean.
 
 ## 1. The central word: memory
 
-We call the unit of storage a **memory**. We rejected:
+Brain calls the unit of storage a **memory**. Rejected alternatives:
 
 - **Document** — too web-search-y. A document is text-shaped. A memory might be a fact, an event, or an inference; "document" overconstrains it.
 - **Item** — too generic. Doesn't carry the right connotation of "something the agent remembers".
@@ -22,7 +22,7 @@ We call the unit of storage a **memory**. We rejected:
 - The thing is *recallable* — by similarity, by reference, by association.
 - The thing is *agent-owned* — agents have memories; memories belong to agents.
 
-We're using the word in its everyday sense, not in any specific cognitive-science technical sense. There's no intent to claim biological correspondence; the word is chosen for its connotations.
+Brain uses the word in its everyday sense, not in any specific cognitive-science technical sense. There's no intent to claim biological correspondence; the word is chosen for its connotations.
 
 ## 2. The verbs: encode, recall, plan, reason, forget
 
@@ -44,21 +44,21 @@ These three are direct lifts from cognitive science / neuroscience.
 
 ### Salience
 
-A score representing "how important is this memory?". We rejected:
+A score representing "how important is this memory?". Rejected alternatives:
 
 - **Importance** — an OK English word but too vague.
 - **Score** — generic; doesn't say what the score measures.
 - **Weight** — implies use in a weighted-average computation; too narrow.
 - **Priority** — implies queueing; doesn't carry "this matters because it's relevant or surprising".
 
-**Salience** is the cognitive-science term and it's what we mean. Salience reflects relevance, recency, surprise, and explicit importance. It's a single number in [0, 1] but emerges from multiple inputs.
+**Salience** is the cognitive-science term and it's what Brain means. Salience reflects relevance, recency, surprise, and explicit importance. It's a single number in [0, 1] but emerges from multiple inputs.
 
 ### Decay
 
-The exponential lowering of salience over time. The term "decay" is direct from the [Ebbinghaus forgetting curve](https://en.wikipedia.org/wiki/Forgetting_curve). We rejected:
+The exponential lowering of salience over time. The term "decay" is direct from the [Ebbinghaus forgetting curve](https://en.wikipedia.org/wiki/Forgetting_curve). Rejected alternatives:
 
 - **Aging** — too neutral; doesn't connote loss.
-- **Expiry / TTL** — implies a hard cutoff; we don't have one.
+- **Expiry / TTL** — implies a hard cutoff; Brain does not have one.
 - **Degradation** — implies content corruption; salience decay doesn't change content.
 
 ### Consolidation
@@ -81,25 +81,25 @@ A typed link between two memories. Standard graph-theory term. Alternatives:
 - **Relation** — sounds relational-database.
 - **Connection** — too vague; could be socket-flavored.
 
-**Edge** is the right word. It comes with the implicit baggage of graph theory (directed, may have weights, traversed in operations) which is what we want.
+**Edge** is the right word. It comes with the implicit baggage of graph theory (directed, may have weights, traversed in operations) which is what Brain wants.
 
 ### Kind
 
-The classification of a memory: episodic, semantic, consolidated. We rejected:
+The classification of a memory: episodic, semantic, consolidated. Rejected alternatives:
 
 - **Type** — overloaded in programming contexts.
 - **Class** — programming overload + sociological overload.
-- **Category** — generic; doesn't carry the trichotomy we mean.
+- **Category** — generic; doesn't carry the trichotomy Brain means.
 
 **Kind** is intentionally simple and unique to this vocabulary. Three kinds, fixed enum, easy to reason about.
 
 ### Context
 
-A logical scope within an agent's memory. We rejected:
+A logical scope within an agent's memory. Rejected alternatives:
 
 - **Namespace** — too database-flavored.
 - **Topic** — too topical; contexts can be cross-topic.
-- **Tag** — multi-attach; we want each memory in exactly one context (in v1).
+- **Tag** — multi-attach; Brain places each memory in exactly one context (in v1).
 - **Project** — too application-specific.
 - **Folder** — too filesystem-flavored.
 - **Collection** — generic.
@@ -110,12 +110,12 @@ A logical scope within an agent's memory. We rejected:
 
 ### Confidence
 
-A normalized score in [0, 1] for `RECALL` results. *Confidence* is the right ML term — it implies a calibrated probability, not just a similarity score. We provide actual calibration ([01.06 Targets](../01_system_architecture/06_targets.md) §4.2) so the word fits.
+A normalized score in [0, 1] for `RECALL` results. *Confidence* is the right ML term — it implies a calibrated probability, not just a similarity score. Brain provides actual calibration ([01.06 Targets](../01_architecture/05_hardware_and_targets.md) §4.2) so the word fits.
 
 Alternatives rejected:
 
 - **Score** — uncalibrated.
-- **Similarity** — implementation-flavored, and we expose more than raw similarity.
+- **Similarity** — implementation-flavored, and Brain exposes more than raw similarity.
 - **Probability** — too narrow; confidence reflects more than raw probability.
 
 ### Tombstone
@@ -126,13 +126,13 @@ The lifecycle state of a forgotten-but-not-yet-reclaimed slot. Standard distribu
 - **Hidden** — too mild; tombstones are excluded from queries.
 - **Soft-deleted** — accurate but verbose.
 
-**Tombstone** is the database term and we use it.
+**Tombstone** is the database term and Brain uses it.
 
 ### Reclaimed
 
 The lifecycle state after a tombstoned slot has been reused. Standard memory-management term.
 
-## 6. The implementation-flavored words we hide
+## 6. The implementation-flavored words Brain hides
 
 Some words exist in the implementation but don't surface in the public vocabulary:
 
@@ -143,19 +143,19 @@ Some words exist in the implementation but don't surface in the public vocabular
 - **Vector** — the 384-dim float array. Internal; clients send text.
 - **Epoch** — the lock-free reclamation marker. Internal; clients don't know about epochs.
 
-This isn't accidental. The substrate is opinionated about hiding implementation. A client SDK that exposed `slot_id` directly would let users build code that depends on internal stability we don't promise. By keeping these words inside, we keep our right to evolve them.
+This isn't accidental. Brain is opinionated about hiding implementation. A client SDK that exposed `slot_id` directly would let users build code that depends on internal stability Brain does not promise. By keeping these words inside, Brain keeps the right to evolve them.
 
-## 7. The agent-application words we don't use
+## 7. The agent-application words Brain does not use
 
-Words from the application layer that *don't* belong in our vocabulary:
+Words from the application layer that *don't* belong in Brain's vocabulary:
 
 - **Prompt** — what the agent feeds the LLM. Brain has nothing to do with prompts.
-- **Conversation** — a sequence of agent-user exchanges. May be encoded as memories, but the substrate doesn't model conversations.
+- **Conversation** — a sequence of agent-user exchanges. May be encoded as memories, but Brain doesn't model conversations.
 - **Tool / Action** — agent-side concepts. Outside Brain's scope.
-- **Session** — overloaded. We use *session* only for the connection-level concept ([01.09 Glossary](../01_system_architecture/09_glossary.md)).
+- **Session** — overloaded. Brain uses *session* only for the connection-level concept ([01.09 Glossary](../01_architecture/08_glossary.md)).
 - **User** — the human or system the agent serves. Brain doesn't model users; agents do.
 
-These are intentionally absent from our vocabulary. The substrate provides cognitive operations; how an application maps prompts/conversations/tools/users onto the substrate is the application's design choice.
+These are intentionally absent from Brain's vocabulary. Brain provides operations; how an application maps prompts/conversations/tools/users onto Brain is the application's design choice.
 
 ## 8. Summary
 
@@ -163,6 +163,3 @@ The vocabulary in one sentence: an **agent** has **memories** with **salience** 
 
 If a future spec uses different words for the same concepts, this vocabulary wins; the offending spec is wrong.
 
----
-
-*Continue to [`02_memory_entity.md`](02_memory_entity.md) for the central entity.*

@@ -1,10 +1,10 @@
-//! Long-duration soak test. Sub-task 13.4 / spec §16/04.
+//! Long-duration soak test. Sub-task 13.4 /.
 //!
 //! Drives sustained load through the SDK and periodically samples
 //! the server's `/metrics` endpoint, asserting that:
 //!
 //! - **No memory leak** — RSS stays within `--mem-tolerance-pct` of
-//!   the post-warmup baseline (spec §16/04 §4: memory grows with data;
+//!   the post-warmup baseline (memory grows with data;
 //!   on a steady-state mixed workload at fixed data size, RSS should
 //!   be flat).
 //! - **No latency drift** — moving-average p99 of `brain_request_duration_ms`
@@ -43,7 +43,7 @@
 //! ## CI status
 //!
 //! This rig is `#[ignore]`-equivalent — run on dedicated infra,
-//! never in CI. Spec §16/15 puts soak at "weekly" cadence; the
+//! never in CI puts soak at "weekly" cadence; the
 //! result file is committed to `docs/performance/soak-<date>.md`.
 
 use std::env;

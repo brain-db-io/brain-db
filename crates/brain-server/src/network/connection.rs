@@ -1,5 +1,5 @@
 //! Connection layer — Tokio TCP accept loop with optional rustls TLS
-//! (sub-task 9.9). Spec §01/04 (L1), §03/02 (transport).
+//! (sub-task 9.9) (L1), §03/02 (transport).
 //!
 //! ## What 9.9 ships
 //!
@@ -26,7 +26,7 @@
 //! - Real opcode → shard routing — 9.10.
 //! - Idle PING/PONG, BYE handling — 9.10.
 //! - Per-IP / per-agent connection limits — 9.13.
-//! - mTLS — follow-up; spec §03/02 §2.4 marks opt-in.
+//! - mTLS — follow-up marks opt-in.
 
 #![cfg(target_os = "linux")]
 
@@ -126,11 +126,11 @@ pub struct ConnectionLimits {
     /// SERVER_PING path instead; bounding it here too closes idle
     /// REPLs / SDKs before the application-level keepalive can fire.
     pub read_timeout: Duration,
-    /// Spec §03/06 §6.3 — interval before AUTH must arrive after WELCOME.
+    /// — interval before AUTH must arrive after WELCOME.
     pub auth_timeout: Duration,
-    /// Spec §03/02 §6.1 — idle window before the server emits SERVER_PING.
+    /// — idle window before the server emits SERVER_PING.
     pub idle_timeout: Duration,
-    /// Spec §03/02 §6.1 — window for CLIENT_PONG to arrive after SERVER_PING.
+    /// — window for CLIENT_PONG to arrive after SERVER_PING.
     pub ping_timeout: Duration,
     /// Outgoing-frame channel capacity. Bounds memory under sustained
     /// load; if the writer can't keep up, sub-tasks back-pressure on
@@ -170,7 +170,7 @@ pub struct ConnectionMetrics {
 }
 
 /// Frame-size histogram bucket bounds in **bytes**. Covers tiny
-/// control frames (PONG, BYE, ~32 B) through the spec §03 hard
+/// control frames (PONG, BYE, ~32 B) through the hard
 /// 16 MiB payload max, with extra resolution in the 1-64 KiB band
 /// where most request/response payloads land.
 pub const FRAME_BYTES_BUCKETS: &[f64] = &[
@@ -200,7 +200,7 @@ impl Default for ConnectionMetrics {
     }
 }
 
-/// Stable close-reason set spec §14/01 §9 expects on
+/// Stable close-reason set expects on
 /// `brain_connections_closed_total{reason=}`. Order is the
 /// label-emission order; the indexed array in
 /// [`ConnectionMetrics::closed_by_reason`] uses this same order.
@@ -570,7 +570,7 @@ where
             () = shutdown.recv() => return Ok(()),
             _ = tokio::time::sleep_until(next_deadline) => {
                 if handshake_deadline.is_some() {
-                    // Spec §03/06 §6.3 — auth timeout before AUTH_OK.
+                    // — auth timeout before AUTH_OK.
                     let frame = build_close_error_frame(
                         ErrorCode::Unauthenticated,
                         "handshake timeout (no AUTH within auth_timeout)",
@@ -632,7 +632,7 @@ where
                                     .unwrap_or("unknown");
                                 let stream_id = op.stream_id;
                                 let target_shard = op.target_shard;
-                                // 12.3 — request-level span. Spec §14/03 §3 instruments each
+                                // 12.3 — request-level span instruments each
                                 // request; child spans inside the shard (brain.encode →
                                 // brain.embed → brain.hnsw.insert) attach to this parent.
                                 let span = tracing::info_span!(
@@ -954,7 +954,7 @@ fn bind_listener(addr: SocketAddr) -> io::Result<TcpListener> {
     } else {
         TcpSocket::new_v6()?
     };
-    // Spec §03/02 §1.2 — SO_REUSEADDR for graceful restart.
+    // — SO_REUSEADDR for graceful restart.
     socket.set_reuseaddr(true)?;
     socket.bind(addr)?;
     // Backlog 1024 is well above typical concurrent-accept rates and
@@ -963,7 +963,7 @@ fn bind_listener(addr: SocketAddr) -> io::Result<TcpListener> {
 }
 
 fn configure_tcp(stream: &TcpStream) -> io::Result<()> {
-    // Spec §03/02 §1.2: TCP_NODELAY + SO_KEEPALIVE.
+    // TCP_NODELAY + SO_KEEPALIVE.
     stream.set_nodelay(true)?;
     let sock = SockRef::from(stream);
     let keepalive = TcpKeepalive::new()

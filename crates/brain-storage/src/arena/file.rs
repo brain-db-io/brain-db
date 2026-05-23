@@ -1,6 +1,6 @@
 //! The arena file: open, mmap, read/write slots, grow.
 //!
-//! See `spec/05_storage_arena_wal/{01,02,03}*.md`.
+//! See `spec/08_storage/{01,02,03}*.md`.
 //!
 //! `ArenaFile` owns one `arena.bin` and the mmap'd view of it. The file
 //! has a 4096-byte header followed by a contiguous array of fixed-size
@@ -8,7 +8,7 @@
 //!
 //! ## Why hand-rolled libc instead of `memmap2`
 //!
-//! Spec §05/03 §4 prescribes `mremap(2)` with `MREMAP_MAYMOVE` for growth.
+//! prescribes `mremap(2)` with `MREMAP_MAYMOVE` for growth.
 //! `memmap2` does not expose `mremap`, so going through it would force the
 //! spec's *fallback* path (§05/03 §5: unmap-then-mmap). Hand-rolling lets
 //! us use the primary path and keeps a single owned region we grow in
@@ -40,10 +40,10 @@ use crate::arena::slot::{Slot, SLOT_SIZE};
 // Header.
 // ---------------------------------------------------------------------------
 
-/// Header size in bytes (spec §05/02 §2).
+/// Header size in bytes.
 pub const HEADER_LEN: usize = 4096;
 
-/// Magic bytes at offset 0 of the header (spec §05/02 §2).
+/// Magic bytes at offset 0 of the header.
 pub const HEADER_MAGIC: [u8; 4] = *b"BARN";
 
 /// Format version written into new arenas.
@@ -57,13 +57,13 @@ pub const SLOT_SIZE_V1: u32 = 1600;
 
 /// End of the CRC-covered region within the header.
 ///
-/// Spec §05/02 §2 prints "[0..76]" but byte 76 splits the `last_grow_at`
+/// prints "[0..76]" but byte 76 splits the `last_grow_at`
 /// u64 (offsets 72..80). Same typo pattern as the slot CRC; we read it as
 /// "every header field before `header_crc32c`" — bytes `[0..80]`. See
 /// `.claude/plans/phase-02-task-04.md` §3.1 for the rationale.
 pub const HEADER_CRC_COVERAGE_END: usize = 80;
 
-/// Default initial capacity for a fresh arena (spec §05/02 §9).
+/// Default initial capacity for a fresh arena.
 pub const DEFAULT_INITIAL_CAPACITY_SLOTS: u64 = 1024;
 
 /// Test-only counter: every call to `ArenaFile::msync_all` bumps this.
@@ -72,7 +72,7 @@ pub const DEFAULT_INITIAL_CAPACITY_SLOTS: u64 = 1024;
 #[cfg(test)]
 pub static MSYNC_ALL_CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
 
-/// Header struct mirroring spec §05/02 §2 byte-for-byte. `#[repr(C)]`,
+/// Header struct mirroring byte-for-byte. `#[repr(C)]`,
 /// no implicit padding (verified by `bytemuck::Pod` derive and the
 /// const-asserts below).
 #[repr(C)]
@@ -353,7 +353,7 @@ impl ArenaFile {
             err
         };
 
-        // Spec §05/02 §11 validation order: magic, then CRC, then UUID/
+        // validation order: magic, then CRC, then UUID/
         // version/dim. (CRC before the field-by-field checks so we don't
         // mistake a corrupted UUID for a real mismatch.)
 
@@ -426,12 +426,12 @@ impl ArenaFile {
     /// `msync(MS_SYNC)` the entire mmap region.
     ///
     /// Blocks until all dirty pages in `[0, file_size)` are durable. Called
-    /// by the checkpoint writer (spec §05/09 §3 step 3) to ensure every
+    /// by the checkpoint writer (step 3) to ensure every
     /// arena write made before the checkpoint reaches stable storage
     /// before `CHECKPOINT_END` is appended to the WAL.
     ///
     /// `&self` rather than `&mut self`: the syscall doesn't need exclusive
-    /// access (the kernel handles synchronization), and spec §05/09 §3
+    /// access (the kernel handles synchronization), and
     /// step 2's "no in-flight writes during checkpoint" guarantee is
     /// enforced at the caller layer (`&mut Wal` for the surrounding
     /// `CHECKPOINT_BEGIN`/`END` appends).
@@ -501,7 +501,7 @@ impl ArenaFile {
     /// Grow the arena to (at least) `new_capacity_slots`.
     ///
     /// No-op if `new_capacity_slots ≤ current`. Returns `ShrinkRequested`
-    /// if asked to shrink — v1 doesn't support that path (spec §05/03 §8).
+    /// if asked to shrink — v1 doesn't support that path.
     ///
     /// On success: file extended via `fallocate`, mapping resized via
     /// `mremap(MREMAP_MAYMOVE)`, header's `slot_count_capacity` and
@@ -521,14 +521,14 @@ impl ArenaFile {
         let new_file_size = HEADER_LEN + (new_capacity_slots as usize) * SLOT_SIZE;
         let fd = self.file.as_raw_fd();
 
-        // 1. Extend file via fallocate (spec §05/03 §3).
+        // 1. Extend file via fallocate.
         // SAFETY: fd is valid; offset=0, len=new_file_size are non-negative.
         let rc = unsafe { libc::fallocate(fd, 0, 0, new_file_size as libc::off_t) };
         if rc != 0 {
             return Err(ArenaGrowError::FallocateFailed(io::Error::last_os_error()));
         }
 
-        // 2. mremap (spec §05/03 §4).
+        // 2. mremap.
         // SAFETY: self.base is a valid mmap returned by mmap_rw; old length
         // is self.file_size; new length is new_file_size > old length.
         // MREMAP_MAYMOVE allows the kernel to relocate if needed.
@@ -563,7 +563,7 @@ impl ArenaFile {
         // them on every kernel). Errors are non-fatal.
         apply_madvise(self.base, self.file_size);
 
-        // 5. msync the header page (spec §05/03 §13).
+        // 5. msync the header page.
         // SAFETY: header lives at offset 0..HEADER_LEN of the new mmap.
         let rc =
             unsafe { libc::msync(self.base.as_ptr() as *mut c_void, HEADER_LEN, libc::MS_SYNC) };

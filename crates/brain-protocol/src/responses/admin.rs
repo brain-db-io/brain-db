@@ -1,11 +1,10 @@
-//! Admin-surface responses (spec §07/15 – §07/25).
+//! Admin-surface responses (– §07/25).
 
 use rkyv::{Archive, Deserialize, Serialize};
 
 use super::types::{IntegrityIssueType, MigrationStatus};
 use crate::request::{ForgetMode, MemoryKindWire, WireContextId, WireMemoryId};
 
-/// Spec §08 §15.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -17,7 +16,6 @@ pub struct AdminStatsResponse {
     pub server_version: String,
 }
 
-/// Spec §08 §15.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -34,7 +32,6 @@ pub struct StatsSummary {
     pub disk_used_bytes: u64,
 }
 
-/// Spec §08 §15.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -47,7 +44,7 @@ pub struct ShardStats {
     pub arena_used_bytes: u64,
 }
 
-/// Spec §08 §15 — fixed 10-bucket histogram.
+/// — fixed 10-bucket histogram.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -55,7 +52,6 @@ pub struct SalienceHistogram {
     pub buckets: [u32; 10],
 }
 
-/// Spec §08 §15.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -67,7 +63,6 @@ pub struct ContextStats {
     pub last_recalled_at_unix_nanos: u64,
 }
 
-/// Spec §08 §16.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -81,7 +76,6 @@ pub struct AdminSnapshotResponse {
     pub used_reflink: bool,
 }
 
-/// Spec §08 §17.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -92,7 +86,6 @@ pub struct AdminRestoreResponse {
     pub memories_restored: u64,
 }
 
-/// Spec §08 §18.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -103,7 +96,6 @@ pub struct AdminIntegrityCheckResponse {
     pub completed_at_unix_nanos: u64,
 }
 
-/// Spec §08 §18.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -115,7 +107,7 @@ pub struct IntegrityIssue {
     pub repaired: bool,
 }
 
-/// Spec §08 §19 — one streaming migration frame.
+/// — one streaming migration frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -125,7 +117,6 @@ pub struct AdminMigrateEmbeddingsResponseFrame {
     pub status: Option<MigrationStatus>,
 }
 
-/// Spec §08 §19.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -137,7 +128,6 @@ pub struct MigrationProgress {
     pub estimated_remaining_seconds: u32,
 }
 
-/// Spec §08 §20.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -146,7 +136,6 @@ pub struct AdminCreateContextResponse {
     pub name: String,
 }
 
-/// Spec §08 §21.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -156,7 +145,6 @@ pub struct AdminRenameContextResponse {
     pub old_name: String,
 }
 
-/// Spec §08 §22.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -166,7 +154,6 @@ pub struct AdminMoveMemoryResponse {
     pub old_context_id: WireContextId,
 }
 
-/// Spec §08 §23.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -176,7 +163,7 @@ pub struct AdminReclassifyResponse {
     pub old_kind: MemoryKindWire,
 }
 
-/// Spec §08 §24 — one streaming tombstoned-list frame.
+/// — one streaming tombstoned-list frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -185,7 +172,6 @@ pub struct AdminListTombstonedResponseFrame {
     pub is_final: bool,
 }
 
-/// Spec §08 §24.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

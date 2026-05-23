@@ -1,4 +1,4 @@
-//! System schema bootstrap (spec §21/06, phase 19.7).
+//! System schema bootstrap (phase 19.7).
 //!
 //! At `MetadataDb::open`, this module:
 //!

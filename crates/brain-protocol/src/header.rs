@@ -1,7 +1,7 @@
 //! Fixed 32-byte frame header.
 //!
-//! Implements `spec/03_wire_protocol/03_frame_header.md`. All multi-byte
-//! header fields are big-endian (spec §03/03 §1, §8).
+//! Implements `spec/04_wire_protocol/03_frame_header.md`. All multi-byte
+//! header fields are big-endian (§8).
 //!
 //! Multi-byte fields are stored as raw big-endian byte arrays rather than
 //! native integers so the struct is trivially `bytemuck::Pod` and matches
@@ -13,9 +13,8 @@
 //! The opcode field is `u16` (bytes 5-6, big-endian). The high byte is a
 //! **namespace**:
 //! - `0x00xx` — substrate (cognitive primitives + connection mgmt + admin),
-//!   spec §03/05.
 //! - `0x01xx` — knowledge layer (entities / statements / relations /
-//!   queries / schema), spec §28/00.
+//!   queries / schema).
 //! - `0x02xx`–`0xFFxx` — reserved.
 //!
 //! Within a namespace the low byte's high bit selects direction (request
@@ -30,19 +29,14 @@ use crate::crc::header_crc;
 use crate::error::ProtocolError;
 use crate::{MAGIC, MAX_PAYLOAD_BYTES};
 
-/// Wire protocol version. See spec §03/03 §3.2.
+/// Wire protocol version.
 ///
-/// ## Changelog
-///
-/// - **v1** — initial release (substrate + knowledge layer through
-///   `0x0163 RECALL_HYBRID`).
-/// - **v2** — adds `0x0164 MATERIALIZE_PROCEDURAL` /
-///   `0x01E4 MATERIALIZE_PROCEDURAL_RESP`. Renders an agent's stored
-///   procedural-memory Preferences (brain:behavior_*) as a system
-///   block ready for LLM-prompt injection.
-pub const VERSION: u8 = 2;
+/// Brain is pre-release (v0.1.0). The wire protocol is still in flux;
+/// the VERSION byte will lock at `1` when v1.0 ships. Until then,
+/// breaking wire changes are made in place without a version bump.
+pub const VERSION: u8 = 1;
 
-/// 32-byte frame header. Layout matches spec §03/03 §1 exactly.
+/// 32-byte frame header. Layout matches exactly.
 ///
 /// `Eq`/`PartialEq` are implemented by hand below — deriving them on a
 /// `repr(C, packed)` struct fails because the derive macro takes field
@@ -54,7 +48,7 @@ pub struct Header {
     pub magic: [u8; 4],
     /// Byte 4: protocol version.
     pub version: u8,
-    /// Bytes 5–6: big-endian `u16` opcode (spec §03/05).
+    /// Bytes 5–6: big-endian `u16` opcode.
     pub opcode: [u8; 2],
     /// Byte 7: flags. Three bits are defined (EOS=0x80, MPL=0x40,
     /// CMP=0x20); the remaining five are reserved and MUST be zero.
@@ -80,7 +74,7 @@ const _: () = {
     assert!(core::mem::align_of::<Header>() == 1);
 };
 
-/// Bits in [`Header::flags`] that MUST be zero per spec §03/03 §2.
+/// Bits in [`Header::flags`] that MUST be zero.
 ///
 /// Defined flag bits (after the u16→u8 shrink, see module doc):
 /// - `0x80` — `EOS` (end of stream)
@@ -113,7 +107,7 @@ impl Header {
     ///
     /// Panics if `payload_len` exceeds [`MAX_PAYLOAD_BYTES`]. The 24-bit field
     /// physically cannot represent more; callers must split via multi-payload
-    /// framing (spec §03/03 §6).
+    /// framing.
     pub fn new(opcode: u16, flags: u8, stream_id: u32, payload_len: u32) -> Self {
         assert!(
             (payload_len as usize) <= MAX_PAYLOAD_BYTES,
@@ -145,7 +139,7 @@ impl Header {
         self.header_crc32c = compute_header_crc(self).to_be_bytes();
     }
 
-    /// Validate per spec §03/03 §4.1: magic, version, reserved zeroness,
+    /// Validate: magic, version, reserved zeroness,
     /// payload-length bound, and header CRC.
     pub fn validate(&self) -> Result<(), ProtocolError> {
         if self.magic != MAGIC {
@@ -207,7 +201,7 @@ impl Header {
 }
 
 /// CRC32C over the header excluding the `header_crc32c` field
-/// (bytes 0–7 followed by bytes 12–31), per spec §03/03 §3.6.
+/// (bytes 0–7 followed by bytes 12–31).
 fn compute_header_crc(h: &Header) -> u32 {
     let bytes: &[u8; 32] = bytemuck::cast_ref(h);
     let mut buf = [0u8; 28];
@@ -263,7 +257,7 @@ mod tests {
         // Substrate: ENCODE_REQ.
         let h = Header::new(0x0020, 0, 1, 0);
         assert_eq!(h.opcode_u16(), 0x0020);
-        // Knowledge: ENTITY_CREATE (spec §28).
+        // Knowledge: ENTITY_CREATE.
         let h = Header::new(0x0130, 0, 1, 0);
         assert_eq!(h.opcode_u16(), 0x0130);
         h.validate().unwrap();
@@ -293,7 +287,7 @@ mod tests {
             h.validate(),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 2
+                expected: 1
             })
         ));
     }
@@ -360,7 +354,7 @@ mod tests {
 
     #[test]
     fn on_wire_byte_layout_matches_spec() {
-        // Spec §03/03 §1: bytes 5-6 = opcode (BE u16), byte 7 = flags (u8).
+        // bytes 5-6 = opcode (BE u16), byte 7 = flags (u8).
         let h = Header::new(0x0130, 0x80, 0, 0);
         let bytes: [u8; 32] = bytemuck::cast(h);
         assert_eq!(bytes[4], VERSION, "version");

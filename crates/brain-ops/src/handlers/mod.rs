@@ -1,4 +1,4 @@
-//! Wire-opcode handlers: one module per spec §09 cognitive operation.
+//! Wire-opcode handlers: one module cognitive operation.
 //! Engine code (`writer`, `apply`, `index`) and infrastructure
 //! (`context`, `dispatch`, `idempotency`, etc.) live at the crate root.
 

@@ -114,7 +114,7 @@ define predicate met_person {
 }
 ```
 
-Behavioural differences (spec §17/02):
+Behavioural differences (spec §02/02):
 
 | Kind | Auto-supersession | Allowed objects | Decay |
 |---|---|---|---|

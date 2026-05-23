@@ -181,7 +181,7 @@ ok  s2/m1/v1  outcome=Tombstoned  edges_removed=0
 |---|---|
 | `Tombstoned` | Memory was Active; tombstoned. |
 | `AlreadyTombstoned` | Idempotent no-op. |
-| `MemoryNotFound` | No such memory; treated as success per spec §08/06 §10. |
+| `MemoryNotFound` | No such memory; treated as success per spec §02/06 §10. |
 
 ### JSON
 

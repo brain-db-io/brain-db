@@ -4,7 +4,7 @@
 //! Supersede(Statement) all real. Each ports to a brain-metadata
 //! helper that runs inside the wtxn.
 
-use brain_core::knowledge::{EvidenceRef, Statement, TombstoneReason};
+use brain_core::{EvidenceRef, Statement, TombstoneReason};
 use brain_metadata::statement::{statement_create, statement_supersede, statement_tombstone};
 use redb::WriteTransaction;
 use smallvec::SmallVec;
@@ -111,10 +111,10 @@ fn build_evidence_ref(phase_ref: &EvidenceRefPhase) -> EvidenceRef {
     match phase_ref {
         EvidenceRefPhase::Inline(entries) => {
             let mut sv: SmallVec<
-                [brain_core::knowledge::EvidenceEntry; brain_core::knowledge::INLINE_EVIDENCE_CAP],
+                [brain_core::EvidenceEntry; brain_core::INLINE_EVIDENCE_CAP],
             > = SmallVec::new();
             for &e in entries {
-                if sv.len() == brain_core::knowledge::INLINE_EVIDENCE_CAP {
+                if sv.len() == brain_core::INLINE_EVIDENCE_CAP {
                     break;
                 }
                 sv.push(e);

@@ -6,14 +6,14 @@
 //! validate-and-write atomically.
 //!
 //! Spec refs:
-//! - `spec/19_statements/00_purpose.md` §"Predicate vocabulary" —
+//! - `spec/02_data_model/00_purpose.md` §"Predicate vocabulary" —
 //!   field shape + built-in catalog.
 //! - `spec/26_knowledge_storage/00_purpose.md` — predicate row lives
 //!   in the knowledge storage catalog.
 
 use std::collections::HashSet;
 
-use brain_core::knowledge::{Predicate, StatementKind};
+use brain_core::{Predicate, StatementKind};
 use brain_core::PredicateId;
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 

@@ -61,7 +61,7 @@ pub enum EmbedError {
     TensorBuild(String),
 
     /// The forward pass returned a pathological vector: NaN, Inf, or
-    /// a near-zero norm. Spec §04/04 §4 + §8 + §9 mandate rejection.
+    /// a near-zero norm mandate rejection.
     #[error("numeric failure in embedding output: {0}")]
     NumericFailure(String),
 

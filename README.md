@@ -1,17 +1,17 @@
 <p align="center">
-  <img src="assets/banner.svg" alt="brain — a cognitive substrate for AI agents" width="100%">
+  <img src="assets/banner.svg" alt="brain — a memory database for AI agents" width="100%">
 </p>
 
 # Brain
 
-> A cognitive database for AI agents — vector memory, a typed knowledge graph, and hybrid retrieval in one substrate. Cognitive operations (encode, recall, plan, reason, forget) are the primitives; entities, statements, and relations are the secondary layer that activates when a schema is declared.
+> A memory database for AI agents — vector memory, a typed graph (entities + statements + relations), and hybrid retrieval, in one Rust core. `encode` / `recall` / `plan` / `reason` / `forget` are the primitive operations; the typed graph activates when a schema is declared.
 
-**Status:** Specification complete — 32 sections covering both the substrate (§00–§16) and the knowledge layer (§17–§31). Implementation is phased: substrate phases 0–12 shipped; phases 13–14 (benchmarks + substrate acceptance) close the substrate; phases 15–24 deliver the knowledge layer. The `v1.0.0` tag lands at the end of Phase 24, after the combined acceptance suite passes.
+**Status:** Pre-release (**v0.1.0**). Brain has no external users; the wire protocol, redb tables, and schema model are still in flux. The v1.0 release ships when the combined acceptance suite at [`spec/19_benchmarks/06_complete_acceptance.md`](spec/19_benchmarks/06_complete_acceptance.md) passes — functional + performance + storage + operational + schemaless tests, end-to-end.
 
 ```text
 $ brain
 ─────────────────────────────────────────────────────────────────────────────
-  ◉ brain-shell  v1.0.0  ·  connected to 127.0.0.1:9090
+  ◉ brain-shell  v0.1.0  ·  connected to 127.0.0.1:9090
 
   agent       agent-019e433e
               019e433e-9272-7e70-b071-4a4fd6135d1e
@@ -95,22 +95,22 @@ Brain ships in two layers that share one shard, one storage system, and one wire
 ```
                            ┌───────────────────────────────────────────┐
                            │  KNOWLEDGE LAYER   (activates on schema)  │
-                           │                                            │
-   Layer 3:  STATEMENTS    │  Facts, Preferences, Events                │
-                           │  (typed claims, with provenance + conf.)   │
-                           │           ▲                                 │
-                           │           │ derived from                    │
-   Layer 2:  ENTITIES +    │           │                                 │
-             RELATIONS     │  Canonical nouns, typed edges               │
-                           │           ▲                                 │
-                           │           │ references / anchored to        │
-                           └───────────│─────────────────────────────────┘
-                           ┌───────────│─────────────────────────────────┐
-   Layer 1:  MEMORIES      │           │                                 │
-             (substrate)   │  Raw episodic / semantic / consolidated     │
-                           │  memories, embedded, indexed in HNSW        │
-                           │                                              │
-                           │           SUBSTRATE  (always active)         │
+                           │                                           │
+   Layer 3:  STATEMENTS    │  Facts, Preferences, Events               │
+                           │  (typed claims, with provenance + conf.)  │
+                           │           ▲                               │
+                           │           │ derived from                  │
+   Layer 2:  ENTITIES +    │           │                               │
+             RELATIONS     │  Canonical nouns, typed edges             │
+                           │           ▲                               │
+                           │           │ references / anchored to      │
+                           └───────────│───────────────────────────────┘
+                           ┌───────────│───────────────────────────────┐
+   Layer 1:  MEMORIES      │           │                               │
+             (substrate)   │  Raw episodic / semantic / consolidated   │
+                           │  memories, embedded, indexed in HNSW      │
+                           │                                           │
+                           │           SUBSTRATE  (always active)      │
                            └───────────────────────────────────────────┘
 ```
 
@@ -122,7 +122,7 @@ A deployment can move in either direction. Declaring a schema after months of su
 
 ## The cognitive primitives
 
-Eight verbs at the substrate level (spec [§09](spec/09_cognitive_operations/)):
+Eight verbs at the substrate level (spec [§09](spec/05_operations/00_purpose.md)):
 
 | Verb | What it does |
 |---|---|
@@ -156,7 +156,7 @@ $ brain plan "current sprint state" "feature shipped" \
   # streamed plan steps, each with its text + confidence.
 
 $ brain forget s1/m18/v1 --mode soft
-  # tombstones the memory; grace window before reclamation (spec §05/06).
+  # tombstones the memory; grace window before reclamation (spec §02/06).
 ```
 
 Or do the same inside the REPL — same verbs, no `brain` prefix:
@@ -187,7 +187,7 @@ all render the same per-verb help card — pick whichever feels natural.
 
 When a schema is declared, the substrate exposes typed cognition. Three layers, ten decisions, one set of guarantees.
 
-**The decisions** (spec [§17–§31](spec/17_knowledge_model/00_purpose.md)):
+**The decisions** (spec [§14–§31](spec/02_data_model/00_purpose.md)):
 
 1. **Property graph, not RDF.** Operational knowledge graphs converged on property graphs; RDF reification is too expensive for fact-with-metadata workloads.
 2. **Three statement kinds, shared storage.** Fact / Preference / Event are distinct in the API (different mutation rules) but one table with a `kind` discriminator. Cross-kind queries work; per-kind queries are fast.
@@ -339,7 +339,7 @@ The two layers communicate via channels carrying *messages* (plain `Send` struct
 
 Sharding is by agent (`AgentId → ShardId`), so every operation for an agent goes to one shard. That makes the shard's discipline easy to reason about: one writer, no locks needed, no cross-shard coordination on the hot path.
 
-**Background workers** keep the substrate healthy: salience decay over time, consolidation (multiple similar memories → one summary), HNSW link maintenance, slot reclamation past the tombstone grace window, idempotency-table TTL expiry, and so on. When a schema is declared, additional workers run: pattern + classifier + LLM extractors, the statement-embedding worker, the supersession sweeper, the backfill worker, the schema-migration runner. Workers run as their own Glommio tasks, scheduled around the per-shard writer with priorities (spec [§11](spec/11_background_workers/) + [§27](spec/27_knowledge_workers/)).
+**Background workers** keep the substrate healthy: salience decay over time, consolidation (multiple similar memories → one summary), HNSW link maintenance, slot reclamation past the tombstone grace window, idempotency-table TTL expiry, and so on. When a schema is declared, additional workers run: pattern + classifier + LLM extractors, the statement-embedding worker, the supersession sweeper, the backfill worker, the schema-migration runner. Workers run as their own Glommio tasks, scheduled around the per-shard writer with priorities (spec [§11](spec/15_background_workers/00_purpose.md) + [§27](spec/27_knowledge_workers/00_purpose.md)).
 
 ### Inside a shard
 
@@ -379,10 +379,10 @@ flowchart LR
 
 Six data structures per shard, each pinned to a spec section:
 
-- **Arena** ([`spec/05/02`](spec/05_storage_arena_wal/02_arena_layout.md)) — memory-mapped file of 1600-byte slots. Each slot is 1536 bytes of `f32` vector (384 × 4) plus 64 bytes of metadata (kind, salience, timestamps, slot version, CRC). The file has a 4 KiB header recording the shard UUID, format version, slot count, embedding-model fingerprint, and a header CRC. Vectors are little-endian on disk.
-- **WAL** ([`spec/05/04..08`](spec/05_storage_arena_wal/04_wal_overview.md)) — append-only log of operations, one segment per ~64 MiB. Writes use `O_DIRECT` for predictable latency and `pwritev2(RWF_DSYNC)` for durable fsync; the WAL also batches concurrent writes via group commit so N pending records share one fsync. Recovery replays from the last checkpoint forward, tolerating torn-tail (the last record may be partial; we stop there). Knowledge-layer additions add frame types `0x10..0x50` for entity / statement / relation / schema / audit records (spec [§26](spec/26_knowledge_storage/00_purpose.md)).
-- **redb** ([`spec/07`](spec/07_metadata_graph/02_table_layout.md) + [`spec/26`](spec/26_knowledge_storage/00_purpose.md)) — embedded B-tree for metadata. Substrate tables: text bodies, edge lists, context names, idempotency dedupe, tombstones. Knowledge-layer tables: entities (+ aliases, trigrams, mentions), statements (+ chain, indexes by subject/predicate/object/event-time), relations (+ direction indexes), predicates, entity types, relation types, extractors, schema versions, audits, merge log. ACID transactions wrap multi-table writes from a single op.
-- **HNSW (memory)** ([`spec/06`](spec/06_ann_index/02_parameters.md)) — Hierarchical Navigable Small World index for ANN search over memory vectors. `M=16`, `ef_construction=200`, cosine distance over L2-normalized 384-dim vectors. Held in RAM; persisted incrementally; published to readers via `ArcSwap`.
+- **Arena** ([`spec/05/02`](spec/08_storage/02_arena_layout.md)) — memory-mapped file of 1600-byte slots. Each slot is 1536 bytes of `f32` vector (384 × 4) plus 64 bytes of metadata (kind, salience, timestamps, slot version, CRC). The file has a 4 KiB header recording the shard UUID, format version, slot count, embedding-model fingerprint, and a header CRC. Vectors are little-endian on disk.
+- **WAL** ([`spec/05/04..08`](spec/08_storage/04_wal_overview.md)) — append-only log of operations, one segment per ~64 MiB. Writes use `O_DIRECT` for predictable latency and `pwritev2(RWF_DSYNC)` for durable fsync; the WAL also batches concurrent writes via group commit so N pending records share one fsync. Recovery replays from the last checkpoint forward, tolerating torn-tail (the last record may be partial; we stop there). Knowledge-layer additions add frame types `0x10..0x50` for entity / statement / relation / schema / audit records (spec [§26](spec/26_knowledge_storage/00_purpose.md)).
+- **redb** ([`spec/07`](spec/10_metadata/02_table_layout.md) + [`spec/26`](spec/26_knowledge_storage/00_purpose.md)) — embedded B-tree for metadata. Substrate tables: text bodies, edge lists, context names, idempotency dedupe, tombstones. Knowledge-layer tables: entities (+ aliases, trigrams, mentions), statements (+ chain, indexes by subject/predicate/object/event-time), relations (+ direction indexes), predicates, entity types, relation types, extractors, schema versions, audits, merge log. ACID transactions wrap multi-table writes from a single op.
+- **HNSW (memory)** ([`spec/06`](spec/09_indexing/01_hnsw_basics.md)) — Hierarchical Navigable Small World index for ANN search over memory vectors. `M=16`, `ef_construction=200`, cosine distance over L2-normalized 384-dim vectors. Held in RAM; persisted incrementally; published to readers via `ArcSwap`.
 - **HNSW (entity + statement)** (spec [§26](spec/26_knowledge_storage/00_purpose.md)) — smaller HNSW for entity embeddings (used by the entity resolver) and a separate HNSW for statement embeddings (used by the semantic retriever to find statements similar to a query).
 - **tantivy** (spec [§26](spec/26_knowledge_storage/00_purpose.md)) — two per-shard BM25 indexes: one over memory text, one over statement text representations. Backs the lexical retriever in hybrid queries.
 
@@ -424,7 +424,7 @@ Brain ships a custom binary protocol over TCP (with optional TLS). The 32-byte f
 +----------------------------------+
 ```
 
-The opcode space is laid out by group (spec [§03/05](spec/03_wire_protocol/05_opcodes.md) + [§28](spec/28_knowledge_wire_protocol/00_purpose.md)):
+The opcode space is laid out by group (spec [§02/05](spec/04_wire_protocol/03_opcodes.md) + [§28](spec/28_knowledge_wire_protocol/00_purpose.md)):
 
 ```
 0x00–0x0F   reserved
@@ -437,9 +437,9 @@ The opcode space is laid out by group (spec [§03/05](spec/03_wire_protocol/05_o
 0x70–0x7F   admin operations (backfill, audit, pending resolutions)
 ```
 
-Validation is layered ([`spec/03/11`](spec/03_wire_protocol/11_validation.md)): frame-level (magic, version, CRC, length), payload-level (rkyv structural validation, vector norm checks), and operation-level (per-opcode field constraints).
+Validation is layered ([`spec/03/11`](spec/04_wire_protocol/07_error_handling.md)): frame-level (magic, version, CRC, length), payload-level (rkyv structural validation, vector norm checks), and operation-level (per-opcode field constraints).
 
-Errors come back as a typed `ERROR` frame with a category (`Protocol`, `Authentication`, `Validation`, `NotFound`, `Conflict`, `ResourceExhausted`, `Internal`, `Unavailable`) and a stable code drawn from the [§10 error table](spec/03_wire_protocol/10_errors.md) plus the knowledge-layer codes in [§28](spec/28_knowledge_wire_protocol/00_purpose.md). The category drives the SDK's retry policy.
+Errors come back as a typed `ERROR` frame with a category (`Protocol`, `Authentication`, `Validation`, `NotFound`, `Conflict`, `ResourceExhausted`, `Internal`, `Unavailable`) and a stable code drawn from the [§10 error table](spec/04_wire_protocol/07_error_handling.md) plus the knowledge-layer codes in [§28](spec/28_knowledge_wire_protocol/00_purpose.md). The category drives the SDK's retry policy.
 
 ## The seven invariants
 
@@ -455,11 +455,11 @@ Non-negotiable rules. Code that violates them is wrong, regardless of test resul
 | 6 | **Tombstone grace before reclamation.** Default 7 days. Hard FORGET zeroes immediately. | Surprise: data still recoverable when soft-forgotten / data lingers when hard-forgotten. |
 | 7 | **No silent corruption.** Fail-stop and alert. Never return wrong data. | Trusting outputs that may be wrong; quietly papering over bit rot. |
 
-Tested per [`spec/16/06_durability_criteria.md`](spec/16_benchmarks_acceptance/06_durability_criteria.md). The random-kill recovery test exercises 1, 2, 3, 5, and 7 directly; the GC tests cover 4 and 6.
+Tested per [`spec/16/06_durability_criteria.md`](spec/19_benchmarks/01_correctness_and_durability.md). The random-kill recovery test exercises 1, 2, 3, 5, and 7 directly; the GC tests cover 4 and 6.
 
 ## Latency targets
 
-Hard targets from [`spec/16/02_latency_targets.md`](spec/16_benchmarks_acceptance/02_latency_targets.md). Single-shard, 1M memories, mixed workload, 100 concurrent clients, reference hardware (16-core x86_64 / 64 GB RAM / NVMe SSD):
+Hard targets from [`spec/16/02_latency_targets.md`](spec/19_benchmarks/02_performance_targets.md). Single-shard, 1M memories, mixed workload, 100 concurrent clients, reference hardware (16-core x86_64 / 64 GB RAM / NVMe SSD):
 
 | Operation | p50 | p95 | p99 | p99.9 |
 |---|---|---|---|---|
@@ -497,7 +497,7 @@ Deps are pinned in the workspace `Cargo.toml`; new ones require commit-message j
 
 ## Implementation status
 
-The specification is **complete** — 32 sections, 17 substrate (§00–§16) + 15 knowledge layer (§17–§31). Implementation is phased.
+The specification is **complete** — 32 sections, 17 substrate (§00–§14) + 15 knowledge layer (§14–§31). Implementation is phased.
 
 ### Substrate (phases 0–14)
 
@@ -645,14 +645,14 @@ brain/
 │       └── phases/               # Per-phase plans (0–24); dev history
 ├── monitoring/                   # Deployment assets (Grafana dashboards + Alertmanager rules)
 ├── spec/                         # The 32-section specification (read-only)
-│   ├── 00_master_overview/       # Substrate (§00–§16)
+│   ├── 00_master_overview/       # Substrate (§00–§14)
 │   ├── 01_system_architecture/
 │   ├── 02_data_model/
 │   ├── 03_wire_protocol/
 │   ├── 05_storage_arena_wal/
 │   ├── …
 │   ├── 16_benchmarks_acceptance/
-│   ├── 17_knowledge_model/       # Knowledge layer (§17–§31)
+│   ├── 17_knowledge_model/       # Knowledge layer (§14–§31)
 │   ├── 18_entities/
 │   ├── 19_statements/
 │   ├── 20_relations/

@@ -225,4 +225,4 @@ Full catalogue: [`../errors.md`](../errors.md).
 - [`link.md`](link.md) / [`unlink.md`](unlink.md) — emit `Linked` / `Unlinked` events
 - [`../output-formats.md`](../output-formats.md) — full event-field reference
 - [`../errors.md`](../errors.md) — error codes
-- Spec: [`spec/09_cognitive_operations/09_subscribe.md`](../../../../spec/09_cognitive_operations/09_subscribe.md)
+- Spec: [`spec/05_operations/05_subscribe.md`](../../../../spec/05_operations/05_subscribe.md)

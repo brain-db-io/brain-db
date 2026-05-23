@@ -249,9 +249,6 @@ pub enum Command {
     /// Inspect Mentions edges (memory ↔ entity provenance).
     #[command(subcommand)]
     Mention(MentionCommand),
-    /// Inspect extraction status / kick off backfills.
-    #[command(subcommand)]
-    Extract(ExtractCommand),
     /// Drop into the interactive REPL (default when no subcommand given).
     Shell,
     /// Show server / agent / connection / session diagnostic info.
@@ -289,7 +286,6 @@ impl Command {
             | Command::Statement(_)
             | Command::Relation(_)
             | Command::Mention(_)
-            | Command::Extract(_)
             | Command::Shell
             | Command::GenerateCompletion(_) => None,
         }
@@ -403,33 +399,6 @@ pub struct MentionListArgs {
     /// Max rows.
     #[arg(long, default_value_t = 50u32)]
     pub limit: u32,
-}
-
-/// `brain extract <…>` subcommands.
-#[derive(Debug, Clone, Subcommand)]
-pub enum ExtractCommand {
-    /// Show extraction audit row for a memory.
-    Status(ExtractStatusArgs),
-    /// Re-run extraction for memories that never produced knowledge.
-    Backfill(ExtractBackfillArgs),
-}
-
-#[derive(Debug, Args, Clone)]
-pub struct ExtractStatusArgs {
-    pub memory_id: MemoryIdArg,
-}
-
-#[derive(Debug, Args, Clone)]
-pub struct ExtractBackfillArgs {
-    /// Backfill a single memory.
-    #[arg(long, group = "scope")]
-    pub memory: Option<MemoryIdArg>,
-    /// Backfill memories created since this unix-nanos timestamp.
-    #[arg(long, group = "scope")]
-    pub since: Option<u64>,
-    /// Backfill every memory that has no successful audit row.
-    #[arg(long, group = "scope")]
-    pub all: bool,
 }
 
 /// `brain config <…>` subcommands.

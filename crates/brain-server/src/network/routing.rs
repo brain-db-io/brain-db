@@ -1,4 +1,4 @@
-//! Routing — spec §12/02.
+//! Routing.
 //!
 //! Pure functions that map an `AgentId` or `MemoryId` to the `ShardId`
 //! that owns the request. Two routing modes:
@@ -7,9 +7,9 @@
 //!   16 bits (`brain-core` §02/03 §2.1). O(1) bit extraction.
 //! - **Agent-based**: BLAKE3 hash of the agent's UUID bytes, modulo
 //!   `shard_count`. Optionally overridden via a startup-time map for
-//!   VIP / extra-large agents (spec §12/02 §7).
+//!   VIP / extra-large agents.
 //!
-//! Out of scope for v1 (deferred to v2 per spec §12/02 §6, §8, §14):
+//! Out of scope for v1 (deferred to v2, §8, §14):
 //!   - Multi-shard agents (§8).
 //!   - "WrongShard" handling (§14) — connection layer's concern.
 //!   - Consistent hashing for elastic shard counts (§6).
@@ -43,7 +43,7 @@ pub enum RoutingError {
 // ---------------------------------------------------------------------------
 
 /// Immutable post-`new`. v1 has no dynamic shard reconfiguration —
-/// spec §12/02 §2: "loaded at startup; updates require explicit
+/// "loaded at startup; updates require explicit
 /// triggers (configuration reload or cluster events)".
 #[derive(Clone, Debug)]
 pub struct RoutingTable {
@@ -82,7 +82,7 @@ impl RoutingTable {
         self.shard_count
     }
 
-    /// Resolve the shard for an agent. Spec §12/02 §4: overrides
+    /// Resolve the shard for an agent: overrides
     /// first, then BLAKE3 modulo `shard_count`.
     #[must_use]
     pub fn shard_for_agent(&self, agent: AgentId) -> ShardId {
@@ -97,7 +97,7 @@ impl RoutingTable {
 // Free functions
 // ---------------------------------------------------------------------------
 
-/// BLAKE3-of-uuid-bytes modulo `shard_count`. Spec §12/02 §4–§5.
+/// BLAKE3-of-uuid-bytes modulo `shard_count`–§5.
 ///
 /// Panics if `shard_count == 0` (precondition; the typed `RoutingTable`
 /// constructor enforces this — direct callers must validate first).
@@ -253,7 +253,7 @@ mod tests {
     /// Sub-task 9.12: the `RoutingTable` is published via `ArcSwap`
     /// in production (`Topology.routing`). This test confirms a
     /// follow-up `store()` is visible to a fresh `load_full()`
-    /// without restarting the server (spec §10/05 §4).
+    /// without restarting the server.
     #[test]
     fn arc_swap_publishes_a_new_routing_table_atomically() {
         use arc_swap::ArcSwap;
@@ -273,7 +273,7 @@ mod tests {
 
         // The previously-acquired `pre` Arc still observes the old
         // table — readers in flight see a coherent snapshot until
-        // they drop their Arc. Spec §10/05 §5 "the reader's
+        // they drop their Arc "the reader's
         // load_full() returns an Arc; while held, the Arc keeps the
         // state alive".
         assert_eq!(pre.shard_count(), 2);

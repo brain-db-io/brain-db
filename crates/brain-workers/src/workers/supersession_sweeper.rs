@@ -1,8 +1,8 @@
-//! Supersession sweeper (sub-task 24.3). Spec §27/03 §2.
+//! Supersession sweeper (sub-task 24.3).
 //!
 //! Periodic low-priority worker that hard-deletes superseded
 //! statements past the configured retention. **Off by default**
-//! (`retention_seconds == 0`); spec §25/00 retains superseded
+//! (`retention_seconds == 0`) retains superseded
 //! statements forever and lets operators opt in to sweeping.
 
 use std::future::Future;
@@ -27,7 +27,7 @@ impl SupersessionSweeper {
     pub fn new() -> Self {
         Self {
             config: WorkerConfig::defaults_for(WorkerKind::SupersessionSweeper),
-            retention_seconds: 0, // disabled by default — spec §25/00.
+            retention_seconds: 0, // disabled by default.
             dry_run: false,
         }
     }

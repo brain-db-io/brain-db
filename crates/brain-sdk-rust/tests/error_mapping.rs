@@ -42,7 +42,7 @@ async fn error_frame_maps_to_client_error_server() {
     match result {
         Err(ClientError::Server { code, message }) => {
             assert_eq!(message, "bad input");
-            // ErrorCode::InvalidArgument is in the 0x0xxx range per spec §03/10.
+            // ErrorCode::InvalidArgument is in the 0x0xxx range.
             assert!(
                 code > 0,
                 "expected a non-zero error code, got 0x{:04x}",

@@ -11,18 +11,18 @@ Implement the on-the-wire frame format and round-trippable codecs for every opco
 
 ## Reading list (read in this order before starting)
 
-1. [`spec/03_wire_protocol/00_purpose.md`](../../spec/03_wire_protocol/00_purpose.md) — what the protocol is for.
-2. [`spec/03_wire_protocol/01_design_choices.md`](../../spec/03_wire_protocol/01_design_choices.md) — why binary, why CRCs, why fixed-header.
-3. [`spec/03_wire_protocol/02_transport.md`](../../spec/03_wire_protocol/02_transport.md) — TCP + optional TLS.
-4. [`spec/03_wire_protocol/03_frame_header.md`](../../spec/03_wire_protocol/03_frame_header.md) — the 32-byte header layout. **Critical.**
-5. [`spec/03_wire_protocol/04_payload_encoding.md`](../../spec/03_wire_protocol/04_payload_encoding.md) — rkyv structured + bytemuck for vector blobs.
-6. [`spec/03_wire_protocol/05_opcodes.md`](../../spec/03_wire_protocol/05_opcodes.md) — every opcode and its number.
-7. [`spec/03_wire_protocol/06_handshake.md`](../../spec/03_wire_protocol/06_handshake.md) — initial handshake.
-8. [`spec/03_wire_protocol/07_request_frames.md`](../../spec/03_wire_protocol/07_request_frames.md) — request bodies.
-9. [`spec/03_wire_protocol/08_response_frames.md`](../../spec/03_wire_protocol/08_response_frames.md) — response bodies.
-10. [`spec/03_wire_protocol/09_streaming.md`](../../spec/03_wire_protocol/09_streaming.md) — streaming responses.
-11. [`spec/03_wire_protocol/10_errors.md`](../../spec/03_wire_protocol/10_errors.md) — error frame shape, error codes.
-12. [`spec/03_wire_protocol/11_validation.md`](../../spec/03_wire_protocol/11_validation.md) — what counts as malformed.
+1. [`spec/04_wire_protocol/00_purpose.md`](../../spec/04_wire_protocol/00_purpose.md) — what the protocol is for.
+2. [`spec/04_wire_protocol/01_design.md`](../../spec/04_wire_protocol/01_design.md) — why binary, why CRCs, why fixed-header.
+3. [`spec/04_wire_protocol/01_design.md`](../../spec/04_wire_protocol/01_design.md) — TCP + optional TLS.
+4. [`spec/04_wire_protocol/02_wire_format.md`](../../spec/04_wire_protocol/02_wire_format.md) — the 32-byte header layout. **Critical.**
+5. [`spec/04_wire_protocol/02_wire_format.md`](../../spec/04_wire_protocol/02_wire_format.md) — rkyv structured + bytemuck for vector blobs.
+6. [`spec/04_wire_protocol/03_opcodes.md`](../../spec/04_wire_protocol/03_opcodes.md) — every opcode and its number.
+7. [`spec/04_wire_protocol/04_handshake.md`](../../spec/04_wire_protocol/04_handshake.md) — initial handshake.
+8. [`spec/04_wire_protocol/05_frame_layouts.md`](../../spec/04_wire_protocol/05_frame_layouts.md) — request bodies.
+9. [`spec/04_wire_protocol/05_frame_layouts.md`](../../spec/04_wire_protocol/05_frame_layouts.md) — response bodies.
+10. [`spec/04_wire_protocol/06_streaming.md`](../../spec/04_wire_protocol/06_streaming.md) — streaming responses.
+11. [`spec/04_wire_protocol/07_error_handling.md`](../../spec/04_wire_protocol/07_error_handling.md) — error frame shape, error codes.
+12. [`spec/04_wire_protocol/07_error_handling.md`](../../spec/04_wire_protocol/07_error_handling.md) — what counts as malformed.
 
 After reading: every constant, magic byte, length bound, and opcode number should be in your head, not paraphrased.
 
@@ -52,7 +52,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.1 — Pin protocol constants and the `Header` type
 
 **Reads:**
-- `spec/03_wire_protocol/03_frame_header.md`
+- `spec/04_wire_protocol/02_wire_format.md`
 
 **Writes:**
 - `crates/brain-protocol/src/header.rs` — new module
@@ -79,7 +79,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 
 **Pitfalls:**
 - `repr(C, packed)` makes field access on references unsafe. Always copy out of the struct or use `addr_of!`.
-- Endianness: the spec uses **big-endian** for multi-byte fields (spec §03/03 §1, §8). Use `u16::to_be_bytes` etc. when serializing. *(Earlier draft of this doc said "little-endian"; corrected against spec.)*
+- Endianness: the spec uses **big-endian** for multi-byte fields (spec §02/03 §1, §8). Use `u16::to_be_bytes` etc. when serializing. *(Earlier draft of this doc said "little-endian"; corrected against spec.)*
 - Don't fold the payload CRC into the header CRC — they're separate per spec.
 
 ---
@@ -87,7 +87,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.2 — CRC32C wrappers
 
 **Reads:**
-- `spec/03_wire_protocol/03_frame_header.md` (CRC sections)
+- `spec/04_wire_protocol/02_wire_format.md` (CRC sections)
 
 **Writes:**
 - `crates/brain-protocol/src/crc.rs`
@@ -107,14 +107,14 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 
 **Pitfalls:**
 - CRC32C ≠ CRC32. Confirm `crc32c` crate is the iSCSI variant (it is).
-- `crc32c::crc32c` returns u32, not bytes. Convert with `to_be_bytes` for serialization (spec §03/03 §8 — both CRC fields are big-endian on the wire). *(Earlier draft of this doc said `to_le_bytes`; corrected against spec.)*
+- `crc32c::crc32c` returns u32, not bytes. Convert with `to_be_bytes` for serialization (spec §02/03 §8 — both CRC fields are big-endian on the wire). *(Earlier draft of this doc said `to_le_bytes`; corrected against spec.)*
 
 ---
 
 ### Task 1.3 — `Opcode` enum, complete
 
 **Reads:**
-- `spec/03_wire_protocol/05_opcodes.md`
+- `spec/04_wire_protocol/03_opcodes.md`
 
 **Writes:**
 - Update `crates/brain-protocol/src/lib.rs` — replace the partial stub `Opcode` with the full set.
@@ -144,8 +144,8 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.4 — Frame envelope: `Frame` type and (de)serialization scaffolding
 
 **Reads:**
-- `spec/03_wire_protocol/03_frame_header.md`
-- `spec/03_wire_protocol/04_payload_encoding.md`
+- `spec/04_wire_protocol/02_wire_format.md`
+- `spec/04_wire_protocol/02_wire_format.md`
 
 **Writes:**
 - `crates/brain-protocol/src/frame.rs`
@@ -178,7 +178,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.5 — Property tests for `Frame`
 
 **Reads:**
-- `spec/03_wire_protocol/11_validation.md`
+- `spec/04_wire_protocol/07_error_handling.md`
 
 **Writes:**
 - `crates/brain-protocol/src/frame.rs` — extend the `tests` module
@@ -205,7 +205,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.6 — `ProtocolError` taxonomy
 
 **Reads:**
-- `spec/03_wire_protocol/10_errors.md`
+- `spec/04_wire_protocol/07_error_handling.md`
 
 **Writes:**
 - `crates/brain-protocol/src/error.rs`
@@ -232,7 +232,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.7 — Request body codecs
 
 **Reads:**
-- `spec/03_wire_protocol/07_request_frames.md`
+- `spec/04_wire_protocol/05_frame_layouts.md`
 
 **Writes:**
 - `crates/brain-protocol/src/request.rs`
@@ -260,8 +260,8 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.8 — Response body codecs
 
 **Reads:**
-- `spec/03_wire_protocol/08_response_frames.md`
-- `spec/03_wire_protocol/09_streaming.md`
+- `spec/04_wire_protocol/05_frame_layouts.md`
+- `spec/04_wire_protocol/06_streaming.md`
 
 **Writes:**
 - `crates/brain-protocol/src/response.rs`
@@ -287,7 +287,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.9 — Handshake
 
 **Reads:**
-- `spec/03_wire_protocol/06_handshake.md`
+- `spec/04_wire_protocol/04_handshake.md`
 
 **Writes:**
 - `crates/brain-protocol/src/handshake.rs`
@@ -302,7 +302,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 - Negotiation: compatible versions succeed; incompatible fail with `UnsupportedVersion`.
 
 **Done when:**
-- [x] Hello messages round-trip. *(All four — HELLO, WELCOME, AUTH, AUTH_OK — round-trip through rkyv. Phase doc said "ClientHello/ServerHello" but spec §03/06 names the four messages explicitly; spec wins.)*
+- [x] Hello messages round-trip. *(All four — HELLO, WELCOME, AUTH, AUTH_OK — round-trip through rkyv. Phase doc said "ClientHello/ServerHello" but spec §02/06 names the four messages explicitly; spec wins.)*
 - [x] Negotiation logic matches the spec's compatibility matrix.
 
 ---
@@ -310,7 +310,7 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.10 — Wire up the fuzz target
 
 **Reads:**
-- `spec/03_wire_protocol/11_validation.md`
+- `spec/04_wire_protocol/07_error_handling.md`
 - Phase 0's `fuzz/fuzz_targets/protocol_frame.rs` placeholder.
 
 **Writes:**
@@ -335,10 +335,10 @@ Each sub-task is a single commit. The "Reads" listed are required reading before
 ### Task 1.11 — `brain-core` companion types
 
 **Reads:**
-- `spec/02_data_model/03_identifiers.md`
-- `spec/02_data_model/02_memory_entity.md`
-- `spec/02_data_model/06_edges.md`
-- `spec/02_data_model/05_salience.md`
+- `spec/02_data_model/02_memory.md`
+- `spec/02_data_model/02_memory.md`
+- `spec/02_data_model/05_edges.md`
+- `spec/02_data_model/04_salience.md`
 
 **Writes:**
 - Update `crates/brain-core/src/*` as the protocol reveals new fields.
@@ -390,11 +390,11 @@ Record every non-trivial decision here so subsequent phases (and the user) can f
 | 2026-05-10 | `decode_with_max(bytes, max)` separate from `decode(bytes)` | Allocation-amplification defense: peer's claimed `payload_len` checked before reading payload bytes | 1.4 |
 | 2026-05-10 | `ErrorCode` is `#[non_exhaustive]`; `ErrorCodeWire` is closed | Forward-compat for the canonical type; rkyv needs a closed enum for the wire body. Identity round-trip via `From` impls | 1.6, 1.8 |
 | 2026-05-10 | Wire-domain DTOs (`WireMemoryId`, `WireUuid`, `MemoryKindWire`, `EdgeKindWire`) live in `brain-protocol`, not `brain-core` | Keeps `brain-core` rkyv-free; conversion happens at boundary via `From`/`Into` | 1.7, 1.11 |
-| 2026-05-10 | Vector-blob composition (rkyv structured + trailing raw f32 section) owned by `Frame` layer, not `RequestBody`/`ResponseBody` | Spec §03/04 separates structured + raw; per-body codec stays single-purpose. End-to-end vector wiring deferred to Phase 2/9 | 1.7, 1.8 |
+| 2026-05-10 | Vector-blob composition (rkyv structured + trailing raw f32 section) owned by `Frame` layer, not `RequestBody`/`ResponseBody` | Spec §02/04 separates structured + raw; per-body codec stays single-purpose. End-to-end vector wiring deferred to Phase 2/9 | 1.7, 1.8 |
 | 2026-05-10 | Promote `to_rkyv_bytes`/`from_rkyv_bytes` to private `crate::rkyv_codec` | Both `request` and `response` need the HRTB-laden helper; one source of truth | 1.8 |
 | 2026-05-10 | `negotiate(client, server)` does version + capability intersection only; auth-method intersection defers to AUTH-frame handler | Pure logic testable in isolation; runtime concerns (server picks `session_id`, populates `ServerFeatures`) stay in connection layer | 1.9 |
 | 2026-05-10 | `protocol_request` / `protocol_response` fuzz harnesses dispatch by `data[0] mod len(opcodes)` rather than `Opcode::from_u8` | Most random bytes are unassigned opcodes; mod-len cycles all variants under coverage guidance | 1.10 |
 | 2026-05-10 | Spec §02/03 wins over phase-doc + earlier code: `MemoryId` layout = shard 16 + slot 48 + version 32 + reserved 32; `ContextId` = u64; `ShardId` = u16; `SlotVersion` = u32 | Pre-Phase-9, no deployed clients — fix layout drifts now; spec is read-only authoritative | 1.11 |
 | 2026-05-10 | Wire `context_id` fields = `WireContextId = u64` (8 bytes) | Spec §02/03 §8 says ContextId on the wire is 8 bytes; protocol previously used `WireUuid` (16). Fixed before any deployed client | 1.11 |
-| 2026-05-10 | Endianness pitfalls in phase doc corrected against spec §03/03 §8 (header) and §02/03 §2.1 (MemoryId): all multi-byte = big-endian | Phase doc had two LE references that conflicted with the spec | 1.1, 1.2 |
-| 2026-05-10 | `ClientHello` / `ServerHello` phase-doc names superseded by spec §03/06 names: HELLO / WELCOME / AUTH / AUTH_OK | Spec wins; codec covers all four messages | 1.9 |
+| 2026-05-10 | Endianness pitfalls in phase doc corrected against spec §02/03 §8 (header) and §02/03 §2.1 (MemoryId): all multi-byte = big-endian | Phase doc had two LE references that conflicted with the spec | 1.1, 1.2 |
+| 2026-05-10 | `ClientHello` / `ServerHello` phase-doc names superseded by spec §02/06 names: HELLO / WELCOME / AUTH / AUTH_OK | Spec wins; codec covers all four messages | 1.9 |

@@ -82,7 +82,7 @@ fn emit_build_info(out: &mut String, info: BuildInfo) {
     emit_info(out, "brain_build_info", &labels);
 }
 
-/// `brain_config_info` per spec §14/01 §17. Value is always 1; the
+/// `brain_config_info`. Value is always 1; the
 /// information rides in labels. Cardinality stays bounded because
 /// every label value is a config knob, not user input.
 fn emit_config_info(out: &mut String, cfg: &Config) {
@@ -148,7 +148,7 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
     );
 
     // 12.7 (deferred-set burn-down): connection-extended families
-    // per spec §14/01 §9. `brain_frame_size_bytes` histogram is
+    // `brain_frame_size_bytes` histogram is
     // still deferred — tracker `phase-12/histogram-unit-agnostic`.
     emit_header(
         out,
@@ -187,7 +187,7 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
     );
 
     // F-7: frame size histograms (raw-mode; `_sum` is the true byte
-    // total). Spec §14/01 §9.
+    // total).
     emit_header(
         out,
         "brain_frame_size_bytes",
@@ -208,7 +208,7 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
     );
 }
 
-/// 12.1c — `/proc/self`-derived resource metrics per spec §14/01 §10.
+/// 12.1c — `/proc/self`-derived resource metrics.
 /// Sampled fresh on every scrape; missing fields are skipped so a
 /// `/proc` access failure doesn't pollute dashboards with zeros.
 fn emit_process_resource(out: &mut String) {
@@ -330,7 +330,7 @@ async fn emit_worker_counters(out: &mut String, shards: &[ShardHandle]) {
 }
 
 /// 12.8: HNSW basic counters (node_count, tombstone_count,
-/// tombstone_ratio) per spec §14/01 §6. Sampled per-shard via
+/// tombstone_ratio). Sampled per-shard via
 /// `ShardHandle::hnsw_snapshot`. The richer §6 families
 /// (search_visits, recall_estimate, rebuild_*) stay deferred —
 /// tracker `phase-12/hnsw-sampling`.

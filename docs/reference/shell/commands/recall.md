@@ -23,7 +23,7 @@ brain recall <QUERY>
 ### `--top-k <N>`
 
 Result cap. Default `10`. The server enforces an upper bound (per spec
-§09/03); requests above the cap are clamped, not rejected.
+§05/03); requests above the cap are clamped, not rejected.
 
 ### `--confidence <FLOAT>`
 
@@ -227,4 +227,4 @@ Full catalogue: [`../errors.md`](../errors.md).
 - [`entity.md`](entity.md) / [`statement.md`](statement.md) — drill into the knowledge layer when a hit is enriched
 - [`../output-formats.md`](../output-formats.md) — field reference
 - [`../../../guides/shell/scripting-with-json.md`](../../../guides/shell/scripting-with-json.md) — jq pipelines
-- Spec: [`spec/09_cognitive_operations/03_recall.md`](../../../../spec/09_cognitive_operations/03_recall.md)
+- Spec: [`spec/05_operations/03_read_pipeline.md`](../../../../spec/05_operations/03_read_pipeline.md)

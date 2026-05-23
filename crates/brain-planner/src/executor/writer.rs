@@ -1,4 +1,4 @@
-//! Per-shard write surface. Spec §08/08 §10 describes a channel-fed
+//! Per-shard write surface describes a channel-fed
 //! writer task that batches encodes, group-commits to the WAL, and
 //! acks via a return channel. Phase 6 ships only the **trait** — the
 //! real writer lands in Phase 8 (workers) / Phase 9 (server).
@@ -22,7 +22,7 @@ use thiserror::Error;
 /// type.
 ///
 /// **`!Send + !Sync`** per the audit (`docs/development/phases/phase-09-glommio-port.md`
-/// §4). Phase 9 enforces single-writer-per-shard (spec §10/02) by living
+/// §4). Phase 9 enforces single-writer-per-shard by living
 /// on one Glommio executor — no cross-thread sharing — so `Send + Sync` on
 /// the trait would be misleading + over-constraining for concrete impls.
 pub trait WriterHandle {
@@ -74,11 +74,10 @@ pub trait WriterHandle {
 /// Encode operation payload submitted to the writer. Carries
 /// everything the writer needs to:
 ///
-/// 1. Look up idempotency by `request_id` (spec §08/04 §4).
-/// 2. Allocate a slot, append a WAL record, fsync (spec §08/04 §7-§8).
+/// 1. Look up idempotency by `request_id`.
+/// 2. Allocate a slot, append a WAL record, fsync (-§8).
 /// 3. Write vector to arena, metadata row to redb, vector to HNSW
-///    (spec §08/04 §9).
-/// 4. Insert edge rows (spec §08/04 §10).
+/// 4. Insert edge rows.
 /// 5. Cache the response in the idempotency table (same write txn).
 #[derive(Debug, Clone)]
 pub struct EncodeOp {
@@ -93,7 +92,7 @@ pub struct EncodeOp {
     /// `Dispatcher::fingerprint()` through.
     pub fingerprint: [u8; 16],
     pub edges: Vec<EncodeOpEdge>,
-    /// Spec §07/07 §6 — when `true`, the writer consults the per-
+    /// — when `true`, the writer consults the per-
     /// shard `fingerprints` table keyed by
     /// `(agent_id, context_id, content_hash)` and, on a hit, returns
     /// the existing `MemoryId` without allocating a new slot.
@@ -119,7 +118,7 @@ pub struct EncodeOpEdge {
     pub weight: f32,
 }
 
-/// Per-edge outcome. Spec §08/04 §10: edges with missing targets are
+/// Per-edge outcome: edges with missing targets are
 /// rejected; the encode proceeds without them.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum EdgeOutcome {
@@ -129,10 +128,10 @@ pub enum EdgeOutcome {
 
 #[derive(Debug, Error)]
 pub enum WriterError {
-    /// Spec §08/08 §14: queue over its max length → reject + retry.
+    /// queue over its max length → reject + retry.
     #[error("writer queue overloaded")]
     Overloaded,
-    /// Spec §07/06 §5 — duplicate `request_id` with a different
+    /// — duplicate `request_id` with a different
     /// `request_hash`. Client retries should carry the same params;
     /// a hash mismatch indicates a client bug or RequestId reuse.
     #[error("idempotency conflict: {0}")]
@@ -141,7 +140,7 @@ pub enum WriterError {
     Internal(String),
 }
 
-/// Forget operation payload. Spec §08/06 §1.
+/// Forget operation payload.
 #[derive(Debug, Clone, Copy)]
 pub struct ForgetOp {
     pub request_id: RequestId,
@@ -151,7 +150,7 @@ pub struct ForgetOp {
     pub agent_id: brain_core::AgentId,
 }
 
-/// Per-memory outcome. Spec §08/06 §10's per-memory error tolerance:
+/// Per-memory outcome's per-memory error tolerance:
 /// missing / already-tombstoned memories aren't errors — they're
 /// reported and life goes on.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -160,12 +159,12 @@ pub enum ForgetOutcome {
     Tombstoned,
     /// The memory was already tombstoned by an earlier FORGET. No-op.
     AlreadyTombstoned,
-    /// The memory_id has no live row in metadata. Spec §08/06 §10
+    /// The memory_id has no live row in metadata
     /// logs and returns this; not an error.
     MemoryNotFound,
 }
 
-/// LINK operation payload. Spec §09/07.
+/// LINK operation payload.
 #[derive(Debug, Clone, Copy)]
 pub struct LinkOp {
     pub request_id: RequestId,
@@ -178,7 +177,7 @@ pub struct LinkOp {
     pub agent_id: brain_core::AgentId,
 }
 
-/// UNLINK operation payload. Spec §09/07 §4-§5.
+/// UNLINK operation payload-§5.
 #[derive(Debug, Clone, Copy)]
 pub struct UnlinkOp {
     pub request_id: RequestId,

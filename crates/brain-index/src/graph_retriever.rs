@@ -1,6 +1,6 @@
 //! Graph retriever trait + value types (phase 23.2).
 //!
-//! The trait surface matches `spec/23_retrievers/04_graph_retriever.md`.
+//! The trait surface matches `spec/13_retrievers/04_graph_retriever.md`.
 //! The production impl (`BrainGraphRetriever`) lives in
 //! `brain-ops::ops::graph_retriever` for the same reason as
 //! `SemanticRetriever`: it needs `brain-metadata` (which

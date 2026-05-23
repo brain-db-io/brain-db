@@ -1,6 +1,6 @@
 //! Relation graph traversal. Sub-task 18.5.
 //!
-//! Iterative BFS per spec §20/04 §2. Bounded by `max_depth` (cap 5)
+//! Iterative BFS. Bounded by `max_depth` (cap 5)
 //! and `max_branching_factor` (cap 10_000) with visited-set cycle
 //! detection. The wire `RELATION_TRAVERSE` opcode (`0x0156`, phase
 //! 18.6) routes through this module.
@@ -18,7 +18,7 @@ use super::ops::{relation_list_from, relation_list_to, RelationListFilter, Relat
 // Caps + defaults.
 // ---------------------------------------------------------------------------
 
-/// Default max depth per spec §20/04 §4.
+/// Default max depth.
 pub const DEFAULT_MAX_DEPTH: u8 = 3;
 /// Hard cap on `max_depth`. Callers passing larger values get
 /// clamped server-side.
@@ -197,7 +197,7 @@ fn expand(
         limit: 0, // default cap (1000)
     };
 
-    // Per spec §20/02 §3, symmetric relations are dual-indexed
+    // Per, symmetric relations are dual-indexed
     // under both endpoints in both BY_FROM and BY_TO. So
     // relation_list_from already returns symmetric edges where
     // `node` is the canonical_to. To avoid double-counting,
@@ -274,7 +274,7 @@ mod tests {
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::relation::ops::relation_create;
     use crate::relation::types::relation_type_intern;
-    use brain_core::knowledge::{Entity, EntityType, Relation};
+    use brain_core::{Entity, EntityType, Relation};
     use brain_core::{Cardinality, ExtractorId};
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {

@@ -2,7 +2,7 @@
 //!
 //! Physical reclamation lives in [`crate::extractor::sweep`].
 
-use brain_core::knowledge::TombstoneReason;
+use brain_core::TombstoneReason;
 use brain_core::StatementId;
 use redb::{ReadableTable, WriteTransaction};
 
@@ -38,10 +38,10 @@ pub fn statement_tombstone(
     row.tombstoned_at_unix_nanos = Some(now_unix_nanos);
     row.tombstone_reason = reason.as_u8();
     // Record-time invalidation: tombstoning is the moment the substrate
-    // stops recording the row as truth. Always stamp — even on the
-    // `now == 0` legacy callers — so as-of queries get a consistent
-    // signal (zero reads as epoch-time, but a tombstoned row is still
-    // a tombstoned row at any later as_of).
+    // stops recording the row as truth. Always stamp — callers that
+    // pass `0` get a zero-stamped row (reads as epoch-time at as-of
+    // queries, but a tombstoned row is still tombstoned at any later
+    // as_of).
     row.record_invalidated_at_unix_nanos = Some(now_unix_nanos);
     row.is_current = 0;
 
@@ -90,7 +90,7 @@ mod tests {
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::schema::predicate::predicate_intern;
     use crate::statement::crud::{statement_create, statement_get};
-    use brain_core::knowledge::{
+    use brain_core::{
         Entity, EntityType, EvidenceRef, Statement, StatementKind, StatementObject, StatementValue,
         SubjectRef,
     };

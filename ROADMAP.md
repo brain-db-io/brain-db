@@ -1,15 +1,23 @@
 # Roadmap
 
-High-level implementation plan. Each phase is a step toward Brain v1.0. Detailed sub-task breakdowns live in [`docs/development/phases/`](docs/development/phases/) — this file is the index.
+High-level implementation plan. Detailed sub-task breakdowns live in [`docs/development/phases/`](docs/development/phases/) — this file is the index.
 
 For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
 
-## v1.0 ships in two layers
+## Status
 
-- **Substrate (phases 0–14)** — vector memory store: WAL, HNSW, wire protocol, cognitive primitives, HTTP transport, observability, benchmarks, substrate acceptance. Tags out as `v0.9.x-substrate-rc` at Phase 14.
-- **Knowledge layer (phases 15–24)** — typed entities, statements, relations, schema DSL, three-tier extractors (pattern → classifier → LLM), hybrid retrieval (semantic + lexical + graph with RRF fusion). Activates when a schema is declared; dormant otherwise.
+Brain is **pre-release: v0.1.0**. No external users. The wire protocol, redb tables, and schema model are still in flux.
 
-The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance suite passes. A deployment that never calls `SCHEMA_UPLOAD` is a valid v1.0 deployment posture (substrate-only mode).
+## v1.0 target
+
+The v1.0 release ships when the combined acceptance suite at [`spec/19_benchmarks/06_complete_acceptance.md`](spec/19_benchmarks/06_complete_acceptance.md) passes — functional + performance + storage + operational + schemaless tests, end-to-end.
+
+The path to v1.0 covers two surfaces:
+
+- **Memory storage** (phases 0–14) — vector memory store: WAL, HNSW, wire protocol, write/read pipelines, HTTP transport, observability, benchmarks.
+- **Typed graph** (phases 15–24) — entities, statements, relations, schema DSL, three-tier extractors (pattern → classifier → LLM), hybrid retrieval (semantic + lexical + graph with rank fusion). Activates when a schema is declared via `SCHEMA_UPLOAD`; the schemaless deployment posture is a real first-class mode.
+
+The `v1.0.0` tag is cut once the acceptance suite is green. A deployment that never calls `SCHEMA_UPLOAD` is a valid v1.0 deployment posture (schemaless mode).
 
 ---
 
@@ -131,7 +139,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **Sub-tasks:** 11.
 
-**Exit:** correctness suite from spec §16/01 fully green; tag `phase-7-complete`.
+**Exit:** correctness suite from spec §02/01 fully green; tag `phase-7-complete`.
 
 ---
 
@@ -201,7 +209,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **Sub-tasks:** 6.
 
-**Exit:** every spec'd `brain_*` metric emitted; JSON log schema matches spec §14/02; OTel spans cover request lifecycle; reference Grafana dashboards + Alertmanager rules ship in-tree; tag `phase-12-complete`.
+**Exit:** every spec'd `brain_*` metric emitted; JSON log schema matches spec §02/02; OTel spans cover request lifecycle; reference Grafana dashboards + Alertmanager rules ship in-tree; tag `phase-12-complete`.
 
 ---
 
@@ -215,7 +223,7 @@ The `v1.0.0` tag lands at the end of Phase 24, after the *combined* acceptance s
 
 **Sub-tasks:** 4.
 
-**Exit:** every operation has a criterion baseline that hits the spec §16 targets on reference hardware; chaos suite covers kill / I/O fault / network / corruption scenarios; tag `phase-13-complete`.
+**Exit:** every operation has a criterion baseline that hits the spec §14 targets on reference hardware; chaos suite covers kill / I/O fault / network / corruption scenarios; tag `phase-13-complete`.
 
 ---
 
@@ -264,15 +272,15 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 **Delivered:**
 
 - 9 entity wire opcodes (`0x0130–0x0138`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
-- Knowledge namespace introduced at high-byte `0x01` (wire opcode widened to `u16` in 16.6a — pre-v1.0 wire change documented in §03/12 §0).
+- Knowledge namespace introduced at high-byte `0x01` (wire opcode widened to `u16` in 16.6a — pre-v1.0 wire change documented in §02/12 composition §0).
 - Hand-written entity SDK over `Person` (typed `EntityHandle<T>` + 5 builders for all 9 ops + `ClientErrorEntityExt`). Derive macros defer to phase 19.
 - `MergeRecord` v2 + `entity_merge_ops` (full diff captured for grace-period unmerge). Statement / relation re-route deferred to phases 17 / 18 sweeps.
 - §28 knowledge wire protocol section brought to §03-depth (15 detail files, ~135 KB of spec).
-- §18 entities backfilled with merge / unmerge / GC mechanics (§03 / §04 / §05).
+- §14 entities backfilled with merge / unmerge / GC mechanics (§03 / §04 / §05).
 - Adversarial-input resolver tests + create→merge→unmerge→rename lifecycle integration test + criterion bench for tier-1 / tier-2 perf.
 - 14 substrate `SubscriptionEvent` event types extended for knowledge layer; event emission wired across all six mutating entity handlers.
 
-**Deferred to later phases (tracked in `spec/28/09_open_questions.md` + `spec/18/06_open_questions.md`):**
+**Deferred to later phases (tracked in `../00_overview/04_open_questions_archive.md` + `../00_overview/04_open_questions_archive.md`):**
 
 - Resolver tier 3 (embedding) — phase 21 when entity HNSW is wired into the resolver.
 - Tier 4 (LLM-tier) — phase 21.
@@ -294,18 +302,18 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Delivered:**
 
-- §19 statements section brought to §03-depth (8 files; supersession / contradiction / storage / confidence / evidence / open questions / references).
+- §14 statements section brought to §03-depth (8 files; supersession / contradiction / storage / confidence / evidence / open questions / references).
 - §28/06 statement frames already at §03-depth from phase 16; new opcodes wired end-to-end.
 - 7 statement wire opcodes (`0x0140–0x0146`) + responses (`0x01C0–0x01C6`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
 - `brain-core` value types: `Statement` / `StatementObject` (tagged union: Entity / Value / Memory / Statement) / `StatementValue` (Text / Integer / Float / Bool / UnixNanos / Blob) / `EvidenceRef` (Inline / Overflow) / `SubjectRef` / `TombstoneReason` / `Predicate`.
 - Predicate registry + interning in `brain-metadata`, with built-ins `brain:is_a / has_name / mentions / related_to / prefers / scheduled` seeded at `MetadataDb::open`. `predicate_intern` is idempotent on identical constraints; `AlreadyExists` on diverging shapes.
 - `statement_ops`: CRUD + supersession (auto for Preference, explicit for Fact) + contradiction surface (Facts) + tombstone / retract + chain history + filtered list. All operations atomic within one redb txn.
 - Statement HNSW declared in `brain-index` (M=32, ef_construction=200, ef_search=128 per spec §26/00); populator deferred to phase 21 with the embedding worker.
-- Confidence aggregation per spec §19/04: noisy-OR with per-kind decay (Fact 365d half-life / Preference 60d / Event none). Wired into `statement_create` / `_supersede` when inline evidence carries per-entry metadata; wire callers keep their supplied confidence until phase 22's ADD_EVIDENCE op.
+- Confidence aggregation per spec §02/04: noisy-OR with per-kind decay (Fact 365d half-life / Preference 60d / Event none). Wired into `statement_create` / `_supersede` when inline evidence carries per-entry metadata; wire callers keep their supplied confidence until phase 22's ADD_EVIDENCE op.
 - Hand-written statement SDK: `client.fact() / .preference() / .event() / .statements()`. Uniform `StatementHandle` read-side; derive macros defer to phase 19.
 - Integration test suite: 11 wire-smoke tests + 13-step lifecycle + 9 mock-server SDK tests + statement_ops criterion bench.
 
-**Deferred to later phases (tracked in `spec/19_statements/06_open_questions.md` + `spec/28/09_open_questions.md`):**
+**Deferred to later phases (tracked in `../00_overview/04_open_questions_archive.md` + `../00_overview/04_open_questions_archive.md`):**
 
 - Statement HNSW embedding worker — phase 21.
 - `STATEMENT_ADD_EVIDENCE` opcode (richer per-entry metadata wire path) — phase 22.
@@ -332,7 +340,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Delivered:**
 
-- §20 relations section brought to §03-depth (8 files; cardinality / symmetric / storage / traversal / evidence / open questions / references).
+- §14 relations section brought to §03-depth (8 files; cardinality / symmetric / storage / traversal / evidence / open questions / references).
 - §28/07 relation frames already at §03-depth from phase 16; new opcodes wired end-to-end.
 - 7 relation wire opcodes (`0x0150–0x0156`) + responses (`0x01D0–0x01D6`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
 - `brain-core` value types: `Relation` (18 fields with `chain_root` + supersession), `RelationType` (with `cardinality`, `is_symmetric`, optional `from_type / to_type` constraints), `canonical_pair` helper for symmetric byte-wise ordering.
@@ -341,10 +349,10 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - `relation_traversal`: iterative BFS with `DEFAULT_MAX_DEPTH = 3` (cap 5), `DEFAULT_MAX_BRANCHING = 1000` (cap 10_000), visited-set cycle detection, tracing::warn on truncation, `TraversalDirection` (Outgoing / Incoming / Both).
 - `RelationMetadata` rkyv shape widened with `chain_root_bytes`; archive id bumped to v2.
 - Hand-written relation SDK: `client.relation()` / `.relations()` with uniform `RelationHandle` + `TraversalPath` value types. Derive macros defer to phase 19.
-- Integration test suite: 11 wire-smoke tests + 6-step lifecycle test + 8 mock-server SDK tests + criterion bench against §16/02 §2.4 perf targets.
+- Integration test suite: 11 wire-smoke tests + 6-step lifecycle test + 8 mock-server SDK tests + criterion bench against §02/02 §2.4 perf targets.
 - New event type: `RelationTombstoned` added to `EventType` enum + `KnowledgeEventPayload`. Created / Superseded events also wired through brain-ops handlers.
 
-**Deferred to later phases (tracked in `spec/20_relations/06_open_questions.md` + `spec/28/09_open_questions.md`):**
+**Deferred to later phases (tracked in `../00_overview/04_open_questions_archive.md` + `../00_overview/04_open_questions_archive.md`):**
 
 - Cross-shard `RELATION_TRAVERSE` coordination — phase 23.
 - Streaming TRAVERSE response (per-frame) + cursor pagination on LIST_FROM / LIST_TO — phase 23.
@@ -370,16 +378,16 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Sub-tasks:** 9. **Exit:** schema upload validates + versions per namespace; system schema seeds on first open; subsequent entity / predicate / relation registrations flow through the parse → validate → persist → intern fan-out; tag `phase-19-complete`.
 
-**Scope cut:** **No migration plan computation** per user direction (no existing deployments to migrate). Tracked as `spec/21_schema_dsl/07_open_questions.md` Q3.
+**Scope cut:** **No migration plan computation** per user direction (no existing deployments to migrate). Tracked as `../00_overview/04_open_questions_archive.md` Q3.
 
 **Delivered:**
 
 - §21 schema-DSL section brought to §03-depth (9 files: ast / validator / namespaces / versioning / system_schema / open_questions / references).
-- §16/02 §2.6 schema-layer perf targets added (UPLOAD / VALIDATE / GET / LIST); phase-gate renumbered.
+- §02/02 §2.6 schema-layer perf targets added (UPLOAD / VALIDATE / GET / LIST); phase-gate renumbered.
 - §29/00 SDK phase-scope flipped: 19.8 SchemaBuilder + client.schema() ✓.
 - 4 schema wire opcodes (`SCHEMA_UPLOAD` / `_GET` / `_LIST` / `_VALIDATE` at `0x0120-0x0123`, responses at `0x01A0-0x01A3`) end-to-end through `brain-protocol`, `brain-ops`, `brain-server`.
 - Schema AST in `brain-protocol::schema`: value-typed (serde, no rkyv) — `Schema`, `SchemaItem`, `EntityTypeDef`, `PredicateDef`, `RelationTypeDef`, `ExtractorDef` + supporting enums.
-- Pest 2.7 parser (`grammar.pest` + recursive-descent visitor) mirrors the §21/01 EBNF: namespaces, attribute modifiers, predicate kind/object, relation cardinality + symmetric + properties, extractor kind/target + 14 per-kind config fields, heredoc strings, regex literals, JSON capture for `examples:` / `schema:`, condition expressions with and/or/matches, comments + CRLF + trailing commas. `ParseError` carries 1-based line/col.
+- Pest 2.7 parser (`grammar.pest` + recursive-descent visitor) mirrors the §03/01 EBNF: namespaces, attribute modifiers, predicate kind/object, relation cardinality + symmetric + properties, extractor kind/target + 14 per-kind config fields, heredoc strings, regex literals, JSON capture for `examples:` / `schema:`, condition expressions with and/or/matches, comments + CRLF + trailing commas. `ParseError` carries 1-based line/col.
 - Static validator (`validate(&Schema)` + `validate_system_schema(&Schema)`): namespace + duplicates + type refs + predicate kind/object compatibility + cardinality/symmetric + attribute rules (`unique` not on Ref, default-type compat) + extractor required-field/range checks. `ValidatedSchema` newtype proves validation cleared. Accumulates all errors (no first-error short-circuit).
 - Per-namespace schema persistence in `brain-metadata::schema_store`: `(namespace, version)` → `SchemaVersionRow` (rkyv) + `namespace -> u32` active pointer. `schema_upload` is atomic — bumps version + writes row + active pointer + fans out into entity_type / predicate / relation_type intern paths.
 - System schema bootstrap (load-bearing): `brain-metadata/src/system_schema/schema.brain` is `include_str!`-embedded; parsed + validated + applied at `MetadataDb::open`. Replaces `BUILTIN_PREDICATES` / `BUILTIN_RELATION_TYPES` / `seed_builtin_entity_types` from 16.1 / 17.3 / 18.3 — every built-in registration now flows through the parser + validator + schema_upload, sharing code paths with user uploads. Built-in IDs (`Person == EntityTypeId(1)`, etc) preserved.
@@ -387,17 +395,17 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - SDK `client.schema()` entry with `.upload(&Schema)` / `.upload_text(text)` / `.validate(text)` / `.get(ns, v)` / `.list(ns)`; `SchemaBuilder::new(ns).entity_type(...).predicate(...).relation_type(...).build()` fluent assembler; canonical DSL printer for AST → text round-trip.
 - Integration test suite: 8 wire-smoke tests + 1 phase-exit lifecycle test + 6 mock-server SDK tests + schema_ops criterion bench (parse + validate + upload at 50-definition fixture, plus get / list).
 
-**Deferred to later phases (tracked in `spec/21_schema_dsl/07_open_questions.md`):**
+**Deferred to later phases (tracked in `../00_overview/04_open_questions_archive.md`):**
 
-- Migration plan computation, schema diff / keep-re-extract-tombstone semantics — out of v1 scope; revisit in v1.1+ (§21/07 Q3).
-- `#[derive(BrainEntity)]` / `BrainFact` / `BrainPreference` / `BrainEvent` / `BrainRelation` proc macros — phase 19b or phase 21 (§21/07 Q13).
-- Multi-document schemas per namespace + `use other_ns;` cross-namespace imports — post-v1 (§21/07 Q2, Q6).
-- Source spans threaded through the AST → validator → wire — phase 19+ improvement (§21/07 Q4 / Q15).
+- Migration plan computation, schema diff / keep-re-extract-tombstone semantics — out of v1 scope; revisit in v1.1+ (§03/07 Q3).
+- `#[derive(BrainEntity)]` / `BrainFact` / `BrainPreference` / `BrainEvent` / `BrainRelation` proc macros — phase 19b or phase 21 (§03/07 Q13).
+- Multi-document schemas per namespace + `use other_ns;` cross-namespace imports — post-v1 (§03/07 Q2, Q6).
+- Source spans threaded through the AST → validator → wire — phase 19+ improvement (§03/07 Q4 / Q15).
 - Per-namespace entity-type ID space (`brain:Person` vs `acme:Person`) — needed once user entity types arrive (later sub-tasks).
-- Schema deletion / rollback (§21/07 Q9).
-- Validator-version migration when validator rules change (§21/07 Q10).
-- Binary-bootstrap migration when system schema content changes across binaries (§21/07 Q11).
-- Admin-only authorization for `0x0120-0x0123` (§21/07 Q15 / §28/05 §8) — phase 21 admin.
+- Schema deletion / rollback (§03/07 Q9).
+- Validator-version migration when validator rules change (§03/07 Q10).
+- Binary-bootstrap migration when system schema content changes across binaries (§03/07 Q11).
+- Admin-only authorization for `0x0120-0x0123` (§03/07 Q15 / §28/05 §8) — phase 21 admin.
 - Stream-paginated `SCHEMA_LIST` — phase 23.
 - `EXTRACTOR_LIST` / `_DISABLE` / `_ENABLE` (`0x0124-0x0126`) — phase 20.
 
@@ -417,20 +425,20 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Delivered:**
 
-- §22 extractors / §27 workers / §25 provenance sections brought to phase-20-implementation depth (~21 spec files: 8 §22 + 3 §27 + 3 §25 + bundled §16/02 §2.7 perf targets + §21/07 fan-out resolution).
+- §22 extractors / §27 workers / §25 provenance sections brought to phase-20-implementation depth (~21 spec files: 8 §22 + 3 §27 + 3 §25 + bundled §02/02 §2.7 perf targets + §03/07 fan-out resolution).
 - New `brain-extractors` crate (~2 600 LOC):
   - `Extractor` trait (object-safe `Arc<dyn Extractor>`).
   - `ExtractionResult` / `ExtractionStatus` (u8-repr enum, bytes match `brain-metadata::extraction_status::*`).
   - `ExtractedItem` = `EntityMention | StatementMention | RelationMention`.
   - `ExtractorRegistry` with enable / disable / iter_enabled / iter_all.
   - `IdempotencyKey` + BLAKE3 `hash_memory_text`.
-  - `PatternExtractor` over `regex` 1.x with 1 MiB compile-size cap (§22/01 §2). All 4 target kinds projected.
+  - `PatternExtractor` over `regex` 1.x with 1 MiB compile-size cap (§11/01 §2). All 4 target kinds projected.
   - `ClassifierConfig` + `BertTokenClassifier` load path (operator-provided directory matching brain-embed's `EmbedderConfig`).
   - `labels` BIO decoder for CONLL `B-X I-X I-X` → `X` spans with stray-I-promotion + label-switch handling.
   - `materialize` — decodes persisted `ExtractorDefinition.definition_blob` (JSON) back to `Arc<dyn Extractor>` instances; LLM-kind rows register as degraded placeholders pending phase 21.
   - Operator setup doc `docs/bundled-ner.md`.
 - `brain-metadata` storage layer:
-  - Widened `ExtractionAudit` (v1 → v2) to the full §22/05 §1 / §25/01 §1 shape: provenance, status, outputs, cost, input_hash. 3 secondary indexes (`_BY_MEMORY` / `_BY_EXTRACTOR` / `_BY_TIME`).
+  - Widened `ExtractionAudit` (v1 → v2) to the full §11/05 §1 / §25/01 §1 shape: provenance, status, outputs, cost, input_hash. 3 secondary indexes (`_BY_MEMORY` / `_BY_EXTRACTOR` / `_BY_TIME`).
   - `audit_ops` API: `audit_write` (4-table atomic write), `audit_get`, `audit_by_memory` / `_by_extractor` / `audit_recent` / `audit_recent_failures`.
   - 64-entry `OUTPUTS_CAP`; over-cap rejected before wtxn touches.
   - Widened `ExtractorDefinition` (v1 → v2): namespace + name + qname index. `extractor_ops` API mirrors `predicate_ops` (intern / get / lookup / list / set_enabled).
@@ -446,22 +454,22 @@ These phases turn Brain from a vector memory store into a cognitive database wit
   - `BRAIN_NER_MODEL_PATH` env var wired into `ClassifierConfig`.
 - Wire surface: 3 opcodes (`0x0124` / `0x0125` / `0x0126`) + 3 responses (`0x01A4` / `0x01A5` / `0x01A6`) end-to-end.
 - Integration tests: 6 wire-smoke tests + 1 full-lifecycle phase-exit test (ENCODE → pattern → audit → DISABLE → ENCODE → audit-only-classifier).
-- criterion benches against §16/02 §2.7 perf targets (pattern + audit ops; classifier deferred to 20.7b).
+- criterion benches against §02/02 §2.7 perf targets (pattern + audit ops; classifier deferred to 20.7b).
 
-**Deferred to later phases (tracked in `spec/22_extractors/07_open_questions.md` + `spec/27_knowledge_workers/07_open_questions.md` + `spec/25_provenance_versioning/07_open_questions.md`):**
+**Deferred to later phases (tracked in `../00_overview/04_open_questions_archive.md` + `../00_overview/04_open_questions_archive.md` + `../00_overview/04_open_questions_archive.md`):**
 
 - **Phase 20.7b** (immediate follow-up): BertRuntime candle forward pass + linear classifier head — the `#[ignore]`-gated `real_inference_returns_per_span_for_alice` test in `classifier::tests` flips on when a model is provisioned.
 - Resolver-tier persistence of `EntityMention` outputs (entity_mentions rows) — phase 22+; v1 audit row carries item count in `status_reason` for diagnostic visibility.
 - LLM extractor (phase 21).
 - Classifier near-foreground queue (§27/01 §3) — v1 runs synchronously.
-- `OnDemand` / `OnSchemaChange` / `Periodic` triggers — phase 22+ (§22/07 Q3).
+- `OnDemand` / `OnSchemaChange` / `Periodic` triggers — phase 22+ (§11/07 Q3).
 - Resolution workers / decay sweeper / FORGET cascade / audit-log sweeper — phase 22+ (§27/07 Q1-Q4).
 - `ADMIN_GET_EXTRACTION_AUDIT` wire op — phase 22+ admin (§25/07 Q1).
 - Multi-extractor batching, adaptive throttling, cross-shard coordination, content-addressed output IDs — post-v1.
-- `depends_on` topological-sort ordering — §22/07 Q11.
+- `depends_on` topological-sort ordering — §11/07 Q11.
 - Bundled-model Cargo feature for self-contained binaries — post-v1.
-- `feature_extraction: Custom { id }` — post-v1 (§22/07 Q2).
-- Auto-predicate creation for unknown statement-target predicates — post-v1 (§22/07 Q6).
+- `feature_extraction: Custom { id }` — post-v1 (§11/07 Q2).
+- Auto-predicate creation for unknown statement-target predicates — post-v1 (§11/07 Q6).
 - Admin authorization on extractor governance opcodes — phase 21 admin (§28/05 §8).
 
 **Bench results** (Linux Docker, --quick):
@@ -483,13 +491,13 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Sub-tasks:** 8 (21.0 spec backfill → 21.7 phase exit).
 
-**Exit:** mock-client end-to-end pipeline (cache → estimator → client → schema-validate → projection → cache write) green; server-side LLM router selects provider from env at startup; per-shard `LlmCacheDb` wired; spec §22/09 + §16/02 §2.8 backfilled; `Extractor::run` is async; tag `phase-21-complete`.
+**Exit:** mock-client end-to-end pipeline (cache → estimator → client → schema-validate → projection → cache write) green; server-side LLM router selects provider from env at startup; per-shard `LlmCacheDb` wired; spec §11/09 + §02/02 §2.8 backfilled; `Extractor::run` is async; tag `phase-21-complete`.
 
 **Scope cut:** Phase-doc sub-tasks 21.7 (Resolver tier 4 — LLM-assisted entity disambiguation) and 21.8 (built-in `brain.preferences_llm` extractor) deferred to phase 22+ / post-v1. The LLM cache + schema validation + retry-once + cost budget all live inside the `LlmExtractor` impl (`crates/brain-extractors/src/llm.rs`); the original phase-doc 21.3/21.4/21.5/21.6 split was collapsed accordingly. See per-sub-task plans `.claude/plans/phase-21-task-01..06.md` for the actual landed shape.
 
 **Delivered:**
 
-- §22/09 (LLM extractor) and §16/02 §2.8 (LLM perf targets) brought to phase-21 implementation depth.
+- §11/09 (LLM extractor) and §02/02 §2.8 (LLM perf targets) brought to phase-21 implementation depth.
 - New `brain-llm` crate (~700 LOC):
   - `LlmClient` trait (object-safe `Arc<dyn LlmClient>`) — `complete(LlmRequest) -> LlmFuture<'a>`, `model()`, `model_id_hash()`.
   - `AnthropicClient` (Messages API; system + user split; `max_tokens`; structured `LlmError` taxonomy).
@@ -506,17 +514,17 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - Server-side wiring (`crates/brain-server`):
   - `build_llm_deps()` reads `BRAIN_LLM_PROVIDER` + `BRAIN_LLM_MODEL` + `BRAIN_*_API_KEY` env, constructs the per-shard `Arc<dyn LlmClient>`, opens a shard-local `LlmCacheDb` under the shard data dir, and threads both into `OpsContext.llm_client` + `OpsContext.llm_cache`.
   - Missing env / unsupported provider → server logs a warning + LLM-kind rows materialize as `LlmExtractor::degraded()` placeholders that emit `ExtractionStatus::ConfigError`.
-- Spec backfill: §22/09 (LLM extractor mechanics) + §16/02 §2.8 (cache-hit p50 1 ms / p99 5 ms; budget-skip p50 200 µs / p99 1 ms) drafted alongside the implementation.
+- Spec backfill: §11/09 (LLM extractor mechanics) + §02/02 §2.8 (cache-hit p50 1 ms / p99 5 ms; budget-skip p50 200 µs / p99 1 ms) drafted alongside the implementation.
 - Tests: 11 `LlmExtractor` unit tests + 11 materializer unit tests + 9 server `build_llm_deps` tests + 7 integration tests (`tests/knowledge_llm_extractor.rs`) covering cache hit/miss, retry-once, budget skip, malformed JSON, schema-invalid, projection, degraded fallback + 2 wire-smoke tests.
 - criterion benches: `crates/brain-extractors/benches/llm_pipeline.rs` (cache-hit, cost-budget skip, mock-client miss — informational) + `pattern_extract.rs` updated to the new async trait.
 
 **Deferred to later phases:**
 
-- Resolver tier 4 (LLM-assisted entity disambiguation) — phase 22+ (§22/07 Q12). Original phase-doc 21.7.
+- Resolver tier 4 (LLM-assisted entity disambiguation) — phase 22+ (§11/07 Q12). Original phase-doc 21.7.
 - Built-in `brain.preferences_llm` extractor — post-v1. Operators declare their own LLM extractors; the system schema ships only the phase-20 pattern + classifier built-ins. Original phase-doc 21.8.
 - Live-provider opt-in tests (real Anthropic / OpenAI API behind an env var) — post-v1.
 - Pricing TOML override — post-v1; static `STATIC_PRICING` table is the only source today.
-- Per-extractor model selection (operator declares model X, router serves model Y) — phase 22+; §22/09 §2 specifies prefix-only routing in v1.
+- Per-extractor model selection (operator declares model X, router serves model Y) — phase 22+; §11/09 §2 specifies prefix-only routing in v1.
 - Live-registry sync on `SCHEMA_UPLOAD` — phase 22+. Uploaded LLM-kind extractors are observable via `EXTRACTOR_LIST` but the dispatching registry is rebuilt only at shard spawn (gap recorded in `tests/knowledge_llm_extractor_wire.rs`).
 - Global (cross-shard) cost budget — post-v1; v1 enforces `per_call_micro_usd` only.
 
@@ -550,11 +558,11 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 
 **Delivered:**
 
-- §23 / §26 / §27 / §16/02 §2.9 brought to phase-22 implementation depth:
-  - `spec/23_retrievers/02_lexical_retriever.md` (new, ~180 LOC) — trait surface, BM25 params, tokenizer pipeline, scope dispatch, filters, errors, perf bounds.
-  - `spec/26_knowledge_storage/01_tantivy_layout.md` (new, ~200 LOC) — directory layout, schemas, commit cadence, segment merge, atomic-swap rebuild, recovery contract, size budgets.
-  - `spec/27_knowledge_workers/02_text_indexer_workers.md` (new, ~200 LOC) — memory + statement text indexers, backpressure-on-overflow discipline, retry-once-then-fatal commit policy, WAL ordering.
-  - `spec/16_benchmarks_acceptance/02_latency_targets.md` §2.9 — LexicalRetriever p50/p99 targets.
+- §23 / §26 / §27 / §02/02 §2.9 brought to phase-22 implementation depth:
+  - `spec/13_retrievers/02_lexical_retriever.md` (new, ~180 LOC) — trait surface, BM25 params, tokenizer pipeline, scope dispatch, filters, errors, perf bounds.
+  - `spec/10_metadata/01_tantivy_layout.md` (new, ~200 LOC) — directory layout, schemas, commit cadence, segment merge, atomic-swap rebuild, recovery contract, size budgets.
+  - `spec/15_background_workers/02_text_indexer_workers.md` (new, ~200 LOC) — memory + statement text indexers, backpressure-on-overflow discipline, retry-once-then-fatal commit policy, WAL ordering.
+  - `spec/19_benchmarks/02_performance_targets.md` §2.9 — LexicalRetriever p50/p99 targets.
 - `brain-index` (new modules):
   - `tantivy_shard` — per-shard `TantivyShard` handle with `BRAIN_SCHEMA_VERSION=1` payload stamping, `IndexStatus { Ready | NeedsRebuild { OpenFailed | SchemaVersionMismatch | PayloadCorrupt } }`, fresh-dir vs existing-dir disambiguation via `meta.json` probe.
   - `tantivy_shard::tokenizer` — `BrainTokenizer` (NFC → lowercase → URL + code-ID + dotted-identifier preservation → tokenize → Porter stem; protected tokens bypass stemmer). Registered under tantivy's `"default"` name.
@@ -571,7 +579,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
   - `tantivy_shard` unit tests (~28 across schema, retriever, tokenizer, open).
   - `brain-ops` text indexer tests (~24 across memory + statement + rebuild + commit-policy + e2e indexer→retriever).
   - `brain-server` recovery tests (4) + phase-exit integration tests (2; ENCODE → retrieve; FORGET → no hit).
-- `crates/brain-index/benches/lexical_retrieve.rs` — three criterion benches at 10K corpus scale against §16/02 §2.9 perf targets. Production-scale (100K / 1M) validation reserved for phase 14 acceptance.
+- `crates/brain-index/benches/lexical_retrieve.rs` — three criterion benches at 10K corpus scale against §02/02 §2.9 perf targets. Production-scale (100K / 1M) validation reserved for phase 14 acceptance.
 
 **Deferred to later phases:**
 
@@ -584,7 +592,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - Snippet generation — post-v1 if hybrid query needs it.
 - Segment-merge windowing — post-v1.
 
-**Bench results** (Linux Docker, --quick): bench harness in `crates/brain-index/benches/lexical_retrieve.rs` ready for capture; wall-time numbers deferred per the 21.7 precedent. Spec targets: memory single-term p50 10 ms / p99 50 ms @ 100K; statement single-term same @ 1M; commit (256-doc batch) p50 5 ms / p99 25 ms (§16/02 §2.9). Production-scale validation runs in phase 14's acceptance suite.
+**Bench results** (Linux Docker, --quick): bench harness in `crates/brain-index/benches/lexical_retrieve.rs` ready for capture; wall-time numbers deferred per the 21.7 precedent. Spec targets: memory single-term p50 10 ms / p99 50 ms @ 100K; statement single-term same @ 1M; commit (256-doc batch) p50 5 ms / p99 25 ms (§02/02 §2.9). Production-scale validation runs in phase 14's acceptance suite.
 
 ---
 
@@ -608,12 +616,12 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - **Learned router on top of the rule-based one** — re-affirms `OQ-V2-1` + adds §30 OQ-23-D. Rule-based router ships as the stable fallback in v1.
 - **Cross-shard hybrid result merging deferred** — v1 is per-shard; cross-shard fan-out belongs upstream of the hybrid engine. Tracked as §30 OQ-23-E.
 - **`MemoryResult.text` not auto-populated on the hybrid path** — matches the substrate default (text only when caller requests).
-- **Parallel retriever execution deferred** — v1 invokes the three retrievers sequentially under Glommio's single-threaded executor. Async-trait migration is post-v1; §16/02 §2.10 budget headroom is comfortable at 10K scale.
+- **Parallel retriever execution deferred** — v1 invokes the three retrievers sequentially under Glommio's single-threaded executor. Async-trait migration is post-v1; §02/02 §2.10 budget headroom is comfortable at 10K scale.
 - **No `client.recall_hybrid` SDK verb** — the wire opcode `RECALL_HYBRID` (`0x0163`) exists for narrow / non-Rust callers, but the Rust SDK leaves it unreachable from the public surface. Domain verbs in the public API (`client.recall(...)` is the substrate verb; 23.11 routes it through hybrid transparently).
 
 **Delivered:**
 
-- §23/03 (SemanticRetriever), §23/04 (GraphRetriever), §16/02 §2.10 (hybrid perf targets) brought to phase-23 implementation depth in 23.0.
+- §13/03 (SemanticRetriever), §13/04 (GraphRetriever), §02/02 §2.10 (hybrid perf targets) brought to phase-23 implementation depth in 23.0.
 - `brain-index` (new modules):
   - `semantic_retriever` — trait + `SemanticQuery / SemanticScope / SemanticFilters / SemanticRetrieverConfig / SemanticError` plus `RankedItemId::{Memory,Statement,Entity,Relation}` extension to cover all four item kinds.
   - `graph_retriever` — trait + `GraphQuery::{Star,Path,Subgraph}` / `GraphRetrieverConfig` / `Direction` / `GraphError`.
@@ -647,7 +655,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
   - brain-ops: knowledge_query unit tests + schema_gate unit tests.
   - brain-server: 6 wire integration tests in `knowledge_query_wire.rs`, 3 in `recall_hybrid_routing.rs`, 4 in `knowledge_hybrid_phase_exit.rs`.
   - brain-sdk-rust: 18 unit tests in `query::tests` + 7 integration tests in `tests/knowledge_query.rs` (mock-server round-trips).
-- `crates/brain-planner/benches/hybrid_query.rs` — three criterion benches against §16/02 §2.10 perf targets (hybrid 3-retriever, router-degraded, EXPLAIN-only).
+- `crates/brain-planner/benches/hybrid_query.rs` — three criterion benches against §02/02 §2.10 perf targets (hybrid 3-retriever, router-degraded, EXPLAIN-only).
 
 **Deferred to later phases:**
 
@@ -659,7 +667,7 @@ These phases turn Brain from a vector memory store into a cognitive database wit
 - Parallel retriever execution (async-trait migration) — post-v1.
 - Production-scale wall-time validation — phase 14 acceptance.
 
-**Bench results** (Linux, --quick): bench harness in `crates/brain-planner/benches/hybrid_query.rs` ready for capture; wall-time numbers deferred per the 21.7 / 22.8 precedent. Spec targets: hybrid 3-retriever p50 10 ms / p99 50 ms; router-degraded p50 7 ms / p99 30 ms; EXPLAIN-only p50 500 µs / p99 2 ms (§16/02 §2.10). Production-scale (100 K / 1 M) validation runs in phase 14's acceptance suite.
+**Bench results** (Linux, --quick): bench harness in `crates/brain-planner/benches/hybrid_query.rs` ready for capture; wall-time numbers deferred per the 21.7 / 22.8 precedent. Spec targets: hybrid 3-retriever p50 10 ms / p99 50 ms; router-degraded p50 7 ms / p99 30 ms; EXPLAIN-only p50 500 µs / p99 2 ms (§02/02 §2.10). Production-scale (100 K / 1 M) validation runs in phase 14's acceptance suite.
 
 ---
 

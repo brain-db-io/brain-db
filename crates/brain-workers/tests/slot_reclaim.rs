@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Slot reclamation worker tests (sub-task 8.7). Spec §11/06.
+//! Slot reclamation worker tests (sub-task 8.7).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
@@ -308,7 +308,7 @@ fn dangling_edges_other_direction_are_left_for_edge_scrub() {
         let live = seed_memory(&fix.metadata, 2, None);
         // Edge from live → doomed. After reclamation:
         //   - EDGES_OUT[live][..][doomed] (source = live) MUST survive
-        //     — spec §6 leaves this for the edge-scrub worker.
+        //     leaves this for the edge-scrub worker.
         //   - EDGES_IN[doomed][..][live] is purged (verified in test 7).
         seed_edge(&fix.metadata, live, EdgeKind::FollowedBy, doomed);
         assert_eq!(edges_out_count(&fix.metadata, live), 1);

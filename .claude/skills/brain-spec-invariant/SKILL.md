@@ -8,7 +8,7 @@ when-to-use: |
     - Drafting a CONTEXT.md after detecting drift
     - Pre-phase-exit: walking the spec section by section
 spec-refs:
-  - spec/00_master_overview/02_doc_map.md
+  - spec/00_overview/02_doc_map.md
 ---
 
 # Spec MUST Verification
@@ -20,7 +20,7 @@ A specific spec clause needs to be checked against the implementation — not a 
 ## Workflow
 
 1. **Locate the MUST.** Open the spec file. Quote the exact clause verbatim — including the surrounding sentence so the context is preserved.
-2. **Identify the responsible code.** Use the doc map (`spec/00_master_overview/02_doc_map.md`) or grep for symbol names mentioned in the clause. If a clause names a function, type, or constant, that's the entry point.
+2. **Identify the responsible code.** Use the doc map (`spec/00_overview/02_doc_map.md`) or grep for symbol names mentioned in the clause. If a clause names a function, type, or constant, that's the entry point.
 3. **Walk the implementation.** Read the actual code path that should honor the MUST. Don't trust comments — trust the executed code.
 4. **Verify the test evidence.** A MUST without a test is a latent regression risk. Find the test that proves the clause; if missing, flag it.
 5. **Report.** One of:
@@ -55,7 +55,7 @@ Fix shape: <code change OR spec change OR both>
 ### Golden
 
 ```
-MUST: spec/03_wire_protocol/03_frame_header.md §3.6
+MUST: spec/04_wire_protocol/02_wire_format.md §3.6
 Quote: "Computed over bytes 0–7 followed by bytes 12–31 — i.e., the entire
        header minus the `header_crc32c` field itself."
 
@@ -68,7 +68,7 @@ Notes:    Header::seal recomputes on mutation; the splice is in one helper.
 ### Counter — drift detected
 
 ```
-MUST: spec/03_wire_protocol/03_frame_header.md §8 (endianness summary)
+MUST: spec/04_wire_protocol/02_wire_format.md §8 (endianness summary)
 Quote: "All multi-byte integers are big-endian."
 
 Status:   violated

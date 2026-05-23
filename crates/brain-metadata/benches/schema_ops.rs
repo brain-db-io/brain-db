@@ -1,6 +1,6 @@
 //! Schema-ops perf bench (sub-task 19.10b).
 //!
-//! Spec targets per `spec/16_benchmarks_acceptance/02_latency_targets.md`
+//! Spec targets per `spec/20_benchmarks/02_latency_targets.md`
 //! §2.6 at a typical 50-definition schema (operator-run on the
 //! reference rig):
 //!

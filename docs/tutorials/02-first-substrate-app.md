@@ -94,7 +94,7 @@ pure-semantic recall path.
 
 ## 6. Declare a schema
 
-Schema upload (`SCHEMA_UPLOAD_REQ`, spec §21/08) doesn't yet have a
+Schema upload (`SCHEMA_UPLOAD_REQ`, spec §03/08) doesn't yet have a
 shell or CLI surface — for now, upload it through the SDK:
 
 ```rust
@@ -107,7 +107,7 @@ client.schema_upload(req).await?;
 
 The server's per-shard `SchemaGate` flips from `false` to
 `true`. Substrate `RECALL_REQ` now routes through the hybrid
-pipeline transparently (spec §28/08 §5).
+pipeline transparently (spec §02/14 failure_modes §5).
 
 ## 7. Hybrid query
 
@@ -130,10 +130,10 @@ walks through this and the backfill flow.
 ## What's next
 
 - [Operator runbook: schema toggle](../runbooks/schema-toggle.md)
-- [Spec overview](../../spec/00_master_overview/02_doc_map.md)
+- [Spec overview](../../spec/00_overview/02_doc_map.md)
 - [SDK reference (`brain-sdk-rust`)](../../crates/brain-sdk-rust)
-- [Hybrid query design](../../spec/24_hybrid_query/00_purpose.md)
+- [Hybrid query design](../../spec/13_retrievers/05_hybrid_query.md)
 
 For a tour of the cognitive primitives (ENCODE / RECALL / PLAN /
 REASON / FORGET) see
-[`spec/09_cognitive_operations/`](../../spec/09_cognitive_operations/).
+[`spec/05_operations/`](../../spec/05_operations/00_purpose.md).

@@ -10,9 +10,9 @@ when-to-use: |
 trigger-files:
   - crates/brain-index/**/*.rs
 spec-refs:
-  - spec/06_ann_index/02_parameters.md
-  - spec/06_ann_index/04_search.md
-  - spec/06_ann_index/07_maintenance.md
+  - spec/09_indexing/01_hnsw_basics.md
+  - spec/09_indexing/02_hnsw_operations.md
+  - spec/09_indexing/03_hnsw_lifecycle.md
 ---
 
 # HNSW Tuning

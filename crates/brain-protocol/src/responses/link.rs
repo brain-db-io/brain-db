@@ -4,7 +4,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::request::{EdgeKindWire, WireMemoryId};
 
-/// Spec §09/07 §3 — `LINK_RESP` body.
+/// — `LINK_RESP` body.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -19,7 +19,7 @@ pub struct LinkResponse {
     pub already_existed: bool,
 }
 
-/// Spec §09/07 §5 — `UNLINK_RESP` body.
+/// — `UNLINK_RESP` body.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

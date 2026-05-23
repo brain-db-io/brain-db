@@ -1,6 +1,6 @@
 //! Listener bind + per-stream socket-option helpers.
 //!
-//! Spec §03/02 §1.2 requires `SO_REUSEADDR` (graceful restart),
+//! requires `SO_REUSEADDR` (graceful restart),
 //! `TCP_NODELAY` (low per-request latency), and `SO_KEEPALIVE` on
 //! both the listener and each accepted stream. The existing
 //! `brain-server::network::connection` applies these via

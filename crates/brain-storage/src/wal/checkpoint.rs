@@ -1,6 +1,6 @@
 //! Checkpoint writer.
 //!
-//! Implements the spec §05/09 §3 procedure:
+//! Implements the procedure:
 //!
 //! 1. Write `CHECKPOINT_BEGIN` to the WAL (durable on return).
 //! 2. `msync(MS_SYNC)` the whole arena so every pre-checkpoint slot write
@@ -8,7 +8,7 @@
 //! 3. Write `CHECKPOINT_END(durable_lsn = target_lsn)` to the WAL.
 //!
 //! Failure of any step leaves the previous checkpoint as the recovery
-//! target (spec §09 §12.1). The sink learns about the new checkpoint via
+//! target. The sink learns about the new checkpoint via
 //! `apply(CheckpointEnd)` on the next `recover` — we don't push it
 //! at runtime to avoid runtime sink/WAL disagreement windows.
 
@@ -63,7 +63,7 @@ pub enum CheckpointError {
 // write_checkpoint.
 // ---------------------------------------------------------------------------
 
-/// Write a checkpoint per spec §05/09 §3.
+/// Write a checkpoint.
 ///
 /// On success, the WAL contains `CHECKPOINT_BEGIN` followed by
 /// `CHECKPOINT_END(durable_lsn)` records, and every arena page that was

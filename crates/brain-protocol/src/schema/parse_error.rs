@@ -1,4 +1,4 @@
-//! Schema-DSL parse errors. Spec §21/01.
+//! Schema-DSL parse errors.
 //!
 //! Each variant carries a 1-based `line` / `col` position to keep
 //! diagnostics actionable. Format mirrors compiler errors —

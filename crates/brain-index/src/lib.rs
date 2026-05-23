@@ -2,7 +2,7 @@
 //!
 //! Approximate-nearest-neighbour index for Brain, wrapping `hnsw_rs::Hnsw`
 //! with the parameters and lifecycle (build, search, snapshot, rebuild)
-//! defined in `spec/06_ann_index/`.
+//! defined in `spec/09_indexing/`.
 //!
 //! This crate is a **closed leaf**: vectors in, candidates out. It has
 //! no dependency on `brain-storage` or `brain-metadata`; the cross-crate

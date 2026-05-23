@@ -1,5 +1,5 @@
 //! Per-(worker, item) checkpoint table for state-carrying workers
-//! (spec §27/04 §1 — phase 24.1 introduces; 24.2 / 24.8 reuse).
+//! (— phase 24.1 introduces; 24.2 / 24.8 reuse).
 //!
 //! ## Layout
 //!
@@ -19,7 +19,6 @@
 //!
 //! ## Status transitions
 //!
-//! Spec §27/04 §1.2:
 //!
 //! ```text
 //! Pending  ──started──> Started
@@ -33,7 +32,7 @@ use redb::{ReadableTable, TableDefinition};
 
 use crate::impl_redb_rkyv_value;
 
-/// Composite-key table. Spec §27/04 §1.
+/// Composite-key table.
 pub const WORKER_CHECKPOINTS_TABLE: TableDefinition<
     'static,
     (&'static str, &'static [u8]),
@@ -51,7 +50,7 @@ pub mod status {
     pub const FAILED: u8 = 3;
 }
 
-/// Per-item checkpoint row. Spec §27/04 §1.
+/// Per-item checkpoint row.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct WorkerCheckpointRow {

@@ -40,7 +40,7 @@ use crate::impl_redb_rkyv_value;
 // Key types.
 // ---------------------------------------------------------------------------
 
-/// Cache-key components per spec §26:
+/// Cache-key components:
 ///
 /// - `[u8; 32]` — blake3-256 hash of the input text + relevant context.
 /// - `u32`      — `ExtractorId.raw()` (interned per 15.1).

@@ -13,14 +13,14 @@ components; this phase declares them, together, production-ready.
 
 ## Reading list
 
-1. [`spec/16_benchmarks_acceptance/08_acceptance_test_suite.md`](../../spec/16_benchmarks_acceptance/08_acceptance_test_suite.md) — the 10 gates.
-2. [`spec/14_observability_ops/07_runbooks.md`](../../spec/14_observability_ops/07_runbooks.md) — runbooks to validate.
+1. [`spec/19_benchmarks/05_acceptance_test_suite.md`](../../spec/19_benchmarks/05_acceptance_test_suite.md) — the 10 gates.
+2. [`spec/17_observability/05_runbooks.md`](../../spec/17_observability/05_runbooks.md) — runbooks to validate.
 
 ## Outputs
 
 - `scripts/acceptance/run.sh` — single entry point that runs gates 1-10 and
   reports pass/fail.
-- `docs/runbooks/*.md` — one per runbook in spec §14/07, each tested
+- `docs/runbooks/*.md` — one per runbook in spec §02/07, each tested
   against a chaos scenario produced in Phase 13.
 - README + getting-started overhaul; operator guide covers install,
   config, monitor, recover.
@@ -30,13 +30,13 @@ components; this phase declares them, together, production-ready.
 ## Sub-tasks
 
 ### Task 14.1 — Acceptance suite runner
-**Reads:** spec §16/08.
+**Reads:** spec §02/08.
 **Writes:** `scripts/acceptance/run.sh` + per-gate test files.
 **Done when:** `bash scripts/acceptance/run.sh` exits 0 on the reference
 environment; output is a clear pass/fail per gate.
 
 ### Task 14.2 — Runbook validation
-**Reads:** spec §14/07.
+**Reads:** spec §02/07.
 **Writes:** `docs/runbooks/{disk-full,wal-corruption,shard-down,hnsw-rebuild,oom,latency-spike,etc}.md`.
 **Done when:** each runbook is a working procedure executed against the
 corresponding Phase 13 chaos scenario; recovery time recorded.

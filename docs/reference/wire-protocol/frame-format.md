@@ -4,7 +4,7 @@ Brain's binary wire protocol. Every byte that crosses
 `listen_addr` is a frame.
 
 **Source:** `crates/brain-protocol/src/{header,frame,lib}.rs`.
-**Spec:** §03/03 (frame header), §03/04 (payload encoding).
+**Spec:** §02/03 (frame header), §02/04 (payload encoding).
 
 ## Constants
 
@@ -14,8 +14,8 @@ Brain's binary wire protocol. Every byte that crosses
 | Protocol version | `1` | `header.rs:34` |
 | Header size | `32` bytes (`#[repr(C, packed)]`) | `header.rs:70` |
 | Max payload | `16_777_215` bytes (2²⁴ − 1) | `lib.rs:45` |
-| Endianness | Big-endian (header), little-endian (vector bytes) | spec §03/03 §1 |
-| CRC | CRC32C (Castagnoli polynomial 0x1EDC6F41) | spec §03/03 §3.6 |
+| Endianness | Big-endian (header), little-endian (vector bytes) | spec §02/03 §1 |
+| CRC | CRC32C (Castagnoli polynomial 0x1EDC6F41) | spec §02/03 §3.6 |
 
 ## Header layout (32 bytes)
 
@@ -41,7 +41,7 @@ Brain's binary wire protocol. Every byte that crosses
 ## Body layout
 
 Immediately after the 32-byte header. Two sub-regions
-(spec §03/04 §2):
+(spec §02/04 §2):
 
 1. **`rkyv`-encoded structure** — the typed request or response
    body, archived with `rkyv`. Variable length.
@@ -77,7 +77,7 @@ direction → `BadOpcode`.
 
 ## Multi-payload framing
 
-Logical messages > 16 MiB are split (spec §03/03 §6):
+Logical messages > 16 MiB are split (spec §02/03 §6):
 
 - All but the last frame have `MPL` flag set.
 - The last frame has `MPL` clear (and may set `EOS`).
@@ -97,7 +97,7 @@ frame sets it.
 Client can cancel via `CancelStream(0x0050)`; server acks with
 `CancelStreamAck(0x00D0)`.
 
-## Limits (server-configurable, spec §03/11 §6)
+## Limits (server-configurable, spec §02/11 relation §6)
 
 | Limit | Default |
 |---|---|
@@ -123,7 +123,7 @@ server emits an `Error(0x00FF)` frame, closes the stream, and
 3. Flags low bits zero (header.rs:154–155)
 4. `payload_len ≤ MAX_PAYLOAD_BYTES` (header.rs:157–162)
 5. `header_crc32c` matches recomputed (header.rs:164–165)
-6. Stream ID parity (spec §03/11 §2.5)
+6. Stream ID parity (spec §02/11 relation §2.5)
 7. Opcode is a known value (opcode.rs:343)
 8. `payload_crc32c` matches recomputed (frame.rs:116–119)
 9. `rkyv::check_archived_root` succeeds (`MalformedRkyv` on fail)
@@ -137,4 +137,4 @@ server emits an `Error(0x00FF)` frame, closes the stream, and
 - [`handshake.md`](handshake.md) — connection establishment.
 - [`../../architecture/02-wire-protocol.md`](../../architecture/02-wire-protocol.md) — design rationale.
 
-**Spec:** §03/03, §03/04. **Source:** `crates/brain-protocol/src/header.rs`, `frame.rs`, `lib.rs`.
+**Spec:** §02/03, §02/04. **Source:** `crates/brain-protocol/src/header.rs`, `frame.rs`, `lib.rs`.

@@ -481,7 +481,7 @@ async fn pool_guard_without_mark_failed_still_recycles() {
 // Step 2 regression — SDK auto-responds to SERVER_PING with CLIENT_PONG.
 // ---------------------------------------------------------------------------
 //
-// Spec §03/02 §6.1: server emits SERVER_PING after `idle_timeout`;
+// server emits SERVER_PING after `idle_timeout`;
 // expects CLIENT_PONG within `ping_timeout`; closes the connection
 // otherwise. The SDK's `IdleConnection` background task is the
 // responder.

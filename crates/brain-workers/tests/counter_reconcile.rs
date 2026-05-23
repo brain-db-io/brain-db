@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Counter reconciliation worker tests (sub-task 8.10). Spec §11/08 §2.
+//! Counter reconciliation worker tests (sub-task 8.10).
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

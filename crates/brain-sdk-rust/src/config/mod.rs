@@ -1,7 +1,7 @@
 //! `ClientConfig` — typed constructor knobs for `Client`.
 //!
-//! Spec §13/02 §14 lists the default values; we encode them as
-//! `Default` impl. The auth surface mirrors spec §03/06 `AuthMethod`
+//! lists the default values; we encode them as
+//! `Default` impl. The auth surface mirrors `AuthMethod`
 //! (re-exported from `brain-protocol`).
 
 use std::time::Duration;
@@ -11,7 +11,7 @@ pub use brain_protocol::handshake::AuthMethod;
 use crate::pool::PoolConfig;
 use crate::retry::RetryConfig;
 
-/// Spec §13/02 §14 default request timeout.
+/// default request timeout.
 pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 
 /// Construction-time configuration for a `Client`.
@@ -22,7 +22,7 @@ pub const DEFAULT_TIMEOUT: Duration = Duration::from_secs(30);
 pub struct ClientConfig {
     /// Authentication scheme the client should propose at AUTH
     /// time. Default `AuthMethod::None` matches v1 dev policy
-    /// (spec §03/06 §3.1 / brain-server's `linux_main`).
+    /// (/ brain-server's `linux_main`).
     pub auth: AuthMethod,
     /// Per-request wall-clock budget. Applied by 10.5+; 10.1
     /// stores it on the client for handshake completion.
@@ -30,7 +30,6 @@ pub struct ClientConfig {
     /// Connection-pool sizing + idle reaping. See [`PoolConfig`].
     pub pool: PoolConfig,
     /// Retry policy applied by [`crate::retry::retry_with_backoff`].
-    /// Spec §13/04.
     pub retry: RetryConfig,
 }
 
@@ -90,7 +89,7 @@ mod tests {
         let cfg = ClientConfig::default();
         assert_eq!(cfg.timeout, Duration::from_secs(30));
         assert_eq!(cfg.auth, AuthMethod::None);
-        // Spec §13/04 §6 defaults are validated in RetryConfig's
+        // defaults are validated in RetryConfig's
         // own tests; here we just check the field is set.
         assert_eq!(cfg.retry.max_attempts, 3);
         assert_eq!(cfg.retry.initial_delay, Duration::from_millis(100));

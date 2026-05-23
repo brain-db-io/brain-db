@@ -1,4 +1,4 @@
-//! Extractor audit-log query API. Spec §22/05 + §25/01.
+//! Extractor audit-log query API.
 //!
 //! Single-writer-per-shard discipline (CLAUDE.md §5 invariant 2)
 //! applies — `audit_write` takes the caller's `wtxn`. Reads via

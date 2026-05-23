@@ -16,7 +16,7 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use brain_core::knowledge::{Statement, SubjectRef};
+use brain_core::{Statement, SubjectRef};
 use brain_core::{EntityId, PredicateId, StatementId, StatementKind};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
@@ -113,11 +113,11 @@ pub fn statement_supersede(
     // present (mirrors statement_create — wire-vs-in-process split).
     if evidence_has_per_entry_metadata(wtxn, &new_to_insert.evidence)? {
         let entries = resolve_evidence_entries(wtxn, &new_to_insert.evidence)?;
-        new_to_insert.confidence = brain_core::knowledge::aggregate_confidence(
+        new_to_insert.confidence = brain_core::aggregate_confidence(
             &entries,
             new_to_insert.extracted_at_unix_nanos,
             new_to_insert.kind,
-            &brain_core::knowledge::ConfidenceConfig::default_v1(),
+            &brain_core::ConfidenceConfig::default_v1(),
         );
     }
 
@@ -134,11 +134,10 @@ pub fn statement_supersede(
         old.valid_to_unix_nanos = Some(new_to_insert.extracted_at_unix_nanos);
     }
     // Record-time invalidation: the substrate stops believing the prior
-    // row at supersession wall-clock. `now == 0` is the legacy sentinel
-    // for "caller did not stamp" (a few call sites still pass 0); fall
-    // back to the new row's extraction time so the field never carries
-    // a zero — zero would otherwise read as "invalidated at the unix
-    // epoch", which is a false positive for as-of filters.
+    // row at supersession wall-clock. Callers that pass `0` ("did not
+    // stamp") get the new row's extraction time instead, so the field
+    // never carries a zero — zero would read as "invalidated at the
+    // unix epoch", a false positive for as-of filters.
     let invalidated_at = if now_unix_nanos == 0 {
         new_to_insert.extracted_at_unix_nanos
     } else {
@@ -535,7 +534,7 @@ mod tests {
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::schema::predicate::predicate_intern;
     use crate::statement::crud::statement_create;
-    use brain_core::knowledge::{Entity, EntityType, EvidenceRef, StatementObject, StatementValue};
+    use brain_core::{Entity, EntityType, EvidenceRef, StatementObject, StatementValue};
     use brain_core::ExtractorId;
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
@@ -737,7 +736,7 @@ mod tests {
         // We exercise the decider's verdict logic here; the chain
         // execution test below covers the writer.
         use crate::statement::tombstone::statement_tombstone;
-        use brain_core::knowledge::TombstoneReason;
+        use brain_core::TombstoneReason;
 
         let (_dir, mut db) = open_db();
         let subj = make_entity(&mut db, "priya");
@@ -776,7 +775,7 @@ mod tests {
         pred_name: &str,
     ) -> (EntityId, PredicateId, Statement) {
         use crate::statement::tombstone::statement_tombstone;
-        use brain_core::knowledge::TombstoneReason;
+        use brain_core::TombstoneReason;
 
         let subj = make_entity(db, subj_name);
         let pred = intern_pref(db, pred_name, true);

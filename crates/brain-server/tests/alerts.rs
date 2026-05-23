@@ -1,4 +1,4 @@
-//! CI gate for `monitoring/alerts/brain-rules.yml` per spec §14/05 §15.
+//! CI gate for `monitoring/alerts/brain-rules.yml`.
 //!
 //! `promtool check rules` is the authoritative check but requires
 //! the Prometheus toolchain on CI. This test catches the common
@@ -9,7 +9,7 @@
 //!   `name` and `rules`.
 //! - Each rule has `alert`, `expr`, `labels.severity`.
 //! - Severities are from the spec set (critical / high / medium / low).
-//! - Every alert promised by spec §14/05 §3-§6 is present (catches
+//! - Every alert promised by -§6 is present (catches
 //!   accidental rule deletion).
 
 #![cfg(target_os = "linux")]
@@ -78,7 +78,7 @@ fn every_required_alert_is_present() {
     for required in REQUIRED_ALERTS {
         assert!(
             alerts.iter().any(|a| a == required),
-            "missing required alert `{required}` — spec §14/05 §3-§6 mandates it",
+            "missing required alert `{required}` — mandates it",
         );
     }
 }
@@ -90,7 +90,7 @@ fn every_severity_is_from_allowed_set() {
     for sev in &severities {
         assert!(
             ALLOWED_SEVERITIES.contains(&sev.as_str()),
-            "severity `{sev}` is not in spec §14/05 §2 (allowed: critical/high/medium/low)",
+            "severity `{sev}` is not in (allowed: critical/high/medium/low)",
         );
     }
 }
@@ -102,7 +102,7 @@ fn at_least_one_alert_per_severity_level() {
     for required in ALLOWED_SEVERITIES {
         assert!(
             severities.iter().any(|s| s == required),
-            "no alert with severity `{required}` — spec §14/05 §2 expects all four levels",
+            "no alert with severity `{required}` — expects all four levels",
         );
     }
 }

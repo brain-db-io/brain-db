@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! WAL retention worker tests (sub-task 8.8). Spec §11/07.
+//! WAL retention worker tests (sub-task 8.8).
 
 use std::sync::Arc;
 use std::time::Duration;

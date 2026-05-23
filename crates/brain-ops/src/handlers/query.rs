@@ -20,7 +20,7 @@
 //! installed on [`OpsContext`] (semantic / lexical / graph) and
 //! the shared `MetadataDb`.
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{EntityId, PredicateId};
 use brain_index::RankedItemId;
 use brain_metadata::schema::predicate::predicate_lookup_by_qname;
@@ -35,7 +35,7 @@ use brain_planner::hybrid::router::{
     FusionConfig, PerRetrieverWeights, QueryRequest as PlannerQueryRequest, Retriever,
     RetrieverSelection, TimeRange,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     FusionConfigWire, ItemIdWire, MemoryHit, QueryExplainRequest, QueryExplainResponse,
     QueryRequest as WireQueryRequest, QueryResponse, QueryResultItem, QueryTraceRequest,
     QueryTraceResponse, RecallHybridRequest, RecallHybridResponse, RetrieverContributionWire,

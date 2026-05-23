@@ -1,7 +1,7 @@
 //! Workspace-wide error type and result alias.
 //!
 //! The variant set mirrors the wire-protocol error codes in
-//! `spec/03_wire_protocol/10_errors.md`. Keep them aligned.
+//! `spec/04_wire_protocol/10_errors.md`. Keep them aligned.
 
 use thiserror::Error;
 

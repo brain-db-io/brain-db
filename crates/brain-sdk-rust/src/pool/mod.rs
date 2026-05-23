@@ -319,7 +319,6 @@ impl Pool {
                 // that spawns the background pong task. Without this,
                 // the slot would sit silently and the server would
                 // close it after `idle_timeout + ping_timeout`
-                // (spec §03/02 §6.1).
                 slots[slot_index] = SlotState::Idle {
                     connection: IdleConnection::from_active(connection),
                     last_used,

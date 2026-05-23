@@ -1,6 +1,6 @@
 //! `fingerprints` table: per-shard opt-in content-dedup index.
 //!
-//! Spec §07/07 §6 — opt-in fingerprint deduplication. When an
+//! — opt-in fingerprint deduplication. When an
 //! `EncodeRequest` arrives with `deduplicate = true`, the substrate
 //! consults this table; on a hit, the existing `MemoryId` is
 //! returned without allocating a new slot.
@@ -17,7 +17,7 @@
 //!
 //! Partitioning by `agent_id` is privacy + ownership: one agent's
 //! encoded text never matches against another's index. Partitioning
-//! by `context_id` matches spec §07/07 §6.1 — the same utterance in
+//! by `context_id` matches — the same utterance in
 //! different episodic contexts is a different memory.
 //!
 //! ## Value
@@ -25,14 +25,14 @@
 //! [`FingerprintEntry`] — the `MemoryId` of the Active memory and
 //! the `inserted_at_unix_nanos` for diagnostics. Only Active
 //! memories are reachable here; FORGET / reclamation evict the row
-//! in the same write transaction as the tombstone (spec §07/07
+//! in the same write transaction as the tombstone (
 //! §6.3 + §07/07 §6.5).
 //!
 //! ## What does NOT live here
 //!
 //! - A refcount. v1 deliberately does not refcount — a dedup hit
 //!   returns the **same** `MemoryId`, not a new one backed by
-//!   shared storage (spec §07/07 §6.6).
+//!   shared storage.
 //! - Cross-shard entries. The fingerprint table is per-shard;
 //!   routing already hashes the agent to one shard.
 //! - Tombstone state. The eviction discipline keeps this table
@@ -132,7 +132,7 @@ pub fn fingerprint_key(
 
 /// Compute the canonical content hash for the given text. Currently
 /// a BLAKE3 over the raw UTF-8 bytes; future revisions may add NFC
-/// normalisation (spec §07/07 §6.2).
+/// normalisation.
 #[must_use]
 pub fn content_hash(text: &str) -> [u8; 32] {
     *blake3::hash(text.as_bytes()).as_bytes()

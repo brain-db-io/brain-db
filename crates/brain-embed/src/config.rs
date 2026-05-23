@@ -1,7 +1,7 @@
 //! Configuration for the embedding layer.
 //!
-//! See `spec/04_embedding_layer/01_model_choice.md` §7 (`model_path`
-//! as the operator-control surface) and `spec/04_embedding_layer/03_inference.md`
+//! See `spec/07_embedding/01_model_choice.md` §7 (`model_path`
+//! as the operator-control surface) and `spec/07_embedding/03_inference.md`
 //! §5 (FP32 default; FP16/INT8 deferred).
 
 use std::path::PathBuf;
@@ -29,10 +29,9 @@ pub struct EmbedderConfig {
     pub device: Device,
 
     /// Inference dtype. v1: `DType::F32`. FP16 / INT8 deferred per
-    /// spec §03 §5.
     pub dtype: DType,
 
-    /// Number of warm-up inferences to run after load (spec §03 §9
+    /// Number of warm-up inferences to run after load (
     /// step 6). Default: 3.
     pub warmup_iters: usize,
 }

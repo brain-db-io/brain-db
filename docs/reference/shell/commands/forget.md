@@ -39,7 +39,7 @@ a `Forgotten` event on the change feed.
 
 The arena slot is reclaimed by the background worker after the
 tombstone grace period (default 7 days — see
-`spec/16_benchmarks_acceptance/06_durability_criteria.md`).
+`spec/19_benchmarks/01_correctness_and_durability.md`).
 
 A subsequent `recall` will not surface the row; a direct `link` /
 `unlink` targeting it returns `NotFound`.
@@ -67,7 +67,7 @@ ok  s2/m1/v1  outcome=Tombstoned  edges_removed=0
 |---|---|
 | `Tombstoned` | Memory was Active; tombstoned. |
 | `AlreadyTombstoned` | Idempotent no-op — `forget` had already been called for this id. |
-| `MemoryNotFound` | No such memory. **Returns success**, per spec §08/06 §10 (idempotent semantics). |
+| `MemoryNotFound` | No such memory. **Returns success**, per spec §02/06 §10 (idempotent semantics). |
 
 `edges_removed=N` reports edges removed in the same write transaction
 (both in-edges and out-edges).
@@ -127,4 +127,4 @@ Full catalogue: [`../errors.md`](../errors.md).
 - [`encode.md`](encode.md) — the write side
 - [`link.md`](link.md) / [`unlink.md`](unlink.md) — edges are auto-removed on forget
 - [`subscribe.md`](subscribe.md) — observe `Forgotten` events
-- Spec: [`spec/09_cognitive_operations/06_forget.md`](../../../../spec/09_cognitive_operations/06_forget.md)
+- Spec: [`spec/05_operations/02_write_pipeline.md`](../../../../spec/05_operations/02_write_pipeline.md)

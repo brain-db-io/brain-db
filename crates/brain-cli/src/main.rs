@@ -1,6 +1,6 @@
 //! # brain-cli
 //!
-//! Admin CLI for the Brain substrate. See spec §14/06 for the full
+//! Admin CLI for the Brain substrate. for the full
 //! command surface. health + stats hit the public metrics listener; every
 //! other command lands on the admin listener.
 
@@ -162,7 +162,7 @@ OPTIONS:
     --version, -V             Print version
     --help, -h                Print this help
 
-See spec/14_observability_ops/06_admin_ops.md for the full surface.
+See spec/18_observability/06_admin_ops.md for the full surface.
 "
     );
 }

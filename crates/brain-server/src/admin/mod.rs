@@ -25,7 +25,7 @@
 //! that exist on the "other" listener also 404 — `/v1/workers` on
 //! `metrics_addr` and `/metrics` on `admin_addr` both fail closed.
 //!
-//! Spec §14/01 (metrics) + §14/06 (admin). The unified
+//! (metrics) + §14/06 (admin). The unified
 //! [`AdminServer::new`] constructor still exists for the test
 //! harness; production must not use it.
 

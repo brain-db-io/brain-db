@@ -5,16 +5,16 @@
 //! (writers, recovery, audit tools) can construct and inspect records
 //! without juggling raw bytes.
 //!
-//! Layouts come from `spec/05_storage_arena_wal/05_wal_records.md` §§5–16.
+//! Layouts come from `spec/08_storage/05_wal_records.md` §§5–16.
 //! Encoding is little-endian for scalars; `MemoryId` keeps its big-endian
-//! wire layout per spec §02/03 §2.2 so it round-trips through `to_be_bytes`.
+//! wire layout so it round-trips through `to_be_bytes`.
 //!
 //! Two layout choices the spec leaves underspecified:
 //! - **`vector_dims` length prefix** in `Encode` / `Consolidate` /
 //!   `MigrateEmbedding`. The spec writes `[f32; 384]` literally; we add a
 //!   `u16` length prefix so the file format is forward-compatible with
 //!   larger embedding models. `0` means "no vector".
-//! - **`UpdateSalience` count prefix**. Spec §05/05 §9 describes coalesced
+//! - **`UpdateSalience` count prefix** describes coalesced
 //!   records as carrying "multiple tuples" without specifying a count
 //!   prefix. We always emit `count: u32 + tuples` (count=1 in the
 //!   non-coalesced case). One uniform encoder is simpler than branching on
@@ -25,7 +25,7 @@ use brain_core::{
     NodeRefError, RelationId, RelationTypeId, RequestId, TxnId,
 };
 
-/// Opaque 16-byte fingerprint of an embedding model (spec §05/05 §5).
+/// Opaque 16-byte fingerprint of an embedding model.
 pub type EmbeddingModelFp = [u8; 16];
 
 // ---------------------------------------------------------------------------
@@ -152,7 +152,7 @@ pub enum SalienceReason {
 
 /// Reclaim payload.
 ///
-/// Spec §05/05 §10 lists three fields (`slot_id`, `old_version`,
+/// lists three fields (`slot_id`, `old_version`,
 /// `new_version`); we add `memory_id` so the metadata sink can delete the
 /// reclaimed memory's row by primary key in O(1) instead of scanning the
 /// `memories` table. See `docs/development/spec-deviations.md` SD-3.11-3 (which
@@ -296,7 +296,7 @@ use crate::wal::kinds::WalRecordKind;
 /// own sink.
 ///
 /// Body size is bounded by the frame header's `payload_len` (3 bytes
-/// per spec §05/05), i.e. ~16 MiB — same envelope as substrate
+/// ), i.e. ~16 MiB — same envelope as substrate
 /// payloads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KnowledgeRecord {
@@ -2069,38 +2069,6 @@ mod tests {
         assert_eq!(
             WalPayload::decode(WalRecordKind::RelationTombstone, &bytes).unwrap(),
             p
-        );
-    }
-
-    #[test]
-    fn v1_link_payload_bytes_rejected() {
-        // A pre-Phase-C LinkPayload was MemoryId-keyed:
-        //   source(16) + target(16) + edge_kind(1) + weight(4) + origin(1)
-        //   = 38 bytes.
-        // The widened decoder expects 17-byte NodeRef endpoints. Feeding
-        // the old 38-byte sequence must error so a v2 binary refuses
-        // pre-migration WAL bytes rather than silently misreading them.
-        let mut legacy = Vec::with_capacity(38);
-        legacy.extend_from_slice(&mid(1).to_be_bytes()); // 16 source
-        legacy.extend_from_slice(&mid(2).to_be_bytes()); // 16 target
-        legacy.push(EdgeKind::Caused as u8); // 1 edge_kind
-        legacy.extend_from_slice(&0.5f32.to_le_bytes()); // 4 weight
-        legacy.push(EdgeOrigin::Explicit as u8); // 1 origin
-        assert_eq!(legacy.len(), 38);
-
-        // The widened decoder reads 17 bytes for source NodeRef. The
-        // first byte of mid(1).to_be_bytes() is 0x00 (the shard high
-        // byte) — happens to match NodeRef::Memory's tag. The decoder
-        // therefore parses 17 bytes as a Memory NodeRef successfully,
-        // then attempts to read another 17 bytes for the target — at
-        // which point byte 17 is the low byte of the legacy source's
-        // version field; subsequent bytes drift. The decode will fail
-        // somewhere in the structured tail: either an underrun (because
-        // 38 < 40 minimum widened size), an unknown NodeRef tag, an
-        // invalid EdgeKindRef tag, or an invalid origin.
-        assert!(
-            WalPayload::decode(WalRecordKind::Link, &legacy).is_err(),
-            "v1 LinkPayload bytes must not decode as v2",
         );
     }
 

@@ -1,6 +1,6 @@
 //! Unit tests for the rule-based query router (phase 23.3).
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::EntityId;
 
 use super::{
@@ -224,7 +224,7 @@ fn explicit_override_dedupes_duplicates() {
 
 #[test]
 fn explicit_override_caps_at_max_retrievers() {
-    // Spec §24/00 §"Limits and budgets": cap is uniform — the
+    // §"Limits and budgets": cap is uniform — the
     // explicit override does NOT bypass MAX_RETRIEVERS. A raw
     // wire caller submitting 5 distinct retrievers (only 3 exist
     // but a future variant could push past the cap; simulate by

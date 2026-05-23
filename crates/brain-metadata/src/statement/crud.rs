@@ -1,12 +1,12 @@
 //! Statement creation + primary-row read + shared invariant helpers.
 //!
 //! Spec refs:
-//! - `spec/19_statements/00_purpose.md` — schema + ops recipe.
-//! - `spec/19_statements/03_storage.md` — per-op index write paths.
-//! - `spec/19_statements/05_evidence.md` — inline cap, overflow,
+//! - `spec/02_data_model/00_purpose.md` — schema + ops recipe.
+//! - `spec/02_data_model/03_storage.md` — per-op index write paths.
+//! - `spec/02_data_model/05_evidence.md` — inline cap, overflow,
 //!   reverse-index population.
 
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceEntry, EvidenceRef, Predicate, Statement, StatementObject, SubjectRef,
 };
 use brain_core::{EntityId, EvidenceOverflowId, PredicateId, StatementId, StatementKind};
@@ -83,7 +83,7 @@ pub fn allocate_evidence_overflow(
 /// same `(subject, predicate)`, auto-delegates to [`statement_supersede`].
 /// For `kind == Fact`: writes a contradiction audit marker (WARN trace)
 /// when the new object disagrees with an existing active Fact, but
-/// proceeds to insert per spec §19/02 §2.
+/// proceeds to insert.
 pub fn statement_create(
     wtxn: &WriteTransaction,
     s: &Statement,
@@ -142,7 +142,7 @@ pub fn statement_create(
                 subject = ?subject_entity,
                 predicate = s.predicate.raw(),
                 new_id = ?s.id,
-                "statement_create: Fact contradicts active facts (see spec §19/02)"
+                "statement_create: Fact contradicts active facts"
             );
             // TODO(phase 22): write a dedicated contradiction audit
             // table row. v1.0 emits the WARN trace and proceeds.
@@ -150,22 +150,22 @@ pub fn statement_create(
     }
 
     // 17.9 confidence aggregation hookup. Recompute the statement's
-    // confidence via noisy-OR (spec §19/04) iff inline evidence
+    // confidence via noisy-OR iff inline evidence
     // carries per-entry metadata. Wire callers send
     // EvidenceRef::Inline with `confidence_milli = 0` (per-evidence
-    // metadata dropped on the wire per spec §28/06 §2.3); in-process
+    // metadata dropped on the wire); in-process
     // callers (phase 22 extractors / unit tests) populate the field.
     //
     // TODO(phase 21): also re-key the by_predicate confidence bucket
-    // entry when the bucket changes by > 0.05 per spec §19/04 §6.
+    // entry when the bucket changes by > 0.05.
     let mut to_insert = s.clone();
     if evidence_has_per_entry_metadata(wtxn, &to_insert.evidence)? {
         let entries = resolve_evidence_entries(wtxn, &to_insert.evidence)?;
-        to_insert.confidence = brain_core::knowledge::aggregate_confidence(
+        to_insert.confidence = brain_core::aggregate_confidence(
             &entries,
             now_unix_nanos,
             to_insert.kind,
-            &brain_core::knowledge::ConfidenceConfig::default_v1(),
+            &brain_core::ConfidenceConfig::default_v1(),
         );
     }
 
@@ -465,7 +465,7 @@ mod tests {
     use super::super::tombstone::statement_tombstone;
     use super::*;
     use crate::schema::predicate::predicate_intern;
-    use brain_core::knowledge::{
+    use brain_core::{
         Entity, EntityType, StatementValue, TombstoneReason, INLINE_EVIDENCE_CAP,
     };
     use brain_core::{ContextId, MemoryId};
@@ -817,7 +817,7 @@ mod tests {
         let pred = intern_fact_entity_pred(&mut db, "role4");
         let obj = make_entity(&mut db, "x");
         let mut s = fresh_fact(EntityId::new(), pred, obj);
-        s.subject = SubjectRef::Pending(brain_core::knowledge::AuditId::new());
+        s.subject = SubjectRef::Pending(brain_core::AuditId::new());
         let wtxn = db.write_txn().unwrap();
         let err = statement_create(&wtxn, &s, 0).unwrap_err();
         matches!(err, StatementOpError::InvalidArgument(_))

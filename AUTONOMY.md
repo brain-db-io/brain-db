@@ -19,15 +19,20 @@ LOOP:
 
   2. Decide the next sub-task:
      - The lowest-numbered sub-task in the current phase that isn't ✓ done
-     - Open its phase doc; re-read its "Reads" list
+     - Open its phase doc; re-read its "Reads" list along with other relevant files 
+       and if required do open web search to learn about best practices, design pattern 
+       and architectural decisions.
 
   2a. Plan first (see §21):
-     - For a new phase OR a substantial sub-task, write a plan to
-       `.claude/plans/phase-NN[-task-MM].md` and STOP for user confirmation.
+     - For a new phase OR a substantial sub-task, plan out a proper plan and if 
+       don't have any doubts then write a plan to `.claude/plans/phase-NN[-task-MM].md`
+       and STOP for user confirmation or prompt user with any relevant question to get 
+       answer or feedback.
      - For trivial sub-tasks, surface a one-line summary and proceed.
 
   3. Implement the sub-task:
-     - Read the listed spec sections in full
+     - Read the listed spec sections in full and try to do open web search to think 
+       about proper implementation.
      - Write the listed code files
      - Add the listed tests
      - Run the local verify loop (cargo check / test / clippy)
@@ -136,8 +141,8 @@ The decoder validates magic bytes, version, header CRC32C, and length
 bounds before returning. Per spec §11 ("Validation"), invalid frames
 return InvalidFrame errors with no partial state.
 
-Refs: spec/03_wire_protocol/03_frame_header.md
-Refs: spec/03_wire_protocol/11_validation.md
+Refs: spec/04_wire_protocol/02_wire_format.md
+Refs: spec/04_wire_protocol/07_error_handling.md
 ```
 
 Tags at end-of-phase:
@@ -195,7 +200,7 @@ Don't tag prematurely. The tag is the contract that this is a stable point.
 Specs don't cover everything. When you encounter a gap:
 
 1. Re-read the relevant spec section carefully — sometimes the answer is implied.
-2. Read that spec's `*_open_questions.md`.
+2. Read that spec's `*../00_overview/04_open_questions_archive.md`.
 3. Look for prior art: how did Phase 0/1 handle similar gaps?
 
 If still unclear, **stop and surface**. Don't invent.
@@ -321,7 +326,7 @@ The user gets to do other work. Claude does the substrate. The contract is the b
 
 The fixed sequence:
 
-1. **Read the spec.** Open every spec file the sub-task depends on, end to end. Cross-reference any `*_open_questions.md` for the area.
+1. **Read the spec.** Open every spec file the sub-task depends on, end to end. Cross-reference any `*../00_overview/04_open_questions_archive.md` for the area.
 2. **Research where appropriate.** For new frameworks/libraries/algorithms, search the web for current best practices, version pins, breaking-change notes. Capture URLs and the relevant excerpt. Skip only when the work is purely internal wiring.
 3. **Write the plan** to `.claude/plans/phase-NN-task-MM.md` (or `.claude/plans/phase-NN.md` for a phase transition).
 4. **Stop and wait.** Print `PLAN READY: see .claude/plans/<file>.md — confirm to proceed.` and end the turn. Claude does not write code, run cargo, or otherwise act on the plan until the user confirms ("go" / "approved" / "confirmed") or supplies revisions.
@@ -334,7 +339,7 @@ The fixed sequence:
 - **External validation** (when relevant): see step 2 above.
 - **Architecture sketch**: the types/modules introduced, how they compose, what the public surface looks like.
 - **Trade-offs considered**: 2–4 alternative designs and why the chosen one wins.
-- **Risks / open questions**: what could go wrong; what the spec leaves ambiguous (cross-reference any `*_open_questions.md`).
+- **Risks / open questions**: what could go wrong; what the spec leaves ambiguous (cross-reference any `*../00_overview/04_open_questions_archive.md`).
 - **Test plan**: which tests prove correctness; which `Done when` items each maps to.
 - **Estimated commit shape**: one commit or 2–3? What goes where?
 
@@ -353,7 +358,7 @@ Operationally:
 - Tests for runtime/storage code MUST run on Linux. CI gates this; local dev on non-Linux uses a Linux container (Docker / OrbStack / Lima — see `README.md (Development environment)`).
 - Glommio, `liburing-sys`, and similar Linux-only crates may be unconditional dependencies of platform-gated crates. They may *not* leak into `brain-core` or `brain-protocol`.
 
-Spec changes to platform stance require user direction (per §2). The current stance is locked in through `spec/01_system_architecture/05_hardware.md` §1.1 — read it before considering "should we be portable here?"
+Spec changes to platform stance require user direction (per §2). The current stance is locked in through `spec/01_architecture/05_hardware_and_targets.md` §1.1 — read it before considering "should we be portable here?"
 
 ### Implications for autonomous Claude
 
@@ -366,19 +371,13 @@ When Claude is running on a non-Linux host (e.g. darwin):
 
 ---
 
-## 23. Knowledge-layer scope (phases 15–24)
+## 23. Typed-graph and extractor scope
 
-Brain v1.0 ships the substrate (phases 0–14) and the knowledge layer (phases 15–24). The rules in §1–§22 apply to both. The additions below are knowledge-layer specific.
+Brain stores four record types — Memory, Entity, Statement, Relation — in one unified write path. The rules in §1–§22 apply to all four. The additions below are about the typed-graph and extractor surfaces specifically.
 
-### Spec precedence at the boundary
+### Spec precedence
 
-Knowledge-layer sections extend several substrate sections; where the spec sections overlap, the knowledge-layer section is authoritative:
-
-- §23 retrievers + §24 hybrid query extend §08 query planner.
-- §28 knowledge wire protocol extends §03 wire protocol.
-- §27 knowledge workers extends §11 background workers.
-- §29 knowledge SDK extends §13 SDK design.
-- `RECALL` (§09) gains hybrid behavior when a schema is declared (§24).
+The spec is being restructured per [`docs/development/spec-restructure-plan.md`](docs/development/spec-restructure-plan.md). Until that lands, the current sections still apply: hybrid retrieval lives in §23, wire opcodes in §03, workers in §11, SDK in §13. `RECALL` runs the hybrid retrieval path when a schema is declared.
 
 ### Stricter on extractor changes
 
@@ -399,21 +398,21 @@ For any work on LLM extractors (Phase 21 and beyond):
 - Never run real LLM in CI without explicit per-test opt-in.
 - Document expected token counts in extractor declarations.
 
-### Schema-optional behavior is binding
+### Schemaless mode is binding
 
-A deployment without a schema runs the substrate as if phases 15–24 didn't exist. Every knowledge-layer phase MUST preserve this — sub-task 15.6 wires the regression test; every later phase keeps it green.
+A deployment without a declared schema runs Brain in schemaless mode — extraction is skipped, the entity / statement / relation handlers reject with a clear error, and `RECALL` runs as memory-only ANN search. The schemaless regression test exists; every change keeps it green.
 
-This is not a "legacy mode" or "compatibility mode" — it is a real v1.0 deployment posture.
+This is a real deployment posture, not a "legacy mode."
 
 ### Acceptance gate is binding
 
-`spec/31_complete_acceptance/` is the bar for the `v1.0.0` tag. A phase that "feels done" but doesn't pass the relevant acceptance items is not done. Phase 24 wires the full functional + performance + storage + operational + schema-toggle suite.
+`spec/19_benchmarks/06_complete_acceptance.md` is the bar for cutting **v1.0**. Brain is pre-release (v0.1.0); the v1.0 release happens when the full functional + performance + storage + operational + schemaless suite passes. A change that "feels done" but doesn't pass the relevant acceptance items is not done.
 
-### Phase progression for knowledge layer
+### Pre-release iteration
 
-Phases 16–22 may partially overlap once 15 is done (see DAG in `docs/development/phases/README.md`). Phase 23 strictly requires 17, 21, 22. Phase 24 is final.
+Brain has no external users. Wire protocol, redb tables, and schema model are still in flux. Breaking changes are made in place. The v1.0 release locks the wire (`VERSION = 1`), the on-disk format, and the schema DSL grammar. Until then, every change is fair game subject to the safety rules in §1–§22.
 
-After each knowledge-layer phase:
-- Run that phase's tests.
-- Run the substrate regression suite (sections 00–16 acceptance, gated by Phase 14).
-- Update the phase doc with a "completed" timestamp and any deviations.
+After each significant change:
+- Run the affected crate's tests.
+- Run `cargo check --workspace --all-targets` and `cargo clippy --workspace --lib --tests -- -D warnings`.
+- Update any phase doc that referenced the changed behavior.

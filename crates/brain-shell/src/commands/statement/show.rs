@@ -1,6 +1,6 @@
 //! `statement show <id>` — single-card view (evidence + chain).
 
-use brain_core::knowledge::{StatementObject, SubjectRef};
+use brain_core::{StatementObject, SubjectRef};
 use brain_explore::{ObjectRef, StatementCard};
 use brain_sdk_rust::{Client, ClientError, StatementId};
 use uuid::Uuid;

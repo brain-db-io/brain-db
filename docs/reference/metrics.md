@@ -4,7 +4,7 @@ Catalogue of every metric Brain emits on `GET /metrics`. Format:
 Prometheus text-exposition (OpenMetrics-compatible).
 
 **Source:** `crates/brain-server/src/metrics/`.
-**Spec:** §14/01.
+**Spec:** §02/01.
 
 The endpoint lives on `[server] metrics_addr` (default 9091).
 A canonical scrape job is in
@@ -365,4 +365,4 @@ brain_hnsw_tombstone_ratio > 0.15
 - [`../../monitoring/dashboards/`](../../monitoring/dashboards/) — pre-built Grafana JSON.
 - [`../../monitoring/alerts/brain-rules.yml`](../../monitoring/alerts/brain-rules.yml) — alert taxonomy.
 
-**Spec:** §14/01. **Source:** `crates/brain-server/src/metrics/`.
+**Spec:** §02/01. **Source:** `crates/brain-server/src/metrics/`.

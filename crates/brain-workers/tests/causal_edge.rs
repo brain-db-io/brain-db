@@ -9,7 +9,7 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::{
+use brain_core::{
     EntityId, EntityTypeId, EvidenceEntry, EvidenceRef, ExtractorId, Statement, StatementKind,
     StatementObject, SubjectRef,
 };
@@ -157,7 +157,7 @@ fn seed_causal_statement(
         entity_type_intern(&wtxn, "Thing", Vec::new(), now).expect("entity_type_intern");
     // 2. Subject entity (the statement asserts something about it).
     let subject_entity = EntityId::new();
-    let entity = brain_core::knowledge::Entity::new_active(
+    let entity = brain_core::Entity::new_active(
         subject_entity,
         entity_type,
         "Outage".into(),

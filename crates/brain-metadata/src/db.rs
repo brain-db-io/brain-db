@@ -2,8 +2,8 @@
 //! `crate::tables`.
 //!
 //! Spec references:
-//! - `spec/07_metadata_graph/08_transactions.md` — full transaction semantics.
-//! - `spec/07_metadata_graph/02_table_layout.md` — table catalog.
+//! - `spec/10_metadata/08_transactions.md` — full transaction semantics.
+//! - `spec/10_metadata/02_table_layout.md` — table catalog.
 //!
 //! ## Surface
 //!
@@ -23,15 +23,15 @@
 //!
 //! - **`impl MetadataSink for MetadataDb`** — sub-task 3.11.
 //! - **Typed convenience methods** (`db.get_memory(&id)` etc.) —
-//!   deliberately not. Spec §07/08 §5 shows callers opening multiple
+//!   deliberately not shows callers opening multiple
 //!   tables inside one write transaction; wrapping each row type in a
 //!   dedicated method would (a) duplicate redb's API, (b) break
 //!   batching, (c) hide transaction granularity from the caller.
 //!   Callers `use brain_metadata::tables::memory::MEMORIES_TABLE;` and
 //!   open whatever they need.
-//! - **Cached table handles** (spec §07/08 §14) — profile-driven; not
+//! - **Cached table handles** — profile-driven; not
 //!   v1.
-//! - **Write-transaction timeout** (spec §07/08 §16) — writer-task
+//! - **Write-transaction timeout** — writer-task
 //!   concern; `MetadataDb` doesn't auto-abort.
 
 use std::collections::HashMap;
@@ -60,7 +60,7 @@ pub struct MetadataDb {
     /// In-flight checkpoints seen but not yet `CheckpointEnd`-paired.
     /// Maps `checkpoint_id → started_at_unix_nanos`. Transient: any
     /// entry surviving across a restart is implicitly discarded
-    /// (spec §05/09 §12.1: incomplete checkpoint is ignored).
+    /// (incomplete checkpoint is ignored).
     pub(crate) pending_checkpoints: HashMap<u64, u64>,
 }
 
@@ -101,7 +101,7 @@ impl MetadataDb {
 
         // Seed `durable_lsn` from the latest checkpoint, if any. Missing
         // or empty checkpoints table → 0 (fresh shard or no checkpoint
-        // has completed yet). Spec §05/09 §2: "the substrate keeps the
+        // has completed yet): "the substrate keeps the
         // most recent one as the recovery target."
         let durable_lsn = {
             let rtxn = db.begin_read()?;
@@ -141,7 +141,7 @@ impl MetadataDb {
     /// accidentally host two writer tasks because both would need
     /// `&mut MetadataDb`, which the borrow checker forbids.
     ///
-    /// Spec §07/08 §3: "The single-writer-per-shard discipline means
+    /// "The single-writer-per-shard discipline means
     /// there's only one writer per shard, naturally serializing
     /// redb's write transactions." We encode the discipline in the
     /// type signature.
@@ -292,7 +292,7 @@ mod tests {
 
     #[test]
     fn read_txn_doesnt_see_uncommitted_write() {
-        // MVCC pin (spec §07/08 §2): a read transaction sees the
+        // MVCC pin: a read transaction sees the
         // database as-of when it began; uncommitted writes from a
         // concurrent write transaction are invisible.
         //
@@ -357,7 +357,7 @@ mod tests {
 
     #[test]
     fn concurrent_read_txns_coexist() {
-        // Spec §07/08 §2: read transactions don't block each other.
+        // read transactions don't block each other.
         // Two read txns from the same MetadataDb share a snapshot.
         let dir = tempfile::tempdir().unwrap();
         let mut db = MetadataDb::open(db_path(&dir)).unwrap();

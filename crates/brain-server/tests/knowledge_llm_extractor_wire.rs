@@ -24,7 +24,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     ExtractorDisableRequest, ExtractorEnableRequest, ExtractorListRequest, SchemaUploadRequest,
 };
 use brain_protocol::opcode::Opcode;

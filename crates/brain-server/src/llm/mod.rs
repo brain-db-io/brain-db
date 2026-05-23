@@ -1,6 +1,6 @@
 //! LLM-backed Summarizer adapters (sub-task 9.15).
 //!
-//! Spec §11/03 §6 — the consolidation worker needs an LLM to turn
+//! — the consolidation worker needs an LLM to turn
 //! a cluster of episodic memories into a single consolidated summary.
 //! Brain doesn't bundle an LLM; this module hosts two feature-gated
 //! HTTP adapters:

@@ -8,7 +8,7 @@ materialise during extraction. The verb covers `list`.
 **Knowledge layer prerequisite.** Relations exist only when a schema
 declares relation types and the extractor pipeline runs. On
 substrate-only deployments these subcommands return empty rows. See
-[`spec/20_relations/`](../../../../spec/20_relations/) for the
+[`spec/02_data_model/`](../../../../spec/02_data_model/00_purpose.md) for the
 storage and traversal model.
 
 ---
@@ -143,7 +143,7 @@ Full catalogue: [`../errors.md`](../errors.md).
 |---|---|
 | Server-side `--from + --to` cross-filter | A `RelationListBetweenReq` wire op that walks the smaller side of the bipartite index. Falls back to client-side filtering today. |
 | Friendly entity-name columns | Batched `EntityGet` follow-up keyed by `from` / `to`, or a server-side denormalised `from_name` / `to_name`. |
-| Symmetric-relation collapse | Per-type `Symmetric` annotation surfaced through the SDK so the renderer can pick one canonical direction (see [`spec/20_relations/02_symmetric.md`](../../../../spec/20_relations/02_symmetric.md)). |
+| Symmetric-relation collapse | Per-type `Symmetric` annotation surfaced through the SDK so the renderer can pick one canonical direction (see [`spec/02_data_model/02_symmetric.md`](../../../../spec/02_data_model/02_symmetric.md)). |
 
 Each emits a `tracing` warning at runtime where applicable.
 
@@ -156,4 +156,4 @@ Each emits a `tracing` warning at runtime where applicable.
 - [`statement.md`](statement.md) — Fact/Preference/Event, the per-subject analogue
 - [`mention.md`](mention.md) — memory ↔ entity provenance
 - [`../output-formats.md`](../output-formats.md) — table + JSON
-- Spec: [`spec/20_relations/`](../../../../spec/20_relations/)
+- Spec: [`spec/02_data_model/`](../../../../spec/02_data_model/00_purpose.md)

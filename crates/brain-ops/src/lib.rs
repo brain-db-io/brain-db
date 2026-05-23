@@ -4,13 +4,13 @@
 //! Wires together the planner, storage, metadata, embedder, and
 //! index. Idempotency lives at this layer.
 //!
-//! See `spec/09_cognitive_operations/` for the authoritative design.
+//! See `spec/05_operations/` for the authoritative design.
 //!
 //! ## Sub-task 7.1 surface
 //!
 //! - [`OpsContext`] — handle bag (currently a thin wrapper over
 //!   `brain_planner::ExecutorContext`; later sub-tasks add fields).
-//! - [`OpError`] + [`ErrorCode`] — spec §09/01 §12 error taxonomy
+//! - [`OpError`] + [`ErrorCode`] error taxonomy
 //!   with `error_code()` + `retryable()` mappings.
 //! - [`dispatch()`] — top-level async entry; exhaustive `match` over
 //!   `RequestBody`.

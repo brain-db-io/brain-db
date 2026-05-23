@@ -170,4 +170,4 @@ Full catalogue: [`../errors.md`](../errors.md).
 - [`recall.md`](recall.md) — produces ids to link against
 - [`../output-formats.md`](../output-formats.md) — table + JSON + ndjson + yaml + jsonpath
 - [`../errors.md`](../errors.md) — error codes
-- Spec: [`spec/09_cognitive_operations/07_link_unlink.md`](../../../../spec/09_cognitive_operations/07_link_unlink.md)
+- Spec: [`spec/05_operations/02_write_pipeline.md`](../../../../spec/05_operations/02_write_pipeline.md)

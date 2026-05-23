@@ -18,7 +18,7 @@
 //! desired side-effect. Calling the wire handler from the worker
 //! would re-enter the metadata lock and duplicate events.
 
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceEntry, EvidenceRef, Relation, Statement, StatementKind, StatementObject, SubjectRef,
     INLINE_EVIDENCE_CAP,
 };
@@ -150,7 +150,7 @@ fn build_inline_evidence(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::SubjectRef;
+    use brain_core::SubjectRef;
     use brain_core::EntityType;
     use brain_metadata::entity::ops::entity_put;
     use brain_metadata::entity::types::entity_type_intern;
@@ -191,7 +191,7 @@ mod tests {
                 kind: StatementKind::Fact,
                 subject,
                 predicate: pid,
-                object: StatementObject::Value(brain_core::knowledge::StatementValue::Text(
+                object: StatementObject::Value(brain_core::StatementValue::Text(
                     "Senior Engineer".into(),
                 )),
                 confidence: 0.9,

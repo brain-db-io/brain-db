@@ -43,7 +43,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brain_core::knowledge::{Statement, StatementObject, StatementValue, SubjectRef};
+use brain_core::{Statement, StatementObject, StatementValue, SubjectRef};
 use brain_core::StatementId;
 use brain_embed::Dispatcher;
 use brain_index::statement_hnsw::StatementHnswIndex;
@@ -428,7 +428,7 @@ fn uuid_hex(bytes: &[u8; 16]) -> String {
 #[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
 mod tests {
     use super::*;
-    use brain_core::knowledge::{Entity, EntityType, EvidenceEntry, EvidenceRef};
+    use brain_core::{Entity, EntityType, EvidenceEntry, EvidenceRef};
     use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementKind};
     use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
     use brain_index::statement_hnsw::StatementHnswParams;
@@ -649,7 +649,7 @@ mod tests {
         s.superseded_by = Some(StatementId::new());
         assert!(!is_eligible_for_embedding(&s));
         s.superseded_by = None;
-        s.subject = SubjectRef::Pending(brain_core::knowledge::AuditId::new());
+        s.subject = SubjectRef::Pending(brain_core::AuditId::new());
         assert!(!is_eligible_for_embedding(&s));
     }
 
@@ -699,7 +699,7 @@ mod tests {
             statement_tombstone(
                 &wtxn,
                 dead,
-                brain_core::knowledge::TombstoneReason::UserRequest,
+                brain_core::TombstoneReason::UserRequest,
                 now(),
             )
             .unwrap();

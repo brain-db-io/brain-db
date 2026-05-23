@@ -1,4 +1,4 @@
-//! `EncodePlan` and its step structs. Mirrors spec §08/04 §3's shape.
+//! `EncodePlan` and its step structs. Mirrors 's shape.
 //!
 //! Phase order in the spec:
 //! 1. Idempotency check (§4)
@@ -30,7 +30,7 @@ pub struct EncodePlan {
     pub edges: Vec<EdgeStep>,
     pub response: EncodeResponseStep,
     pub estimated_cost_ms: f32,
-    /// Spec §07/07 §6 — when `true`, the executor computes a
+    /// — when `true`, the executor computes a
     /// content hash and consults the per-shard `fingerprints`
     /// table; on a hit, the existing `MemoryId` is returned
     /// without allocating a new slot.
@@ -42,7 +42,7 @@ pub struct IdempotencyCheckStep {
     pub request_id: RequestId,
 }
 
-/// Spec §08/04 §6 — explicit `ContextId` short-circuits; named
+/// — explicit `ContextId` short-circuits; named
 /// contexts are resolved or created in `brain-metadata`.
 #[derive(Debug, Clone)]
 pub enum ContextResolutionStep {
@@ -50,16 +50,16 @@ pub enum ContextResolutionStep {
     GetOrCreate { agent_id: AgentId, name: String },
 }
 
-/// Spec §08/04 §7 — the arena grows asynchronously if near full;
+/// — the arena grows asynchronously if near full;
 /// this step doesn't block on growth.
 #[derive(Debug, Clone, Copy)]
 pub struct SlotAllocationStep {
     pub arena_grow_if_needed: bool,
 }
 
-/// Spec §08/04 §8 — the WAL append is the durability barrier; after
+/// — the WAL append is the durability barrier; after
 /// fsync, the encode is durable. Group commit batches multiple
-/// in-flight encodes into a single fsync (spec §08/04 §16).
+/// in-flight encodes into a single fsync.
 #[derive(Debug, Clone, Copy)]
 pub struct WalAppendStep {
     pub kind: MemoryKind,
@@ -67,7 +67,7 @@ pub struct WalAppendStep {
     pub fsync: bool,
 }
 
-/// Spec §08/04 §9 — applied *after* the durability barrier.
+/// — applied *after* the durability barrier.
 #[derive(Debug, Clone, Copy)]
 pub struct ApplyStep {
     pub arena_write: bool,

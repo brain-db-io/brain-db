@@ -399,7 +399,7 @@ citations. Read this when you want to read the source.
 The glossary ([chapter 26](26-glossary.md)) covers
 vocabulary. The architecture tier covers internals. The
 guides cover operations. If you're still stuck, open an
-issue or check the spec's `*_open_questions.md` files
+issue or check the spec's `*../00_overview/04_open_questions_archive.md` files
 for what's deferred or under discussion.
 
 ---

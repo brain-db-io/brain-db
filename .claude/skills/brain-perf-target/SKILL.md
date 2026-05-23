@@ -8,9 +8,9 @@ when-to-use: |
     - User says "did this regress?" / "are we within target?"
     - Pre-merge perf gate for hot-path changes
 spec-refs:
-  - spec/16_benchmarks_acceptance/02_latency_targets.md
-  - spec/16_benchmarks_acceptance/03_throughput_targets.md
-  - spec/16_benchmarks_acceptance/07_benchmark_methodology.md
+  - spec/20_benchmarks/02_latency_targets.md
+  - spec/20_benchmarks/03_throughput_targets.md
+  - spec/20_benchmarks/07_benchmark_methodology.md
 ---
 
 # Perf Target Audit

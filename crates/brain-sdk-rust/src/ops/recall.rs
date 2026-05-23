@@ -1,4 +1,4 @@
-//! RECALL op (spec §07/03 + §13/02 §4).
+//! RECALL op.
 //!
 //! Streaming response — 10.5 ships a Vec-collecting `send()`.
 //! 10.6 will add `send_stream()` returning `impl Stream`.

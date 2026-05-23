@@ -1,4 +1,4 @@
-//! `brain-cli worker {list,stop,start,run-now}` — spec §14/06 §6;
+//! `brain-cli worker {list,stop,start,run-now}`;
 //! sub-task 10.11. `list` is backed end-to-end; control actions
 //! return the structured 501 surfaced by the admin server.
 

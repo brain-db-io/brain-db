@@ -20,7 +20,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     SchemaGetRequest, SchemaListRequest, SchemaUploadRequest, SchemaValidateRequest,
 };
 use brain_protocol::opcode::Opcode;

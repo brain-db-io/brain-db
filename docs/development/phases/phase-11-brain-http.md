@@ -288,7 +288,7 @@ milestone. Plan-first per [`AUTONOMY.md`](../../AUTONOMY.md) §21.
 **Done when:** client ↔ brain-http server echo round-trip passes.
 
 ### M8 — Hardening, observability, benches ✅
-**Reads:** [`CLAUDE.md`](../../CLAUDE.md) §14 (tracing/OTel pattern).
+**Reads:** [`CLAUDE.md`](../../CLAUDE.md) §10 (tracing/OTel pattern).
 **Writes:** observability wiring + criterion benches + load test.
 **Shipped:**
 - `accept.rs` per-connection task `.instrument()`-ed with

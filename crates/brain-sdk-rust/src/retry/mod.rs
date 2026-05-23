@@ -1,4 +1,4 @@
-//! Retry policy + runner. Spec §13/04.
+//! Retry policy + runner.
 //!
 //! - [`config`] — [`RetryConfig`] knobs and presets.
 //! - [`runner`] — [`retry_with_backoff`] generic loop +

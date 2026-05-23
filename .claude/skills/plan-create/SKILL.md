@@ -106,7 +106,7 @@ User: "Let's start phase 1.9 — handshake."
 
 Workflow:
 1. Plan path: `.claude/plans/phase-01-task-09.md`.
-2. Read `spec/03_wire_protocol/06_handshake.md` end-to-end.
+2. Read `spec/04_wire_protocol/04_handshake.md` end-to-end.
 3. External validation: rkyv reuse — N/A.
 4. Draft plan with all 8 sections; confirm naming reconciliation (phase doc says "ClientHello/ServerHello"; spec says HELLO/WELCOME/AUTH/AUTH_OK; spec wins).
 5. Surface "PLAN READY: see .claude/plans/phase-01-task-09.md — confirm to proceed." and stop.

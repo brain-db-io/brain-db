@@ -8,17 +8,21 @@ This file is loaded automatically by Claude Code at the start of every session. 
 
 ## 1. What this project is
 
-**Brain** is a cognitive substrate for AI agents — a database where the primitives are cognitive operations (encode, recall, plan, reason, forget) instead of tables/documents/vectors.
+**Brain** is a memory database for AI agents. It stores typed memories — facts, preferences, events, entities, relations — with explicit provenance, confidence, and bi-temporal validity. Retrieval is hybrid (semantic + lexical + entity-graph + temporal) fused with weighted rank fusion. One Rust core, one wire protocol, one schema. Apache 2.0.
 
-Brain is **one system, one write path**. There is one `Write { phases: Vec<Phase> }` model, one writer (`submit(Write)`), one apply layer dispatching every phase variant. Capabilities are differentiated by what kind of state they touch (memories, entities, statements, relations, edges, schema, audit, slots) — not by which "layer" they belong to. The spec is organized in two parts (§00–§16 covering memory/WAL/HNSW/wire primitives, §17–§31 covering typed entities/statements/relations/extractors/hybrid retrieval) as a documentation reading order, **not** as an architectural split inside the codebase.
+Brain is **one system, one write path**. There is one `Write { phases: Vec<Phase> }` model, one writer (`submit(Write)`), one apply layer dispatching every phase variant. Capabilities differ by which state they touch (memories, entities, statements, relations, edges, schema, audit, slots) — not by which "layer" they belong to. The spec is being restructured to drop the old substrate / knowledge-layer split entirely; see [`docs/development/spec-restructure-plan.md`](docs/development/spec-restructure-plan.md).
 
-A handful of capabilities (typed-entity wire ops, statement/relation graph, hybrid retrieval RRF fusion, extractor pipeline) gate on a schema having been declared via `SCHEMA_UPLOAD`. The gate is a runtime feature flag; the code paths are unified. The `v1.0.0` tag lands at the end of Phase 24, after the combined acceptance suite passes.
+A handful of capabilities (typed-entity wire ops, statement/relation graph, hybrid retrieval, extractor pipeline, procedural-memory materialization, VSA algebra, plugins, bi-temporal record-time) gate on a schema being declared via `SCHEMA_UPLOAD`. The gate is a runtime feature flag; the code paths are unified.
+
+## Status
+
+Brain is **pre-release (v0.1.0)**. No external users. The wire protocol, redb tables, and schema model are still in flux. The v1.0 release is the next milestone; the gate is the combined acceptance suite in `spec/19_benchmarks/06_complete_acceptance.md`. Until v1.0 ships, breaking changes are made in place without back-compat shims.
 
 We are **building the implementation**. The design is already done.
 
 ## 2. Single source of truth
 
-The `spec/` directory is **authoritative**. 32 specification sections, conventionally read in two parts — §00–§16 (storage, memory, wire primitives) and §17–§31 (typed entities, statements, relations, extractors, hybrid retrieval). The two-part organization is a TOC, not a runtime architecture boundary.
+The `spec/` directory is **authoritative**. 25 specification sections (§00–§24), unified after the May 2026 consolidation. Substrate concerns (memory/WAL/HNSW/wire/workers) and knowledge-layer concerns (entities, statements, relations, extractors, hybrid retrieval) live side-by-side inside each section rather than being split into separate top-level groups: knowledge-layer wire opcodes live in §03, knowledge-layer workers in §11, knowledge-layer storage in §07, hybrid query in §23. Knowledge-layer features activate when a schema is declared via `SCHEMA_UPLOAD`.
 
 - **The spec is read-only.** Don't edit it. Spec changes go through the user.
 - **The spec wins.** If code disagrees with spec, fix the code.
@@ -28,25 +32,27 @@ Quick-find:
 
 | Question | Spec file |
 |---|---|
-| What does ENCODE do? | `spec/09_cognitive_operations/02_encode.md` |
-| What does RECALL return? | `spec/09_cognitive_operations/03_recall.md` |
-| What's the wire frame format? | `spec/03_wire_protocol/03_frame_header.md` |
-| How does WAL recovery work? | `spec/05_storage_arena_wal/08_recovery.md` |
-| What's the redb schema? | `spec/07_metadata_graph/02_table_layout.md` |
-| Why HNSW M=16? | `spec/06_ann_index/02_parameters.md` |
-| What error codes exist? | `spec/03_wire_protocol/10_errors.md` |
-| What's the latency target? | `spec/16_benchmarks_acceptance/02_latency_targets.md` |
-| What's the three-layer model? | `spec/17_knowledge_model/00_purpose.md` |
-| How does entity resolution work? | `spec/18_entities/01_resolution.md` |
-| Fact vs Preference vs Event rules? | `spec/17_knowledge_model/02_three_statement_kinds.md` |
-| What does the schema DSL look like? | `spec/21_schema_dsl/01_grammar.md` |
-| How do the three extractor tiers compose? | `spec/22_extractors/00_purpose.md` |
-| How does RRF fusion work? | `spec/23_retrievers/01_rrf_fusion.md` + `spec/24_hybrid_query/00_purpose.md` |
-| What knowledge-layer wire opcodes exist? | `spec/28_knowledge_wire_protocol/00_purpose.md` |
-| What's the knowledge-layer storage layout? | `spec/26_knowledge_storage/00_purpose.md` |
-| What's the combined acceptance gate? | `spec/31_complete_acceptance/00_purpose.md` |
+| What does ENCODE do? | `spec/05_operations/02_write_pipeline.md` |
+| What does RECALL return? | `spec/05_operations/03_read_pipeline.md` |
+| What's the wire frame format? | `spec/04_wire_protocol/02_wire_format.md` |
+| How does WAL recovery work? | `spec/08_storage/04_recovery.md` |
+| What's the redb schema? | `spec/10_metadata/02_table_layout.md` |
+| Why HNSW M=16? | `spec/09_indexing/01_hnsw_basics.md` |
+| What error codes exist? | `spec/04_wire_protocol/07_error_handling.md` |
+| What's the latency target? | `spec/19_benchmarks/02_performance_targets.md` |
+| What records does Brain store? | `spec/02_data_model/00_purpose.md` |
+| How does entity resolution work? | `spec/11_extractors/03_resolver.md` |
+| Fact vs Preference vs Event rules? | `spec/02_data_model/07_statement.md` |
+| What does the schema DSL look like? | `spec/03_schema/01_grammar.md` |
+| How do the three extractor tiers compose? | `spec/11_extractors/00_purpose.md` |
+| How does rank fusion work? | `spec/13_retrievers/01_rrf_fusion.md` + `spec/13_retrievers/05_hybrid_query.md` |
+| What typed-graph wire opcodes exist? | `spec/04_wire_protocol/03_opcodes.md` |
+| What's the typed-graph storage layout? | `spec/10_metadata/02_table_layout.md` |
+| What's the combined acceptance gate? | `spec/19_benchmarks/06_complete_acceptance.md` |
+| What's the procedural-memory opcode? | `spec/04_wire_protocol/03_opcodes.md` (`MATERIALIZE_PROCEDURAL` 0x0164) |
+| What are the design wedges? | `spec/01_architecture/07_wedges_and_roadmap.md` |
 
-The full directory map is in [`spec/00_master_overview/02_doc_map.md`](spec/00_master_overview/02_doc_map.md).
+The full directory map is in [`spec/00_overview/02_doc_map.md`](spec/00_overview/02_doc_map.md).
 
 ## 3. How work is structured
 
@@ -80,7 +86,7 @@ These are non-negotiable. Code that violates them is wrong, regardless of test r
 6. **Tombstone grace before reclamation.** Default 7 days. Hard FORGET zeroes immediately.
 7. **No silent corruption.** Fail-stop and alert. Never return wrong data.
 
-Tested per `spec/16_benchmarks_acceptance/06_durability_criteria.md`.
+Tested per `spec/19_benchmarks/01_correctness_and_durability.md`.
 
 ## 6. Tech stack — exact crates
 
@@ -110,7 +116,7 @@ Added without justification → reject.
 ## 7. Code conventions
 
 - **Edition:** Rust 2021. **MSRV:** stable, latest minus one.
-- **Errors:** `thiserror` for libs; `anyhow` for bins. Stable error taxonomy per spec §03/10.
+- **Errors:** `thiserror` for libs; `anyhow` for bins. Stable error taxonomy per spec §02/10 statement.
 - **No `unwrap()` outside tests.** Use `expect("invariant: <reason>")` for unreachable.
 - **Public APIs:** rustdoc + at least one example for non-trivial.
 - **No `unsafe` outside `crates/brain-storage`.** That crate needs it for mmap. Every `unsafe` block: `// SAFETY:` comment, smallest scope.
@@ -187,12 +193,12 @@ just doc               # docs
 
 ## 12. When the spec is silent
 
-Roughly 5% of behavior isn't fully nailed down — see each spec's `*_open_questions.md`.
+Roughly 5% of behavior isn't fully nailed down — see each spec's `*../00_overview/04_open_questions_archive.md`.
 
 Process when you hit ambiguity:
 
 1. Re-read the relevant spec section.
-2. Check that spec's `*_open_questions.md`.
+2. Check that spec's `*../00_overview/04_open_questions_archive.md`.
 3. If still unclear: STOP and surface (per [`AUTONOMY.md`](AUTONOMY.md) §3).
 
 Don't invent. The user has spent significant time on the design.

@@ -10,15 +10,15 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 
 ## Reading list
 
-1. [`spec/04_embedding_layer/00_purpose.md`](../../spec/04_embedding_layer/00_purpose.md)
-2. [`spec/04_embedding_layer/01_model_choice.md`](../../spec/04_embedding_layer/01_model_choice.md) — **why BGE-small.**
-3. [`spec/04_embedding_layer/02_tokenization.md`](../../spec/04_embedding_layer/02_tokenization.md)
-4. [`spec/04_embedding_layer/03_inference.md`](../../spec/04_embedding_layer/03_inference.md)
-5. [`spec/04_embedding_layer/04_normalization.md`](../../spec/04_embedding_layer/04_normalization.md) — mean pooling + L2 normalize.
-6. [`spec/04_embedding_layer/06_batching_gpu.md`](../../spec/04_embedding_layer/06_batching_gpu.md)
-7. [`spec/04_embedding_layer/05_caching.md`](../../spec/04_embedding_layer/05_caching.md)
-8. [`spec/04_embedding_layer/07_fingerprinting.md`](../../spec/04_embedding_layer/07_fingerprinting.md)
-9. [`spec/04_embedding_layer/08_migration.md`](../../spec/04_embedding_layer/08_migration.md)
+1. [`spec/07_embedding/00_purpose.md`](../../spec/07_embedding/00_purpose.md)
+2. [`spec/07_embedding/01_model_choice.md`](../../spec/07_embedding/01_model_choice.md) — **why BGE-small.**
+3. [`spec/07_embedding/02_inference_pipeline.md`](../../spec/07_embedding/02_inference_pipeline.md)
+4. [`spec/07_embedding/02_inference_pipeline.md`](../../spec/07_embedding/02_inference_pipeline.md)
+5. [`spec/07_embedding/02_inference_pipeline.md`](../../spec/07_embedding/02_inference_pipeline.md) — mean pooling + L2 normalize.
+6. [`spec/07_embedding/04_batching_gpu.md`](../../spec/07_embedding/04_batching_gpu.md)
+7. [`spec/07_embedding/03_caching.md`](../../spec/07_embedding/03_caching.md)
+8. [`spec/07_embedding/05_fingerprinting.md`](../../spec/07_embedding/05_fingerprinting.md)
+9. [`spec/07_embedding/06_migration.md`](../../spec/07_embedding/06_migration.md)
 
 ## Outputs
 
@@ -31,7 +31,7 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 ## Sub-tasks
 
 ### Task 5.1 — Model loader (BGE-small)
-**Reads:** `spec/04_embedding_layer/08_migration.md`
+**Reads:** `spec/07_embedding/06_migration.md`
 **Writes:** `crates/brain-embed/src/model.rs`
 **What to build:**
 - Load tokenizer (HuggingFace tokenizers crate).
@@ -40,17 +40,17 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 **Done when:** A test loads a checked-in tiny test model fixture and embeds "hello world" to a non-trivial vector.
 
 ### Task 5.2 — Tokenization
-**Reads:** `spec/04_embedding_layer/02_tokenization.md`
+**Reads:** `spec/07_embedding/02_inference_pipeline.md`
 **Writes:** `crates/brain-embed/src/tokenize.rs`
 **Done when:** Truncation at max_length (512); padding for batches; attention masks correct.
 
 ### Task 5.3 — Forward pass + pooling
-**Reads:** `spec/04_embedding_layer/03_inference.md`, `spec/04_embedding_layer/04_normalization.md`
+**Reads:** `spec/07_embedding/02_inference_pipeline.md`, `spec/07_embedding/02_inference_pipeline.md`
 **Writes:** `crates/brain-embed/src/forward.rs`
 **Done when:** Mean-pooled output matches a reference implementation (e.g. sentence-transformers in Python) to within numerical noise (ε = 1e-4).
 
 ### Task 5.4 — Batching window
-**Reads:** `spec/04_embedding_layer/06_batching_gpu.md`
+**Reads:** `spec/07_embedding/04_batching_gpu.md`
 **Writes:** `crates/brain-embed/src/batcher.rs`
 **What to build:**
 - Channel-fed batcher: collect requests for up to `batch_window_ms` (e.g. 5ms) or until `batch_size` (e.g. 32), then dispatch as one forward pass.
@@ -58,17 +58,17 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 **Done when:** Concurrent embed calls amortize forward-pass cost; per-call latency ≤ 1.5x the batched per-text latency.
 
 ### Task 5.5 — LRU cache (text → vector)
-**Reads:** `spec/04_embedding_layer/05_caching.md`
+**Reads:** `spec/07_embedding/03_caching.md`
 **Writes:** `crates/brain-embed/src/cache.rs`
 **Done when:** Identical text returns cached vector; cache size configurable; eviction is LRU.
 
 ### Task 5.6 — Determinism test
-**Reads:** `spec/04_embedding_layer/07_fingerprinting.md`
+**Reads:** `spec/07_embedding/05_fingerprinting.md`
 **Writes:** `crates/brain-embed/tests/determinism.rs`
 **Done when:** The same input produces bit-identical output across 100 runs. (Numerical determinism may require pinning candle's matmul; document if not.)
 
 ### Task 5.7 — Throughput benchmark
-**Reads:** `spec/16_benchmarks_acceptance/03_throughput_targets.md`
+**Reads:** `spec/19_benchmarks/02_performance_targets.md`
 **Writes:** `crates/brain-embed/benches/throughput.rs`
 **Done when:** ≥ 1K texts/sec sustained on reference hardware (best-effort if not available; record baseline).
 
@@ -80,7 +80,7 @@ Substrate-owned embedding: clients send text, server embeds. Load BGE-small via 
 - [x] Throughput bench wired with hand-timed 1 000/s floor assert (`benches/throughput.rs`; gated on env var).
 - [x] Tag `phase-5-complete`.
 
-Sub-task 5.4 ships the dispatch *surface* (`Dispatcher` trait + `CpuDispatcher` passthrough) rather than the GPU window-and-batch machinery the original sketch implied — spec §04/03 §7 + §14 are explicit that CPU has no internal batching. The window+batch design is reserved for a future GPU sub-task behind the same trait.
+Sub-task 5.4 ships the dispatch *surface* (`Dispatcher` trait + `CpuDispatcher` passthrough) rather than the GPU window-and-batch machinery the original sketch implied — spec §02/03 §7 + §10 are explicit that CPU has no internal batching. The window+batch design is reserved for a future GPU sub-task behind the same trait.
 
 Spec deviations logged in `docs/development/spec-deviations.md`:
 - SD-5.1-1: refuse `pytorch_model.bin` outright (arbitrary-code-execution risk).

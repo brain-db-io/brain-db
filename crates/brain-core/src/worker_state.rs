@@ -1,5 +1,4 @@
 //! Typed request / progress shapes for state-carrying workers.
-//! Spec §27/04.
 //!
 //! These are pure value types shared across the CLI / admin HTTP
 //! surfaces, brain-workers, and the per-shard scheduler. They have
@@ -10,7 +9,7 @@ use std::time::Duration;
 
 use uuid::Uuid;
 
-use crate::knowledge::ExtractorId;
+use crate::ids::ExtractorId;
 use crate::MemoryId;
 
 // ---------------------------------------------------------------------------
@@ -54,7 +53,7 @@ impl Default for BackfillId {
 // BackfillRange.
 // ---------------------------------------------------------------------------
 
-/// Which memories a backfill request covers. Spec §27/04 §3.1.
+/// Which memories a backfill request covers.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum BackfillRange {
     /// Every memory in the shard's metadata table.
@@ -79,7 +78,7 @@ pub enum WorkerPriority {
 }
 
 impl WorkerPriority {
-    /// The default priority for the backfill worker (spec §27/04 §3).
+    /// The default priority for the backfill worker.
     #[must_use]
     pub const fn backfill_default() -> Self {
         Self::Background

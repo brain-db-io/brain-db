@@ -311,7 +311,7 @@ start. Pre-populate the `models` volume on a connected host:
 # On a connected host:
 docker run --rm -v brain-models:/var/lib/brain/models brain:latest \
     --warm-model
-# (--warm-model exits after the model is on disk; spec §13/03.)
+# (--warm-model exits after the model is on disk; spec §06/03.)
 
 # Then export and transfer:
 docker run --rm -v brain-models:/srv:ro alpine \

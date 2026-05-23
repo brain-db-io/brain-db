@@ -9,11 +9,11 @@ Brain's substrate owns its embedding model. Clients send text;
 the substrate runs the model and stores a 384-dim L2-normalised
 `f32` vector per memory. The default v1 model is **BGE-small-en-v1.5**
 (384 dim, BERT-shaped, ~130 MiB on disk), chosen per
-[`spec/04_embedding_layer/01_model_choice.md`](../../spec/04_embedding_layer/01_model_choice.md).
+[`spec/07_embedding/01_model_choice.md`](../../spec/07_embedding/01_model_choice.md).
 
 The substrate **does not auto-download the model at runtime** — that's
 an operator concern, locked in by
-[`spec/04_embedding_layer/03_inference.md`](../../spec/04_embedding_layer/03_inference.md)
+[`spec/07_embedding/02_inference_pipeline.md`](../../spec/07_embedding/02_inference_pipeline.md)
 §9. If the model directory is missing or incomplete, `brain-server`
 refuses to start with a pointer at this document.
 
@@ -63,7 +63,7 @@ The directory must contain exactly these three files:
 | `model.safetensors` | The BGE-small weights | ~130 MiB |
 
 Brain refuses to load the legacy PyTorch `pytorch_model.bin` format
-(spec §04/03 §11 — pickle is unsafe and we tighten beyond the spec
+(spec §02/03 §11 — pickle is unsafe and we tighten beyond the spec
 to refuse outright). Use the safetensors variant only.
 
 ## Manual install (no script)
@@ -113,7 +113,7 @@ missing. Useful in a container's healthcheck or a CI pre-flight.
 ```
 
 Re-downloads everything. The model **fingerprint** (BLAKE3 of the
-config + tokenizer + weights, per [`spec/04_embedding_layer/07_fingerprinting.md`](../../spec/04_embedding_layer/07_fingerprinting.md))
+config + tokenizer + weights, per [`spec/07_embedding/05_fingerprinting.md`](../../spec/07_embedding/05_fingerprinting.md))
 changes any time the bytes change. Every memory stored before the
 change keeps its old fingerprint, and `RECALL`'s default
 `fingerprint_match: true` filter excludes them from cross-model
@@ -178,7 +178,7 @@ Check the server log for the load error.
 
 ## Related
 
-- [`spec/04_embedding_layer/`](../../spec/04_embedding_layer/) —
+- [`spec/07_embedding/`](../../spec/07_embedding/00_purpose.md) —
   full embedding-layer spec.
 - [`docs/architecture/06-embedding-pipeline.md`](../architecture/06-embedding-pipeline.md) —
   how the substrate uses the model at encode + recall time.

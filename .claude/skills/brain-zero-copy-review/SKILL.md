@@ -15,8 +15,8 @@ trigger-files:
   - crates/brain-storage/**/*.rs
   - crates/brain-index/**/*.rs
 spec-refs:
-  - spec/03_wire_protocol/04_payload_encoding.md
-  - spec/05_storage_arena_wal/02_arena_layout.md
+  - spec/04_wire_protocol/02_wire_format.md
+  - spec/08_storage/02_arena_layout.md
 ---
 
 # Zero-Copy Review

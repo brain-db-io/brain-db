@@ -221,4 +221,4 @@ Full catalogue: [`../errors.md`](../errors.md).
 - [`../repl-meta.md`](../repl-meta.md) — `\unset txn` and other session meta-commands
 - [`../output-formats.md`](../output-formats.md) — table + JSON + ndjson + yaml + jsonpath
 - [`../errors.md`](../errors.md) — error codes
-- Spec: [`spec/09_cognitive_operations/08_transactions.md`](../../../../spec/09_cognitive_operations/08_transactions.md)
+- Spec: [`spec/05_operations/04_transactions.md`](../../../../spec/05_operations/04_transactions.md)

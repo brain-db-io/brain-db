@@ -127,8 +127,8 @@ fn encode_full_pipeline_returns_memory_id() {
 // 2. Idempotency replay is transparent.
 // ---------------------------------------------------------------------------
 //
-// Spec §09/02 §4: same `RequestId` retried returns the original
-// response. Spec §09/02 §4a: idempotency replay does NOT set
+// same `RequestId` retried returns the original
+// responsea: idempotency replay does NOT set
 // `was_deduplicated` — that flag is for fingerprint dedup
 // (`deduplicate = true`) only, see §07/07 §6. The two mechanisms
 // are intentionally separate.
@@ -286,7 +286,7 @@ fn encode_auto_edges_added_counts_inserted_only() {
 }
 
 // ---------------------------------------------------------------------------
-// 5b. Fingerprint dedup (spec §07/07 §6 + §09/02 §4a).
+// 5b. Fingerprint dedup (a).
 // ---------------------------------------------------------------------------
 //
 // Distinct from idempotency (§4). Opt-in via `EncodeRequest.deduplicate`;
@@ -687,7 +687,7 @@ fn encode_dedup_hit_does_not_clobber_original_text_row() {
 // ---------------------------------------------------------------------------
 //
 // The two flags (`replayed` and `was_deduplicated`) are orthogonal.
-// Idempotency replay (spec §09/02 §4) is transparent — clients see the
+// Idempotency replay is transparent — clients see the
 // same shape on retry as on first attempt. If the first attempt was a
 // fingerprint dedup hit, the cached response carries that signal; a
 // retry MUST surface it too. Otherwise the same `request_id` returns

@@ -1,4 +1,4 @@
-//! REASON op (spec §07/05 + §13/02 §6).
+//! REASON op.
 
 use brain_core::RequestId;
 use brain_protocol::opcode::Opcode;

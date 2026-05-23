@@ -58,7 +58,6 @@ pub fn entity_type_lookup_by_name(
 ///
 /// Allocates id = `max(existing) + 1` on first registration. Person
 /// gets id `1` because it's the first item in the system schema
-/// (spec §21/06 §3).
 pub fn entity_type_intern(
     wtxn: &WriteTransaction,
     name: &str,

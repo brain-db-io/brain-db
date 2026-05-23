@@ -2,7 +2,7 @@
 //!
 //! Brain uses **CRC32C** (Castagnoli polynomial `0x1EDC6F41`, the iSCSI
 //! variant — *not* the Ethernet CRC32). Hardware-accelerated on x86 (SSE
-//! 4.2) and ARM (CRC32 extension); see spec §03/03 §3.6 and
+//! 4.2) and ARM (CRC32 extension); and
 //! §01/05 §2.1.
 //!
 //! Two CRCs are computed independently per frame:
@@ -12,11 +12,11 @@
 //!   a 32-byte header).
 //! - [`payload_crc`] over the payload bytes that follow the header.
 //!
-//! Both are stored on the wire as **big-endian** `u32` (spec §03/03 §8).
+//! Both are stored on the wire as **big-endian** `u32`.
 
 /// CRC32C of the header bytes excluding the `header_crc32c` field.
 ///
-/// Per spec §03/03 §3.6, the CRC is computed over the header's bytes
+/// Per, the CRC is computed over the header's bytes
 /// `0..8` followed by `12..32` — i.e., the entire 32-byte header *minus*
 /// the 4-byte CRC slot at offsets 8..12. Callers must supply the
 /// concatenated 28 bytes; this function does not handle splicing.
@@ -31,7 +31,7 @@ pub fn header_crc(header_bytes_excl_crc: &[u8]) -> u32 {
 
 /// CRC32C of a payload.
 ///
-/// Per spec §03/03 §3.7, computed over all payload bytes (after the
+/// Per, computed over all payload bytes (after the
 /// 32-byte header). If the frame has no payload (`payload_len == 0`),
 /// callers MUST store `0` in the header's `payload_crc32c` field rather
 /// than calling this function on an empty slice.
@@ -79,7 +79,7 @@ mod tests {
     /// Sealing a `Header` with [`crate::header::Header::new`] and then
     /// recomputing the header CRC over bytes `0..8 ++ 12..32` of the
     /// resulting on-wire bytes MUST yield the value stored at offsets
-    /// `8..12`. This pins the spec §3.6 "computed minus this field" rule.
+    /// `8..12`. This pins the.6 "computed minus this field" rule.
     #[test]
     fn header_crc_excludes_self() {
         let h = crate::header::Header::new(0x21, 0x0000, 7, 64);

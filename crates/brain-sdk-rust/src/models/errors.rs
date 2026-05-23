@@ -1,6 +1,6 @@
 //! Knowledge-specific error inspection helpers. Phase 16.8.4.
 //!
-//! Until spec §28/03 Strategy A lands (knowledge error codes promoted
+//! Until Strategy A lands (knowledge error codes promoted
 //! to first-class `ErrorCodeWire` variants in the substrate's `ERROR`
 //! frame — tracked as §28/09 Q1), the server returns knowledge errors
 //! through the Strategy B fallback: substrate codes + message text.
@@ -28,7 +28,7 @@
 use crate::error::ClientError;
 
 /// Coarse-grained knowledge error category, derived from substrate
-/// `ErrorCode` + message inspection. See spec §28/03 §2 for the
+/// `ErrorCode` + message inspection. for the
 /// mapping table.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum EntityErrorKind {
@@ -140,7 +140,7 @@ impl ClientErrorEntityExt for ClientError {
 
 /// Statement error category, derived from substrate `ErrorCode` +
 /// message inspection. Mirrors [`EntityErrorKind`] but for the
-/// statement-layer opcodes (spec §28/06).
+/// statement-layer opcodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StatementErrorKind {
     /// `STATEMENT_NOT_FOUND` (§28 0x40).
@@ -170,7 +170,7 @@ pub enum StatementErrorKind {
 /// [`ClientError`]. Mirrors [`ClientErrorEntityExt`].
 pub trait ClientErrorStatementExt {
     /// Returns the statement error category if the inner error matches
-    /// one of the spec §28/06 patterns; `None` otherwise.
+    /// one of the patterns; `None` otherwise.
     fn statement_error(&self) -> Option<StatementErrorKind>;
 
     fn is_statement_not_found(&self) -> bool {
@@ -245,7 +245,7 @@ impl ClientErrorStatementExt for ClientError {
 
 /// Relation error category derived from substrate `ErrorCode` +
 /// message inspection. Mirrors `EntityErrorKind` / `StatementErrorKind`
-/// for the relation-layer opcodes (spec §28/07).
+/// for the relation-layer opcodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum RelationErrorKind {
     /// Relation row not found.
@@ -261,7 +261,7 @@ pub enum RelationErrorKind {
     /// superseded / tombstoned / type or endpoint mismatch).
     ChainConflict,
     /// Wire request used `EvidenceRefWire::Overflow` which relations
-    /// don't support in v1 (spec §20/05 §3).
+    /// don't support in v1.
     EvidenceOverflowUnsupported,
 }
 

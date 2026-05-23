@@ -34,7 +34,7 @@
 //!   agent's bound shard) and pushes filtered events to the per-conn
 //!   outgoing-frame queue.
 //!
-//! Spec §03/05 §1.3 (SUBSCRIBE / UNSUBSCRIBE), §03/09 §3.3 (open-
+//! (SUBSCRIBE / UNSUBSCRIBE), §03/09 §3.3 (open-
 //! ended streams), §09/09 (SUBSCRIBE semantics).
 
 #![cfg(target_os = "linux")]
@@ -496,7 +496,7 @@ async fn run_subscription_task(
     metrics: SubscriptionMetrics,
     replay_semaphore: Arc<tokio::sync::Semaphore>,
 ) {
-    // ── Replay prologue. Spec §09/09 §13: history-then-live with no
+    // ── Replay prologue: history-then-live with no
     // gap and no dupes. Walk the WAL from `from_lsn` to the first
     // LSN we observe on the live channel, emitting matching events.
     // The cutover key is `replay_high_water`: any live event with
@@ -580,7 +580,7 @@ async fn run_subscription_task(
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         // Slow subscriber — drop the subscription with
-                        // an ERROR(Overloaded). Spec §17.4 / audit §8.1.
+                        // an ERROR(Overloaded).4 / audit §8.1.
                         metrics.record_lag(skipped);
                         warn!(stream_id, target_shard, skipped, "subscription lagged");
                         let f = error_frame(
@@ -671,7 +671,7 @@ async fn replay_wal_segment(
 fn build_subscription_event_frame(stream_id: u32, env: &EventEnvelope) -> Frame {
     let payload = ResponseBody::SubscribeEvent(env.to_wire()).encode();
     // Intermediate frames in an open-ended subscription don't carry
-    // EOS — spec §03/09 §3.3.
+    // EOS.
     Frame::new(Opcode::SubscribeEvent.as_u16(), 0, stream_id, payload)
 }
 

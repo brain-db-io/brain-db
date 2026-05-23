@@ -1,4 +1,4 @@
-//! Per-worker metrics. Spec §11/01 §15 + §11/00 §7.
+//! Per-worker metrics.
 //!
 //! v1 publishes through atomics; Phase 9's tracing/OpenTelemetry
 //! plumbing reads them out. Snapshot getters return a plain `Snapshot`
@@ -9,17 +9,17 @@ use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Default, Debug)]
 pub struct WorkerMetrics {
-    /// Spec §11/01 §15 — `brain_worker_cycles_total`.
+    /// — `brain_worker_cycles_total`.
     pub cycles_total: AtomicU64,
-    /// Spec §11/01 §15 — `brain_worker_processed_total`.
+    /// — `brain_worker_processed_total`.
     pub processed_total: AtomicU64,
-    /// Spec §11/01 §15 — `brain_worker_errors_total`.
+    /// — `brain_worker_errors_total`.
     pub errors_total: AtomicU64,
-    /// Spec §11/01 §15 — `brain_worker_cycle_duration_ms` (last).
+    /// — `brain_worker_cycle_duration_ms` (last).
     pub last_cycle_duration_ms: AtomicU64,
-    /// Spec §11/01 §15 — `brain_worker_last_run_unixtime`.
+    /// — `brain_worker_last_run_unixtime`.
     pub last_run_unix_secs: AtomicU64,
-    /// Spec §11/01 §15 — `brain_worker_pending_work`. Workers update
+    /// — `brain_worker_pending_work`. Workers update
     /// this as they discover the size of their queue.
     pub pending_work_estimate: AtomicU64,
 }

@@ -4,7 +4,6 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::request::WireUuid;
 
-/// Spec §08 §9.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -14,7 +13,6 @@ pub struct TxnBeginResponse {
     pub started_at_unix_nanos: u64,
 }
 
-/// Spec §08 §10.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -24,7 +22,6 @@ pub struct TxnCommitResponse {
     pub operations_applied: u32,
 }
 
-/// Spec §08 §11.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

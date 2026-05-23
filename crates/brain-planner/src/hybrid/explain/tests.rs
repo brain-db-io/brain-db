@@ -1,6 +1,6 @@
 //! Unit tests for the EXPLAIN + TRACE renderers (phase 23.8).
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::EntityId;
 
 use super::{render_plan, render_trace};

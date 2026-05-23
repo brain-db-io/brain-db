@@ -14,18 +14,18 @@ Implement backfill jobs, FORGET cascade, supersession sweeper, audit log sweeper
 
 ## Reading list
 
-- [`spec/25_provenance_versioning/00_purpose.md`](../../spec/25_provenance_versioning/00_purpose.md) — provenance, cascade, retention.
-- [`spec/27_knowledge_workers/00_purpose.md`](../../spec/27_knowledge_workers/00_purpose.md) — worker table + scheduling.
-- [`spec/27_knowledge_workers/03_sweeper_workers.md`](../../spec/27_knowledge_workers/03_sweeper_workers.md) — landed in 24.0.
-- [`spec/27_knowledge_workers/04_state_carrying_workers.md`](../../spec/27_knowledge_workers/04_state_carrying_workers.md) — landed in 24.0.
-- [`spec/31_complete_acceptance/00_purpose.md`](../../spec/31_complete_acceptance/00_purpose.md) — acceptance gate.
-- [`spec/21_schema_dsl/00_purpose.md`](../../spec/21_schema_dsl/00_purpose.md) — migration semantics.
+- [`spec/10_metadata/00_purpose.md`](../../spec/10_metadata/00_purpose.md) — provenance, cascade, retention.
+- [`spec/15_background_workers/12_knowledge_workers_overview.md`](../../spec/15_background_workers/12_knowledge_workers_overview.md) — worker table + scheduling.
+- [`spec/15_background_workers/06_typed_graph_workers.md`](../../spec/15_background_workers/06_typed_graph_workers.md) — landed in 24.0.
+- [`spec/15_background_workers/06_typed_graph_workers.md`](../../spec/15_background_workers/06_typed_graph_workers.md) — landed in 24.0.
+- [`spec/19_benchmarks/06_complete_acceptance.md`](../../spec/19_benchmarks/06_complete_acceptance.md) — acceptance gate.
+- [`spec/03_schema/00_purpose.md`](../../spec/03_schema/00_purpose.md) — migration semantics.
 
 ## Sub-tasks
 
 | # | Title | Landed in |
 |---|---|---|
-| 24.0 | §27/03 + §27/04 spec backfill | [`phase-24-task-00.md`](../../.claude/plans/phase-24-task-00.md) |
+| 24.0 | §02/15 + §02/16 spec backfill | [`phase-24-task-00.md`](../../.claude/plans/phase-24-task-00.md) |
 | 24.1 | Backfill worker | [`phase-24-task-01.md`](../../.claude/plans/phase-24-task-01.md) |
 | 24.2 | FORGET cascade worker | [`phase-24-task-02.md`](../../.claude/plans/phase-24-task-02.md) |
 | 24.3 | Supersession sweeper | [`phase-24-task-03.md`](../../.claude/plans/phase-24-task-03.md) |
@@ -62,7 +62,7 @@ Implement backfill jobs, FORGET cascade, supersession sweeper, audit log sweeper
 | Per-row stale-extraction flag | Needs `StatementRow.flags` schema bump. Count surfaces via metric. |
 | Entity GC inbound-reference counting | Workers + env-flag ship; eligibility scan is a stub. |
 | LLM cache full sweep | TTL-on-read suffices for v1. |
-| handle_forget → cascade enqueue hook | Workers reachable via direct enqueue; §25/00 contract preserved. |
+| handle_forget → cascade enqueue hook | Workers reachable via direct enqueue; §10/00 contract preserved. |
 | ADMIN_BACKFILL / cancel wire opcodes | Typed request shapes ship; CLI / HTTP surface follow-up. |
 | SCHEMA_DROP opcode | Manual revert via the runbook. |
 
@@ -84,5 +84,5 @@ Implement backfill jobs, FORGET cascade, supersession sweeper, audit log sweeper
 ## Pitfalls
 
 - Operators triggering backfill / migration against millions of memories that include LLM extractors can incur real LLM cost. Always `--dry-run` first.
-- Periodic sweepers default to retention values that opt operators OUT of destructive sweeps (supersession retention = 0 = disabled; entity GC enabled = false). This is the spec §25/00 binding.
+- Periodic sweepers default to retention values that opt operators OUT of destructive sweeps (supersession retention = 0 = disabled; entity GC enabled = false). This is the spec §10/00 binding.
 - The `worker_checkpoints` table grows monotonically in v1; a post-v1 sweeper handles completed-row retention.

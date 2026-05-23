@@ -18,7 +18,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::SchemaUploadRequest;
+use brain_protocol::SchemaUploadRequest;
 use brain_protocol::opcode::Opcode;
 use brain_protocol::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
 use brain_protocol::response::{RecallResponseFrame, ResponseBody};

@@ -12,7 +12,7 @@
 //! Real production text will skew differently; this harness is a
 //! regression gate, not a benchmark.
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_extractors::{classify_statement_kind_pattern, STATEMENT_KIND_PATTERN_THRESHOLD};
 
 #[derive(Clone, Copy)]

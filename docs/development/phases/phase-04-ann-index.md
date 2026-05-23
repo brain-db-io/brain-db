@@ -11,16 +11,16 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 
 ## Reading list
 
-1. [`spec/06_ann_index/00_purpose.md`](../../spec/06_ann_index/00_purpose.md)
-2. [`spec/06_ann_index/01_hnsw_primer.md`](../../spec/06_ann_index/01_hnsw_primer.md)
-3. [`spec/06_ann_index/02_parameters.md`](../../spec/06_ann_index/02_parameters.md) — **M=16, ef_construction=200, ef_search=64.**
-4. [`spec/06_ann_index/03_insertion.md`](../../spec/06_ann_index/03_insertion.md)
-5. [`spec/06_ann_index/04_search.md`](../../spec/06_ann_index/04_search.md)
-6. [`spec/06_ann_index/05_deletion.md`](../../spec/06_ann_index/05_deletion.md) — tombstoning.
-7. [`spec/06_ann_index/06_persistence.md`](../../spec/06_ann_index/06_persistence.md)
-8. [`spec/06_ann_index/07_maintenance.md`](../../spec/06_ann_index/07_maintenance.md) — rebuild on degradation.
-9. [`spec/06_ann_index/08_concurrency.md`](../../spec/06_ann_index/08_concurrency.md)
-10. [`spec/06_ann_index/09_filtering.md`](../../spec/06_ann_index/09_filtering.md) — pre/post filter.
+1. [`spec/09_indexing/00_purpose.md`](../../spec/09_indexing/00_purpose.md)
+2. [`spec/09_indexing/01_hnsw_basics.md`](../../spec/09_indexing/01_hnsw_basics.md)
+3. [`spec/09_indexing/01_hnsw_basics.md`](../../spec/09_indexing/01_hnsw_basics.md) — **M=16, ef_construction=200, ef_search=64.**
+4. [`spec/09_indexing/02_hnsw_operations.md`](../../spec/09_indexing/02_hnsw_operations.md)
+5. [`spec/09_indexing/02_hnsw_operations.md`](../../spec/09_indexing/02_hnsw_operations.md)
+6. [`spec/09_indexing/02_hnsw_operations.md`](../../spec/09_indexing/02_hnsw_operations.md) — tombstoning.
+7. [`spec/09_indexing/03_hnsw_lifecycle.md`](../../spec/09_indexing/03_hnsw_lifecycle.md)
+8. [`spec/09_indexing/03_hnsw_lifecycle.md`](../../spec/09_indexing/03_hnsw_lifecycle.md) — rebuild on degradation.
+9. [`spec/09_indexing/04_concurrency.md`](../../spec/09_indexing/04_concurrency.md)
+10. [`spec/09_indexing/05_filtering.md`](../../spec/09_indexing/05_filtering.md) — pre/post filter.
 
 ## Outputs
 
@@ -34,22 +34,22 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 ## Sub-tasks
 
 ### Task 4.1 — Wrap `hnsw_rs::Hnsw` with our params
-**Reads:** `spec/06_ann_index/02_parameters.md`
+**Reads:** `spec/09_indexing/01_hnsw_basics.md`
 **Writes:** `crates/brain-index/src/hnsw.rs`
 **Done when:** `HnswIndex::new(params)` builds; `insert(id, vec)` and `search(query, k)` both work on a small fixture.
 
 ### Task 4.2 — `Hnsw` ID mapping
-**Reads:** `spec/06_ann_index/03_insertion.md`
+**Reads:** `spec/09_indexing/02_hnsw_operations.md`
 **Writes:** `crates/brain-index/src/idmap.rs`
 **Done when:** `MemoryId ↔ usize` mapping persists across operations; deletes don't reuse IDs (slot version handles staleness, but the index uses sequential u64 internally).
 
 ### Task 4.3 — Tombstone bitmap
-**Reads:** `spec/06_ann_index/05_deletion.md`
+**Reads:** `spec/09_indexing/02_hnsw_operations.md`
 **Writes:** `crates/brain-index/src/tombstones.rs`
 **Done when:** `mark_tombstone(memory_id)` flips a bit; search results filter out tombstoned IDs after the HNSW returns candidates.
 
 ### Task 4.4 — Search with post-filtering
-**Reads:** `spec/06_ann_index/04_search.md`, `spec/06_ann_index/09_filtering.md`
+**Reads:** `spec/09_indexing/02_hnsw_operations.md`, `spec/09_indexing/05_filtering.md`
 **Writes:** extend `crates/brain-index/src/hnsw.rs`
 **What to build:**
 - `search(query, k, filter: impl Fn(MemoryId) -> bool) -> Vec<(MemoryId, f32)>`
@@ -57,12 +57,12 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 **Done when:** Filter excludes correctly; recall holds at default settings.
 
 ### Task 4.5 — Persistence (snapshot/load)
-**Reads:** `spec/06_ann_index/06_persistence.md`
+**Reads:** `spec/09_indexing/03_hnsw_lifecycle.md`
 **Writes:** `crates/brain-index/src/persistence.rs`
 **Done when:** `snapshot(path)` writes; `load(path, params)` recovers an identical index. Round-trip preserves all insertions.
 
 ### Task 4.6 — Rebuild from source of truth
-**Reads:** `spec/06_ann_index/07_maintenance.md`
+**Reads:** `spec/09_indexing/03_hnsw_lifecycle.md`
 **Writes:** `crates/brain-index/src/rebuild.rs`
 **What to build:**
 - `rebuild(source: impl Iterator<Item=(MemoryId, [f32; D])>) -> HnswIndex`
@@ -70,7 +70,7 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 **Done when:** Rebuild from a faked source produces a search-equivalent index (recall identical within ε).
 
 ### Task 4.7 — Recall benchmark fixture
-**Reads:** `spec/16_benchmarks_acceptance/05_recall_quality.md`
+**Reads:** `spec/19_benchmarks/03_recall_quality.md`
 **Writes:** `crates/brain-index/benches/recall.rs`
 **What to build:**
 - Generate 100K random unit vectors.
@@ -79,15 +79,15 @@ Wrap `hnsw_rs` with the parameters and lifecycle the spec defines. After this ph
 **Done when:** Recall ≥ 0.95 at default params. Bench output recorded.
 
 ### Task 4.8 — Concurrency wrapper ✅
-**Reads:** `spec/06_ann_index/08_concurrency.md`.
+**Reads:** `spec/09_indexing/04_concurrency.md`.
 **Writes:** `crates/brain-index/src/shared.rs` (new), `docs/development/spec-deviations.md` (SD-4.8-1).
 
 **What was built:**
 - `SharedHnsw<D>` — cloneable reader handle. All methods `&self`; concurrent reads via `parking_lot::RwLock::read()`.
-- `Writer<D>` — non-cloneable writer handle. Mutation methods take `&mut self`; produced exactly once alongside the reader via `SharedHnsw::new` / `from_index` / `rebuild` / `load_snapshot`. The type system enforces spec §06/08 §1's single-writer-per-shard at compile time.
+- `Writer<D>` — non-cloneable writer handle. Mutation methods take `&mut self`; produced exactly once alongside the reader via `SharedHnsw::new` / `from_index` / `rebuild` / `load_snapshot`. The type system enforces spec §05/08 §1's single-writer-per-shard at compile time.
 - 7 tests including the spec-mandated **8 concurrent readers + 1 background writer** in `std::thread::scope` (`concurrent_readers_during_writer_no_panic`).
 
-**SD-4.8-1 logged.** Spec §06/08 §3 mandates lock-free reads via `ArcSwap<HnswState>` with a pending-insert buffer and periodic rebuild-and-publish. That pattern requires cheaply cloning the HNSW graph; `hnsw_rs::Hnsw` doesn't implement `Clone`, and a deep clone at 1M nodes (~150 MB) every 100 ms doesn't fit the spec's own timing budget. v1 ships with `RwLock` — concurrent reads, exclusive writes, write latency dip ~1-3 ms per insert. Reconciliation: Phase 11+ either patches hnsw_rs or replaces it.
+**SD-4.8-1 logged.** Spec §05/08 §3 mandates lock-free reads via `ArcSwap<HnswState>` with a pending-insert buffer and periodic rebuild-and-publish. That pattern requires cheaply cloning the HNSW graph; `hnsw_rs::Hnsw` doesn't implement `Clone`, and a deep clone at 1M nodes (~150 MB) every 100 ms doesn't fit the spec's own timing budget. v1 ships with `RwLock` — concurrent reads, exclusive writes, write latency dip ~1-3 ms per insert. Reconciliation: Phase 11+ either patches hnsw_rs or replaces it.
 
 **Done when:** [x] reader/writer pair API + concurrent test passing + SD-4.8-1 logged + Phase 4 closing checklist ticked.
 

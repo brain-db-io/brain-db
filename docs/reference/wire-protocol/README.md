@@ -33,5 +33,5 @@ not "how do I send a request" (see [`../../guides/sdk/`](../../guides/sdk/)).
 
 - [`../../architecture/02-wire-protocol.md`](../../architecture/02-wire-protocol.md)
   — design rationale, zero-copy story, why rkyv.
-- [`../../../spec/03_wire_protocol/`](../../../spec/03_wire_protocol/)
+- [`../../../spec/04_wire_protocol/`](../../../spec/04_wire_protocol/00_purpose.md)
   — authoritative spec (14 sub-files).

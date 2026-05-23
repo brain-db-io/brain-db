@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! HNSW maintenance worker integration tests (sub-task 8.5). Spec §11/04.
+//! HNSW maintenance worker integration tests (sub-task 8.5).
 
 use std::sync::Arc;
 use std::time::Duration;

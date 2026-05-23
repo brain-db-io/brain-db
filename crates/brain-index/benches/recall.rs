@@ -180,7 +180,7 @@ fn bench_recall(c: &mut Criterion) {
     );
     assert!(
         recall >= RECALL_TARGET,
-        "recall@{K} = {recall:.4} fell below spec §16/05 §2 target {RECALL_TARGET}"
+        "recall@{K} = {recall:.4} fell below target {RECALL_TARGET}"
     );
 
     // Latency: measure 100-query batch (median per-query latency falls

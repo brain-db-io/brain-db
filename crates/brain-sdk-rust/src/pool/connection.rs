@@ -24,14 +24,14 @@ use crate::error::ClientError;
 use crate::proto::frames::{read_one_frame, write_frame};
 use crate::proto::handshake::{complete_handshake, ClientIdentity, NegotiatedSession};
 
-/// Spec §03/03 §4 — last-frame-of-stream flag.
+/// — last-frame-of-stream flag.
 const FLAG_EOS: u8 = 1 << 7;
 
 /// One TCP connection that has completed the handshake.
 ///
 /// Owns:
 /// - The raw `TcpStream`.
-/// - The per-connection `next_stream_id` allocator (spec §03/07 §3
+/// - The per-connection `next_stream_id` allocator (
 ///   — client streams are odd-numbered).
 /// - The agent id the server bound to this connection in AUTH_OK.
 /// - The negotiated session (WELCOME + AUTH_OK payloads).
@@ -111,7 +111,7 @@ impl Connection {
         Ok(Self {
             stream,
             session,
-            // Spec §03/07 §3: first client-initiated stream is 1.
+            // first client-initiated stream is 1.
             next_stream_id: AtomicU32::new(1),
             agent_id,
         })
@@ -132,7 +132,7 @@ impl Connection {
     /// Allocate the next client-initiated stream id. 10.5+ uses
     /// this from each op-method call.
     ///
-    /// Spec §03/07 §3: client streams are odd. We increment by 2
+    /// client streams are odd. We increment by 2
     /// each call.
     #[allow(dead_code)] // Consumed by op methods in 10.5.
     pub(crate) fn next_stream_id(&self) -> u32 {
@@ -158,7 +158,7 @@ impl Connection {
         let frame = Frame::new(
             Opcode::Bye.as_u16(),
             FLAG_EOS,
-            // Spec §03/08 §1: BYE travels on the control stream.
+            // BYE travels on the control stream.
             0,
             RequestBody::Bye(bye).encode(),
         );
@@ -181,7 +181,7 @@ impl Connection {
 // IdleConnection — actively-pong'd connection sitting in the pool's Idle slot.
 // ---------------------------------------------------------------------------
 //
-// Spec §03/02 §6.1: the server emits SERVER_PING after `idle_timeout`
+// the server emits SERVER_PING after `idle_timeout`
 // (default 300 s) and closes the connection if CLIENT_PONG doesn't
 // arrive within `ping_timeout` (default 30 s). A pool slot that sits
 // truly idle (no app ops) has nobody reading frames, so SERVER_PING
@@ -300,7 +300,7 @@ async fn idle_pong_loop(
                         let opcode = frame.header.opcode_u16();
                         if opcode == Opcode::ServerPing.as_u16() {
                             // Echo the server's timestamp + our now.
-                            // Per spec §03/02 §6.1 the contents matter
+                            // Per the contents matter
                             // less than the timely response; the server
                             // resets its idle timer on any inbound
                             // frame and the ping_timeout deadline
@@ -321,7 +321,7 @@ async fn idle_pong_loop(
                             let pong_frame = Frame::new(
                                 Opcode::ClientPong.as_u16(),
                                 FLAG_EOS,
-                                // Spec §03/08 §1: control-stream traffic.
+                                // control-stream traffic.
                                 0,
                                 RequestBody::ClientPong(pong).encode(),
                             );

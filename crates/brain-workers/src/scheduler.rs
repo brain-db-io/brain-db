@@ -1,4 +1,4 @@
-//! The per-shard worker scheduler. Spec §11/00 §2 + §11/01 §1, §4.
+//! The per-shard worker scheduler, §4.
 //!
 //! After sub-task 9.7 (audit §6 + §8.2), the scheduler runs **inside
 //! a Glommio executor** — one per shard. `register(...)` spawns one
@@ -12,7 +12,7 @@
 //!    so a cooperative check is enough).
 //!
 //! Shutdown: set the flag, await every spawned `Task<()>` with a 5 s
-//! soft budget (spec §11/01 §13). Tasks still alive after the budget
+//! soft budget. Tasks still alive after the budget
 //! are cancelled (Glommio `Task::cancel`).
 
 use std::collections::HashMap;
@@ -71,7 +71,7 @@ pub struct WorkerHandle {
     task: Task<()>,
 }
 
-/// Spec §11/00 §3: each shard owns one scheduler. After 9.7, lives on
+/// each shard owns one scheduler. After 9.7, lives on
 /// the shard's single Glommio executor. Construction is sync (no
 /// runtime needed); `register` requires Glommio executor context.
 pub struct WorkerScheduler {
@@ -181,7 +181,7 @@ impl WorkerScheduler {
         self.handles.get(name).map(|h| h.metrics.clone())
     }
 
-    /// Spec §11/01 §15: snapshot every registered worker's metrics.
+    /// snapshot every registered worker's metrics.
     /// Wraps each handle's atomics into a plain
     /// [`crate::metrics::Snapshot`] so callers don't have to chase
     /// `Arc<AtomicU64>` instances. Used by `brain-server`'s admin
@@ -220,7 +220,7 @@ impl WorkerScheduler {
         self.handles.is_empty()
     }
 
-    /// Spec §11/01 §13: signal shutdown, await every task with a soft
+    /// signal shutdown, await every task with a soft
     /// drain budget. Tasks still alive after the budget are cancelled.
     pub async fn shutdown(self) -> Result<(), WorkerError> {
         let WorkerScheduler {
@@ -269,7 +269,7 @@ impl Default for WorkerScheduler {
     }
 }
 
-/// The per-worker loop task. Spec §11/01 §4 lifecycle:
+/// The per-worker loop task lifecycle:
 /// `wake → run_cycle → update metrics → sleep`.
 ///
 /// F-13 extends the loop with two control points:

@@ -9,7 +9,7 @@ when-to-use: |
     - User mentions `?`, `panic!`, `anyhow`, `thiserror`, "lost context", or context propagation
     - Designing the error surface for a new public API
 spec-refs:
-  - spec/03_wire_protocol/10_errors.md
+  - spec/04_wire_protocol/07_error_handling.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/m06-error-handling
 ---

@@ -1,4 +1,4 @@
-//! `brain-cli audit {query,export}` — spec §14/06 §8;
+//! `brain-cli audit {query,export}`;
 //! sub-task 10.11. Both deferred (no audit-log primitive yet).
 
 pub mod export;

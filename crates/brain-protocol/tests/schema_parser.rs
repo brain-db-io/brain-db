@@ -1,7 +1,7 @@
-//! Schema-DSL parser integration tests (spec §21/01).
+//! Schema-DSL parser integration tests.
 //!
 //! Exercises the parser end-to-end against fixtures drawn from
-//! `spec/21_schema_dsl/00_purpose.md`. Unit tests in
+//! `spec/03_schema/00_purpose.md`. Unit tests in
 //! `crates/brain-protocol/src/schema/parser.rs` cover small grammar
 //! pieces; this file covers full schema documents.
 

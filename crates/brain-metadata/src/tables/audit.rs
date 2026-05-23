@@ -1,7 +1,7 @@
 //! Audit tables: `extractor_audit` + `entity_resolution_audit` +
 //! the three secondary indexes over the extractor audit table.
 //!
-//! See `spec/22_extractors/05_audit.md` and
+//! See `spec/11_extractors/05_audit.md` and
 //! `spec/25_provenance_versioning/01_audit_tables.md`. Audit entries
 //! are append-only and time-ordered via the `AuditId` UUIDv7 key.
 //!
@@ -40,7 +40,7 @@ pub mod output_kind {
     pub const ENTITY_MENTION: u8 = 4;
 }
 
-/// Per-row cap on `outputs.len()`. Spec §22/05 §1 + §22/07 Q9 —
+/// Per-row cap on `outputs.len` Q9 —
 /// overflow handling (follow-on rows) is post-v1.
 pub const OUTPUTS_CAP: usize = 64;
 
@@ -208,7 +208,7 @@ pub const ENTITY_RESOLUTION_AUDIT_TABLE: TableDefinition<'static, [u8; 16], Reso
     TableDefinition::new("entity_resolution_audit");
 
 /// `ResolutionAudit::outcome` byte values. Mirrors the resolver tier
-/// (spec §18). Tier 5 (Created) is a side-effect, not a tier; included
+/// Tier 5 (Created) is a side-effect, not a tier; included
 /// here for completeness.
 pub mod resolution_outcome {
     pub const TIER_1_EXACT: u8 = 0;

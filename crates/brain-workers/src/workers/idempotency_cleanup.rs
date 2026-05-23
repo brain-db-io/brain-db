@@ -1,10 +1,10 @@
-//! Idempotency cleanup worker (sub-task 8.6). Spec §11/05.
+//! Idempotency cleanup worker (sub-task 8.6).
 //!
 //! Sweeps the idempotency table on a 1 h cadence (configurable),
 //! removing entries whose `created_at + ttl` is past. Calls
 //! `prune_expired_bounded` in a loop bounded by `max_runtime` and
 //! `batch_size` so a single cycle can never block the writer for
-//! too long (spec §3 + §11).
+//! too long.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -18,7 +18,7 @@ use crate::context::WorkerContext;
 use crate::error::WorkerError;
 use crate::worker::Worker;
 
-/// Spec §11/05 §5 — default 24 h retention. Operators tune per
+/// — default 24 h retention. Operators tune per
 /// workload via `with_ttl()`.
 pub const DEFAULT_IDEMPOTENCY_TTL: Duration = Duration::from_secs(24 * 3600);
 
@@ -44,7 +44,7 @@ impl IdempotencyCleanupWorker {
         self
     }
 
-    /// Override the default 24 h TTL. Spec §11/05 §5: shorter →
+    /// Override the default 24 h TTL: shorter →
     /// smaller table at the cost of retry tolerance.
     #[must_use]
     pub fn with_ttl(mut self, ttl: Duration) -> Self {

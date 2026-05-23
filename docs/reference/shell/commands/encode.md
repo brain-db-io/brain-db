@@ -170,7 +170,7 @@ short (`s2/m17/v1`), long hex (`0x…`), decimal `u128`.
 Explicit idempotency key. Omitted → the SDK mints a fresh UUIDv7.
 
 Passing the **same** `request_id` on a retry short-circuits to the
-cached response (24-hour TTL per spec §07/06). Passing the **same**
+cached response (24-hour TTL per spec §02/06). Passing the **same**
 request_id with **different** params returns `Conflict` — the
 idempotency cache caught the divergence.
 
@@ -371,4 +371,4 @@ issue queues.
 - [`txn.md`](txn.md) — multi-op atomicity
 - [`../output-formats.md`](../output-formats.md) — table + JSON + ndjson + yaml + jsonpath
 - [`../errors.md`](../errors.md) — error codes
-- Spec: [`spec/09_cognitive_operations/02_encode.md`](../../../../spec/09_cognitive_operations/02_encode.md)
+- Spec: [`spec/05_operations/02_write_pipeline.md`](../../../../spec/05_operations/02_write_pipeline.md)

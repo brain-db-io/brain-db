@@ -11,13 +11,13 @@
 
 use std::collections::HashMap;
 
-use brain_core::knowledge::{Statement, StatementObject, StatementValue};
+use brain_core::{Statement, StatementObject, StatementValue};
 use brain_core::{ContextId, EntityId, PredicateId, StatementKind};
 use brain_metadata::schema::predicate::{
     predicate_get, predicate_lookup_by_qname, PredicateOpError,
 };
 use brain_metadata::statement::{statement_list, StatementListFilter, StatementOpError};
-use brain_protocol::knowledge::{MaterializeProceduralRequest, MaterializeProceduralResponse};
+use brain_protocol::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 
 use crate::context::OpsContext;
 use crate::error::OpError;
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn render_object_only_accepts_non_empty_text() {
-        use brain_core::knowledge::{StatementObject, StatementValue};
+        use brain_core::{StatementObject, StatementValue};
         assert_eq!(
             render_object(&StatementObject::Value(StatementValue::Text("hi".into()))),
             Some("hi".into())

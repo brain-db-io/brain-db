@@ -324,7 +324,7 @@ fn fetch_enrichment_for(
     memory_ids: &[MemoryId],
     rtxn: &redb::ReadTransaction,
 ) -> Result<Vec<Option<brain_protocol::response::GraphEnrichment>>, OpError> {
-    use brain_core::knowledge::{EntityId, StatementId, SubjectRef};
+    use brain_core::{EntityId, StatementId, SubjectRef};
     use brain_core::{EdgeKindRef, NodeRef};
     use brain_metadata::entity::ops::entity_get;
     use brain_metadata::relation::types::relation_type_get;
@@ -403,7 +403,7 @@ fn fetch_enrichment_for(
             let mid = memory_id.to_be_bytes();
             let lo = (mid, [0u8; 16]);
             let hi = (mid, [0xFFu8; 16]);
-            let mut stmts: Vec<brain_core::knowledge::Statement> = Vec::new();
+            let mut stmts: Vec<brain_core::Statement> = Vec::new();
             for entry in et
                 .range(lo..=hi)
                 .map_err(|e| OpError::Internal(format!("include_graph: evidence range: {e}")))?
@@ -440,16 +440,16 @@ fn fetch_enrichment_for(
                     .map(|p| p.canonical())
                     .unwrap_or_default();
                 let object_label = match &stmt.object {
-                    brain_core::knowledge::StatementObject::Entity(eid) => entity_get(rtxn, *eid)
+                    brain_core::StatementObject::Entity(eid) => entity_get(rtxn, *eid)
                         .ok()
                         .flatten()
                         .map(|e| e.canonical_name)
                         .unwrap_or_default(),
-                    brain_core::knowledge::StatementObject::Value(v) => format!("{v:?}"),
-                    brain_core::knowledge::StatementObject::Memory(mid) => {
+                    brain_core::StatementObject::Value(v) => format!("{v:?}"),
+                    brain_core::StatementObject::Memory(mid) => {
                         format!("memory:{:x?}", mid.to_be_bytes())
                     }
-                    brain_core::knowledge::StatementObject::Statement(sid) => {
+                    brain_core::StatementObject::Statement(sid) => {
                         format!("statement:{:x?}", sid.to_bytes())
                     }
                 };

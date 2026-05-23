@@ -11,7 +11,7 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::{Entity, EntityType, MergeId};
+use brain_core::{Entity, EntityType, MergeId};
 use brain_core::EntityId;
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::entity_hnsw::{EntityHnswIndex, EntityHnswParams};

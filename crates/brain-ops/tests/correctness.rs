@@ -1,7 +1,7 @@
 //! §16/01 correctness gate (sub-task 7.11).
 //!
 //! One Rust module per numbered spec criterion. The map is 1-to-1 so a
-//! reviewer can read `spec/16_benchmarks_acceptance/01_correctness_criteria.md`
+//! reviewer can read `spec/20_benchmarks/01_correctness_criteria.md`
 //! with one hand and this file with the other, confirming coverage.
 //!
 //! Out-of-scope criteria (§13, §14, §15, §16, §18 + the Hard-FORGET
@@ -701,7 +701,7 @@ mod criterion_06_forget {
     #[test]
     fn hard_forget_zeroes_arena() {
         run_in_glommio(|| async {
-            // Will exercise spec §09/06 §3 ("Hard FORGET: vector zeroed,
+            // Will exercise ("Hard FORGET: vector zeroed,
             // not recoverable") once the GC worker lands.
         })
     }
@@ -1002,7 +1002,7 @@ mod criterion_11_edge_traversal {
 mod criterion_12_tombstones {
     use super::*;
 
-    /// Spec §16/01 §12 requires tombstone-invisibility across RECALL,
+    /// requires tombstone-invisibility across RECALL,
     /// PLAN, and REASON. v1 enforces this for RECALL (via HNSW's
     /// tombstone marker) but **not** for PLAN / REASON — those
     /// traversal handlers read redb edges directly and don't yet
@@ -1047,7 +1047,7 @@ mod criterion_13_slot_version {
     #[test]
     fn stale_memory_id_returns_not_found_after_reclaim() {
         run_in_glommio(|| async {
-            // Exercises spec §16/01 §13: ENCODE m → hard-FORGET force-reclaim
+            // Exercises: ENCODE m → hard-FORGET force-reclaim
             // → ENCODE another into the freed slot → RECALL the stale id
             // returns NotFound. Requires the slot-reclamation worker.
         })

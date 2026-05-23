@@ -1,17 +1,17 @@
 //! `relation_types` table — user-declared relation types.
 //!
-//! See `spec/20_relations/00_purpose.md` (cardinality, symmetry) and
-//! `spec/21_schema_dsl/00_purpose.md` (declaration). `Cardinality` is
+//! See `spec/02_data_model/00_purpose.md` (cardinality, symmetry) and
+//! `spec/03_schema/00_purpose.md` (declaration). `Cardinality` is
 //! encoded as `u8` per the discriminant in `brain_core::Cardinality`.
 //!
 //! Phase 15.1 declared a minimal row (name + cardinality + symmetric
 //! plus from/to plus created_at). Phase 18.3 widens to match
-//! `brain_core::knowledge::RelationType`, adding namespace,
+//! `brain_core::RelationType`, adding namespace,
 //! schema_version, description, and a `relation_types_by_qname`
 //! lookup index. Archive id bumped to v2 (pre-v1.0; no migration).
 
 use crate::impl_redb_rkyv_value;
-use brain_core::knowledge::RelationType;
+use brain_core::RelationType;
 use brain_core::{Cardinality, EntityTypeId, RelationTypeId};
 use redb::TableDefinition;
 

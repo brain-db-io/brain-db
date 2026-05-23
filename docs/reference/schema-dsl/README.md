@@ -30,7 +30,7 @@ mode** — a first-class deployment posture, not a degraded one.
 
 ## See also
 
-- [`../../../spec/21_schema_dsl/`](../../../spec/21_schema_dsl/)
+- [`../../../spec/03_schema/`](../../../spec/03_schema/00_purpose.md)
   — authoritative grammar.
 - [`../../guides/sdk/typed-knowledge.md`](../../guides/sdk/typed-knowledge.md)
   — how to map your domain types via the Rust derive macros.

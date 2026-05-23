@@ -1,11 +1,11 @@
 //! Access-tracking buffer for the access-boost worker (sub-task 8.3).
 //!
-//! Spec §11/02 §7: RECALL appends every returned memory's id; the
+//! RECALL appends every returned memory's id; the
 //! boost worker drains the buffer on its 10 s cycle and applies a
 //! ×1.10 salience bump per id (deduped).
 //!
 //! Dedup-on-record is the chosen semantic: a memory accessed N times
-//! inside the same drain window receives one boost. Spec §7 phrases
+//! inside the same drain window receives one boost phrases
 //! the work unit as "MemoryIds in the buffer" rather than "accesses";
 //! deduping bounds write amplification and the salience cap at 1.0
 //! makes the difference between 1 and N boosts numerically small.
@@ -16,7 +16,7 @@ use brain_core::MemoryId;
 use parking_lot::Mutex;
 
 /// Default capacity. ~10 K headroom over the boost worker's default
-/// batch_size of 1 000 (spec §11/01 §11) covers a recall storm.
+/// batch_size of 1 000 covers a recall storm.
 pub const DEFAULT_ACCESS_BUFFER_CAPACITY: usize = 10_000;
 
 pub struct AccessBuffer {

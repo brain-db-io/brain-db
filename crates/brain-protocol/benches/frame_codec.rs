@@ -1,6 +1,6 @@
 //! Frame encode + decode micro-bench.
 //!
-//! Spec §16/02 §3 attributes ~0.5 ms each to wire/framing in/out for
+//! attributes ~0.5 ms each to wire/framing in/out for
 //! the 20 ms RECALL p99 — i.e. the byte-level cost of going from a
 //! `Frame` to wire bytes and back. This bench measures that cost at
 //! four payload sizes spanning the realistic distribution.

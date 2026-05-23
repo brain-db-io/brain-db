@@ -178,7 +178,7 @@ fn forget_already_tombstoned_returns_flag() {
 }
 
 // ---------------------------------------------------------------------------
-// 3. MemoryNotFound is collapsed into the no-op flag per spec §09/06 §14.
+// 3. MemoryNotFound is collapsed into the no-op flag.
 // ---------------------------------------------------------------------------
 
 #[test]

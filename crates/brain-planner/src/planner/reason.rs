@@ -2,7 +2,7 @@
 //!
 //! Maps a wire `ReasonRequest` into a [`ReasonPlan`]. Pure.
 //!
-//! See `spec/08_query_planner/05_plan_reason_planning.md` §8-§10.
+//! See `spec/12_query_optimizer/05_plan_reason_planning.md` §8-§10.
 
 use brain_protocol::request::{ObservationInput, ReasonRequest};
 

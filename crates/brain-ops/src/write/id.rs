@@ -11,10 +11,7 @@
 
 use std::fmt;
 
-use brain_core::{
-    knowledge::{EntityId, RelationId, StatementId},
-    MemoryId, RequestId,
-};
+use brain_core::{EntityId, MemoryId, RelationId, RequestId, StatementId};
 use uuid::Uuid;
 
 /// Idempotency key for a [`super::Write`]. Equality determines

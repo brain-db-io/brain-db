@@ -1,4 +1,4 @@
-//! PLAN op (spec §07/04 + §13/02 §5).
+//! PLAN op.
 //!
 //! Streaming response — 10.5 ships a Vec-collecting `send()`.
 

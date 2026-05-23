@@ -1,6 +1,6 @@
 //! Per-operation request metrics.
 //!
-//! Spec §14/01 §3 mandates three families:
+//! mandates three families:
 //!
 //! - `brain_request_total{op=, status=}` — counter, every completed
 //!   request bumps once.

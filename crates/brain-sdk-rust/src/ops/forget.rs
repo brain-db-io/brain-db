@@ -1,6 +1,6 @@
-//! FORGET op (spec §07/06 + §13/02 §7). Single-id mode.
+//! FORGET op. Single-id mode.
 //!
-//! 10.5 ships single-id only; batch/filter modes (spec §13/02 §7)
+//! 10.5 ships single-id only; batch/filter modes
 //! land post-Phase-10.
 
 use brain_core::{MemoryId, RequestId};

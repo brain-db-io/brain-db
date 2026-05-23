@@ -16,7 +16,7 @@
 //! - A schema upload that *adopts* a previously-implicit predicate
 //!   clears the flag on rows that point at it.
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
 };
 use brain_core::{

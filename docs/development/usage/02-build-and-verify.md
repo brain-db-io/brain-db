@@ -93,7 +93,7 @@ What runs, in order:
 A green `prod-verify` is the local equivalent of a green CI run.
 Expect 8–25 min wall-time depending on incremental-cache state.
 
-The acceptance benches (which assert spec §16/02 p50 / p99 targets in
+The acceptance benches (which assert spec §02/02 p50 / p99 targets in
 process and panic on regression) are not part of `prod-verify` — they
 take 5–15 minutes each and run in the `nightly-perf` GitHub workflow.
 Drive them manually with `just prod-bench`.

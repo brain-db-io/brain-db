@@ -15,7 +15,7 @@ path = "src/main.rs"
 default = []
 # Sub-task 9.15 — feature-gated LLM summarizers. Both pull `reqwest`
 # (with rustls-tls, reusing 9.9's vendored stack). Default off: the
-# substrate works without consolidation per spec §11/03 §6.
+# substrate works without consolidation.
 summarizer-openai = ["reqwest"]
 summarizer-ollama = ["reqwest"]
 

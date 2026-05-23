@@ -154,7 +154,7 @@ seconds for the default 4 GiB.
 
 ## Capacity planning
 
-Spec §16/08 capacity-planning is the authoritative reference.
+Spec §02/08 capacity-planning is the authoritative reference.
 Operator rules of thumb:
 
 | Signal | Threshold | Action |

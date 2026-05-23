@@ -9,7 +9,7 @@
 //! only assert that what goes in comes out, not that arbitrary
 //! references resolve.
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
 };
 use brain_core::{

@@ -61,7 +61,7 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::{EvidenceRef, Statement, StatementObject};
+use brain_core::{EvidenceRef, Statement, StatementObject};
 use brain_core::{
     AgentId, EdgeKind, EdgeKindRef, EntityId, MemoryId, NodeRef, PredicateId, StatementId,
 };

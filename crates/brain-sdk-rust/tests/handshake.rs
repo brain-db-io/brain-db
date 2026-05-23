@@ -1,5 +1,5 @@
 //! Integration test for sub-task 10.1: `Client::connect` against a
-//! hand-rolled mock server that speaks the spec §03/06 handshake.
+//! hand-rolled mock server that speaks the handshake.
 //!
 //! Why a mock server instead of reaching into brain-server's
 //! in-process scaffold: the SDK is a pure-client crate and should
@@ -112,7 +112,7 @@ async fn run_canned_script(socket: &mut TcpStream) {
 
     // ---- BYE (client-initiated; echo back) ------------------------
     // The connect-only test doesn't get this far, so we tolerate
-    // either a BYE or EOF here. Spec §03/05 §1.1 — BYE is the same
+    // either a BYE or EOF here — BYE is the same
     // opcode in both directions; the server's reply just echoes the
     // request payload (matches brain-server's `on_bye`).
     if let Some(frame) = read_frame_opt(socket).await {

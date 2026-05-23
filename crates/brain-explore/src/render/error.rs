@@ -24,7 +24,7 @@ const BODY_INDENT: &str = "  ";
 
 /// User-facing error wrapper.
 ///
-/// `code` is the wire numeric code from `spec/03_wire_protocol/10_errors.md`.
+/// `code` is the wire numeric code from `spec/04_wire_protocol/10_errors.md`.
 /// `0` means "client-side / no wire code" (e.g. connect refused,
 /// pool closed) — the renderer hides the code row in that case.
 /// `message` is the server's (or SDK's) human string.
@@ -167,7 +167,7 @@ fn render_human(e: &RenderableError, ctx: &RenderCtx, w: &mut dyn Write) -> io::
     }
 
     // ── Body: retry verdict ─────────────────────────────────────
-    // Spec §03/10 §6 maps category → retryability. Print one
+    // maps category → retryability. Print one
     // labelled row so the operator sees the verdict without
     // consulting the spec; `retry_after_ms`, when present, joins
     // the same line.
@@ -232,7 +232,7 @@ struct CodeInfo {
     retryable: bool,
 }
 
-/// Map a wire error code (spec §03/10 §3) to its short name, broad
+/// Map a wire error code to its short name, broad
 /// category, and the default retry verdict. Unknown codes get a
 /// generic `("Unknown", "Internal", true)` triple — clients still
 /// see the raw number in the card so support diagnostics work.

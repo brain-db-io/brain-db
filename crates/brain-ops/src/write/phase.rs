@@ -15,7 +15,7 @@
 //!   no LLM, no network. Strategies (the things that compute derived
 //!   phases) do that ahead of submit; apply functions only mutate redb.
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EntityAttributes, EntityId, EntityTypeId, EvidenceEntry, EvidenceOverflowId,
     ExtractorId, MergeId, PredicateId, Relation, RelationId, RelationTypeId, Statement,
     StatementId, StatementKind, StatementObject, SubjectRef,
@@ -56,14 +56,14 @@ pub enum Phase {
         arena_slot: u64,
         /// Embedding-model fingerprint stamped on the stored row. The
         /// handler pulls this from the dispatcher that produced the
-        /// vector (`Dispatcher::fingerprint()` in the legacy path).
+        /// vector.
         embedding_model_fp: [u8; 16],
         /// BLAKE3 of the canonical UTF-8 text. `Some` only when
         /// `deduplicate=true` — controls whether a row gets stamped
         /// into FINGERPRINTS_TABLE for content-hash dedup.
         content_hash: Option<[u8; 32]>,
         /// `true` ⇒ consult FINGERPRINTS_TABLE before write and
-        /// re-use any matching MemoryId (spec §07/07 §6). `false`
+        /// re-use any matching MemoryId. `false`
         /// skips the dedup index entirely.
         deduplicate: bool,
     },

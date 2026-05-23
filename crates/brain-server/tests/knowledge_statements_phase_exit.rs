@@ -15,7 +15,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EntityCreateRequest, EvidenceRefWire, StatementCreateRequest, StatementGetRequest,
     StatementHistoryRequest, StatementKindWire, StatementListRequest, StatementObjectWire,
     StatementRetractRequest, StatementSupersedeRequest, StatementTombstoneRequest,

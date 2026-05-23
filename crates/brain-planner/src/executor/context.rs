@@ -1,6 +1,6 @@
 //! The handle bag passed to every `execute_*` function.
 //!
-//! Spec §08/08 §7: "handles are cheap to clone (Arc-based). Each
+//! "handles are cheap to clone (Arc-based). Each
 //! executor task gets its own handles; no contention." We use the
 //! same pattern: every field is shareable across tasks (Send + Sync).
 //!
@@ -20,7 +20,7 @@ use parking_lot::Mutex;
 use super::writer::WriterHandle;
 
 /// Shared handle to the per-shard `MetadataDb`. The `Mutex` enforces
-/// the spec §07/08 §3 single-writer-per-shard discipline at runtime
+/// the single-writer-per-shard discipline at runtime
 /// (brain-metadata's `write_txn(&mut self)` does it at compile time;
 /// the lock lets multiple threads share one DB handle without
 /// fracturing into separate redb files). Reads acquire the lock
@@ -117,5 +117,5 @@ impl ExecutorContext {
 
 // After sub-task 9.7 (audit §4) ExecutorContext is intentionally
 // `!Send + !Sync`: WriterHandle is per-shard (single-writer-per-shard
-// per spec §10/02). Phase 9's per-shard Glommio executor is the
+// ). Phase 9's per-shard Glommio executor is the
 // containment boundary; no cross-thread sharing is required.

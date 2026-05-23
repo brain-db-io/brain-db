@@ -1,6 +1,6 @@
 //! Write-Ahead Log: per-shard, append-only, fsync-coordinated.
 //!
-//! See `spec/05_storage_arena_wal/04_wal_overview.md` and
+//! See `spec/08_storage/04_wal_overview.md` and
 //! `05_wal_records.md` for the design. This module currently exposes the
 //! record-level framing only; segment writer/reader/recovery land in
 //! subsequent sub-tasks (2.6–2.10).

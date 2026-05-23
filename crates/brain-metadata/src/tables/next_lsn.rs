@@ -1,6 +1,6 @@
 //! `next_lsn` table: singleton holding the next WAL LSN to allocate.
 //!
-//! See `spec/07_metadata_graph/02_table_layout.md` §1 row 12 (catalog
+//! See `spec/10_metadata/02_table_layout.md` §1 row 12 (catalog
 //! entry) and §7 (singleton convention: `()` key with `t.get(&())` /
 //! `t.insert(&(), &value)`).
 //!
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn unit_key_round_trips() {
-        // Guards spec §07/02 §7's prescription that redb supports `()`
+        // Guards 's prescription that redb supports ``
         // as the Key + Value type for singletons. If a future redb
         // version dropped this, the test would fail on Insert/Get
         // rather than silently mis-encoding.

@@ -28,7 +28,7 @@
 //!
 //! Limit applied after all six.
 
-use brain_core::knowledge::{Statement, StatementKind};
+use brain_core::{Statement, StatementKind};
 use brain_core::{MemoryKind, PredicateId};
 use brain_index::RankedItemId;
 use brain_metadata::statement::statement_get;
@@ -558,7 +558,7 @@ fn window_overlaps(vf: Option<u64>, vt: Option<u64>, range: &TimeRange) -> bool 
     win_lo <= q_hi && q_lo <= win_hi
 }
 
-fn statement_temporal_match(stmt: &brain_core::knowledge::Statement, range: &TimeRange) -> bool {
+fn statement_temporal_match(stmt: &brain_core::Statement, range: &TimeRange) -> bool {
     // Event kind: filter on event_at if present, else
     // extracted_at_unix_nanos as fallback (the row will have
     // one or the other).

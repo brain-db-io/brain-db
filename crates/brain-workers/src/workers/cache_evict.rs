@@ -1,8 +1,8 @@
-//! Embedder cache eviction worker (sub-task 8.12). Spec §11/08 §4.
+//! Embedder cache eviction worker (sub-task 8.12).
 //!
 //! The LRU on `brain_embed::CachingDispatcher` evicts on access
 //! automatically (size-bound). This worker handles the
-//! **age-based** prune (spec §4.2 — "entries older than 7 days").
+//! **age-based** prune (2 — "entries older than 7 days").
 //!
 //! ## v1 deviation (documented)
 //!
@@ -29,7 +29,7 @@ use crate::context::WorkerContext;
 use crate::error::WorkerError;
 use crate::worker::Worker;
 
-/// Spec §4.2 — default 7-day age threshold. Tunable per worker via
+/// 2 — default 7-day age threshold. Tunable per worker via
 /// [`CacheEvictionWorker::with_max_age`].
 pub const DEFAULT_CACHE_MAX_AGE: Duration = Duration::from_secs(7 * 24 * 3600);
 

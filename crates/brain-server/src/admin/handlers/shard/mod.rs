@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for `shard` (spec §14/06 §11; sub-task 10.11).
+//! Admin HTTP handlers for `shard` (sub-task 10.11).
 //!
 //! Routes:
 //! - `GET /v1/shards` → 200 + `{"shards":[{"index":N,"shard_id":N}]}`

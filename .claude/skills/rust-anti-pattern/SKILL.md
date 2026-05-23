@@ -9,7 +9,7 @@ when-to-use: |
     - Adding `Send + Sync` to a type that lives inside a single shard
     - User asks "should I refactor?" or "fighting the borrow checker"
 spec-refs:
-  - spec/01_system_architecture/04_layers.md
+  - spec/01_architecture/04_layers.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/m15-anti-pattern
 ---

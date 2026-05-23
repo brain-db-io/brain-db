@@ -2,7 +2,7 @@
 //! operation, not the planner's output).
 //!
 //! Named `PathPlan` to avoid `ExecutionPlan::Plan(PlanPlan)` confusion.
-//! Spec §08/05 §3 describes the shape: embed both endpoints, RECALL
+//! describes the shape: embed both endpoints, RECALL
 //! near each, traverse the graph between them via bidirectional BFS,
 //! score paths, return.
 //!
@@ -33,7 +33,7 @@ pub struct PathPlan {
     pub estimated_cost_ms: f32,
 }
 
-/// Bidirectional BFS along the named edge kinds. Spec §08/05 §4-§5.
+/// Bidirectional BFS along the named edge kinds-§5.
 #[derive(Debug, Clone)]
 pub struct TraversalStep {
     pub edge_kinds: Vec<EdgeKind>,
@@ -43,7 +43,7 @@ pub struct TraversalStep {
     pub max_paths: usize,
 }
 
-/// Path scoring weights. Spec §08/05 §6.
+/// Path scoring weights.
 #[derive(Debug, Clone, Copy)]
 pub struct ScoringStep {
     pub include_length_score: bool,
@@ -74,7 +74,7 @@ pub struct EvidenceResponseStep {
     pub include_metadata: bool,
 }
 
-/// Default edge kinds for the PLAN traversal. Spec §08/05 §2 names
+/// Default edge kinds for the PLAN traversal names
 /// `[CAUSED, FOLLOWED_BY]`. The wire `PlanRequest` doesn't yet carry
 /// an explicit list; this is what the planner uses.
 #[must_use]

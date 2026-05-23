@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Consolidation worker integration tests (sub-task 8.4). Spec §11/03.
+//! Consolidation worker integration tests (sub-task 8.4).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -449,7 +449,7 @@ fn already_consolidated_sources_are_skipped() {
         let fix = build_fixture();
         let now = now_unix_nanos();
         // Seed 5 — but one is already stamped; the worker should skip
-        // the cluster (any source already-consolidated → skip per spec §11).
+        // the cluster (any source already-consolidated → skip).
         for slot in 1..=5 {
             let stamp = if slot == 1 {
                 Some(now - 1_000_000)

@@ -17,7 +17,7 @@ Admin CLI for `brain-server`. Talks to two HTTP endpoints:
 The wire protocol on `listen_addr` is for SDK use, not for the CLI.
 
 Source: `crates/brain-cli/src/main.rs`. Authoritative command
-surface: spec §14/06.
+surface: spec §02/06.
 
 ## Invocation
 
@@ -193,5 +193,5 @@ brain-cli stats --output json | jq
 - [`../runbooks/`](../runbooks/) — incident response playbooks
   that invoke specific CLI subcommands.
 
-**Spec:** §14/06 (admin operations). **Source:**
+**Spec:** §02/06 (admin operations). **Source:**
 `crates/brain-cli/src/main.rs` and `crates/brain-cli/src/commands/`.

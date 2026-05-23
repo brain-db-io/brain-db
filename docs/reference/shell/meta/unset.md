@@ -34,7 +34,7 @@ cleared`. The effects, in order:
    to subsequent `encode` / `recall` / `link` / `unlink` calls.
 2. **Server keeps the txn open.** No `TXN_ABORT` frame is sent. The
    server-side transaction sits in its registry until its idle
-   timeout fires (per spec §07/05), at which point the server aborts
+   timeout fires (per spec §02/05), at which point the server aborts
    it and reclaims the slot. Any writes you'd queued in the txn
    never land.
 3. **Prompt drops the `*` marker.** `brain*> ` → `brain> `;
@@ -99,5 +99,5 @@ brain> \set output table         # use this to "reset" to the default
 - [`set.md`](set.md) — the verb that sets these in the first place
 - [`info.md`](info.md) — shows `active_txn` so you can confirm the local detach
 - [`../commands/txn.md`](../commands/txn.md) — `txn abort`, the server-aware way to release a transaction
-- Spec: [`spec/07_metadata_graph/05_transactions.md`](../../../../spec/07_metadata_graph/05_transactions.md) — server-side txn lifetime
+- Spec: [`spec/10_metadata/05_transactions.md`](../../../../spec/10_metadata/05_transactions.md) — server-side txn lifetime
 - One-shot equivalent: none. Transactions don't span one-shot invocations.

@@ -2,18 +2,18 @@
 //!
 //! Spec / phase-doc / orientation plan converge on **≥ 1 000 texts/sec
 //! sustained on the reference CPU with the cache cold** (phase-05.md
-//! §0; orientation plan §0). Spec §04/03 §6 says 5–10 ms/text single-
+//! §0; orientation plan §0) says 5–10 ms/text single-
 //! threaded, so the 1 000/s target implies parallelism. We measure:
 //!
 //! 1. `single_thread_short` — single embed, short input. Reports the
-//!    per-iter latency that spec §04/03 §6 quotes.
+//!    per-iter latency that quotes.
 //! 2. `single_thread_long`  — single embed, ~500-token input. Worst-
 //!    case attention compute. Honest floor for long-text workloads.
 //! 3. `concurrent`          — 8 threads × 64 embeds against a shared
 //!    `Arc<CpuDispatcher>`. Asserts ≥ 1 000 texts/s; panics with the
 //!    actual rate if we miss.
 //! 4. `cache_hit`           — pre-warmed `CachingDispatcher`. Per-call
-//!    latency expected sub-µs (spec §04/05 §3 cites < 1 µs); observed.
+//!    latency expected sub-µs (cites < 1 µs); observed.
 //!
 //! Gated on `BRAIN_EMBED_MODEL_DIR`. Without the env var each bench
 //! function prints a skip line and returns; criterion still exits 0.
@@ -58,7 +58,7 @@ fn try_load_dispatcher() -> Option<CpuDispatcher> {
 }
 
 // ---------------------------------------------------------------------------
-// 1. Single-thread short — spec §04/03 §6's 5-10 ms/text reference.
+// 1. Single-thread short's 5-10 ms/text reference.
 // ---------------------------------------------------------------------------
 
 fn bench_single_thread_short(c: &mut Criterion) {
@@ -177,7 +177,7 @@ fn bench_concurrent(c: &mut Criterion) {
 }
 
 // ---------------------------------------------------------------------------
-// 4. Cache hit — spec §04/05 §3 cites < 1 µs.
+// 4. Cache hit cites < 1 µs.
 // ---------------------------------------------------------------------------
 
 fn bench_cache_hit(c: &mut Criterion) {

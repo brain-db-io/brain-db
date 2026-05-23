@@ -1,7 +1,7 @@
 //! `slot_versions` table: per-slot version counter for lazy reclaim.
 //!
-//! See `spec/07_metadata_graph/02_table_layout.md` §13 (purpose +
-//! shape) and `spec/05_storage_arena_wal/07_write_path.md` §2.3
+//! See `spec/10_metadata/02_table_layout.md` §13 (purpose +
+//! shape) and `spec/08_storage/07_write_path.md` §2.3
 //! (initial value: 1 for never-used, current+1 for reclaimed).
 //!
 //! ## Realignment note (sub-task 3.7)
@@ -11,7 +11,7 @@
 //! in the spec's 13-table catalog (§07/02 §1). Tombstone *state* lives
 //! as `flags & HARD_FORGOTTEN` + `forgot_at_unix_nanos` on the existing
 //! `memories` row (3.2's `MemoryMetadata`); the reclaim worker scans
-//! memories for `forgot_at + grace < now` per spec §09/06 §16. The
+//! memories for `forgot_at + grace < now`. The
 //! actual reclaim-related table in the spec catalog is
 //! `slot_versions`, which is this file.
 //!
@@ -29,7 +29,7 @@
 //!   + arena zero in one txn) — `MetadataDb` (3.10) + Phase 8 worker.
 //! - MemoryId minting (packing `slot_id + version` into 16 bytes) —
 //!   `brain-core`'s identifier code.
-//! - Recovery cross-check vs the arena's slot metadata (spec §05/08
+//! - Recovery cross-check vs the arena's slot metadata (
 //!   §6) — composition lives in the `MetadataSink` impl (3.11).
 //! - Retirement strategy for u32::MAX-overflowed slots — spec doesn't
 //!   address; v1 surfaces the error and lets the caller decide.
@@ -40,8 +40,8 @@ use redb::{ReadableTable, Table, TableDefinition};
 /// current `version` as `u32`. Uses redb's built-in scalar `Value`
 /// impls — no rkyv wrapper (no struct to evolve).
 ///
-/// `slot_id` is logically 48 bits in the MemoryId (`spec/02_data_model/03_identifiers.md`
-/// §2.1) but is stored as `u64` here per spec §07/02 §1's catalog.
+/// `slot_id` is logically 48 bits in the MemoryId (`spec/02_data_model/02_memory.md`
+/// §2.1) but is stored as `u64` here 's catalog.
 pub const SLOT_VERSIONS_TABLE: TableDefinition<'static, u64, u32> =
     TableDefinition::new("slot_versions");
 
@@ -53,7 +53,7 @@ pub enum SlotVersionError {
     Storage(#[from] redb::StorageError),
 
     /// The slot's version field is already `u32::MAX`. Incrementing
-    /// would wrap to zero and silently violate spec §02/03 §2.3's
+    /// would wrap to zero and silently violate 's
     /// MemoryId-stability invariant ("A `MemoryId` that previously
     /// identified memory M never identifies a different memory"), so
     /// storage refuses the write. The caller decides how to surface
@@ -65,7 +65,7 @@ pub enum SlotVersionError {
 /// Atomic read-modify-write of `slot_versions[slot_id]`. Returns the
 /// new version.
 ///
-/// - Missing row (never-used slot, spec §05/07 §2.3) → writes `1`,
+/// - Missing row (never-used slot) → writes `1`,
 ///   returns `Ok(1)`.
 /// - Existing row at version `N` → writes `N + 1`, returns `Ok(N + 1)`.
 /// - Row at `u32::MAX` → returns [`SlotVersionError::Exhausted`] and

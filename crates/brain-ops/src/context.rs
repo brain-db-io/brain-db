@@ -61,7 +61,7 @@ pub struct OpsContext {
     /// model path). Defaults to `unloaded`; operators wire
     /// `BRAIN_NER_MODEL_PATH` via `with_classifier_config`.
     pub classifier_config: Arc<ClassifierConfig>,
-    /// Per-shard LLM extractor response cache (spec §15.4 / §26).
+    /// Per-shard LLM extractor response cache (4 / §26).
     /// `None` when no API keys are configured, the cache file
     /// failed to open, or no LLM extractors are registered.
     /// LLM extractors thread this into their cache lookups via
@@ -114,7 +114,7 @@ pub struct OpsContext {
     /// modules) call [`OpsContext::publish_knowledge`] after their successful
     /// redb commit; that helper appends a `WalPayload::Knowledge`
     /// record carrying the rkyv-encoded
-    /// [`brain_protocol::knowledge::KnowledgeEventPayload`] body, then
+    /// [`brain_protocol::KnowledgeEventPayload`] body, then
     /// publishes the matching [`EventEnvelope`] on the bus with the
     /// WAL-assigned LSN. When `None`, the helper falls back to a
     /// pure bus publish (test wiring / no-schema deployments).
@@ -324,10 +324,10 @@ impl OpsContext {
     pub async fn publish_knowledge<F>(
         &self,
         kind: brain_storage::wal::kinds::WalRecordKind,
-        payload: brain_protocol::knowledge::KnowledgeEventPayload,
+        payload: brain_protocol::KnowledgeEventPayload,
         make_envelope: F,
     ) where
-        F: FnOnce(u64, brain_protocol::knowledge::KnowledgeEventPayload) -> EventEnvelope,
+        F: FnOnce(u64, brain_protocol::KnowledgeEventPayload) -> EventEnvelope,
     {
         debug_assert!(
             kind.is_knowledge(),

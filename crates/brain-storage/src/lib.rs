@@ -3,7 +3,7 @@
 //! The durable storage layer: a memory-mapped vector arena and a
 //! write-ahead log (WAL).
 //!
-//! See `spec/05_storage_arena_wal/` for the authoritative design.
+//! See `spec/08_storage/` for the authoritative design.
 //!
 //! - **Arena**: 1600-byte slots (1536 vector + 64 metadata), 64-byte aligned.
 //!   Per-slot CRC32C. Allocator uses a per-shard free list with version
@@ -40,7 +40,7 @@ compile_error!(
 #[cfg(not(target_endian = "little"))]
 compile_error!(
     "brain-storage requires a little-endian target. Storage on disk is LE \
-     (spec §05/02 §2); we rely on native-order memory access through \
+; we rely on native-order memory access through \
      bytemuck::Pod, which would silently produce wrong files on a BE host."
 );
 
@@ -51,7 +51,7 @@ pub mod wal;
 
 pub use layout::{ensure_dirs, ShardPaths};
 
-/// Slot size in bytes, per `spec/05_storage_arena_wal/02_arena_layout.md`.
+/// Slot size in bytes, per `spec/08_storage/02_arena_layout.md`.
 pub const SLOT_SIZE_BYTES: usize = 1600;
 
 /// Slot alignment in bytes.

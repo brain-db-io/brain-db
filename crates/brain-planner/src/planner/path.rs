@@ -4,7 +4,7 @@
 //! async. The executor side lands later — bidirectional-BFS edge
 //! traversal naturally fits with Phase 7's cognitive-ops scaffolding.
 //!
-//! See `spec/08_query_planner/05_plan_reason_planning.md`.
+//! See `spec/12_query_optimizer/05_plan_reason_planning.md`.
 
 use brain_protocol::request::{PlanRequest, PlanState, PlanStrategy};
 
@@ -238,7 +238,7 @@ mod tests {
     #[test]
     fn estimated_cost_in_reasonable_range() {
         // Default budget (depth=4, branches=64) should fall in the
-        // spec §11 30-100 ms range when stats are at defaults.
+        // 30-100 ms range when stats are at defaults.
         let plan = unwrap_path(plan_path(&base_request(), &PlannerContext::default()).unwrap());
         assert!(plan.estimated_cost_ms > 5.0);
         assert!(plan.estimated_cost_ms < 500.0);

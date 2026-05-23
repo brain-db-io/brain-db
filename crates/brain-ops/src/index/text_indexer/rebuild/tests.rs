@@ -3,7 +3,7 @@
 use std::fs;
 use std::path::Path;
 
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceRef, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
 };
 use brain_core::{Entity, EntityId, EntityTypeId, ExtractorId, PredicateId, StatementId};
@@ -187,7 +187,7 @@ fn rebuild_statements_skips_tombstoned() {
         statement_tombstone(
             &wtxn,
             dead,
-            brain_core::knowledge::TombstoneReason::UserRequest,
+            brain_core::TombstoneReason::UserRequest,
             0,
         )
         .expect("tombstone");

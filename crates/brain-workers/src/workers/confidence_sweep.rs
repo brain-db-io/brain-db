@@ -13,7 +13,7 @@
 //!
 //! This worker walks active Statement rows on a slow cadence,
 //! recomputes their confidence via the noisy-OR aggregation from
-//! `brain_core::knowledge::aggregate_confidence`, and writes the new
+//! `brain_core::aggregate_confidence`, and writes the new
 //! value back when it moved beyond a small floor. Rows under a
 //! minimum age (default 1 day) are left alone — they were just
 //! touched, no point sweeping them.
@@ -40,7 +40,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::{aggregate_confidence, ConfidenceConfig, EvidenceEntry, StatementKind};
+use brain_core::{aggregate_confidence, ConfidenceConfig, EvidenceEntry, StatementKind};
 use brain_core::{EvidenceOverflowId, ExtractorId, MemoryId, StatementId};
 use brain_metadata::statement::evidence_overflow_load;
 use brain_metadata::tables::statement::{
@@ -469,7 +469,7 @@ impl Worker for ConfidenceSweepWorker {
 /// - Event: no decay (returns 1.0).
 #[must_use]
 pub fn decay(age_seconds: u64, kind: StatementKind, config: &ConfidenceConfig) -> f32 {
-    brain_core::knowledge::confidence::decay_for(kind, age_seconds as f32, config)
+    brain_core::resolution::confidence::decay_for(kind, age_seconds as f32, config)
 }
 
 /// A Statement row qualifies for the sweep iff it is current
@@ -550,7 +550,7 @@ struct PendingUpdate {
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::{
+    use brain_core::{
         Entity, EntityType, EvidenceRef, Statement, StatementObject, SubjectRef,
     };
     use brain_core::{
@@ -580,7 +580,7 @@ mod tests {
 
     #[test]
     fn decay_function_fact_half_life_at_365_days() {
-        // Spec §19/04 §3.1 uses `exp(-age / half_life)` — at age =
+        // uses `exp(-age / half_life)` — at age =
         // one half-life the decay factor is `1/e ≈ 0.3679`, not 0.5.
         // Confirm both the published number and the formula shape.
         let cfg = ConfidenceConfig::default_v1();

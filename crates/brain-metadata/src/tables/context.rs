@@ -4,12 +4,12 @@
 //! - [`CONTEXTS_TABLE`] — `ContextId` → [`ContextMetadata`]: the full
 //!   record, looked up by ID.
 //! - [`CONTEXT_NAMES_TABLE`] — `(AgentId, &str)` → `ContextId`: the
-//!   name index, scoped to agent (spec §07/05 §2.2).
+//!   name index, scoped to agent.
 //! - [`AGENT_CONTEXTS_TABLE`] — `(AgentId, ContextId)` → `()`: the
 //!   membership index, supporting "list contexts for agent A" via a
-//!   prefix range scan (spec §07/05 §2.3).
+//!   prefix range scan.
 //!
-//! See `spec/07_metadata_graph/05_context_table.md` (full).
+//! See `spec/10_metadata/05_context_table.md` (full).
 
 use brain_core::{AgentId, ContextId};
 use redb::TableDefinition;
@@ -35,20 +35,20 @@ pub const AGENT_CONTEXTS_TABLE: TableDefinition<'static, ([u8; 16], u64), ()> =
 // Naming conventions.
 // ---------------------------------------------------------------------------
 
-/// Names starting with `_` are reserved (spec §07/05 §6). The writer
+/// Names starting with `_` are reserved. The writer
 /// task (Phase 9) enforces this against client input; the storage layer
 /// itself doesn't validate.
 pub const RESERVED_NAME_PREFIX: &str = "_";
 
 /// The implicit "default" context name created on first ENCODE if no
-/// context is specified (spec §07/05 §6).
+/// context is specified.
 pub const DEFAULT_CONTEXT_NAME: &str = "_default";
 
 // ---------------------------------------------------------------------------
 // ContextMetadata.
 // ---------------------------------------------------------------------------
 
-/// Per-context metadata row. Spec §07/05 §2.1.
+/// Per-context metadata row.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct ContextMetadata {
@@ -249,7 +249,7 @@ mod tests {
 
     #[test]
     fn cross_agent_name_isolation() {
-        // Spec §07/05 §13: two agents can each have a context named
+        // two agents can each have a context named
         // "personal"; they're distinct (different ContextIds).
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);

@@ -6,9 +6,9 @@
 //! ## Substrate surface
 //!
 //! - [`Client`] — single-connection async entry point. `Client::connect`
-//!   opens a TCP socket, drives the spec §03/06 handshake (HELLO →
+//!   opens a TCP socket, drives the handshake (HELLO →
 //!   WELCOME → AUTH → AUTH_OK), and returns a usable client.
-//! - [`ClientConfig`] with spec §13/02 §14 defaults.
+//! - [`ClientConfig`] with defaults.
 //! - [`ClientError`] — `#[non_exhaustive]` error taxonomy.
 //! - Op builders: [`EncodeBuilder`], [`RecallBuilder`], [`PlanBuilder`],
 //!   [`ReasonBuilder`], [`ForgetBuilder`], [`LinkBuilder`],
@@ -59,7 +59,7 @@
 //!
 //! ## Spec reference
 //!
-//! - `spec/13_sdk_design/` — substrate SDK design.
+//! - `spec/06_sdk/` — substrate SDK design.
 //! - `spec/29_knowledge_sdk/00_purpose.md` — knowledge SDK design +
 //!   phase scope.
 
@@ -81,7 +81,7 @@ pub mod proto;
 pub mod request_id;
 pub mod retry;
 
-pub use brain_core::knowledge::TombstoneReason;
+pub use brain_core::TombstoneReason;
 pub use brain_core::{EntityId, MemoryId, RelationId, RequestId, StatementId, StatementKind};
 pub use client::Client;
 pub use config::{AuthMethod, ClientConfig};

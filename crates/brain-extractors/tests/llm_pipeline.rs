@@ -18,7 +18,7 @@ use std::time::Duration;
 
 use brain_core::{AgentId, ContextId, ExtractorId, Memory, MemoryId, MemoryKind, Salience};
 use brain_extractors::{
-    extractor::{ExtractionContext, ExtractionStatus, Extractor},
+    framework::extractor::{ExtractionContext, ExtractionStatus, Extractor},
     hash_memory_text, CostBudget, ExtractedItem, ExtractionResult, ExtractorRegistry, LlmExtractor,
     Pricing,
 };

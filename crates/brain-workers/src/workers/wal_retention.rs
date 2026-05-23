@@ -1,4 +1,4 @@
-//! WAL retention worker (sub-task 8.8). Spec §11/07.
+//! WAL retention worker (sub-task 8.8).
 //!
 //! Deletes WAL segments whose entire LSN range is covered by the
 //! latest checkpoint, minus a configurable retention buffer.
@@ -11,7 +11,7 @@
 //! - brain-ops's `RealWriterHandle` doesn't hold a `Wal` instance yet.
 //!
 //! Both land in Phase 9. v1 therefore exposes:
-//! - A pure [`decide_deletions`] function that matches spec §3.
+//! - A pure [`decide_deletions`] function that matches.
 //! - A pluggable [`WalRetentionSource`] trait where Phase 9 wires
 //!   the real WAL.
 //! - A [`DisabledWalRetentionSource`] default that makes the worker
@@ -51,12 +51,12 @@ pub struct CheckpointDesc {
 }
 
 // ---------------------------------------------------------------------------
-// Pure decision logic — spec §11/07 §3.
+// Pure decision logic.
 // ---------------------------------------------------------------------------
 
 /// Return the ids of segments fully covered by the checkpoint, minus
 /// the retention buffer. A segment is deletable iff `last_lsn <
-/// (durable_lsn - retention_extra_lsns)`. Spec §1: "A segment is
+/// (durable_lsn - retention_extra_lsns)`: "A segment is
 /// covered when its highest LSN is less than the checkpoint's
 /// `durable_lsn`."
 ///
@@ -85,7 +85,7 @@ pub enum WalRetentionSourceError {
     /// v1 default — no WAL hookup yet.
     #[error("WAL retention source disabled")]
     Disabled,
-    /// Spec §9 safety check denied this operation; the worker should
+    /// safety check denied this operation; the worker should
     /// skip it and try again next cycle.
     #[error("WAL retention source rejected operation: {0}")]
     Rejected(String),
@@ -159,7 +159,7 @@ impl WalRetentionWorker {
         self
     }
 
-    /// Override the LSN retention buffer. v1 default is 0 — spec §7
+    /// Override the LSN retention buffer. v1 default is 0
     /// talks bytes ("256 MiB"); LSN/byte ratio depends on record
     /// size, so Phase 9's source impl will convert from
     /// `wal.segment_size`.
@@ -238,7 +238,7 @@ async fn do_retention_cycle(
         match worker.source.delete_segment(id).await {
             Ok(()) => deleted += 1,
             Err(WalRetentionSourceError::Rejected(_)) => {
-                // Spec §9 — safety check denied; try again next cycle.
+                // — safety check denied; try again next cycle.
                 continue;
             }
             Err(WalRetentionSourceError::Disabled) => break,

@@ -1,4 +1,4 @@
-//! `brain-cli shard {list,create,delete}` — spec §14/06 §11;
+//! `brain-cli shard {list,create,delete}`;
 //! sub-task 10.11. Only `list` is backed; create/delete are
 //! Phase-12 cluster operations.
 

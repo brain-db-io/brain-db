@@ -48,7 +48,7 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::{StatementKind, StatementObject, StatementValue};
+use brain_core::{StatementKind, StatementObject, StatementValue};
 use brain_core::{
     AgentId, ContextId, EntityId, ExtractorId, Memory as CoreMemory, MemoryId, MemoryKind, Salience,
 };
@@ -687,7 +687,7 @@ fn publish_tier_run_metrics(metrics: &ExtractorMetrics, outcome: &PipelineOutcom
 fn llm_exts_count(extractors: &[Arc<dyn Extractor>]) -> usize {
     extractors
         .iter()
-        .filter(|e| matches!(e.kind(), brain_core::knowledge::ExtractorKind::Llm))
+        .filter(|e| matches!(e.kind(), brain_core::ExtractorKind::Llm))
         .count()
 }
 
@@ -755,7 +755,7 @@ async fn run_pipeline_batch(
     skip_llm_budget_exhausted: bool,
     extractor_context_map: Option<HashMap<MemoryId, ExtractorContext>>,
 ) -> Vec<PipelineOutcome> {
-    use brain_core::knowledge::ExtractorKind;
+    use brain_core::ExtractorKind;
 
     let empty_reg = ExtractorRegistry::new();
     let now = now_unix_nanos();
@@ -923,9 +923,9 @@ async fn run_tier_into(
     ctx: &ExtractionContext<'_>,
     mems: &[CoreMemory],
     outcomes: &mut [PipelineOutcome],
-    tier_kind: brain_core::knowledge::ExtractorKind,
+    tier_kind: brain_core::ExtractorKind,
 ) {
-    use brain_core::knowledge::ExtractorKind;
+    use brain_core::ExtractorKind;
     for extractor in tier_exts {
         let results = extractor.run_batch(ctx, mems).await;
         debug_assert_eq!(results.len(), mems.len());
@@ -1877,7 +1877,7 @@ mod tests {
     /// empty here, the LLM will re-extract or hallucinate.
     #[test]
     fn cycle_passes_classifier_entities_to_llm_extractor() {
-        use brain_core::knowledge::ExtractorKind;
+        use brain_core::ExtractorKind;
         use brain_core::{ExtractorId as TestExtractorId, MemoryId};
         use brain_extractors::{
             EntityMention as TestEntityMention, ExtractedItem as TestExtractedItem,

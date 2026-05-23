@@ -238,4 +238,4 @@ errors.
 - [`info.md`](info.md) — see all settings the live session ended up using.
 - [`../configuration.md`](../configuration.md) — file schema reference.
 - [`../repl-meta.md`](../repl-meta.md) — `\config` meta-commands (the dual-write surface).
-- Spec: [`spec/13_sdk_design/01_principles.md`](../../../../spec/13_sdk_design/01_principles.md) — SDK ergonomic principles the CLI inherits.
+- Spec: [`spec/06_sdk/01_principles.md`](../../../../spec/06_sdk/01_principles.md) — SDK ergonomic principles the CLI inherits.

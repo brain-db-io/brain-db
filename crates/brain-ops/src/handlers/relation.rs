@@ -1,5 +1,5 @@
 //! Relation wire-op handlers — `RELATION_CREATE / _GET / _SUPERSEDE /
-//! _TOMBSTONE / _LIST_FROM / _LIST_TO / _TRAVERSE` (spec §28/07,
+//! _TOMBSTONE / _LIST_FROM / _LIST_TO / _TRAVERSE` (
 //! phase 18.7).
 //!
 //! Each handler:
@@ -13,14 +13,14 @@
 //!    otherwise) and calls into `brain_metadata`.
 //! 6. Commits writes.
 //! 7. Emits a post-commit subscription event (CREATE / SUPERSEDE /
-//!    TOMBSTONE) per spec §28/02 §3.3.
+//!    TOMBSTONE).
 //! 8. Projects brain-core `Relation` → wire `RelationView`.
 //!
 //! Phase 18.7 handlers do NOT yet handle cross-shard relation reads
 //! or the relation embedding worker — both deferred per the §20
 //! open questions.
 
-use brain_core::knowledge::Relation;
+use brain_core::Relation;
 use brain_core::{Cardinality, EntityId, RelationId, RelationTypeId, RequestId};
 use brain_metadata::relation::ops::{
     relation_get, relation_list_from, relation_list_to, RelationListFilter, RelationOpError,
@@ -34,7 +34,7 @@ use brain_metadata::relation::types::{
 };
 use brain_metadata::schema::store::schema_active;
 use brain_planner::WriterError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     KnowledgeEventPayload, RelationCreateRequest, RelationCreateResponse, RelationCreatedEvent,
     RelationGetRequest, RelationGetResponse, RelationListFromRequest,
     RelationListFromResponseFrame, RelationListToRequest, RelationListToResponseFrame,
@@ -381,10 +381,9 @@ pub async fn handle_relation_tombstone(
     let id = RelationId::from(req.relation_id);
     let now = crate::txn::now_unix_nanos_pub();
 
-    // Pre-submit existence check — the legacy path surfaced
-    // RelationOpError::NotFound as OpError::NotFound, but submit-path
-    // failures collapse into WriterError::Internal. Peek first so
-    // missing-id keeps its structured wire shape.
+    // Pre-submit existence check — submit-path failures collapse into
+    // WriterError::Internal, so peek first to keep the missing-id
+    // case structured as OpError::NotFound.
     peek_relation_exists(ctx, id)?;
 
     let real_writer = downcast_writer_pub(ctx)?;
@@ -693,23 +692,23 @@ fn split_qname(q: &str) -> Result<(&str, &str), OpError> {
 fn evidence_memories_from_create(
     req: &RelationCreateRequest,
 ) -> Result<Vec<brain_core::MemoryId>, OpError> {
-    use brain_protocol::knowledge::evidence_ref_from_wire;
+    use brain_protocol::evidence_ref_from_wire;
 
     let evidence = evidence_ref_from_wire(&req.evidence)
         .map_err(|e| OpError::InvalidRequest(format!("evidence decode: {e}")))?;
     match evidence {
-        brain_core::knowledge::EvidenceRef::Inline(entries) => {
+        brain_core::EvidenceRef::Inline(entries) => {
             Ok(entries.iter().map(|e| e.memory_id).collect())
         }
-        brain_core::knowledge::EvidenceRef::Overflow(_) => Err(OpError::InvalidRequest(
-            "RELATION evidence overflow not supported in v1 (spec §20/05 §3)".into(),
+        brain_core::EvidenceRef::Overflow(_) => Err(OpError::InvalidRequest(
+            "RELATION evidence overflow not supported in v1".into(),
         )),
     }
 }
 
 fn build_relation_from_create(
     req: &RelationCreateRequest,
-    rt: &brain_core::knowledge::RelationType,
+    rt: &brain_core::RelationType,
     now: u64,
 ) -> Result<Relation, OpError> {
     let memories = evidence_memories_from_create(req)?;
@@ -763,7 +762,7 @@ fn relation_type_lookup_by_qname_wtxn(
     wtxn: &redb::WriteTransaction,
     namespace: &str,
     name: &str,
-) -> Result<Option<brain_core::knowledge::RelationType>, OpError> {
+) -> Result<Option<brain_core::RelationType>, OpError> {
     use brain_metadata::tables::relation_type::{
         RelationTypeDefinition, RELATION_TYPES_BY_QNAME_TABLE, RELATION_TYPES_TABLE,
     };
@@ -907,8 +906,8 @@ fn hash_relation_tombstone_request(req: &RelationTombstoneRequest) -> [u8; 32] {
 /// Fold the wire `EvidenceRefWire` discriminant + inline entries into the
 /// running BLAKE3 state. Mirrors the inline-vs-overflow split decoded by
 /// `evidence_ref_from_wire`.
-fn hash_evidence_ref(h: &mut blake3::Hasher, ev: &brain_protocol::knowledge::EvidenceRefWire) {
-    use brain_protocol::knowledge::EvidenceRefWire;
+fn hash_evidence_ref(h: &mut blake3::Hasher, ev: &brain_protocol::EvidenceRefWire) {
+    use brain_protocol::EvidenceRefWire;
     match ev {
         EvidenceRefWire::Inline(entries) => {
             h.update(b"inline:");

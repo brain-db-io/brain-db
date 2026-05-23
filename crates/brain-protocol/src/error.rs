@@ -2,9 +2,9 @@
 //!
 //! Three layers, in order of generality:
 //!
-//! - [`ErrorCategory`] — the 9 broad classes from spec §03/10 §2 that drive
+//! - [`ErrorCategory`] — the 9 broad classes from that drive
 //!   client retry behavior.
-//! - [`ErrorCode`] — every named code in spec §03/10 §3, faithfully one
+//! - [`ErrorCode`] — every named code in, faithfully one
 //!   variant per row. Used both for ERROR-frame encoding/decoding (later
 //!   sub-tasks) and as a stable mapping target for [`ProtocolError`].
 //! - [`ProtocolError`] — the Rust error type emitted by this crate's codec
@@ -19,11 +19,10 @@
 use thiserror::Error;
 
 // ---------------------------------------------------------------------------
-// ErrorCategory — spec §03/10 §2.
+// ErrorCategory.
 // ---------------------------------------------------------------------------
 
 /// Broad error class. Drives the SDK's default retry policy
-/// (spec §03/10 §6).
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 pub enum ErrorCategory {
     /// Bad frame, version mismatch, malformed message — client bug.
@@ -58,10 +57,10 @@ impl ErrorCategory {
 }
 
 // ---------------------------------------------------------------------------
-// ErrorCode — every named code in spec §03/10 §3.
+// ErrorCode — every named code in.
 // ---------------------------------------------------------------------------
 
-/// Wire-level error code. One variant per row in spec §03/10 §3.1–3.9.
+/// Wire-level error code. One variant per row in.
 ///
 /// Numeric / on-wire encoding for these is owned by the ERROR-frame codec
 /// (a later sub-task in Phase 1); this enum is the in-memory representation.
@@ -253,7 +252,7 @@ impl ErrorCode {
 /// corresponding [`ErrorCategory`] is reachable via [`ProtocolError::category`].
 #[derive(Debug, Error, Clone, Eq, PartialEq)]
 pub enum ProtocolError {
-    /// Frame's magic bytes aren't `b"BRN0"` (spec §03/10 §3.1).
+    /// Frame's magic bytes aren't `b"BRN0"`.
     #[error("bad magic: expected b\"BRN0\"")]
     BadMagic,
     /// Frame's version doesn't match the negotiated/supported version.
@@ -271,7 +270,7 @@ pub enum ProtocolError {
     /// A reserved header field was non-zero.
     #[error("reserved field non-zero")]
     ReservedFieldNonZero,
-    /// An opcode value didn't match any known opcode (per spec §03/05 +
+    /// An opcode value didn't match any known opcode (+
     /// §28/00). The u16 is the offending wire value.
     #[error("unknown opcode: 0x{0:04X}")]
     UnknownOpcode(u16),
@@ -279,10 +278,10 @@ pub enum ProtocolError {
     #[error("truncated frame: have {have} bytes, need {need}")]
     Truncated { have: usize, need: usize },
     /// Generic malformed-frame error for cases not covered by a more
-    /// specific variant (`BadFrame` in spec §03/10 §3.1).
+    /// specific variant (`BadFrame` in).
     #[error("bad frame: {0}")]
     BadFrame(String),
-    /// Frame flags are mutually inconsistent (spec §03/10 §3.1).
+    /// Frame flags are mutually inconsistent.
     #[error("bad flag combination: {0}")]
     BadFlagCombination(String),
     /// Payload failed structural validation (rkyv / vector layout).
@@ -337,7 +336,7 @@ impl From<ProtocolError> for brain_core::Error {
 mod tests {
     use super::*;
 
-    /// Spot-check the category mapping against spec §03/10 §3.1–3.9 with
+    /// Spot-check the category mapping against with
     /// at least one code per category.
     #[test]
     fn error_code_categories_match_spec() {

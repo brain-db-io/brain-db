@@ -10,7 +10,7 @@
 //! - **QUERY_TRACE** runs the executor and renders the plan +
 //!   per-retriever metrics.
 //! - **Substrate RECALL** transparently routes through the hybrid
-//!   pipeline on schema-declared deployments (spec §28/08 §5).
+//!   pipeline on schema-declared deployments.
 //!
 //! Complements the per-sub-task wire tests
 //! (`query_wire.rs`, `recall_hybrid_routing.rs`) — those
@@ -24,7 +24,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     QueryExplainRequest, QueryRequest as WireQueryRequest, QueryTraceRequest,
     RetrieverSelectionWire, SchemaUploadRequest,
 };
@@ -283,7 +283,7 @@ async fn hybrid_query_surfaces_an_indexed_memory() {
 }
 
 /// EXPLAIN renders the planner's plan text without executing
-/// retrievers. Spec §16/02 §2.10 — `EXPLAIN` (plan-only) p50 500 µs
+/// retrievers — `EXPLAIN` (plan-only) p50 500 µs
 /// / p99 2 ms.
 #[tokio::test(flavor = "current_thread")]
 async fn hybrid_explain_renders_plan_text() {
@@ -322,7 +322,7 @@ async fn hybrid_explain_renders_plan_text() {
 }
 
 /// TRACE runs the executor and appends an EXECUTION block to the
-/// plan text. Spec §24/00 §"Plan structure".
+/// plan text §"Plan structure".
 #[tokio::test(flavor = "current_thread")]
 async fn hybrid_trace_includes_execution_block() {
     let server = start(1).await;
@@ -361,7 +361,7 @@ async fn hybrid_trace_includes_execution_block() {
 }
 
 /// Substrate RECALL transparently routes through the hybrid path
-/// when a schema is declared (spec §28/08 §5). Returned
+/// when a schema is declared. Returned
 /// `MemoryResult`s have `contributing_retrievers` populated and
 /// `fused_score > 0`.
 #[tokio::test(flavor = "current_thread")]

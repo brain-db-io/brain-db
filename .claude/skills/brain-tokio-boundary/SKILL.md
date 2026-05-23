@@ -11,7 +11,7 @@ when-to-use: |
 trigger-files:
   - crates/brain-server/**/*.rs
 spec-refs:
-  - spec/01_system_architecture/04_layers.md
+  - spec/01_architecture/04_layers.md
 ---
 
 # Tokio ↔ Glommio Boundary

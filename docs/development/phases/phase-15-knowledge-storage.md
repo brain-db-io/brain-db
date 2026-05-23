@@ -10,10 +10,10 @@ Add the knowledge-layer redb table definitions, new on-disk artifacts (tantivy d
 
 ## Reading list
 
-- `spec/26_knowledge_storage/00_purpose.md` — the full storage layout.
-- `spec/17_knowledge_model/00_purpose.md` — three-layer model + schema-optional semantics.
+- `spec/10_metadata/14_knowledge_layer_storage.md` — the full storage layout.
+- `spec/02_data_model/00_purpose.md` — three-layer model + schema-optional semantics.
 - `AUTONOMY.md` — knowledge-layer rules (schema-optional regression is binding).
-- `spec/05_storage_arena_wal/` and `spec/07_metadata_graph/` — substrate storage primitives.
+- `spec/08_storage/` and `spec/10_metadata/` — substrate storage primitives.
 
 ## Outputs
 
@@ -27,35 +27,35 @@ Add the knowledge-layer redb table definitions, new on-disk artifacts (tantivy d
 
 ### 15.1 Define new redb tables in `brain-metadata`
 
-**Reads:** `26_knowledge_storage/00_purpose.md` (the table list).
+**Reads:** `07_metadata_graph/14_knowledge_layer_storage.md` (the table list).
 **Writes:** `crates/brain-metadata/src/tables/knowledge.rs`.
 **Done when:** all 25 knowledge-layer redb tables compile with correct key/value type signatures.
 **Pitfalls:** Don't import any knowledge-layer *behavior* yet — only types. Keep this module isolated so substrate code is unaffected.
 
 ### 15.2 Add knowledge-layer WAL frame type discriminator
 
-**Reads:** `26_knowledge_storage/00_purpose.md` (WAL extensions section); `spec/05_storage_arena_wal/`.
+**Reads:** `07_metadata_graph/14_knowledge_layer_storage.md` (WAL extensions section); `spec/08_storage/`.
 **Writes:** `crates/brain-storage/src/wal/frame.rs`.
 **Done when:** WAL writer accepts new frame types (placeholders, write-noop), reader recognizes them, substrate frame parsing remains intact.
 **Pitfalls:** Don't increment WAL version number; new frame types are additive. CRC computation must include the new type byte.
 
 ### 15.3 New on-disk artifact paths
 
-**Reads:** `26_knowledge_storage/00_purpose.md` (shard layout).
+**Reads:** `07_metadata_graph/14_knowledge_layer_storage.md` (shard layout).
 **Writes:** `crates/brain-storage/src/layout.rs`.
 **Done when:** `Shard::open()` creates new directories (`statements.tantivy/`, etc.) if missing; doesn't disturb existing substrate files.
 **Pitfalls:** mkdir-p semantics; existing substrate shards must still open.
 
 ### 15.4 LLM cache redb file
 
-**Reads:** `26_knowledge_storage/00_purpose.md` (LLM cache section).
+**Reads:** `07_metadata_graph/14_knowledge_layer_storage.md` (LLM cache section).
 **Writes:** `crates/brain-metadata/src/llm_cache.rs`.
 **Done when:** separate redb file per shard, opened on `Shard::open()`, two tables initialized.
 **Pitfalls:** Keep this file separate from `metadata.redb` to avoid bloating the hot metadata file with LLM blobs.
 
 ### 15.5 substrate-only mode regression test
 
-**Reads:** `spec/16_benchmarks_acceptance/`.
+**Reads:** `spec/19_benchmarks/`.
 **Writes:** `tests/knowledge_compat.rs`.
 **Done when:** all substrate acceptance tests pass against a server with no schema declared (knowledge tables exist + empty; knowledge-layer workers, if any spawn in later phases, idle). P50/P99 ENCODE and RECALL latencies within 110% of substrate-only baseline.
 **Pitfalls:** Run on substrate reference data; check tail latencies, not just averages. Activation is by schema state (no `SCHEMA_UPLOAD` → no extraction work), **not** by an env flag — the knowledge layer is a core feature with no separate enable/disable toggle.

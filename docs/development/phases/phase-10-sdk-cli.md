@@ -12,15 +12,15 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
 
 ## Reading list
 
-1. [`spec/13_sdk_design/00_purpose.md`](../../spec/13_sdk_design/00_purpose.md)
-2. [`spec/13_sdk_design/01_principles.md`](../../spec/13_sdk_design/01_principles.md)
-3. [`spec/13_sdk_design/02_core_api.md`](../../spec/13_sdk_design/02_core_api.md)
-4. [`spec/13_sdk_design/03_connection.md`](../../spec/13_sdk_design/03_connection.md)
-5. [`spec/13_sdk_design/04_retries.md`](../../spec/13_sdk_design/04_retries.md)
-6. [`spec/13_sdk_design/04_retries.md`](../../spec/13_sdk_design/04_retries.md)
-7. [`spec/13_sdk_design/05_streams.md`](../../spec/13_sdk_design/05_streams.md)
-8. [`spec/13_sdk_design/07_observability.md`](../../spec/13_sdk_design/07_observability.md)
-9. [`spec/14_observability_ops/06_admin_ops.md`](../../spec/14_observability_ops/06_admin_ops.md) — CLI surface.
+1. [`spec/06_sdk/00_purpose.md`](../../spec/06_sdk/00_purpose.md)
+2. [`spec/06_sdk/01_principles.md`](../../spec/06_sdk/01_principles.md)
+3. [`spec/06_sdk/02_core_api.md`](../../spec/06_sdk/02_core_api.md)
+4. [`spec/06_sdk/03_connection.md`](../../spec/06_sdk/03_connection.md)
+5. [`spec/06_sdk/04_retries_and_streams.md`](../../spec/06_sdk/04_retries_and_streams.md)
+6. [`spec/06_sdk/04_retries_and_streams.md`](../../spec/06_sdk/04_retries_and_streams.md)
+7. [`spec/06_sdk/04_retries_and_streams.md`](../../spec/06_sdk/04_retries_and_streams.md)
+8. [`spec/06_sdk/06_observability_and_testing.md`](../../spec/06_sdk/06_observability_and_testing.md)
+9. [`spec/17_observability/04_admin_ops.md`](../../spec/17_observability/04_admin_ops.md) — CLI surface.
 
 ## Outputs
 
@@ -31,22 +31,22 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
 ## Sub-tasks
 
 ### Task 10.1 — `Client` skeleton  [x]
-**Reads:** `spec/13_sdk_design/02_core_api.md`, `03_connection.md`,
-  `spec/03_wire_protocol/06_handshake.md`. Plan
+**Reads:** `spec/06_sdk/02_core_api.md`, `03_connection.md`,
+  `spec/04_wire_protocol/04_handshake.md`. Plan
   `.claude/plans/phase-10-task-01.md`.
 **Writes:** `crates/brain-sdk-rust/src/{client,config,error,proto}/`
   (folder-per-concern; only `lib.rs` at src root). Integration
   test `tests/handshake.rs` uses a hand-rolled mock server (no
   cross-crate dep on brain-server).
 **Done when:** `Client::connect(addr).await?` opens TCP, drives
-  spec §03/06 handshake (HELLO → WELCOME → AUTH → AUTH_OK), and
+  spec §02/06 handshake (HELLO → WELCOME → AUTH → AUTH_OK), and
   returns a usable client. `Client::bye(self)` performs the
-  spec §03/05 §1.1 echo-and-close. 8/8 tests pass (6 unit +
+  spec §02/05 §1.1 echo-and-close. 8/8 tests pass (6 unit +
   2 integration); docker-verify green.
 
 ### Task 10.2 — Connection pool  [x]
-**Reads:** `spec/13_sdk_design/03_connection.md` §1, §2, §4, §5,
-  §13, §14. Plan `.claude/plans/phase-10-task-02.md`.
+**Reads:** `spec/06_sdk/03_connection.md` §1, §2, §4, §5,
+  §13, §10. Plan `.claude/plans/phase-10-task-02.md`.
 **Writes:** `crates/brain-sdk-rust/src/pool/`
   (`mod.rs` Pool + acquire + reaper, `connection.rs` extracted
   from `client/mod.rs`, `config.rs` PoolConfig, `guard.rs` RAII
@@ -62,7 +62,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   docker-verify green.
 
 ### Task 10.3 — Retry with exponential backoff + jitter  [x]
-**Reads:** `spec/13_sdk_design/04_retries.md` §1, §2, §5, §6, §10,
+**Reads:** `spec/06_sdk/04_retries_and_streams.md` §1, §2, §5, §6, §10,
   §13. Plan `.claude/plans/phase-10-task-03.md`.
 **Writes:** `crates/brain-sdk-rust/src/retry/`
   (`mod.rs`, `config.rs` RetryConfig + presets, `runner.rs`
@@ -79,7 +79,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   integration). docker-verify green.
 
 ### Task 10.4 — Auto-generated UUIDv7 RequestIds  [x]
-**Reads:** `spec/13_sdk_design/04_retries.md` §3, §15.
+**Reads:** `spec/06_sdk/04_retries_and_streams.md` §3, §14.
   Plan `.claude/plans/phase-10-task-04.md`.
 **Writes:** `crates/brain-sdk-rust/src/request_id/mod.rs` —
   `RequestIdSource` trait + `DefaultRequestIdSource` (production,
@@ -93,7 +93,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   tests pass (27 lib unit + 9 integration). docker-verify green.
 
 ### Task 10.5 — All op methods on `Client`  [x]
-**Reads:** `spec/13_sdk_design/02_core_api.md` §3-§11. Plan
+**Reads:** `spec/06_sdk/02_core_api.md` §3-§11. Plan
   `.claude/plans/phase-10-task-05.md`.
 **Writes:** `crates/brain-sdk-rust/src/ops/` (folder-per-concern:
   `common.rs` + 9 op files: `encode/recall/plan/reason/forget/`
@@ -115,7 +115,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   tokens, `retry_after` honoring.
 
 ### Task 10.6 — Streaming via async iterators  [x]
-**Reads:** `spec/13_sdk_design/05_streams.md` §1-§3, §5, §10-§12.
+**Reads:** `spec/06_sdk/04_retries_and_streams.md` §1-§3, §5, §10-§12.
   Plan `.claude/plans/phase-10-task-06.md`.
 **Writes:** `crates/brain-sdk-rust/src/ops/stream.rs` —
   generic `FrameStream<T>` impls `futures_lite::Stream`; owns
@@ -137,8 +137,8 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   drop-and-pool path is best-effort).
 
 ### Task 10.7 — SDK observability  [x]
-**Reads:** `spec/13_sdk_design/07_observability.md` §1, §2, §3,
-  §6, §17. Plan `.claude/plans/phase-10-task-07.md`.
+**Reads:** `spec/06_sdk/06_observability_and_testing.md` §1, §2, §3,
+  §6, §14. Plan `.claude/plans/phase-10-task-07.md`.
 **Writes:** `crates/brain-sdk-rust/src/observability/`
   (folder-per-concern: `mod.rs`, `attributes.rs` OTel-style
   attribute keys, `metrics.rs` `MetricsState` + atomic counters
@@ -160,7 +160,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   histogram/percentile surfaces.
 
 ### Task 10.8 — `brain-cli stats` and `health`  [x]
-**Reads:** `spec/14_observability_ops/06_admin_ops.md` §3.
+**Reads:** `spec/17_observability/04_admin_ops.md` §3.
   Plan `.claude/plans/phase-10-task-08.md`.
 **Writes:** `crates/brain-cli/src/{cli,commands,output,http}/`
   (folder-per-concern; only `main.rs` + `lib.rs` at src root).
@@ -178,7 +178,7 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
   (10.13), all other subcommands (10.9-10.12).
 
 ### Task 10.9 — `brain-cli snapshot` family  [x]
-**Reads:** `spec/14_observability_ops/06_admin_ops.md` §5. Plan
+**Reads:** `spec/17_observability/04_admin_ops.md` §5. Plan
   `.claude/plans/phase-10-task-09.md`.
 **Writes:**
   - Server: `crates/brain-server/src/admin/snapshot.rs` — new
@@ -194,13 +194,13 @@ Other-language SDKs (Python, TypeScript, Go) are deferred to v1.x.
     parser.
 **Done when:** Snapshot create/list/delete round-trip end-to-end
   through the admin HTTP endpoint. Restore is a documented stub
-  (spec §14/06 §5 — destructive; v2). 32 brain-cli tests pass
+  (spec §02/06 §5 — destructive; v2). 32 brain-cli tests pass
   (17 lib unit + 15 integration). docker-verify green.
   Deferred: auth tokens on admin HTTP, TLS, wire-protocol
   admin ops, dry-run mode, job-id tracking, online restore.
 
 ### Task 10.10 — `brain-cli rebuild-ann`  [x]
-**Reads:** `spec/14_observability_ops/06_admin_ops.md` §4. Plan
+**Reads:** `spec/17_observability/04_admin_ops.md` §4. Plan
   `.claude/plans/phase-10-task-10.md`.
 **Writes:**
   - Server: `crates/brain-server/src/admin/rebuild.rs` — new
@@ -274,5 +274,5 @@ a smoke test.
 - [x] All sub-tasks complete.
 - [x] Verify suite (fmt-check + build + clippy + test + check-skills) green.
 - [x] SDK can drive every operation per spec.
-- [x] CLI covers every command in spec §14/06.
+- [x] CLI covers every command in spec §02/06.
 - [ ] Tag `phase-10-complete`. *(awaiting user signal)*

@@ -88,7 +88,7 @@ impl MetricsState {
     }
 
     /// Record that a fresh connection was opened (handshake
-    /// completed). Spec §13/07 §12.
+    /// completed).
     pub fn record_connection_opened(&self) {
         self.connections_opened_total
             .fetch_add(1, Ordering::Relaxed);

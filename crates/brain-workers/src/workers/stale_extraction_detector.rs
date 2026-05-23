@@ -1,4 +1,4 @@
-//! Stale extraction detector (sub-task 24.4). Spec §27/03 §5.
+//! Stale extraction detector (sub-task 24.4).
 //!
 //! Periodic Low-priority worker that **counts** statements whose
 //! `schema_version` is behind the current schema. v1 does NOT

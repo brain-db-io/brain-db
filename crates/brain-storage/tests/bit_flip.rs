@@ -1,4 +1,4 @@
-//! Bit-flip chaos test. Spec §15/07 §11 + §16/06.
+//! Bit-flip chaos test.
 //!
 //! Companion to `random_kill.rs`. `random_kill` covers torn writes
 //! (truncation); this file covers in-place byte corruption — a
@@ -12,7 +12,7 @@
 //!    records.
 //! 4. Reopen and call `recover`.
 //! 5. Assert that recovery either:
-//!    - Returns `Err(_)` (fail-stop per spec §15/07 §11), OR
+//!    - Returns `Err(_)` (fail-stop), OR
 //!    - Returns only the prefix of records before the corrupted one
 //!      (CRC mismatch causes the recovery to stop at the bad record).
 //!
@@ -183,7 +183,7 @@ fn flipping_bit_in_record_payload_is_detected() {
         Ok(n) => {
             assert!(
                 n < N_RECORDS,
-                "recovery returned {n} records — corruption was silent (spec §15/07 §11 violation)"
+                "recovery returned {n} records — corruption was silent"
             );
         }
         Err(_) => {
@@ -204,7 +204,7 @@ fn flipping_bit_in_segment_header_is_detected() {
     let seg_path = find_segment(&wal_dir);
 
     // Flip a bit in the segment header (byte 4 is inside the shard
-    // UUID region per `spec/05_storage_arena_wal/03_wal_layout.md`).
+    // UUID region per `spec/08_storage/03_wal_layout.md`).
     flip_bit(&seg_path, 4, 0);
 
     match recover_count(&wal_dir, &arena_path) {

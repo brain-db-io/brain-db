@@ -1,4 +1,4 @@
-//! Audit log sweeper (sub-task 24.7). Spec §27/03 §3.
+//! Audit log sweeper (sub-task 24.7).
 //!
 //! Periodic low-priority worker that hard-deletes audit rows
 //! past `retention_seconds` (default 90 d). v1 sweeps the

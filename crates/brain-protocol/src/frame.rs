@@ -2,7 +2,7 @@
 //!
 //! This module gives the wire-protocol codec for a single frame. It does NOT
 //! interpret the payload — that's the job of higher layers (rkyv decoders for
-//! structured data, `bytemuck` views over raw vector bytes per spec §03/04).
+//! structured data, `bytemuck` views over raw vector bytes).
 //! Here, the payload is simply `Vec<u8>`.
 //!
 //! [`Frame::encode`] is the canonical sealing point: it recomputes
@@ -31,7 +31,7 @@ impl Frame {
     /// # Panics
     ///
     /// Panics if `payload.len()` exceeds [`MAX_PAYLOAD_BYTES`]. Callers must
-    /// split into multi-payload frames (spec §03/03 §6) before that point.
+    /// split into multi-payload frames before that point.
     #[must_use]
     pub fn new(opcode: u16, flags: u8, stream_id: u32, payload: Vec<u8>) -> Self {
         assert!(
@@ -164,7 +164,7 @@ mod tests {
         let (decoded, rest) = Frame::decode(&bytes).expect("decode empty");
         assert!(rest.is_empty());
         assert!(decoded.payload.is_empty());
-        // Spec §03/03 §3.7: payload_crc32c MUST be zero when payload_len is zero.
+        // payload_crc32c MUST be zero when payload_len is zero.
         assert_eq!(decoded.header.payload_crc32c, [0; 4]);
     }
 
@@ -196,7 +196,7 @@ mod tests {
             Frame::decode(&bytes),
             Err(ProtocolError::BadVersion {
                 got: 99,
-                expected: 2
+                expected: 1
             })
         ));
     }
@@ -305,7 +305,7 @@ mod tests {
         /// succeeds — and if it succeeds, the consumed prefix must
         /// re-encode to itself (the decoder accepted only canonical bytes).
         ///
-        /// Spec §03/11 §1: validation is layered and deterministic — so an
+        /// validation is layered and deterministic — so an
         /// adversary feeding garbage cannot cause UB or panics.
         #[test]
         fn decode_arbitrary_bytes_is_total(

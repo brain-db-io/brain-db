@@ -11,17 +11,17 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ## Reading list
 
-1. [`spec/05_storage_arena_wal/00_purpose.md`](../../spec/05_storage_arena_wal/00_purpose.md)
-2. [`spec/05_storage_arena_wal/01_arena_overview.md`](../../spec/05_storage_arena_wal/01_arena_overview.md)
-3. [`spec/05_storage_arena_wal/02_arena_layout.md`](../../spec/05_storage_arena_wal/02_arena_layout.md) — **slot byte layout, alignment, CRC placement.**
-4. [`spec/05_storage_arena_wal/03_arena_growth.md`](../../spec/05_storage_arena_wal/03_arena_growth.md) — file growth, mmap remap.
-5. [`spec/05_storage_arena_wal/04_wal_overview.md`](../../spec/05_storage_arena_wal/04_wal_overview.md)
-6. [`spec/05_storage_arena_wal/05_wal_records.md`](../../spec/05_storage_arena_wal/05_wal_records.md) — **record framing.**
-7. [`spec/05_storage_arena_wal/06_wal_durability.md`](../../spec/05_storage_arena_wal/06_wal_durability.md) — `RWF_DSYNC`, group commit.
-8. [`spec/05_storage_arena_wal/07_write_path.md`](../../spec/05_storage_arena_wal/07_write_path.md)
-9. [`spec/05_storage_arena_wal/08_recovery.md`](../../spec/05_storage_arena_wal/08_recovery.md) — **the recovery algorithm.**
-10. [`spec/05_storage_arena_wal/09_checkpointing.md`](../../spec/05_storage_arena_wal/09_checkpointing.md)
-11. [`spec/15_failure_recovery/02_crash_recovery.md`](../../spec/15_failure_recovery/02_crash_recovery.md)
+1. [`spec/08_storage/00_purpose.md`](../../spec/08_storage/00_purpose.md)
+2. [`spec/08_storage/01_arena.md`](../../spec/08_storage/01_arena.md)
+3. [`spec/08_storage/01_arena.md`](../../spec/08_storage/01_arena.md) — **slot byte layout, alignment, CRC placement.**
+4. [`spec/08_storage/01_arena.md`](../../spec/08_storage/01_arena.md) — file growth, mmap remap.
+5. [`spec/08_storage/02_wal.md`](../../spec/08_storage/02_wal.md)
+6. [`spec/08_storage/02_wal.md`](../../spec/08_storage/02_wal.md) — **record framing.**
+7. [`spec/08_storage/02_wal.md`](../../spec/08_storage/02_wal.md) — `RWF_DSYNC`, group commit.
+8. [`spec/08_storage/03_write_path.md`](../../spec/08_storage/03_write_path.md)
+9. [`spec/08_storage/04_recovery.md`](../../spec/08_storage/04_recovery.md) — **the recovery algorithm.**
+10. [`spec/08_storage/05_checkpointing.md`](../../spec/08_storage/05_checkpointing.md)
+11. [`spec/18_failure_recovery/02_crash_recovery.md`](../../spec/18_failure_recovery/02_crash_recovery.md)
 
 ## Outputs
 
@@ -40,7 +40,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.1 — `Lsn` newtype and `WalRecord` framing ✅
 
-**Reads:** `spec/05_storage_arena_wal/05_wal_records.md`
+**Reads:** `spec/08_storage/02_wal.md`
 
 **Writes:** `crates/brain-storage/src/wal/record.rs`, `crates/brain-storage/src/wal/kinds.rs`
 
@@ -57,13 +57,13 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ---
 
-### Task 2.2 — Typed `WalPayload` per spec §05/05 ✅
+### Task 2.2 — Typed `WalPayload` per spec §02/05 ✅
 
-**Reads:** `spec/05_storage_arena_wal/05_wal_records.md`
+**Reads:** `spec/08_storage/02_wal.md`
 
 **Writes:** `crates/brain-storage/src/wal/payload.rs` (and small bridge in `record.rs`)
 
-**Design note:** rather than retrofit data variants onto the discriminator-only `WalRecordKind` enum from 2.1 (which would conflate the wire byte with the typed meaning and invalidate the framing tests), the typed layer lives in a parallel `WalPayload` enum. `WalPayload::kind() -> WalRecordKind` and `WalRecord::from_typed` / `WalRecord::typed_payload` bridge the two layers. Spec §05/05's "rkyv-serialized" prescription is replaced with hand-encoded LE byte layouts that match the spec's §§5–16 byte tables exactly; rkyv's generated layouts wouldn't match the spec's prescribed field order.
+**Design note:** rather than retrofit data variants onto the discriminator-only `WalRecordKind` enum from 2.1 (which would conflate the wire byte with the typed meaning and invalidate the framing tests), the typed layer lives in a parallel `WalPayload` enum. `WalPayload::kind() -> WalRecordKind` and `WalRecord::from_typed` / `WalRecord::typed_payload` bridge the two layers. Spec §02/05's "rkyv-serialized" prescription is replaced with hand-encoded LE byte layouts that match the spec's §§5–16 byte tables exactly; rkyv's generated layouts wouldn't match the spec's prescribed field order.
 
 **Done when:**
 - [x] Every spec'd kind has a variant (15 of 15).
@@ -73,11 +73,11 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.3 — Arena slot byte layout ✅
 
-**Reads:** `spec/05_storage_arena_wal/02_arena_layout.md`
+**Reads:** `spec/08_storage/01_arena.md`
 
 **Writes:** `crates/brain-storage/src/arena/slot.rs` (and `arena/mod.rs`)
 
-**What was built** (corrected against spec §05/02 §3.2 — the original sketch in this phase doc named the wrong fields):
+**What was built** (corrected against spec §02/02 §3.2 — the original sketch in this phase doc named the wrong fields):
 - `#[repr(C, align(64))] struct Slot { vector: [f32; 384], metadata: SlotMeta }` — exactly 1600 bytes, 64-byte aligned, no implicit padding.
 - `SlotMeta` (64 bytes, `#[repr(C)]`) carries the spec's bookkeeping: `slot_version`, `flags`, `embedding_model_fp_short`, `created_at_unix_nanos`, `last_modified_at_unix_nanos`, `metadata_crc32c`, and a 20-byte reserved tail. **Agent/context/kind/salience are NOT in the slot — those live in the metadata store (redb), not the arena.**
 - `metadata_crc32c` lives *inside* SlotMeta at metadata-offset 40 (slot-offset 1576), not as a trailing field on the slot. CRC covers `vector || metadata[0..40]`. (Spec §3.2's literal "[0..36]" splits `last_modified_at` mid-field; we treat that as a typo and cover `[0..40]`. See `.claude/plans/phase-02-task-03.md` §3.1.)
@@ -90,21 +90,21 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 **Pitfalls:**
 - Padding must be explicit (named field) to satisfy `bytemuck::Pod`. No implicit holes. Verified by `const _: () = { assert!(size_of::<...>() == ...); assert!(offset_of!(...) == ...); };` static blocks.
-- Vector dimension is 384 (BGE-small) for v1; vector occupies bytes 0..1536. The slot is *not* oversized for larger models — the v1 file format pins 1600 bytes per spec §05/02 §3.
+- Vector dimension is 384 (BGE-small) for v1; vector occupies bytes 0..1536. The slot is *not* oversized for larger models — the v1 file format pins 1600 bytes per spec §02/02 §3.
 
 ---
 
 ### Task 2.4 — Arena file: open, mmap, grow ✅
 
-**Reads:** `spec/05_storage_arena_wal/{01,02,03}*.md`, `spec/01_system_architecture/05_hardware.md` §1.1
+**Reads:** `spec/08_storage/{01,02,03}*.md`, `spec/01_architecture/05_hardware_and_targets.md` §1.1
 
 **Writes:** `crates/brain-storage/src/arena/file.rs` (and `arena/mod.rs`)
 
 **What was built** (corrected against spec — original sketch used `MmapMut` from `memmap2`, which doesn't expose `mremap`):
-- `ArenaFile` — owns one shard's `arena.bin`. Hand-rolled mmap region (`NonNull<u8>` + `file_size` + `capacity_slots`). Hand-rolled because `memmap2` would force the spec's *fallback* growth path (§05/03 §5) instead of the prescribed `mremap(MREMAP_MAYMOVE)` primary path (§05/03 §4).
-- `open(path, shard_uuid, initial_capacity_slots)` — creates a new arena (`fallocate` → mmap → header init → `msync(MS_SYNC, header_page)`) or validates an existing one (magic → CRC → format/dim/size → uuid → file-size consistency, in spec §05/02 §11 order).
+- `ArenaFile` — owns one shard's `arena.bin`. Hand-rolled mmap region (`NonNull<u8>` + `file_size` + `capacity_slots`). Hand-rolled because `memmap2` would force the spec's *fallback* growth path (§02/03 §5) instead of the prescribed `mremap(MREMAP_MAYMOVE)` primary path (§02/03 §4).
+- `open(path, shard_uuid, initial_capacity_slots)` — creates a new arena (`fallocate` → mmap → header init → `msync(MS_SYNC, header_page)`) or validates an existing one (magic → CRC → format/dim/size → uuid → file-size consistency, in spec §02/02 §11 order).
 - `slot(&self, idx) -> &Slot` and `slot_mut(&mut self, idx) -> &mut Slot` — pointer arithmetic into the mmap; single-writer enforced by the borrow checker.
-- `grow_to(&mut self, new_capacity_slots)` — `fallocate` → `mremap(MREMAP_MAYMOVE)` → header update (capacity + last_grow_at + CRC) → `msync(MS_SYNC, header_page)`. No-op on equal capacity; `ShrinkRequested` error on shrink (spec §05/03 §8: "The arena does not shrink in v1").
+- `grow_to(&mut self, new_capacity_slots)` — `fallocate` → `mremap(MREMAP_MAYMOVE)` → header update (capacity + last_grow_at + CRC) → `msync(MS_SYNC, header_page)`. No-op on equal capacity; `ShrinkRequested` error on shrink (spec §02/03 §8: "The arena does not shrink in v1").
 - `Drop` calls `munmap`. `madvise(MADV_RANDOM | MADV_DONTDUMP)` per spec §01/05 §1.1 (non-fatal; logs at warn).
 - Header CRC covers bytes `[0..80]` — same `[0..N]`-cuts-a-u64 typo pattern as the slot CRC (spec literal `[0..76]` would split `last_grow_at`); see `.claude/plans/phase-02-task-04.md` §3.1.
 - `HeaderRaw` is `#[repr(C)]` `bytemuck::Pod`, with a `const _: () = { assert!(...); };` block enforcing every field offset and the 4096-byte total at compile time.
@@ -126,19 +126,19 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.5 — Slot allocator with free list and version bumping ✅
 
-**Reads:** `spec/05_storage_arena_wal/01_arena_overview.md` §10, `02_arena_layout.md` §3.2 + §8, `07_write_path.md` §2, `03_arena_growth.md` §2, `spec/02_data_model/03_identifiers.md` §2.
+**Reads:** `spec/08_storage/01_arena.md` §10, `02_arena_layout.md` §3.2 + §8, `07_write_path.md` §2, `03_arena_growth.md` §2, `spec/02_data_model/02_memory.md` §2.
 
 **Writes:** `crates/brain-storage/src/arena/allocator.rs` (and `arena/mod.rs`)
 
-**Design note:** original phase-doc sketch had `free()` bumping the version. Spec §05/07 §56 puts the bump at *alloc* time (`new_version = current + 1`). End-to-end behavior is the same ("alloc/free/alloc returns version+1") but the spec reading has a nice property: a crashed encode between `alloc` and WAL fsync doesn't burn a version, because the on-disk version is only updated when the encoder finalizes the slot. Plan §3.1 captures the rationale.
+**Design note:** original phase-doc sketch had `free()` bumping the version. Spec §02/07 §56 puts the bump at *alloc* time (`new_version = current + 1`). End-to-end behavior is the same ("alloc/free/alloc returns version+1") but the spec reading has a nice property: a crashed encode between `alloc` and WAL fsync doesn't burn a version, because the on-disk version is only updated when the encoder finalizes the slot. Plan §3.1 captures the rationale.
 
 **What was built:**
-- `SlotAllocator { free_list: Vec<u64>, next_fresh: u64, capacity: u64 }`. LIFO free list (spec §05/07 §1 "pop the head").
+- `SlotAllocator { free_list: Vec<u64>, next_fresh: u64, capacity: u64 }`. LIFO free list (spec §02/07 §1 "pop the head").
 - `empty(capacity)` — fresh-arena constructor.
 - `rebuild_from_arena(arena)` — O(N) two-pass classifier: pass 1 finds `next_fresh` = `max_used_idx + 1` (`OCCUPIED || PENDING_WRITE || slot_version > 0`); pass 2 adds every non-`OCCUPIED` slot below `next_fresh` to the free list (including never-used slots that happen to sit below the boundary — without this they'd be permanently lost).
-- `alloc(arena)` — pops free_list or takes `next_fresh`; re-checks free-list slot is still free (spec §05/07 §1); computes `new_version = current + 1` with saturation handling per spec §05/02 §8; sets `PENDING_WRITE` on disk per spec §05/07 §48; returns `(idx, new_version)`.
-- `free(arena, idx)` — clears all flags on disk (spec §05/02 §3.2 "After reclaim, both bits become 0"), refreshes CRC, pushes onto free list. Does not bump version.
-- `version_of(arena, idx)`, `on_capacity_grow(new_capacity)` (panics on shrink per spec §05/03 §8).
+- `alloc(arena)` — pops free_list or takes `next_fresh`; re-checks free-list slot is still free (spec §02/07 §1); computes `new_version = current + 1` with saturation handling per spec §02/02 §8; sets `PENDING_WRITE` on disk per spec §02/07 §48; returns `(idx, new_version)`.
+- `free(arena, idx)` — clears all flags on disk (spec §02/02 §3.2 "After reclaim, both bits become 0"), refreshes CRC, pushes onto free list. Does not bump version.
+- `version_of(arena, idx)`, `on_capacity_grow(new_capacity)` (panics on shrink per spec §02/03 §8).
 - Saturation handling: both `alloc` and `free` return `*Retired` errors when version is at `u32::MAX`.
 
 **Done when:**
@@ -149,7 +149,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.6 — WAL segment writer (no fsync yet) ✅
 
-**Reads:** `spec/05_storage_arena_wal/04_wal_overview.md`, `spec/05_storage_arena_wal/05_wal_records.md` §1 (segment header) + §17 (record packing)
+**Reads:** `spec/08_storage/02_wal.md`, `spec/08_storage/02_wal.md` §1 (segment header) + §14 (record packing)
 
 **Writes:** `crates/brain-storage/src/wal/segment.rs` (and `wal/mod.rs` re-exports)
 
@@ -170,13 +170,13 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.7 — `WalReader` over a directory of segments ✅
 
-**Reads:** `spec/05_storage_arena_wal/05_wal_records.md` §§1, 17; `08_recovery.md` §§4, 10.
+**Reads:** `spec/08_storage/02_wal.md` §§1, 17; `08_recovery.md` §§4, 10.
 
 **Writes:** `crates/brain-storage/src/wal/reader.rs` (and `wal/mod.rs` re-exports)
 
 **What was built:**
-- `WalReader::open(dir, shard_uuid)` — lists `*.wal` files, parses `segment_seq` from filenames (strict 10-digit zero-padded), validates each header (magic `"BWAL"` / format_version / CRC `[0..48]` / shard_uuid / filename-vs-header `segment_seq` cross-check), sorts by `segment_seq`, validates the seq sequence is contiguous (spec §05/08 §10.1).
-- `impl Iterator<Item = Result<WalRecord, WalReadError>>` — lazy-loads each segment into a `Vec<u8>` and decodes via `WalRecord::decode_one`. Strict LSN ordering checked at every record + at every segment boundary (spec §05/08 §4).
+- `WalReader::open(dir, shard_uuid)` — lists `*.wal` files, parses `segment_seq` from filenames (strict 10-digit zero-padded), validates each header (magic `"BWAL"` / format_version / CRC `[0..48]` / shard_uuid / filename-vs-header `segment_seq` cross-check), sorts by `segment_seq`, validates the seq sequence is contiguous (spec §02/08 §10.1).
+- `impl Iterator<Item = Result<WalRecord, WalReadError>>` — lazy-loads each segment into a `Vec<u8>` and decodes via `WalRecord::decode_one`. Strict LSN ordering checked at every record + at every segment boundary (spec §02/08 §4).
 - Tail-vs-mid-segment rule (the load-bearing distinction): `Truncated` or `CrcMismatch` at the end of the **last** segment ⇒ clean iterator end (`None`, with a `tracing::info!` log); same outcomes on any earlier segment ⇒ `MidSegmentCorruption` error (spec §10.3). `UnknownRecordType` / `NonZeroReserved` / `PayloadTooLarge` always error.
 - `FusedIterator` impl so callers can rely on `next` returning `None` after the first `None`/`Err`.
 - `last_decoded_lsn()` / `next_expected_lsn()` accessors for the recovery driver to pick up.
@@ -189,7 +189,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.8 — Group commit with `pwritev2(RWF_DSYNC)` ✅
 
-**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`
+**Reads:** `spec/08_storage/02_wal.md`
 
 **Writes:** `crates/brain-storage/src/wal/group_commit.rs` + new `WalSegment::flush_durable` in `wal/segment.rs` + `docs/development/spec-deviations.md` (new).
 
@@ -215,13 +215,13 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.9 — `Wal` public type ✅
 
-**Reads:** `spec/05_storage_arena_wal/07_write_path.md` §§3, 4, 13–15; `04_wal_overview.md` §§3, 4; `06_wal_durability.md` §7 (rollover protocol).
+**Reads:** `spec/08_storage/03_write_path.md` §§3, 4, 13–15; `04_wal_overview.md` §§3, 4; `06_wal_durability.md` §7 (rollover protocol).
 
 **Writes:** `crates/brain-storage/src/wal/wal.rs` (and `wal/mod.rs` re-exports + a new entry in `docs/development/spec-deviations.md`).
 
 **Architecture:** `Wal` owns the directory, a monotonic LSN counter, and the active `GroupCommitter` (which in turn owns the active `WalSegment`). `append` allocates the next LSN, rolls over to a fresh segment if needed, enqueues to the committer, blocks until durable. `reader()` produces a `WalReader` whose segment list is fixed at `open()` time but whose contents are read at iteration time.
 
-**Spec deviation SD-2.9-1**: synchronous `append(&mut self, record)` instead of phase-doc's `async fn append(&self, record)`. Carries forward SD-2.8-2 (no async runtime yet); `&mut self` matches spec §07 §15's single-writer-per-shard discipline at the type level. Logged in `docs/development/spec-deviations.md`.
+**Spec deviation SD-2.9-1**: synchronous `append(&mut self, record)` instead of phase-doc's `async fn append(&self, record)`. Carries forward SD-2.8-2 (no async runtime yet); `&mut self` matches spec §07 §14's single-writer-per-shard discipline at the type level. Logged in `docs/development/spec-deviations.md`.
 
 **Rollover** follows spec §06 §7 step-by-step: drain current commit → drop old segment → `WalSegment::create_new` for the new segment (its 4 KB header is written and `msync`'d as part of `create_new` from 2.6) → `fsync` the parent directory so the new file's directory entry is durable → restart `GroupCommitter` on the new segment.
 
@@ -234,7 +234,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.10 — Recovery driver ✅
 
-**Reads:** `spec/05_storage_arena_wal/08_recovery.md`, `09_checkpointing.md` §§2–3, `spec/15_failure_recovery/02_crash_recovery.md` §§4–6.
+**Reads:** `spec/08_storage/04_recovery.md`, `09_checkpointing.md` §§2–3, `spec/18_failure_recovery/02_crash_recovery.md` §§4–6.
 
 **Writes:** `crates/brain-storage/src/recovery.rs` (and `lib.rs` for the `pub mod`).
 
@@ -242,7 +242,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 - `MetadataSink` trait — single `apply(lsn, payload)` method plus `durable_lsn()`. Idempotency is the sink's responsibility. `brain-metadata` will plug in the redb impl in Phase 3.
 - `InMemoryMetadataSink` — in-process test sink (records every applied `(lsn, payload)` in a `BTreeMap`, deduped by LSN).
 - `RecoveryReport { records_replayed, records_skipped, records_discarded, next_lsn }`.
-- `recover(arena, wal_dir, shard_uuid, sink) -> Result<(RecoveryReport, SlotAllocator)>` — opens a `WalReader`, iterates in strict LSN order, skips records ≤ `durable_lsn`, maintains a TXN buffer per spec §05/08 §6, writes the arena (vector + slot metadata), calls `sink.apply`, rebuilds the slot allocator at the end.
+- `recover(arena, wal_dir, shard_uuid, sink) -> Result<(RecoveryReport, SlotAllocator)>` — opens a `WalReader`, iterates in strict LSN order, skips records ≤ `durable_lsn`, maintains a TXN buffer per spec §02/08 §6, writes the arena (vector + slot metadata), calls `sink.apply`, rebuilds the slot allocator at the end.
 - Arena application for `Encode` / `Forget` / `Reclaim` / `Consolidate` / `MigrateEmbedding`. Other kinds are metadata-only.
 - Vector dimension check (rejects records whose `vector.len() != 384` and non-empty).
 - TXN state machine: `TxnBegin` enters in-txn mode, records buffer until `TxnCommit` (apply all) or `TxnAbort` (discard); partial transaction at end-of-WAL is discarded.
@@ -263,7 +263,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.11 — Random-kill recovery test ✅
 
-**Reads:** `spec/16_benchmarks_acceptance/06_durability_criteria.md` (full).
+**Reads:** `spec/19_benchmarks/01_correctness_and_durability.md` (full).
 
 **Writes:** `crates/brain-storage/tests/random_kill.rs` (and `brain-core` added to `[dev-dependencies]`).
 
@@ -292,7 +292,7 @@ Implement the durable storage layer: a memory-mapped vector arena, a write-ahead
 
 ### Task 2.12 — Checkpoint writer ✅
 
-**Reads:** `spec/05_storage_arena_wal/09_checkpointing.md` §§2, 3, 11, 12.
+**Reads:** `spec/08_storage/05_checkpointing.md` §§2, 3, 11, 12.
 
 **Writes:** `crates/brain-storage/src/wal/checkpoint.rs` (and small extensions to `arena/file.rs` + `recovery.rs`).
 

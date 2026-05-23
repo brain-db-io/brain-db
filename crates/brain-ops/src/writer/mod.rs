@@ -6,26 +6,26 @@
 //! the response payload written in the **same redb txn** as the
 //! memory row.
 //!
-//! **No WAL** — spec §08/08 §10's group-commit channel-fed writer
+//! **No WAL**'s group-commit channel-fed writer
 //! lands in Phase 8 / 9. The trait surface doesn't change; production
 //! swaps the implementation.
 //!
 //! Concurrency: every interior mutable piece is `Mutex`-wrapped.
 //! Concurrent submits serialise on the metadata mutex; throughput is
 //! bounded by redb's single-writer-per-database lock, which matches
-//! the spec §07/08 §3 single-writer-per-shard discipline.
+//! the single-writer-per-shard discipline.
 //!
 //! ## Edge maintenance
 //!
-//! - **Encode-inline edges** (spec §09/02 §1.5): each `EncodeOpEdge`
+//! - **Encode-inline edges**: each `EncodeOpEdge`
 //!   targeting a live memory is inserted into `edges_out` + `edges_in`
 //!   via [`brain_metadata::tables::edge::link`], and the source /
 //!   target memory rows' `edges_out_count` / `edges_in_count` denorms
 //!   are bumped — all inside the same write txn as the memory row.
-//! - **LINK** (spec §09/07 §1-§3): same pattern. `do_link` returns
+//! - **LINK** (-§3): same pattern. `do_link` returns
 //!   `already_existed=true` when the canonical `(source, kind, target)`
 //!   was present (overwrite-weight semantics, no count bump).
-//! - **UNLINK** (spec §09/07 §4-§5): non-existent edge is a no-op
+//! - **UNLINK** (-§5): non-existent edge is a no-op
 //!   (`removed=false`), not an error. Successful unlink decrements
 //!   both counts.
 
@@ -77,7 +77,7 @@ pub struct RealWriterHandle {
     /// WAL append sink (Phase 9 wiring). When `Some`, every write
     /// op appends a typed [`brain_storage::wal::payload::WalPayload`]
     /// record to the WAL **before** mutating redb — establishing the
-    /// spec §05/07 durability barrier. The returned LSN is stamped
+    /// durability barrier. The returned LSN is stamped
     /// onto the published event so subscribe-replay finds the right
     /// position. When `None`, the writer falls back to the legacy
     /// "redb-first, EventBus mints LSN" path used by unit tests that
@@ -431,7 +431,7 @@ impl RealWriterHandle {
     }
 
     /// Wire the WAL sink. After this call every write op runs the
-    /// spec §05/07 ordering — WAL append → fsync → redb → indexes →
+    /// ordering — WAL append → fsync → redb → indexes →
     /// publish — so a restart can replay the durable log onto a fresh
     /// shard and a subscribe-replay can synthesise the change feed
     /// from segment data.

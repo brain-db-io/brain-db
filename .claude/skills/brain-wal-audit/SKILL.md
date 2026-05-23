@@ -10,11 +10,11 @@ when-to-use: |
 trigger-files:
   - crates/brain-storage/**/*.rs
 spec-refs:
-  - spec/05_storage_arena_wal/04_wal_overview.md
-  - spec/05_storage_arena_wal/05_wal_records.md
-  - spec/05_storage_arena_wal/06_wal_durability.md
-  - spec/05_storage_arena_wal/08_recovery.md
-  - spec/16_benchmarks_acceptance/06_durability_criteria.md
+  - spec/08_storage/04_wal_overview.md
+  - spec/08_storage/05_wal_records.md
+  - spec/08_storage/06_wal_durability.md
+  - spec/08_storage/08_recovery.md
+  - spec/20_benchmarks/06_durability_criteria.md
 ---
 
 # WAL Audit

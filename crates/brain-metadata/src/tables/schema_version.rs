@@ -1,4 +1,4 @@
-//! Schema-version tables (spec §21/05 §2).
+//! Schema-version tables.
 //!
 //! - [`SCHEMA_VERSIONS_TABLE`] — `(namespace, version) -> SchemaVersionRow`.
 //!   The authoritative per-namespace history.
@@ -6,7 +6,7 @@
 //!   to the currently-active version for each known namespace.
 //!
 //! `SchemaVersionRow.source` is the parsed AST encoded as
-//! `serde_json::to_vec(&Schema)`. Per spec §21/02 §6 the AST is
+//! `serde_json::to_vec(&Schema)`. Per the AST is
 //! value-typed (no rkyv); JSON is the canonical encoding here. The
 //! field is opaque bytes to redb — only the schema_store needs to
 //! decode it.

@@ -4,12 +4,12 @@
 //! `brain-protocol`'s typed requests to the storage stack
 //! (`brain-storage`, `brain-metadata`, `brain-index`, `brain-embed`).
 //!
-//! See `spec/08_query_planner/` for the authoritative design.
+//! See `spec/12_query_optimizer/` for the authoritative design.
 //!
 //! ## Sub-task 6.1 surface
 //!
 //! - [`ExecutionPlan`] — one variant per cognitive operation, each
-//!   carrying a per-request plan struct (spec §08/01 §2).
+//!   carrying a per-request plan struct.
 //! - [`PlannerConfig`] — spec-default knobs (`ef=64`, `max_ef=500`,
 //!   `budget=1 s`, …).
 //! - [`ShardStats`] — per-shard state the cost model consults.
@@ -101,15 +101,15 @@ mod tests {
     #[test]
     fn planner_config_defaults_match_spec() {
         let c = PlannerConfig::default();
-        assert_eq!(c.default_ef_search, 64, "spec §08/03 §4");
-        assert_eq!(c.max_ef_search, 500, "spec §08/03 §4");
-        assert_eq!(c.max_candidates_per_search, 1000, "spec §08/03 §5");
+        assert_eq!(c.default_ef_search, 64, "");
+        assert_eq!(c.max_ef_search, 500, "");
+        assert_eq!(c.max_candidates_per_search, 1000, "");
         assert!(
             (c.cost_budget_ms - 1000.0).abs() < f32::EPSILON,
-            "spec §08/07 §5"
+            ""
         );
-        assert_eq!(c.max_k, 1000, "spec §08/03 §1");
-        assert_eq!(c.max_edges_per_encode, 64, "spec §08/04 §12");
+        assert_eq!(c.max_k, 1000, "");
+        assert_eq!(c.max_edges_per_encode, 64, "");
     }
 
     #[test]
@@ -221,16 +221,15 @@ mod tests {
         };
     }
 
-    /// Spec §08/01 §5: plan size < 4 KB. A heap-allocating plan
+    /// plan size < 4 KB. A heap-allocating plan
     /// (Vec, String) measures only the stack footprint via
     /// `size_of`; that's the right thing to bound — the heap content
     /// is dominated by the cue text, which the spec says is acceptable
-    /// (spec §08/04 §13).
     #[test]
     fn plan_stack_size_under_four_kib() {
         assert!(
             size_of::<RecallPlan>() < 4096,
-            "RecallPlan stack size = {} (spec §08/01 §5 budgets 4 KB)",
+            "RecallPlan stack size = {}",
             size_of::<RecallPlan>()
         );
         assert!(

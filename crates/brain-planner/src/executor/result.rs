@@ -15,7 +15,7 @@ pub struct RecallResult {
 pub struct RecallHit {
     pub memory_id: MemoryId,
     /// Similarity score (higher = better). For unit-norm vectors this
-    /// equals the dot product / cosine similarity (spec §06/04).
+    /// equals the dot product / cosine similarity.
     pub score: f32,
     pub kind: MemoryKind,
     pub context_id: ContextId,
@@ -52,11 +52,11 @@ pub struct EncodeResult {
     pub memory_id: MemoryId,
     pub edge_results: Vec<EdgeOutcome>,
     /// `true` when the writer replayed a cached idempotency entry;
-    /// `false` for a fresh write. Spec §08/04 §4. Transparent —
+    /// `false` for a fresh write. Transparent —
     /// the wire response does not carry this.
     pub replayed: bool,
     /// `true` when the caller asked for dedup AND the fingerprint
-    /// table hit (spec §07/07 §6). The returned `memory_id` is
+    /// table hit. The returned `memory_id` is
     /// the pre-existing Active memory's; no new slot was
     /// allocated. Surfaced to the wire as
     /// `EncodeResponse.was_deduplicated`.
@@ -78,7 +78,7 @@ pub struct ForgetResult {
     pub replayed: bool,
 }
 
-/// Outcome of `execute_path`. Spec §09/04 §3 — multiple paths are
+/// Outcome of `execute_path` — multiple paths are
 /// computable, but the v1 wire frame carries only the top-1; this
 /// type preserves the full result for Phase 9's streaming chunker.
 #[derive(Debug, Clone)]
@@ -90,7 +90,7 @@ pub struct PathResult {
 /// One node-and-edge chain from a start memory to a goal memory.
 /// `edges[i]` is the edge that connects `nodes[i]` → `nodes[i + 1]`;
 /// `edge_weights[i]` is its weight (LINK default 1.0; arbitrary if
-/// the link was created with a different weight). Spec §09/04 §10
+/// the link was created with a different weight)
 /// uses these in the path score.
 #[derive(Debug, Clone)]
 pub struct Path {
@@ -112,7 +112,7 @@ pub enum PlanStatus {
     Timeout,
 }
 
-/// Outcome of `execute_reason`. Spec §09/05 §3 — supporting +
+/// Outcome of `execute_reason` — supporting +
 /// contradicting evidence with an aggregate confidence.
 #[derive(Debug, Clone)]
 pub struct ReasonResult {
@@ -120,17 +120,17 @@ pub struct ReasonResult {
     pub supporting: Vec<EvidenceItem>,
     pub contradicting: Vec<EvidenceItem>,
     /// `(sum_s - sum_c) / (sum_s + sum_c)`; in `[-1, 1]`; `0` when the
-    /// denominator is zero (spec §09/05 §6).
+    /// denominator is zero.
     pub confidence: f32,
     pub status: ReasonStatus,
 }
 
-/// One piece of evidence the executor found. Spec §09/05 §3.
+/// One piece of evidence the executor found.
 #[derive(Debug, Clone)]
 pub struct EvidenceItem {
     pub memory_id: MemoryId,
     /// `base_similarity × decay(distance) × ∏ edge.weight`; in
-    /// `[0, 1]`. Spec §09/05 §17.
+    /// `[0, 1]`.
     pub score: f32,
     /// Edges traversed from the base set to this item; empty for
     /// direct-similarity (distance = 0) evidence.

@@ -1,6 +1,6 @@
 //! OpenAI Chat Completions Summarizer adapter (sub-task 9.15).
 //!
-//! Posts to `<api_base>/chat/completions` with the spec §11/03 §7
+//! Posts to `<api_base>/chat/completions` with the
 //! prompt. API key read once from the env var named in
 //! `cfg.summarizer.openai_api_key_env`; the key never lives in TOML
 //! and is never logged.
@@ -11,7 +11,7 @@
 //! - JSON shape mismatch → `SummarizerError::Failed`.
 //!
 //! The consolidation worker logs + skips the cycle either way. v2
-//! adds a circuit breaker (spec §11/09 §6).
+//! adds a circuit breaker.
 
 #![cfg(feature = "summarizer-openai")]
 

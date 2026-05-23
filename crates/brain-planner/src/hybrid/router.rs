@@ -9,7 +9,7 @@
 use std::collections::HashMap;
 use std::sync::LazyLock;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{EntityId, PredicateId};
 use regex::Regex;
 
@@ -311,7 +311,7 @@ pub fn route(req: &QueryRequest) -> RoutingDecision {
     // weight 1.0 per retriever (per-retriever weight tuning
     // rides in fusion_config; see §23/01).
     //
-    // Spec §24/00 §"Limits and budgets": "Max retrievers per
+    // §"Limits and budgets": "Max retrievers per
     // query: 3 (all of semantic, lexical, graph if matched)".
     // The cap applies uniformly — the explicit override does NOT
     // bypass it. The SDK already enforces this at construction

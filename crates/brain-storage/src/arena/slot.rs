@@ -1,6 +1,6 @@
 //! Arena slot byte layout.
 //!
-//! Layout per `spec/05_storage_arena_wal/02_arena_layout.md` §§3–4:
+//! Layout per `spec/08_storage/02_arena_layout.md` §§3–4:
 //!
 //! ```text
 //! Slot (1600 bytes, 64-byte aligned):
@@ -19,7 +19,7 @@
 //!
 //! ## CRC coverage
 //!
-//! Spec §3.2 prints "metadata bytes [0..36]" but byte 36 splits the
+//! 2 prints "metadata bytes [0..36]" but byte 36 splits the
 //! `last_modified_at` u64 (which spans 32..40). Almost certainly a typo.
 //! We cover `[0..40]` of the metadata — every field before
 //! `metadata_crc32c` itself — plus the 1536 vector bytes. This matches the
@@ -36,7 +36,7 @@
 //!
 //! ## What's *not* enforced here
 //!
-//! - **Vector finiteness / L2 norm** (spec §3.1). Bytemuck::Pod admits any
+//! - **Vector finiteness / L2 norm** (1). Bytemuck::Pod admits any
 //!   bit pattern; finite/normalized validation is a separate helper added
 //!   alongside the encode path.
 //! - **CRC freshness on read.** Computing `metadata_crc32c` on every read
@@ -51,13 +51,13 @@ pub const VECTOR_DIM: usize = 384;
 /// Vector size in bytes (`VECTOR_DIM * 4`).
 pub const VECTOR_BYTES: usize = VECTOR_DIM * size_of::<f32>();
 
-/// Slot metadata size in bytes (spec §3.2).
+/// Slot metadata size in bytes (2).
 pub const META_BYTES: usize = 64;
 
-/// Total slot size in bytes (spec §3).
+/// Total slot size in bytes.
 pub const SLOT_SIZE: usize = VECTOR_BYTES + META_BYTES;
 
-/// Slot alignment in bytes (spec §4 — cache-line aligned).
+/// Slot alignment in bytes (— cache-line aligned).
 pub const SLOT_ALIGN: usize = 64;
 
 /// Byte offset of the metadata block within a slot.
@@ -66,11 +66,11 @@ pub const META_OFFSET_IN_SLOT: usize = VECTOR_BYTES;
 /// End of the CRC-covered region within metadata.
 ///
 /// CRC32C covers metadata bytes `[0..META_CRC_COVERAGE_END]` plus the full
-/// vector. Spec §3.2's literal "[0..36]" splits `last_modified_at` mid-field;
+/// vector.2's literal "[0..36]" splits `last_modified_at` mid-field;
 /// `[0..40]` is the defensible reading.
 pub const META_CRC_COVERAGE_END: usize = 40;
 
-/// Bit-flag definitions for `SlotMeta::flags` (spec §3.2).
+/// Bit-flag definitions for `SlotMeta::flags` (2).
 pub mod flags {
     /// Slot occupies a memory (1 = occupied, 0 = free).
     pub const OCCUPIED: u32 = 1 << 0;
@@ -342,7 +342,7 @@ mod tests {
 
     #[test]
     fn occupied_and_tombstoned_coexist() {
-        // Spec §3.2: "bit 0 = 1, bit 1 = 1" is the active-but-tombstoned state.
+        // 2: "bit 0 = 1, bit 1 = 1" is the active-but-tombstoned state.
         let mut s = Slot::zeroed();
         s.set_flag(flags::OCCUPIED | flags::TOMBSTONED, true);
         assert!(s.is_occupied());
@@ -360,7 +360,7 @@ mod tests {
         assert_eq!(
             &bytes[META_OFFSET_IN_SLOT..META_OFFSET_IN_SLOT + 4],
             &[0x04, 0x03, 0x02, 0x01],
-            "must be stored little-endian per spec §05/02 §2",
+            "must be stored little-endian",
         );
     }
 

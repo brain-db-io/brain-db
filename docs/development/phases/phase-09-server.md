@@ -10,19 +10,19 @@ A runnable substrate. TCP connection layer (Tokio) accepts clients; per-shard Gl
 
 ## Reading list
 
-1. [`spec/01_system_architecture/00_purpose.md`](../../spec/01_system_architecture/00_purpose.md)
-2. [`spec/01_system_architecture/04_layers.md`](../../spec/01_system_architecture/04_layers.md)
-3. [`spec/01_system_architecture/03_primitives.md`](../../spec/01_system_architecture/03_primitives.md)
-4. [`spec/01_system_architecture/05_hardware.md`](../../spec/01_system_architecture/05_hardware.md)
-5. [`spec/01_system_architecture/04_layers.md`](../../spec/01_system_architecture/04_layers.md)
-6. [`spec/01_system_architecture/04_layers.md`](../../spec/01_system_architecture/04_layers.md)
-7. [`spec/12_sharding_clustering/00_purpose.md`](../../spec/12_sharding_clustering/00_purpose.md)
-8. [`spec/12_sharding_clustering/01_shard_model.md`](../../spec/12_sharding_clustering/01_shard_model.md)
-9. [`spec/12_sharding_clustering/02_routing.md`](../../spec/12_sharding_clustering/02_routing.md)
-10. [`spec/10_concurrency_epochs/00_purpose.md`](../../spec/10_concurrency_epochs/00_purpose.md)
-11. [`spec/10_concurrency_epochs/02_single_writer.md`](../../spec/10_concurrency_epochs/02_single_writer.md)
-12. [`spec/10_concurrency_epochs/05_arc_swap.md`](../../spec/10_concurrency_epochs/05_arc_swap.md)
-13. [`spec/10_concurrency_epochs/06_crossbeam_epoch.md`](../../spec/10_concurrency_epochs/06_crossbeam_epoch.md)
+1. [`spec/01_architecture/00_purpose.md`](../../spec/01_architecture/00_purpose.md)
+2. [`spec/01_architecture/04_layers.md`](../../spec/01_architecture/04_layers.md)
+3. [`spec/01_architecture/03_primitives.md`](../../spec/01_architecture/03_primitives.md)
+4. [`spec/01_architecture/05_hardware_and_targets.md`](../../spec/01_architecture/05_hardware_and_targets.md)
+5. [`spec/01_architecture/04_layers.md`](../../spec/01_architecture/04_layers.md)
+6. [`spec/01_architecture/04_layers.md`](../../spec/01_architecture/04_layers.md)
+7. [`spec/16_sharding/00_purpose.md`](../../spec/16_sharding/00_purpose.md)
+8. [`spec/16_sharding/01_shard_model.md`](../../spec/16_sharding/01_shard_model.md)
+9. [`spec/16_sharding/02_routing.md`](../../spec/16_sharding/02_routing.md)
+10. [`spec/14_concurrency/00_purpose.md`](../../spec/14_concurrency/00_purpose.md)
+11. [`spec/14_concurrency/02_writer_model.md`](../../spec/14_concurrency/02_writer_model.md)
+12. [`spec/14_concurrency/03_lock_free_primitives.md`](../../spec/14_concurrency/03_lock_free_primitives.md)
+13. [`spec/14_concurrency/03_lock_free_primitives.md`](../../spec/14_concurrency/03_lock_free_primitives.md)
 
 ## Outputs
 
@@ -41,7 +41,7 @@ A runnable substrate. TCP connection layer (Tokio) accepts clients; per-shard Gl
 **Done when:** Config struct deserializes from TOML; env var overrides supported; missing required fields produce clear errors.
 
 ### Task 9.2 — Tokio/Glommio port audit  [x]
-**Reads:** every shard-bound crate's `src/`; spec §01/04, §10/02.
+**Reads:** every shard-bound crate's `src/`; spec §01/04, §02/02.
 **Writes:** `docs/development/phases/phase-09-glommio-port.md`
 **Done when:** Every `tokio::*` use-site in shard-bound code has a
 disposition (STAY-CONN / STAY-TEST / PORT-GLOMMIO / PORT-LOCAL / MOVE /
@@ -54,7 +54,7 @@ surfaced.
 > updated 18-sub-task projection.
 
 ### Task 9.4 — Shard scaffold (Glommio LocalExecutor + channel boundary)  [x]
-**Reads:** `spec/01_system_architecture/05_hardware.md`, audit §7/§8.2
+**Reads:** `spec/01_architecture/05_hardware_and_targets.md`, audit §7/§8.2
 **Writes:** `crates/brain-server/src/shard.rs`, `crates/brain-server/tests/shard.rs`
 **Done when:** A Glommio `LocalExecutor` per shard, on its own OS thread,
 drains a flume request channel, replies to stub `Ping` requests, and is
@@ -65,8 +65,8 @@ macOS still compiles brain-server (shard module cfg-gated).
 
 ### Task 9.8 — Wire Phase-8 seams to real impls  [x]
 **Reads:** plan `phase-09-task-08.md`, audit §4 + §8.5,
-  spec §05/09 §3 (checkpoint sequence), §05/10 (retention), §11/04 §7
-  (rebuild source), §11/07 / §11/08 §6 (worker seams).
+  spec §02/09 entity_lifecycle §3 (checkpoint sequence), §02/10 statement (retention), §02/04 §7
+  (rebuild source), §02/07 / §02/08 §6 (worker seams).
 **Writes:** `crates/brain-workers/src/{hnsw_maint,wal_retention,snapshot,cache_evict}.rs`
   (drop `Send + Sync` from the 4 source traits, drop `+ Send` from
   future-return aliases); `crates/brain-workers/src/lib.rs` (re-export
@@ -116,17 +116,17 @@ on Glommio (no `tokio::spawn`); `WorkerContext.shutdown` is
 `Arc<AtomicBool>` not `tokio::sync::watch`; 992 tests green in container.
 
 ### Task 9.6 — Real WAL hookup  [x]
-**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md` §1, §11; `spec/05_storage_arena_wal/08_recovery.md` §§1–7; `spec/12_sharding_clustering/01_shard_model.md` §1–§5.
+**Reads:** `spec/08_storage/02_wal.md` §1, §11; `spec/08_storage/04_recovery.md` §§1–7; `spec/16_sharding/01_shard_model.md` §1–§5.
 **Writes:** `crates/brain-storage/src/wal/{segment,wal}.rs` (new `open_for_append` + `open_existing`); `crates/brain-server/src/shard.rs` (Wal field, recovery on spawn, `AppendWalRecord` handler); `crates/brain-server/tests/shard.rs` (4 new integration tests).
 **Done when:** Each shard owns a real `Wal` on disk under `<data_dir>/<shard_id>/wal/`; recovers on respawn via `brain_storage::recovery::recover` (with `InMemoryMetadataSink` stand-in — 9.7 swaps in `MetadataDb`); `AppendWalRecord` exercises `Wal::append` end-to-end.
 
 ### Task 9.6a — WAL io_uring port  [x]
-**Reads:** `spec/05_storage_arena_wal/06_wal_durability.md`, `docs/development/spec-deviations.md` SD-2.8-2/SD-2.9-1.
+**Reads:** `spec/08_storage/02_wal.md`, `docs/development/spec-deviations.md` SD-2.8-2/SD-2.9-1.
 **Writes:** `crates/brain-storage/src/wal/{segment,group_commit,wal,checkpoint,reader,recovery}.rs`, `crates/brain-storage/tests/random_kill.rs`, `crates/brain-metadata/tests/recovery_integration.rs`.
 **Done when:** WAL writes go through Glommio io_uring (`BufferedFile::write_at` + `fdatasync`); committer is a `spawn_local` coroutine on the shard executor; `Wal::append` is `async fn(&self)`. SD-2.8-2 + SD-2.9-1 reconciled; new SD-2.8-2-b documents the two-syscall fsync.
 
 ### Task 9.5 — Real arena hookup  [x]
-**Reads:** `spec/05_storage_arena_wal/02_arena_layout.md`, `spec/12_sharding_clustering/01_shard_model.md` §1–§5.
+**Reads:** `spec/08_storage/01_arena.md`, `spec/16_sharding/01_shard_model.md` §1–§5.
 **Writes:** `crates/brain-server/src/shard.rs`, `crates/brain-server/tests/shard.rs`.
 **Done when:** Each shard owns a real `ArenaFile` + `SlotAllocator` on disk
 under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
@@ -137,9 +137,9 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > (`.claude/plans/phase-09.md` §11) renumbered after routing landed
 > early as 9.3.
 
-**Reads:** plan `phase-09-task-09.md`, `spec/01_system_architecture/04_layers.md` (L1),
-  `spec/03_wire_protocol/02_transport.md` (TCP + TLS),
-  `spec/03_wire_protocol/03_frame_header.md` (frame layout),
+**Reads:** plan `phase-09-task-09.md`, `spec/01_architecture/04_layers.md` (L1),
+  `spec/04_wire_protocol/01_design.md` (TCP + TLS),
+  `spec/04_wire_protocol/02_wire_format.md` (frame layout),
   audit `docs/development/phases/phase-09-glommio-port.md` §7 (Tokio side locked).
 **Writes:** `Cargo.toml` (workspace deps: tokio-rustls, rustls, rustls-pemfile, rcgen, socket2);
   `crates/brain-server/Cargo.toml` (Linux deps: tokio + rustls stack + socket2 + rcgen dev-dep);
@@ -153,7 +153,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
   `crates/brain-server/tests/connection.rs` (new — 6 integration tests).
 **Done when:** `ConnectionListener::new(addr, tls, shards, limits, signal).bind()?.serve().await`
   binds + accepts on Linux; SO_REUSEADDR / TCP_NODELAY / SO_KEEPALIVE applied
-  per spec §03/02 §1.2; optional rustls TLS 1.3 with `brain/1` ALPN; per-frame
+  per spec §02/02 §1.2; optional rustls TLS 1.3 with `brain/1` ALPN; per-frame
   read timeout enforced; well-formed frames receive `ERROR(BadFrame)` then
   close (9.10 plugs in the real dispatcher); ctrl-c → ShutdownTrigger →
   serve() exits cleanly; 6 connection tests + workspace verify green.
@@ -162,11 +162,11 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > Was originally numbered 9.4 in this phase doc; orientation §11
 > renumbered after routing landed early as 9.3.
 
-**Reads:** plan `phase-09-task-10.md`, `spec/01_system_architecture/04_layers.md`,
-  `spec/03_wire_protocol/05_opcodes.md`, `spec/03_wire_protocol/06_handshake.md`,
-  `spec/03_wire_protocol/07_request_frames.md` + `08_response_frames.md`,
-  `spec/03_wire_protocol/09_streaming.md` §1–§5,
-  `spec/12_sharding_clustering/02_routing.md`,
+**Reads:** plan `phase-09-task-10.md`, `spec/01_architecture/04_layers.md`,
+  `spec/04_wire_protocol/03_opcodes.md`, `spec/04_wire_protocol/04_handshake.md`,
+  `spec/04_wire_protocol/05_frame_layouts.md`,
+  `spec/04_wire_protocol/06_streaming.md` §1–§5,
+  `spec/16_sharding/02_routing.md`,
   audit `docs/development/phases/phase-09-glommio-port.md` §7.
 **Writes:** `crates/brain-server/src/dispatch.rs` (new — `ConnPhase` state
   machine, handshake / PING / BYE handlers, `Topology`, op routing,
@@ -190,8 +190,8 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
   (+10 dispatch integration tests on top of 9.9's 35).
 
 ### Task 9.11 — Cross-shard SUBSCRIBE fan-out  [x]
-**Reads:** plan `phase-09-task-11.md`, `spec/09_cognitive_operations/09_subscribe.md`,
-  `spec/03_wire_protocol/05_opcodes.md` §1.3, `spec/03_wire_protocol/09_streaming.md`,
+**Reads:** plan `phase-09-task-11.md`, `spec/05_operations/05_subscribe.md`,
+  `spec/04_wire_protocol/03_opcodes.md` §1.3, `spec/04_wire_protocol/06_streaming.md`,
   audit `docs/development/phases/phase-09-glommio-port.md` §8.1.
 **Writes:** `crates/brain-server/src/subscribe.rs` (new — `ShardEventHub`,
   `SubscriptionRegistry`, per-sub task);
@@ -219,7 +219,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > Landed early as **sub-task 9.3** per the orientation's renumbering.
 > See `crates/brain-server/src/routing.rs`.
 
-**Reads:** `spec/12_sharding_clustering/02_routing.md`
+**Reads:** `spec/16_sharding/02_routing.md`
 **Writes:** `crates/brain-server/src/routing.rs`
 **What to build:**
 - `agent_id_to_shard(agent_id, num_shards) -> ShardId` via BLAKE3.
@@ -230,8 +230,8 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > renumbered to 9.12 as the consolidated sub-task.
 
 **Reads:** plan `phase-09-task-12.md`,
-  `spec/10_concurrency_epochs/05_arc_swap.md`,
-  `spec/10_concurrency_epochs/06_crossbeam_epoch.md`,
+  `spec/14_concurrency/03_lock_free_primitives.md`,
+  `spec/14_concurrency/03_lock_free_primitives.md`,
   `docs/development/spec-deviations.md` SD-4.8-1 (HNSW RwLock fallback, locked).
 **Writes:** `crates/brain-server/Cargo.toml` (add `arc-swap`);
   `crates/brain-server/src/dispatch.rs` (`Topology.routing` becomes
@@ -253,7 +253,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > renumbered to 9.13.
 
 **Reads:** plan `phase-09-task-13.md`,
-  `spec/14_observability_ops/01_metrics.md`.
+  `spec/17_observability/01_signals.md`.
 **Writes:** `crates/brain-server/src/admin.rs` (new — `AdminServer`,
   `AdminState`, `BuildInfo`, hand-rolled minimal HTTP/1.1,
   `/healthz` + `/metrics` handlers, Prometheus exposition builder);
@@ -282,7 +282,7 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 > renumbered to 9.14.
 
 **Reads:** plan `phase-09-task-14.md`,
-  `spec/01_system_architecture/04_layers.md`,
+  `spec/01_architecture/04_layers.md`,
   audit `docs/development/phases/phase-09-glommio-port.md` §8.2.
 **Writes:** `crates/brain-server/src/shutdown.rs` (new —
   `graceful_shutdown_shards` with per-shard timed `join()`);
@@ -305,8 +305,8 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 
 ### Task 9.15 — OpenAI / Ollama Summarizer adapter (feature-gated)  [x]
 **Reads:** plan `phase-09-task-15.md`,
-  `spec/11_background_workers/03_consolidation.md` §6, §7,
-  `spec/11_background_workers/09_failure_modes.md` §6.
+  `spec/15_background_workers/02_memory_maintenance.md` §6, §7,
+  `spec/15_background_workers/05_failure_modes.md` §6.
 **Writes:** `crates/brain-server/src/llm/{mod,prompt,bridge,openai,ollama,factory}.rs`
   (new module tree); `crates/brain-server/src/config.rs`
   (`SummarizerConfig` + `SummarizerBackend`); `config/dev.toml`
@@ -329,14 +329,14 @@ under `<data_dir>/<shard_id>/`; persists UUID across restarts; stub
 
 ### Task 9.16 — PLAN / REASON tombstone filter  [x]
 **Reads:** plan `phase-09-task-16.md`,
-  `spec/16_benchmarks_acceptance/01_correctness_criteria.md` §12
+  `spec/19_benchmarks/01_correctness_and_durability.md` §12
   (Tombstone correctness MUST).
 **Writes:** `crates/brain-planner/src/executor/{path,reason}.rs`
   (per-neighbour `ctx.index.is_tombstoned` retain + tombstoned
   start/goal/seed → empty-endpoint short-circuit);
   `crates/brain-planner/tests/{path_executor,reason_executor}.rs`
   (5 new tests covering chain exclusion + entry short-circuits).
-**Done when:** spec §16/01 §12 acceptance test passes: `FORGET m;
+**Done when:** spec §02/01 §12 acceptance test passes: `FORGET m;
   PLAN through chain incl. m` returns paths that avoid `m`.
   Tombstoned start / goal / seed yield empty endpoint sets; the
   BFS short-circuits to `NoPathFound` / empty supporting+

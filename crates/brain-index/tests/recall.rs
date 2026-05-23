@@ -153,7 +153,7 @@ fn recall_at_10_meets_spec_target_at_10k() {
         .collect();
 
     // Build the corpus deterministically. Each member is a perturbed
-    // version of a randomly-chosen cluster center. Spec §16/05 §4
+    // version of a randomly-chosen cluster center
     // contrasts realistic clustered data with uniform-random; with
     // uniform vectors in 384 dim, all pairs are roughly orthogonal
     // and HNSW recall drops to ~0.5. Real agent-memory embeddings

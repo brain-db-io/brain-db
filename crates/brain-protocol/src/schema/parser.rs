@@ -1,4 +1,4 @@
-//! Pest-driven schema DSL parser (spec §21/01).
+//! Pest-driven schema DSL parser.
 //!
 //! Entry point: [`parse_schema`]. The parser consumes a single
 //! schema document and produces the value-typed [`Schema`] from

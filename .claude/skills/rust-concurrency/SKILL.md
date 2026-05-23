@@ -9,7 +9,7 @@ when-to-use: |
     - Reviewing async code for Send-across-await issues
     - User mentions race condition, future is not Send, lock contention
 spec-refs:
-  - spec/01_system_architecture/04_layers.md
+  - spec/01_architecture/04_layers.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/m07-concurrency
 ---

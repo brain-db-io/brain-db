@@ -8,7 +8,7 @@ when-to-use: |
     - Investigating a panic-on-input bug
     - Phase exit checklist for brain-protocol
 spec-refs:
-  - spec/03_wire_protocol/11_validation.md
+  - spec/04_wire_protocol/07_error_handling.md
 ---
 
 # Fuzz Target Scaffold

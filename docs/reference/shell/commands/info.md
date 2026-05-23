@@ -203,5 +203,5 @@ has, the resolver's output, and the config file.
 - [`agent.md`](agent.md) — the resolution rules that drive the Agent block.
 - [`config.md`](config.md) — the persisted settings that drive the Session block.
 - [`../repl-meta.md`](../repl-meta.md) — the REPL's `\info` (same card).
-- Spec: [`spec/13_sdk_design/03_connection.md`](../../../../spec/13_sdk_design/03_connection.md) — the handshake that fills the Server block.
-- Spec: [`spec/14_observability_ops/06_admin_ops.md`](../../../../spec/14_observability_ops/06_admin_ops.md) — admin-side diagnostics this complements client-side.
+- Spec: [`spec/06_sdk/03_connection.md`](../../../../spec/06_sdk/03_connection.md) — the handshake that fills the Server block.
+- Spec: [`spec/17_observability/04_admin_ops.md`](../../../../spec/17_observability/04_admin_ops.md) — admin-side diagnostics this complements client-side.

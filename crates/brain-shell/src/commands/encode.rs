@@ -177,18 +177,11 @@ fn resolve_source_text(args: &EncodeArgs) -> Result<String, ClientError> {
             return read_stdin();
         }
         if path.ends_with(".jsonl") {
-            tracing::warn!(
-                target: "brain_shell",
-                ".jsonl batching opens a TXN per file and submits one encode per line. \
-                 SDK does not yet expose multi-encode batching; current implementation \
-                 reads the file but submits a single encode of the first line. \
-                 Wire the txn/batch path in a follow-up.",
-            );
-            todo!(
-                "follow-up: implement .jsonl batching via TxnBegin + per-line encode + \
-                 TxnCommit. Requires a multi-statement encode helper, or repeated single \
-                 sends in the txn — needs an explicit decision on which."
-            );
+            return Err(ClientError::Internal(
+                ".jsonl batching is not supported. Encode files line-by-line via the shell \
+                 or use --from-stdin with a single payload."
+                    .into(),
+            ));
         }
         return std::fs::read_to_string(path)
             .map_err(|e| ClientError::Internal(format!("read {path}: {e}")));

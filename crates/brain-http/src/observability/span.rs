@@ -1,7 +1,7 @@
 //! Span constructors — OTel HTTP server semantic-convention compliant.
 //!
 //! Attribute names follow `opentelemetry.io/docs/specs/semconv/http/`.
-//! Spec §14/03 picks the server-side subset; field names here mirror
+//! picks the server-side subset; field names here mirror
 //! those exactly so a Jaeger / Tempo backend can join correctly.
 
 use std::net::SocketAddr;

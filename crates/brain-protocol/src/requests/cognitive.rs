@@ -8,7 +8,6 @@ use super::types::{
 };
 use crate::request::{WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §07/1.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -33,7 +32,6 @@ pub struct EdgeRequest {
     pub weight: f32,
 }
 
-/// Spec §07/3.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -59,7 +57,7 @@ pub struct RecallRequest {
     /// table. When unset, `MemoryResult.text` is the empty string.
     pub include_text: bool,
     pub request_id: Option<WireUuid>,
-    /// Spec §09/08 §5: when set, RECALL reads against a snapshot
+    /// when set, RECALL reads against a snapshot
     /// that includes the txn's pending writes (read-your-writes).
     pub txn_id: Option<WireUuid>,
     /// Opt-in cross-encoder rerank over the RRF-fused candidates.
@@ -70,7 +68,6 @@ pub struct RecallRequest {
     pub rerank: bool,
 }
 
-/// Spec §07/4.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -84,7 +81,7 @@ pub struct PlanRequest {
     pub txn_id: Option<WireUuid>,
 }
 
-/// Spec §07/4 — plan budget.
+/// — plan budget.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -94,7 +91,6 @@ pub struct PlanBudget {
     pub max_branches_explored: u32,
 }
 
-/// Spec §07/5.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -109,7 +105,6 @@ pub struct ReasonRequest {
     pub txn_id: Option<WireUuid>,
 }
 
-/// Spec §07/6.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

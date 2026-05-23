@@ -49,8 +49,8 @@ cargo +nightly fuzz run <target> fuzz/artifacts/<target>/crash-<hash>
 
 ## Spec references
 
-- `spec/03_wire_protocol/11_validation.md` — frame/payload validation rules; §7 pins determinism.
-- `spec/16_benchmarks_acceptance/08_acceptance_test_suite.md` — overall fuzzing strategy.
+- `spec/04_wire_protocol/07_error_handling.md` — frame/payload validation rules; §7 pins determinism.
+- `spec/20_benchmarks/08_acceptance_test_suite.md` — overall fuzzing strategy.
 
 ## Companion testing
 

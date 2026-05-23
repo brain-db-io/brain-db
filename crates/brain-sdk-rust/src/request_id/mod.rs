@@ -1,11 +1,11 @@
 //! `RequestIdSource` — pluggable generator for the per-call
 //! [`brain_core::RequestId`].
 //!
-//! Spec §13/04 §3 ties idempotency to a UUIDv7 `RequestId` on
+//! ties idempotency to a UUIDv7 `RequestId` on
 //! every state-mutating op (ENCODE / FORGET / LINK / UNLINK /
 //! TXN_COMMIT). The SDK generates one automatically if the caller
 //! didn't supply one, and **reuses the same id across retries** so
-//! the server's 24-hour idempotency cache (per spec §07/06 §3)
+//! the server's 24-hour idempotency cache
 //! deduplicates correctly.
 //!
 //! `DefaultRequestIdSource` wraps `brain_core::RequestId::new()`

@@ -1,4 +1,4 @@
-//! Schema-DSL AST — value-typed (spec §21/02).
+//! Schema-DSL AST — value-typed.
 //!
 //! Consumed by the parser (§21/01 / phase 19.3), validator
 //! (§21/03 / phase 19.4), persistence (§21/05 / phase 19.5), and

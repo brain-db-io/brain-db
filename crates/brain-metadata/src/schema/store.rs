@@ -1,4 +1,4 @@
-//! Per-namespace schema persistence (spec §21/05).
+//! Per-namespace schema persistence.
 //!
 //! Single transactional path for the four schema-management
 //! opcodes (§28/05 / phase 19.6):
@@ -366,7 +366,7 @@ mod tests {
         use crate::schema::predicate::{predicate_intern_or_get, predicates_active_for_schema};
         use crate::statement::crud::statement_create;
         use crate::tables::statement::{statement_flags, STATEMENTS_TABLE};
-        use brain_core::knowledge::{
+        use brain_core::{
             EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
         };
         use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, StatementId, StatementKind};
@@ -383,7 +383,7 @@ mod tests {
             let wtxn = db.begin_write().unwrap();
             // Ensure the subject exists.
             use crate::entity::ops::entity_put;
-            use brain_core::knowledge::Entity;
+            use brain_core::Entity;
             let now = 0u64;
             entity_put(
                 &wtxn,

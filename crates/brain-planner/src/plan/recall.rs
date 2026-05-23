@@ -1,4 +1,4 @@
-//! `RecallPlan` and its step structs. Spec §08/03 §12 spells out
+//! `RecallPlan` and its step structs spells out
 //! the full example; this module mirrors it.
 //!
 //! Single-shard for Phase 6 (orientation plan §4.7): `shards: Vec<_>`
@@ -20,12 +20,12 @@ pub struct RecallPlan {
     pub estimated_cost_ms: f32,
 }
 
-/// Spec §08/03 §3 — the embedding step is shared across shards (we
+/// — the embedding step is shared across shards (we
 /// embed the cue once, then reuse the vector).
 #[derive(Debug, Clone)]
 pub struct EmbeddingStep {
     pub text: String,
-    /// Whether to consult the cue cache (spec §04/05). The planner
+    /// Whether to consult the cue cache. The planner
     /// sets this `true` by default; specialised paths (e.g. an admin
     /// `ADMIN_REINDEX`) may force-miss.
     pub cache_lookup: bool,
@@ -44,10 +44,9 @@ pub struct AnnSearchStep {
     /// Picked by 6.2's `pick_ef`.
     pub ef: usize,
     /// `k * over_factor`, capped at `PlannerConfig::max_candidates_per_search`.
-    /// Spec §08/03 §5.
     pub candidates_to_request: usize,
     /// Cheap rules applied during HNSW's post-processing or before
-    /// candidate gathering (spec §08/03 §6: PreFilter category).
+    /// candidate gathering (PreFilter category).
     pub pre_filter: Vec<FilterRule>,
 }
 

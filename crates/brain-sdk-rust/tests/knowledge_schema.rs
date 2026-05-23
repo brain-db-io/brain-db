@@ -17,7 +17,7 @@
 
 mod common;
 
-use brain_protocol::knowledge::{
+use brain_protocol::{
     SchemaGetResponse, SchemaListItemWire, SchemaListResponseFrame, SchemaUploadResponse,
     SchemaValidateResponse, SchemaValidationErrorWire,
 };

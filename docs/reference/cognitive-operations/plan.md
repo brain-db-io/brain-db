@@ -4,7 +4,7 @@ Find paths through the memory graph from a starting state to a
 goal. Bidirectional BFS over edges, returning stepping stones.
 
 **Opcode:** `PlanReq = 0x0022` / `PlanResp = 0x00A2` (streaming).
-**Spec:** §09/04. **Source:** `crates/brain-ops/src/ops/plan.rs`.
+**Spec:** §05/04. **Source:** `crates/brain-ops/src/ops/plan.rs`.
 
 ## Request fields
 
@@ -70,7 +70,7 @@ usual ~10 ms eventual-consistency lag for recent ENCODEs.
 
 ## Performance target
 
-Spec §16/02 §5:
+Spec §02/02 §5:
 
 | Workload | p50 | p99 |
 |---|---|---|
@@ -91,4 +91,4 @@ layer is not consulted. The same opcode works in both modes.
 - [`recall.md`](recall.md) — the anchor-finding mechanism.
 - [`../../architecture/05-redb-metadata.md`](../../architecture/05-redb-metadata.md) — edge storage layout.
 
-**Spec:** §09/04.
+**Spec:** §05/04.

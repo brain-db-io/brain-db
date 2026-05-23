@@ -23,7 +23,7 @@ tracing.workspace = true
 # (inline evidence list size INLINE_EVIDENCE_CAP).
 smallvec.workspace = true
 # Phase 8.dedup: BLAKE3 over canonical UTF-8 text for the
-# `fingerprints` opt-in content-dedup index (spec §07/07 §6).
+# `fingerprints` opt-in content-dedup index.
 blake3.workspace = true
 
 [dev-dependencies]

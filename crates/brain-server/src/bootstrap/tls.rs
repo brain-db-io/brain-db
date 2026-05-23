@@ -1,6 +1,6 @@
 //! TLS server configuration loader (sub-task 9.9).
 //!
-//! Spec §03/02 §2: TLS 1.3 only, ALPN `"brain/1"`.
+//! TLS 1.3 only, ALPN `"brain/1"`.
 //!
 //! The crypto provider (`aws-lc-rs`) is installed once at process
 //! startup via [`install_default_crypto_provider`]. rustls 0.23 dropped
@@ -50,7 +50,7 @@ pub fn install_default_crypto_provider() {
 /// Load a PEM cert chain + PEM private key from disk and build a
 /// rustls `ServerConfig` constrained to TLS 1.3 with ALPN `"brain/1"`.
 ///
-/// Spec §03/02 §2.2 (TLS 1.3 only) + §2.6 (ALPN).
+/// (TLS 1.3 only) + §2.6 (ALPN).
 pub fn load_server_tls_config(
     cert_path: &Path,
     key_path: &Path,
@@ -64,7 +64,7 @@ pub fn load_server_tls_config(
         .with_no_client_auth()
         .with_single_cert(certs, key)?;
 
-    // Spec §03/02 §2.6 — `brain/1` for protocol v1.
+    // — `brain/1` for protocol v1.
     cfg.alpn_protocols.push(b"brain/1".to_vec());
 
     Ok(Arc::new(cfg))

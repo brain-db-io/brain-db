@@ -1,10 +1,28 @@
 //! # brain-extractors
 //!
-//! Extractor framework (pattern / classifier / LLM) for the Brain
-//! knowledge layer. Phase 20.1 lands the trait + registry + output
-//! types; pattern / classifier impls follow in 20.2 / 20.3.
+//! Three-tier extractor pipeline (pattern → classifier → LLM) for the
+//! Brain typed-graph layer.
 //!
-//! See `spec/22_extractors/` for the authoritative design.
+//! ## Module map
+//!
+//! - [`framework`] — the `Extractor` trait, registry, output items
+//!   (`EntityMention` / `StatementMention` / `RelationMention`), and
+//!   per-extractor run options.
+//! - [`pattern`] — Tier 1: regex-driven extraction.
+//! - [`classifier`] — Tier 2: GLiNER zero-shot NER + statement-kind
+//!   pattern matcher.
+//! - [`llm`] — Tier 3: Anthropic / OpenAI LLM extraction with cost
+//!   budgeting, schema validation, retries, and an idempotency cache.
+//! - [`resolver`] — entity-resolution gauntlet (exact / alias /
+//!   fuzzy trigram / embedding HNSW / create) used by the worker.
+//! - [`materialize`] — bridge from schema definitions to in-memory
+//!   `Extractor` instances; produces the registry the worker dispatches
+//!   through.
+//! - [`idempotency`] — text-hash keys for extractor caching.
+//! - [`enricher_hook`] — `EnricherPlugin` dispatch seam (lives here to
+//!   avoid a circular dep with `brain-plugins`).
+//! - [`supersede_source`] — adapter that exposes the statement HNSW as
+//!   a nearest-neighbour source for the W2.1 supersession judge.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -15,38 +33,31 @@
 
 pub mod classifier;
 pub mod enricher_hook;
-pub mod extractor;
-pub mod gliner;
+pub mod framework;
 pub mod idempotency;
-pub mod item;
 pub mod llm;
 pub mod materialize;
-pub mod options;
 pub mod pattern;
-pub mod registry;
 pub mod resolver;
 pub mod supersede_source;
 
 pub use classifier::{
     classify_statement_kind_pattern, default_xdg_model_dir, ClassifiedSpan, ClassifierConfig,
-    ClassifierExtractor, ClassifierModel, GlinerClassifier, NER_MODEL_DIR_NAME, NER_MODEL_PATH_ENV,
-    NER_MODEL_REQUIRED_FILES, STATEMENT_KIND_PATTERN_THRESHOLD,
+    ClassifierExtractor, ClassifierModel, GlinerClassifier, GlinerSpan, NER_MODEL_DIR_NAME,
+    NER_MODEL_PATH_ENV, NER_MODEL_REQUIRED_FILES, STATEMENT_KIND_PATTERN_THRESHOLD,
 };
 pub use enricher_hook::{run_pipeline_enrichers, EnricherHook, EnricherHookOutcome};
-pub use extractor::{
-    ExtractionContext, ExtractionFuture, ExtractionResult, ExtractionStatus, Extractor,
-    ExtractorContext, ExtractorError, NeighborMemory,
+pub use framework::{
+    EntityMention, ExtractedItem, ExtractionContext, ExtractionFuture, ExtractionResult,
+    ExtractionStatus, Extractor, ExtractorContext, ExtractorError, ExtractorRegistry,
+    ExtractorRunOptions, NeighborMemory, RelationMention, StatementMention,
 };
-pub use gliner::{GlinerConfig, GlinerError, GlinerModel, Span as GlinerSpan};
 pub use idempotency::{hash_memory_text, IdempotencyKey};
-pub use item::{EntityMention, ExtractedItem, RelationMention, StatementMention};
 pub use llm::{estimate_cost, CostBudget, LlmExtractor, LlmExtractorInner, Pricing};
 pub use materialize::{
     build_registry_from_definitions, materialize_classifier_extractor, materialize_llm_extractor,
     materialize_pattern_extractor, MaterializeDeps,
 };
-pub use options::ExtractorRunOptions;
 pub use pattern::{CompiledRegex, PatternExtractor};
-pub use registry::ExtractorRegistry;
 pub use resolver::{resolve_or_create, Resolution, ResolutionTier, ResolverError};
 pub use supersede_source::StatementHnswSource;

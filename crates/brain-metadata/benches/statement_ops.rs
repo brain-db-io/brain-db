@@ -1,7 +1,7 @@
 //! Statement-ops perf bench (sub-task 17.10b).
 //!
-//! Spec targets per [`spec/16_benchmarks_acceptance/02_latency_targets.md`](
-//! ../../spec/16_benchmarks_acceptance/02_latency_targets.md) §2.3 at
+//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
+//! ../../spec/20_benchmarks/02_latency_targets.md) §2.3 at
 //! 1M statements per shard (operator-run on the 16-core / 64 GB /
 //! NVMe reference rig):
 //!
@@ -16,7 +16,7 @@
 //!
 //! Run: `cargo bench -p brain-metadata --bench statement_ops`.
 
-use brain_core::knowledge::{StatementObject, SubjectRef};
+use brain_core::{StatementObject, SubjectRef};
 use brain_core::{
     Entity, EntityId, EntityType, EntityTypeId, ExtractorId, PredicateId, StatementId,
     StatementKind,
@@ -101,14 +101,14 @@ fn build_fixture(n: usize) -> Fixture {
             entity_put(&wtxn, &obj).expect("obj entity_put");
 
             let stmt_id = StatementId::new();
-            let s = brain_core::knowledge::Statement::new_root(
+            let s = brain_core::Statement::new_root(
                 stmt_id,
                 StatementKind::Fact,
                 SubjectRef::Entity(subj_id),
                 related_to,
                 StatementObject::Entity(obj_id),
                 0.9,
-                brain_core::knowledge::EvidenceRef::default(),
+                brain_core::EvidenceRef::default(),
                 ExtractorId::from(0),
                 now,
                 1,
@@ -157,14 +157,14 @@ fn bench_statement_create_fact(c: &mut Criterion) {
         b.iter(|| {
             let i = idx % extra_subjects.len();
             idx = idx.wrapping_add(1);
-            let s = brain_core::knowledge::Statement::new_root(
+            let s = brain_core::Statement::new_root(
                 StatementId::new(),
                 StatementKind::Fact,
                 SubjectRef::Entity(extra_subjects[i]),
                 related_to,
                 StatementObject::Entity(extra_objects[i]),
                 0.9,
-                brain_core::knowledge::EvidenceRef::default(),
+                brain_core::EvidenceRef::default(),
                 ExtractorId::from(0),
                 now,
                 1,
@@ -247,14 +247,14 @@ fn bench_statement_supersede(c: &mut Criterion) {
             idx = idx.wrapping_add(1);
             let (subj, obj, old_id) = heads[i];
             let new_id = StatementId::new();
-            let new_stmt = brain_core::knowledge::Statement::new_root(
+            let new_stmt = brain_core::Statement::new_root(
                 new_id,
                 StatementKind::Fact,
                 SubjectRef::Entity(subj),
                 related_to,
                 StatementObject::Entity(obj),
                 0.92,
-                brain_core::knowledge::EvidenceRef::default(),
+                brain_core::EvidenceRef::default(),
                 ExtractorId::from(0),
                 now,
                 1,

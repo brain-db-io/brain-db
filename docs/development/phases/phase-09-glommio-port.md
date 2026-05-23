@@ -252,7 +252,7 @@ worker observes between cycles.
 `brain-storage::wal::segment.rs` uses sync
 `libc::pwritev2(fd, iov, 1, offset, RWF_DSYNC)`. A sync syscall inside
 a Glommio future **blocks the entire shard's executor** for the
-duration of the fsync. Tail-latency tests in spec §16/02 will detect
+duration of the fsync. Tail-latency tests in spec §02/02 will detect
 this.
 
 **Decision (locked):** port WAL to io_uring (`IORING_OP_WRITE` +
@@ -363,7 +363,7 @@ rg -n 'tokio::' \
     && echo "FAIL: tokio leaked into shard code" && exit 1
 ```
 
-This codifies the audit. Spec §10/02 says the discipline isn't
+This codifies the audit. Spec §02/02 says the discipline isn't
 enforced by the type system; the grep is the next-best thing.
 
 ---

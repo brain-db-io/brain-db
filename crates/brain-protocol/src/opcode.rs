@@ -1,11 +1,11 @@
-//! Wire-protocol opcodes (u16, per spec §03/05 + §28/00).
+//! Wire-protocol opcodes (u16).
 //!
 //! ## Namespaces (high byte)
 //!
 //! - `0x00xx` — substrate ops (cognitive primitives + connection mgmt +
-//!   admin), spec §03/05.
+//!   admin).
 //! - `0x01xx` — knowledge layer (schema / entities / statements /
-//!   relations / queries / extractors), spec §28/00.
+//!   relations / queries / extractors).
 //! - `0x02xx`–`0xFFxx` — reserved for future namespaces.
 //!
 //! ## Direction (low byte's high bit)
@@ -25,7 +25,7 @@
 
 use crate::error::ProtocolError;
 
-/// Wire-protocol opcode. See spec §03/05 §1 + §28/00 for the full table.
+/// Wire-protocol opcode. for the full table.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(u16)]
 pub enum Opcode {
@@ -104,7 +104,7 @@ pub enum Opcode {
     Error = 0x00FF,
 
     // ============================================================
-    // Knowledge namespace (high byte = 0x01). Spec §28/00.
+    // Knowledge namespace (high byte = 0x01).
     // Phase 16.6c adds entity ops 0x0130-0x0133 + their responses.
     // Other §28 opcodes land in phases 17-24.
     // ============================================================
@@ -371,7 +371,7 @@ impl Opcode {
     }
 
     /// True if this opcode is server-bound (C→S, request) — low byte's
-    /// high bit is clear. Mirrors spec §03/05 §4 dispatch rule, applied
+    /// high bit is clear. Mirrors dispatch rule, applied
     /// per-namespace.
     #[inline]
     #[must_use]
@@ -387,7 +387,7 @@ impl Opcode {
     }
 
     /// True if this opcode is in the substrate's admin range
-    /// (spec §03/05 §1.6): low byte `0x60..=0x69` (req) or `0xE0..=0xE9`
+    /// low byte `0x60..=0x69` (req) or `0xE0..=0xE9`
     /// (resp), namespace 0x00.
     #[inline]
     #[must_use]
@@ -395,7 +395,7 @@ impl Opcode {
         self.namespace() == 0x00 && matches!(self.low_byte(), 0x60..=0x69 | 0xE0..=0xE9)
     }
 
-    /// True if this opcode is in the knowledge namespace (spec §28).
+    /// True if this opcode is in the knowledge namespace.
     #[inline]
     #[must_use]
     pub fn is_knowledge(self) -> bool {
@@ -403,7 +403,7 @@ impl Opcode {
     }
 
     /// True if this opcode rides on the connection-level stream
-    /// (stream_id MUST be 0 per spec §03/11 §2.5): HELLO, WELCOME,
+    /// (stream_id MUST be 0): HELLO, WELCOME,
     /// AUTH, AUTH_OK, PING, PONG, ServerPing, ClientPong, BYE.
     ///
     /// ERROR (0x00FF) is deliberately excluded — the server can emit

@@ -7,13 +7,13 @@
 //!
 //! Sub-task 8.1 ships the infrastructure only:
 //! - [`Worker`] trait + [`WorkerKind`].
-//! - [`WorkerConfig`] with spec §11/01 §11 defaults.
+//! - [`WorkerConfig`] with defaults.
 //! - [`WorkerContext`] (handle bag + shutdown signal).
-//! - [`WorkerMetrics`] (spec §11/01 §15).
+//! - [`WorkerMetrics`].
 //! - [`WorkerScheduler`] + [`WorkerHandle`].
-//! - [`drive_batch`] helper for spec §11/01 §5 / §6 cycle structure.
+//! - [`drive_batch`] helper for cycle structure.
 //!
-//! See `spec/11_background_workers/` for the authoritative design.
+//! See `spec/16_background_workers/` for the authoritative design.
 
 #![allow(
     clippy::module_name_repetitions,

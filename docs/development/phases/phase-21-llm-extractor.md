@@ -18,7 +18,7 @@ The actual landed mapping:
 | 21.4 Schema validation | `phase-21-task-03.md` §schema validation (jsonschema crate) |
 | 21.5 Retry-once | `phase-21-task-03.md` §retry-once |
 | 21.6 Cost budgeting | `phase-21-task-03.md` + `phase-21-task-04.md` (`CostBudget` materializer translation) |
-| **21.7 Resolver tier 4 (LLM)** | **Deferred** — phase 22+ (§22/07 Q12). Entity resolver currently stops at tier 3; tier-4 LLM-assisted disambig lands after tantivy. |
+| **21.7 Resolver tier 4 (LLM)** | **Deferred** — phase 22+ (§11/07 Q12). Entity resolver currently stops at tier 3; tier-4 LLM-assisted disambig lands after tantivy. |
 | **21.8 Built-in `brain.preferences_llm`** | **Deferred** — post-v1. Operators declare their own LLM extractors; the system schema ships only the phase-20 pattern + classifier built-ins. |
 | 21.9 Tests | `phase-21-task-06.md` (mock-client integration suite + wire smoke) |
 
@@ -89,7 +89,7 @@ The actual landed mapping:
 ### 21.7 Resolver tier 4 (LLM) — **DEFERRED**
 
 **Reads:** `18_entities/01_resolution.md` (tier 4).
-**Status:** deferred to phase 22+ (§22/07 Q12). Tier 4 LLM-assisted entity disambiguation depends on tantivy lexical retrieval landing in phase 22; the v1 resolver stops at tier 3.
+**Status:** deferred to phase 22+ (§11/07 Q12). Tier 4 LLM-assisted entity disambiguation depends on tantivy lexical retrieval landing in phase 22; the v1 resolver stops at tier 3.
 
 ### 21.8 Built-in `brain.preferences_llm` — **DEFERRED**
 

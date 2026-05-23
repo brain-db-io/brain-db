@@ -1,11 +1,11 @@
 //! WAL segment writer.
 //!
-//! See `spec/05_storage_arena_wal/04_wal_overview.md` and `05_wal_records.md`
+//! See `spec/08_storage/04_wal_overview.md` and `05_wal_records.md`
 //! §1 (segment header) + §17 (record packing).
 //!
 //! A `WalSegment` owns one `*.wal` file. The file starts with a 4 KB header
-//! (`spec §05/05 §1`) followed by `WalRecord`s packed back-to-back
-//! (`spec §05/05 §17`).
+//! (``) followed by `WalRecord`s packed back-to-back
+//! (``).
 //!
 //! ## I/O model (sub-task 9.6a)
 //!
@@ -42,7 +42,7 @@ pub static FLUSH_DURABLE_CALLS: std::sync::atomic::AtomicUsize =
 // Constants.
 // ---------------------------------------------------------------------------
 
-/// Segment header size in bytes (spec §05/05 §1).
+/// Segment header size in bytes.
 pub const WAL_SEGMENT_HEADER_LEN: usize = 4096;
 
 /// Magic bytes at offset 0 of every segment header.
@@ -129,7 +129,7 @@ impl<T> From<glommio::GlommioError<T>> for WalSegmentError {
 /// One append-only `*.wal` segment file.
 ///
 /// `!Send` / `!Sync` via `BufferedFile` — must live on the executor that
-/// opened it. Spec §10/02 single-writer-per-shard is preserved by construction.
+/// opened it single-writer-per-shard is preserved by construction.
 pub struct WalSegment {
     file: BufferedFile,
     path: PathBuf,
@@ -187,7 +187,7 @@ impl WalSegment {
         if got != wanted {
             return Err(WalSegmentError::ShortWrite { wanted, got });
         }
-        // Durable header (spec §05/06 §7 step 3).
+        // Durable header (step 3).
         file.fdatasync().await?;
 
         Ok(Self {

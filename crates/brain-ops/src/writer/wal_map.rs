@@ -50,12 +50,11 @@ use crate::write::{Phase, TombstoneTarget, Write};
 #[must_use]
 pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> {
     match phase {
-        // content_hash isn't an EncodePayload field — the legacy WAL
-        // doesn't ship it inline; recovery reconstructs the
-        // FINGERPRINTS_TABLE row from MEMORIES_TABLE.content_hash
-        // which apply_upsert_memory wrote durably alongside the
-        // metadata row. So Phase::UpsertMemory's content_hash flows
-        // through redb, not the WAL.
+        // content_hash isn't an EncodePayload field — the WAL doesn't
+        // ship it inline; recovery reconstructs the FINGERPRINTS_TABLE
+        // row from MEMORIES_TABLE.content_hash which apply_upsert_memory
+        // wrote durably alongside the metadata row. So Phase::UpsertMemory's
+        // content_hash flows through redb, not the WAL.
         Phase::UpsertMemory {
             id,
             text,
@@ -69,10 +68,9 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
             ..
         } => Some(WalPayload::Encode(EncodePayload {
             memory_id: *id,
-            // Project the unified write's WriteId into the legacy
-            // request_id slot. Both are UUIDv7 16 bytes; recovery
-            // keys the idempotency cache off this field, so a unified-
-            // path write gets an IDEMPOTENCY_TABLE entry on replay.
+            // The WAL's request_id field carries the WriteId (both are
+            // UUIDv7, 16 bytes). Recovery keys the idempotency cache off
+            // this field.
             request_id: brain_core::RequestId(write.write_id.as_uuid()),
             agent_id: write.agent_id,
             context_id: *context,
@@ -83,14 +81,10 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
             vector: vector.to_vec(),
             // Inline edges aren't part of Phase::UpsertMemory — they
             // ride as separate Phase::Link records in the same write
-            // (wrapped in TxnBegin/Commit). EncodePayload.edges stays
-            // empty for unified-path writes.
+            // (wrapped in TxnBegin/Commit).
             edges: Vec::new(),
-            // request_hash + response_payload are the legacy
-            // idempotency / replay-cache fields. The unified path
-            // stores everything it needs in WriteIdempotencyCache;
-            // recovery's IDEMPOTENCY_TABLE entry from these zeros is
-            // a harmless ghost (the unified path never consults it).
+            // request_hash + response_payload are unused by the write
+            // path; durability rides on WriteIdempotencyCache.
             request_hash: [0; 32],
             response_payload: Vec::new(),
             deduplicate: *deduplicate,
@@ -123,11 +117,9 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
         Phase::Tombstone { target, .. } => match target {
             TombstoneTarget::Memory { id, mode } => Some(WalPayload::Forget(ForgetPayload {
                 memory_id: *id,
-                // The legacy ForgetPayload carries the wire request_id for
-                // idempotency replay. The unified path uses WriteId as the
-                // analog. They share the UUIDv7 byte layout so we project
-                // directly — recovery rebuilds the same idempotency entry
-                // regardless of which path wrote it.
+                // ForgetPayload.request_id carries the WriteId for
+                // idempotency replay (both share the UUIDv7 16-byte
+                // layout).
                 request_id: brain_core::RequestId(write.write_id.as_uuid()),
                 agent_id: write.agent_id,
                 mode: match mode {
@@ -301,7 +293,7 @@ mod tests {
             panic!()
         };
         assert_eq!(fp.memory_id, id);
-        // The write_id projects into the legacy request_id slot.
+        // The WAL's request_id field carries the WriteId.
         assert_eq!(fp.request_id.0, write_id.as_uuid());
         assert_eq!(fp.mode, brain_storage::wal::payload::ForgetMode::Soft);
     }
@@ -394,7 +386,7 @@ mod tests {
         // SetExtractorEnabled — knowledge-layer phase; no WAL mapping
         // until knowledge_bodies.rs lands.
         let phase = Phase::SetExtractorEnabled {
-            id: brain_core::knowledge::ExtractorId::from(1),
+            id: brain_core::ExtractorId::from(1),
             enabled: false,
         };
         let w = write_for(phase.clone());

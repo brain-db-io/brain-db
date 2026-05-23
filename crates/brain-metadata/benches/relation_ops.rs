@@ -1,7 +1,7 @@
 //! Relation-ops perf bench (sub-task 18.9b).
 //!
-//! Spec targets per [`spec/16_benchmarks_acceptance/02_latency_targets.md`](
-//! ../../spec/16_benchmarks_acceptance/02_latency_targets.md) §2.4 at
+//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
+//! ../../spec/20_benchmarks/02_latency_targets.md) §2.4 at
 //! 1M relations per shard (operator-run on the reference rig):
 //!
 //! - `RELATION_CREATE`:          p50 3 ms, p99 15 ms.
@@ -13,7 +13,7 @@
 //!
 //! Run: `cargo bench -p brain-metadata --bench relation_ops`.
 
-use brain_core::knowledge::{Entity, EntityType, Relation};
+use brain_core::{Entity, EntityType, Relation};
 use brain_core::{EntityId, ExtractorId, RelationId, RelationTypeId};
 use brain_metadata::entity::ops::{entity_put, normalize_name};
 use brain_metadata::relation::ops::{

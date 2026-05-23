@@ -42,7 +42,7 @@ pub trait JitterSource: Send + Sync + 'static {
 }
 
 /// Thread-safe LCG seeded from `SystemTime` at construction.
-/// Spec §13/04 §6 only requires "jitter prevents synchronized
+/// only requires "jitter prevents synchronized
 /// retries"; cryptographic strength is not needed.
 pub struct DefaultJitter {
     state: AtomicU64,

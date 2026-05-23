@@ -25,7 +25,7 @@ in-image default for the Docker image is at
    stderr and aborts startup.
 
 Config is **restart-only** in v1 — there is no hot reload (spec
-§01/04 §15). The admin endpoint `/v1/config/reload` returns
+§01/04 §14). The admin endpoint `/v1/config/reload` returns
 `501 Not Implemented` for now.
 
 ## Byte-size syntax
@@ -91,7 +91,7 @@ Required.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `m` | usize | — | HNSW out-degree. Spec §06/02 default = 16. Range [8, 64]. Higher = better recall, slower build, more RAM. |
+| `m` | usize | — | HNSW out-degree. Spec §05/02 default = 16. Range [8, 64]. Higher = better recall, slower build, more RAM. |
 | `ef_construction` | usize | — | Build-time candidate set size. Spec default = 200. Higher = better graph quality, slower ENCODE. |
 | `ef_search` | usize | — | Query-time candidate set size. Spec default = 64. Higher = better recall, slower RECALL. |
 
@@ -112,7 +112,7 @@ Required.
 
 | Field | Type | Default | Notes |
 |---|---|---|---|
-| `mode` | enum | `"none"` | One of `"none"`, `"api_key"`. `api_key` is parsed but not yet fully wired (spec §03/06). |
+| `mode` | enum | `"none"` | One of `"none"`, `"api_key"`. `api_key` is parsed but not yet fully wired (spec §02/06). |
 
 Until tokens/mTLS ship, the only fully-functional mode is `none`.
 See [`../guides/security/auth-modes.md`](../guides/security/auth-modes.md).
@@ -226,6 +226,6 @@ errors:
 - [`../../config/docker.toml`](../../config/docker.toml) — the
   in-image production-shaped default.
 
-**Spec:** §01/04 (system architecture — config), §06/02 (HNSW
-parameters), §11/03 (worker intervals), §14/03 (tracing). Source:
+**Spec:** §01/04 (system architecture — config), §05/02 (HNSW
+parameters), §02/03 (worker intervals), §02/03 (tracing). Source:
 `crates/brain-server/src/config/mod.rs`.

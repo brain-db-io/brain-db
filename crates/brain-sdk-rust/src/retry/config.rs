@@ -1,12 +1,12 @@
 //! `RetryConfig` — knobs for the exponential-backoff retry loop.
 //!
-//! Defaults come from spec §13/04 §6:
+//! Defaults come from:
 //! - `max_attempts = 3`
 //! - `initial_delay = 100 ms`
 //! - `backoff_factor = 2.0`
 //! - `max_delay = 30 s`
 //! - `jitter = 0.1` (±10 %)
-//! - `total_timeout = 60 s` (spec §13)
+//! - `total_timeout = 60 s`
 
 use std::time::Duration;
 
@@ -25,21 +25,21 @@ pub const DEFAULT_TOTAL_TIMEOUT: Duration = Duration::from_secs(60);
 #[derive(Clone, Debug, PartialEq)]
 pub struct RetryConfig {
     /// Inclusive cap on attempts (1 = no retries, just the
-    /// initial call). Spec §6 default 3.
+    /// initial call) default 3.
     pub max_attempts: u32,
-    /// Base for the exponential backoff. Spec §6 default 100 ms.
+    /// Base for the exponential backoff default 100 ms.
     pub initial_delay: Duration,
-    /// Multiplier applied per attempt. Spec §6 default 2.0.
+    /// Multiplier applied per attempt default 2.0.
     pub backoff_factor: f64,
-    /// Cap on any individual sleep between attempts. Spec §6
+    /// Cap on any individual sleep between attempts
     /// default 30 s.
     pub max_delay: Duration,
-    /// Symmetric jitter factor (`0.1` = ±10 %). Spec §6 default
+    /// Symmetric jitter factor (`0.1` = ±10 %) default
     /// 0.1.
     pub jitter: f64,
     /// Wall-clock budget covering the whole retry chain (all
     /// attempts + sleeps). `None` disables the total cap; only
-    /// `max_attempts` bounds the loop. Spec §13 default 60 s.
+    /// `max_attempts` bounds the loop default 60 s.
     pub total_timeout: Option<Duration>,
 }
 
@@ -73,7 +73,7 @@ impl RetryConfig {
         }
     }
 
-    /// Aggressive preset: 5 attempts, faster backoff. Spec §8 —
+    /// Aggressive preset: 5 attempts, faster backoff —
     /// useful for important writes the caller will not retry
     /// itself.
     #[must_use]

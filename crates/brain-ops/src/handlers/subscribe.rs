@@ -1,7 +1,7 @@
 //! SUBSCRIBE — change-feed for new memories matching a filter.
 //!
-//! Spec: `spec/09_cognitive_operations/09_subscribe.md` and
-//! `spec/03_wire_protocol/07_subscribe.md` (frame shape).
+//! Spec: `spec/05_operations/09_subscribe.md` and
+//! `spec/04_wire_protocol/07_subscribe.md` (frame shape).
 //!
 //! ## v1 scope (sub-task 7.10)
 //!
@@ -120,7 +120,7 @@ pub struct EventEnvelope {
     pub text: Option<String>,
     /// Typed knowledge-layer payload — `None` for substrate events,
     /// `Some(_)` for the knowledge event variants (phase 16.7+).
-    pub knowledge_payload: Option<brain_protocol::knowledge::KnowledgeEventPayload>,
+    pub knowledge_payload: Option<brain_protocol::KnowledgeEventPayload>,
     /// Unified-edge change-feed payload — `Some(_)` when `event_type`
     /// is `EdgeAdded`, `EdgeRemoved` or `EdgeSuperseded`.
     pub edge_payload: Option<EdgeEventPayload>,
@@ -177,7 +177,7 @@ impl EventEnvelope {
     /// caller skips those LSNs silently.
     #[must_use]
     pub fn from_wal_record(record: &brain_storage::wal::record::WalRecord) -> Vec<Self> {
-        use brain_protocol::knowledge::KnowledgeEventPayload;
+        use brain_protocol::KnowledgeEventPayload;
         use brain_storage::wal::payload::WalPayload;
 
         let lsn = record.lsn.raw();
@@ -563,10 +563,10 @@ pub struct ParsedFilter {
     /// Subset of agent ids the subscriber wants events for. `None`
     /// = all agents (substrate-wide). On a shared shard this is
     /// the difference between "I see only my agent" and "I see
-    /// every agent on this shard." Spec §09/09 §2.
+    /// every agent on this shard.".
     pub agents: Option<HashSet<brain_core::AgentId>>,
     /// Reserved slot. Wire `SubscriptionFilter` doesn't carry
-    /// `min_salience` today; spec §2 lists it as desirable. Always
+    /// `min_salience` today lists it as desirable. Always
     /// `None` in v1.
     pub min_salience: Option<f32>,
 }
@@ -699,7 +699,7 @@ impl SubscriptionRegistry {
     /// and return a receiver primed at the bus's current tail.
     pub fn register(&self, req: &SubscribeRequest) -> Result<SubscriptionHandle, OpError> {
         if req.from_lsn.is_some() {
-            // Spec §17 — LsnTooOld until Phase 9 wires WAL replay. We
+            // — LsnTooOld until Phase 9 wires WAL replay. We
             // surface it as `NotFound { what: "wal_segment", ... }`
             // which maps to the same wire `NotFound` family.
             return Err(OpError::NotFound {
@@ -784,7 +784,7 @@ impl SubscriptionRegistry {
 // Dispatcher handlers.
 // ---------------------------------------------------------------------------
 
-/// Spec §09/09 — one-shot dispatcher contract.
+/// — one-shot dispatcher contract.
 ///
 /// 1. Reject `from_lsn = Some(_)` (no WAL replay yet).
 /// 2. Reject `similar_to` filter (no per-event vector lookup yet).
@@ -880,7 +880,7 @@ pub async fn handle_subscribe(
     ))
 }
 
-/// Spec §09/09 §8 — drop the subscription, return final LSN.
+/// — drop the subscription, return final LSN.
 pub async fn handle_unsubscribe(
     req: UnsubscribeRequest,
     ctx: &OpsContext,

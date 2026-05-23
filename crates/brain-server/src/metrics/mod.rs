@@ -1,6 +1,6 @@
 //! Metrics primitives + Prometheus exposition.
 //!
-//! Phase 12 — sub-task 12.1a. Spec §14/01.
+//! Phase 12 — sub-task 12.1a.
 //!
 //! ## Layout
 //!

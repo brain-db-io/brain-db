@@ -27,14 +27,14 @@
 //! future S-11.
 
 use brain_core::MemoryId;
-use brain_protocol::knowledge::KnowledgeEventPayload;
+use brain_protocol::KnowledgeEventPayload;
 use brain_protocol::response::EventType;
 
 use crate::context::OpsContext;
 use crate::subscribe::EventEnvelope;
 
 /// Emit a knowledge-layer event onto the EventBus. Substrate fields
-/// are zero-filled per spec §28/02 §2. Called post-commit by every
+/// are zero-filled. Called post-commit by every
 /// knowledge handler that mutates state.
 ///
 /// Routes through [`OpsContext::publish_knowledge`] so the event is

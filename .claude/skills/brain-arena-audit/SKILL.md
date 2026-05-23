@@ -10,8 +10,8 @@ when-to-use: |
 trigger-files:
   - crates/brain-storage/**/*.rs
 spec-refs:
-  - spec/05_storage_arena_wal/02_arena_layout.md
-  - spec/02_data_model/03_identifiers.md
+  - spec/08_storage/02_arena_layout.md
+  - spec/02_data_model/02_memory.md
 ---
 
 # Arena Audit

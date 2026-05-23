@@ -1,5 +1,5 @@
 //! Shared sweeper-side primitives (sub-tasks 24.3–24.7).
-//! Spec §27/03 §1 — common discipline (dry-run, batch cap,
+//! — common discipline (dry-run, batch cap,
 //! SweepSummary).
 //!
 //! Individual sweepers live in `brain-workers::workers::*` and
@@ -11,7 +11,7 @@ use crate::statement::StatementOpError;
 use crate::tables::audit::EXTRACTOR_AUDIT_TABLE;
 use crate::tables::statement::STATEMENTS_TABLE;
 
-/// Shared summary returned by every sweeper. Spec §27/03 §1.4.
+/// Shared summary returned by every sweeper.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct SweepSummary {
     pub scanned: u64,
@@ -25,7 +25,6 @@ pub struct SweepSummary {
 // ---------------------------------------------------------------------------
 
 /// Hard-delete superseded statements past `retention_seconds`.
-/// Spec §27/03 §2.
 ///
 /// `retention_seconds == 0` means "disabled" — the caller is
 /// expected to short-circuit before invoking, but we double-check.

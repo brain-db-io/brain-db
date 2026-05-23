@@ -1,6 +1,6 @@
 //! Snapshot persistence for `HnswIndex`.
 //!
-//! See `spec/06_ann_index/06_persistence.md` §5 and SD-4.5-1 in
+//! See `spec/09_indexing/06_persistence.md` §5 and SD-4.5-1 in
 //! `docs/development/spec-deviations.md`.
 //!
 //! ## File layout

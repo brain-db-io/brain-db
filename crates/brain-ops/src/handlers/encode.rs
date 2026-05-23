@@ -32,7 +32,7 @@ pub async fn handle_encode(
     let plan = plan_encode_inner(&req, &ctx.planner_ctx)?;
     let salience = plan.wal_append.salience_initial;
 
-    // 1b. Idempotency replay short-circuit (spec §09/02 §4). The same
+    // 1b. Idempotency replay short-circuit. The same
     // request_id arriving twice must return the original response. The
     // writer's idempotency cache is keyed by WriteId, but it lives
     // behind submit() — by then we've already burned embedding work
@@ -65,7 +65,7 @@ pub async fn handle_encode(
         .map_err(|e| OpError::ExecError(brain_planner::ExecError::EmbedFailed(e)))?;
     let content_hash = *blake3::hash(req.text.as_bytes()).as_bytes();
 
-    // 3. Dedup check (spec §07/07 §6) — when opted in, look up
+    // 3. Dedup check — when opted in, look up
     // (agent, context, content_hash). On hit, return the existing
     // memory id without submitting a Write.
     if req.deduplicate {
@@ -182,7 +182,7 @@ pub async fn handle_encode(
 }
 
 /// Look up a content-hash fingerprint to deduplicate against an
-/// existing memory (spec §07/07 §6). Returns `Some(MemoryId)` if a
+/// existing memory. Returns `Some(MemoryId)` if a
 /// row exists for `(caller_agent, context, content_hash)`.
 fn lookup_fingerprint(
     ctx: &OpsContext,
@@ -440,7 +440,7 @@ async fn handle_encode_in_txn(
         return Ok(EncodeResponse {
             memory_id: memory_id.into(),
             // Intra-txn request_id replay is idempotency, not
-            // dedup. Per spec §09/02 §4, idempotency replay is
+            // dedup. Per, idempotency replay is
             // transparent to the caller — surface whatever the
             // original response would have carried. The original
             // was a buffered encode (no dedup hit possible during

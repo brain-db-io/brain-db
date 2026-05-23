@@ -14,7 +14,7 @@
 //!   mutate operation.
 
 use brain_core::EntityId;
-use brain_protocol::knowledge::EntityView;
+use brain_protocol::EntityView;
 use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 
 // ---------------------------------------------------------------------------
@@ -62,7 +62,7 @@ pub trait BrainEntityType: Sized + Send + Sync + 'static {
 // Person.
 // ---------------------------------------------------------------------------
 
-/// Built-in `Person` entity type. Spec §18/00 §"Entity types".
+/// Built-in `Person` entity type §"Entity types".
 ///
 /// The struct is a zero-sized marker; instances are constructed at the
 /// type level via `client.entity::<Person>()`. Per-entity values live
@@ -213,7 +213,6 @@ where
     T::Attributes: PartialEq + Eq,
 {
     /// `true` if the entity is tombstoned (`flags & TOMBSTONED`).
-    /// Spec §18/05.
     #[must_use]
     pub fn is_tombstoned(&self) -> bool {
         self.flags & TOMBSTONED_FLAG != 0
@@ -258,7 +257,7 @@ where
 }
 
 /// Bit 0 of `EntityView::flags` — entity is tombstoned. Mirrors
-/// `brain-metadata::tables::knowledge::entity::flags::TOMBSTONED` so
+/// `brain-metadata::tables::nodes::entity::flags::TOMBSTONED` so
 /// the SDK doesn't need to depend on brain-metadata.
 const TOMBSTONED_FLAG: u32 = 1 << 0;
 

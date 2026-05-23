@@ -9,11 +9,6 @@ use crate::render::fmt_id;
 use crate::theme::Token;
 use crate::{Render, RenderCtx};
 
-/// Re-export newtype so callers stay consistent with other renderers
-/// that wrap their wire response. Today `ForgetResponse` itself implements
-/// [`Render`]; this typedef gives callers a single-name handle to import.
-pub use brain_protocol::response::ForgetResponse as ForgetRendered;
-
 impl Render for ForgetResponse {
     fn render_table(&self, ctx: &RenderCtx, w: &mut dyn Write) -> io::Result<()> {
         let ok = ctx.theme.paint(Token::Success, "ok", ctx.policy);

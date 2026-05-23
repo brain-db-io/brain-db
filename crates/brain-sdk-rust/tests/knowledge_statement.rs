@@ -14,7 +14,7 @@
 
 mod common;
 
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EvidenceRefWire, StatementCreateResponse, StatementGetResponse, StatementHistoryRequest,
     StatementHistoryResponseFrame, StatementKindWire, StatementListResponseFrame,
     StatementObjectWire, StatementRetractResponse, StatementTombstoneResponse, StatementValueWire,

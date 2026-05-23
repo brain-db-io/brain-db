@@ -10,11 +10,11 @@ trail of how they were measured. Not "how to tune Brain" — that's
 ## Layout
 
 - [`latency-targets.md`](latency-targets.md) — The p50/p95/p99/p999
-  numbers Brain commits to per operation, per spec §16/02.
+  numbers Brain commits to per operation, per spec §02/02.
   Methodology, host shape, and what each percentile excludes.
 - [`durability-criteria.md`](durability-criteria.md) — The
   fail-stop / no-silent-corruption invariants and the chaos tests
-  that prove them, per spec §16/06.
+  that prove them, per spec §02/06.
 - [`results/`](results/) — Per-phase result reports. One Markdown
   file per phase tag (`phase-09.md`, `phase-14.md`, …). Each
   reports: host shape, workload, observed numbers, deltas vs the
@@ -33,5 +33,5 @@ reproduce a number ±10%, file an issue with your `lscpu` output.
 - [`../reference/performance.md`](../reference/performance.md) — short
   reference table of the published numbers (for operators who
   just want the number, not the methodology).
-- [`../../spec/16_benchmarks_acceptance/`](../../spec/16_benchmarks_acceptance/)
+- [`../../spec/19_benchmarks/`](../../spec/19_benchmarks/00_purpose.md)
   — the authoritative acceptance gate.

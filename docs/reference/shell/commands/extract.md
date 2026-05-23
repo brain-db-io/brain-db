@@ -8,7 +8,7 @@ and `backfill`.
 **Knowledge layer prerequisite.** Extraction runs only when a schema
 is declared via `SCHEMA_UPLOAD`. On a substrate-only deployment the
 extractor pipeline doesn't execute and these subcommands have nothing
-to report. See [`spec/22_extractors/00_purpose.md`](../../../../spec/22_extractors/00_purpose.md).
+to report. See [`spec/11_extractors/00_purpose.md`](../../../../spec/11_extractors/00_purpose.md).
 
 **Status.** Both subcommands today emit a `tracing` warning and then
 `todo!()` — the wire ops aren't bound through the SDK. The flag
@@ -23,7 +23,7 @@ Show the extraction-audit row(s) for one memory. Each row is one
 extractor invocation against that memory — its outcome, latency,
 tier, and any output references it produced. Backed by the
 `ExtractionAuditGetReq` / `ExtractionAuditListByMemoryReq` wire ops
-(see [`spec/22_extractors/05_audit.md`](../../../../spec/22_extractors/05_audit.md)).
+(see [`spec/11_extractors/04_audit.md`](../../../../spec/11_extractors/04_audit.md)).
 
 ```
 brain extract status <MEMORY_ID>
@@ -56,7 +56,7 @@ Outputs (3)
 
 | Field | Meaning |
 |---|---|
-| `status` | `Success`, `Failure`, `SkippedBudget` (LLM only), `SkippedIdempotency`. Maps `ExtractionStatus` from [spec §22/05](../../../../spec/22_extractors/05_audit.md). |
+| `status` | `Success`, `Failure`, `SkippedBudget` (LLM only), `SkippedIdempotency`. Maps `ExtractionStatus` from [spec §11/05](../../../../spec/11_extractors/04_audit.md). |
 | `tier` | Which extractor produced the row: `pattern`, `classifier`, or `llm`. |
 | `(extractor=…)` | `extractor_id`, version, schema version — the keys that determine idempotency. |
 | `duration` | `completed - started` in human form. |
@@ -146,7 +146,7 @@ brain extract backfill --since $(($(date +%s%N) - 3600000000000))
 
 Backfill every memory that has no successful audit row. Heavy —
 intended for ops, not interactive use. The server bounds concurrency
-per [`spec/22_extractors/03_triggers.md`](../../../../spec/22_extractors/03_triggers.md);
+per [`spec/11_extractors/02_triggers.md`](../../../../spec/11_extractors/02_triggers.md);
 the client doesn't need to throttle.
 
 ### Output
@@ -215,7 +215,7 @@ ops land.
 
 | Surface | Blocked on |
 |---|---|
-| `extract status` | Wire op `ExtractionAuditGet` / `ExtractionAuditListByMemory` + SDK builder. The redb tables (`extractor_audit`, `extractor_audit_by_memory`) exist already per [spec §22/05](../../../../spec/22_extractors/05_audit.md). |
+| `extract status` | Wire op `ExtractionAuditGet` / `ExtractionAuditListByMemory` + SDK builder. The redb tables (`extractor_audit`, `extractor_audit_by_memory`) exist already per [spec §11/05](../../../../spec/11_extractors/04_audit.md). |
 | `extract backfill` | Wire op `ExtractionBackfillReq` + SDK builder. The admin-only `brain-cli` may grow this verb first (per the phase 22 plan); the shell follows. |
 | Streaming progress | Once `ExtractionBackfillReq` is wired, surface a `subscribe`-style streaming option so `--all` reports live progress instead of fire-and-forget. |
 
@@ -227,4 +227,4 @@ ops land.
 - [`encode.md`](encode.md) — `--wait-for-extraction` waits for this pipeline to land per-memory
 - [`subscribe.md`](subscribe.md) — `ExtractionCompleted` / `ExtractionFailed` events
 - [`../output-formats.md`](../output-formats.md) — table + JSON
-- Spec: [`spec/22_extractors/`](../../../../spec/22_extractors/), [`spec/22_extractors/05_audit.md`](../../../../spec/22_extractors/05_audit.md)
+- Spec: [`spec/11_extractors/`](../../../../spec/11_extractors/00_purpose.md), [`spec/11_extractors/04_audit.md`](../../../../spec/11_extractors/04_audit.md)

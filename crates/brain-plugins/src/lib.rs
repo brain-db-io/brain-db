@@ -6,7 +6,7 @@
 //! [`RecallPlugin`]:
 //!
 //! - [`EnricherPlugin`] — mutate candidate items between extraction
-//!   and persistence. Adds, mutates, or drops [`brain_extractors::item::ExtractedItem`]s.
+//!   and persistence. Adds, mutates, or drops [`brain_extractors::framework::item::ExtractedItem`]s.
 //! - [`ConnectorPlugin`] — pull raw memories from external sources
 //!   (Drive / GitHub / Slack — none shipped in v1, just the trait).
 //!

@@ -1,4 +1,4 @@
-//! Schema validator integration tests (spec §21/03 §5).
+//! Schema validator integration tests.
 
 use brain_protocol::schema::{
     parse_schema, validate, AttrType, AttributeDecl, CardinalityAst, EntityTypeDef, ExtractorDef,

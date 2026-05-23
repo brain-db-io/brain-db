@@ -1,6 +1,6 @@
-//! Snapshot worker (sub-task 8.13). Spec §11/08 §6.
+//! Snapshot worker (sub-task 8.13).
 //!
-//! Periodic snapshot trigger with retention policy. Spec §6 marks
+//! Periodic snapshot trigger with retention policy marks
 //! this worker **off by default** ("many deployments prefer
 //! external backup tooling. The substrate's built-in snapshot worker
 //! is a convenience").
@@ -10,7 +10,7 @@
 //! No full-shard snapshot orchestration exists yet:
 //! - `SharedHnsw::save_snapshot` exists but no arena / metadata
 //!   wrappers do.
-//! - No `Wal` instance hangs off the writer, so the spec §1 "trigger
+//! - No `Wal` instance hangs off the writer, so the "trigger
 //!   checkpoint first" sequencing is Phase 9.
 //!
 //! v1 ships the **worker shape + retention policy** as a pluggable
@@ -46,9 +46,9 @@ pub struct SnapshotDesc {
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RetentionPolicy {
-    /// Keep at most this many snapshots. Spec §6.2 default = 7.
+    /// Keep at most this many snapshots.2 default = 7.
     pub max_count: usize,
-    /// Drop snapshots older than this age. Spec §6.2 default = 30d.
+    /// Drop snapshots older than this age.2 default = 30d.
     pub max_age: Duration,
 }
 
@@ -70,7 +70,7 @@ impl Default for RetentionPolicy {
 ///   - its age >= `max_age` (oldness rule), or
 ///   - it's outside the newest `max_count` (count rule).
 ///
-/// Spec §6.2 leaves the combination unspecified; v1 uses "either".
+/// 2 leaves the combination unspecified; v1 uses "either".
 #[must_use]
 pub fn decide_retention(
     snapshots: &[SnapshotDesc],
@@ -157,7 +157,7 @@ impl SnapshotWorker {
     #[must_use]
     pub fn new(source: Arc<dyn SnapshotSource>) -> Self {
         Self {
-            // WorkerKind::Snapshot defaults enabled=false per spec §6.2.
+            // WorkerKind::Snapshot defaults enabled=false.2.
             config: WorkerConfig::defaults_for(WorkerKind::Snapshot),
             retention: RetentionPolicy::default(),
             source,

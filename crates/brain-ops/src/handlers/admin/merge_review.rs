@@ -7,7 +7,7 @@
 //! `merge_entity` call lands in WAL + redb in one atomic transaction;
 //! the list path is a plain read.
 
-use brain_core::knowledge::MergeId;
+use brain_core::MergeId;
 use brain_metadata::entity::merge::{MergeActor, DEFAULT_MERGE_GRACE_NANOS};
 use brain_metadata::entity::review::{list_proposals_by_status, proposal_get};
 use brain_metadata::tables::merge_review_queue::{proposal_status, MergeReviewProposal};

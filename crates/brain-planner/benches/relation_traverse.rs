@@ -3,7 +3,7 @@
 //! Validates that collapsing the substrate `edges_out`/`edges_in`
 //! tables and the typed-relation `relations`/`by_from`/`by_to` tables
 //! into one `EDGES_TABLE` + sidecar did not regress the
-//! `RELATION_TRAVERSE` latency below spec §16/02 §2.4 targets:
+//! `RELATION_TRAVERSE` latency below targets:
 //!
 //! - depth=1 : p50 ≤ 5  ms
 //! - depth=2 : p50 ≤ 15 ms
@@ -24,7 +24,7 @@
 
 use std::time::{Duration, Instant};
 
-use brain_core::knowledge::{Entity, EntityType, Relation};
+use brain_core::{Entity, EntityType, Relation};
 use brain_core::{
     EdgeKind, EdgeKindRef, EntityId, ExtractorId, MemoryId, NodeRef, RelationId, RelationTypeId,
 };
@@ -44,7 +44,7 @@ const N_TYPED_RELATIONS: usize = 5000;
 const N_MEMORIES: usize = 1000;
 const N_SUBSTRATE_EDGES: usize = 5000;
 
-// Spec §16/02 §2.4 p50 targets in milliseconds.
+// p50 targets in milliseconds.
 const P50_TARGET_MS_D1: f64 = 5.0;
 const P50_TARGET_MS_D2: f64 = 15.0;
 const P50_TARGET_MS_D3: f64 = 30.0;

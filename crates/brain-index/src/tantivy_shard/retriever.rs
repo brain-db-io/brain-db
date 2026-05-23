@@ -1,6 +1,6 @@
 //! LexicalRetriever — phase 22.5 (read side of the tantivy
 //! pipeline). Implements the surface defined in
-//! `spec/23_retrievers/02_lexical_retriever.md`.
+//! `spec/13_retrievers/02_lexical_retriever.md`.
 //!
 //! Consumers (phase 23 hybrid query, future RECALL paths) hold an
 //! `Arc<dyn LexicalRetriever>` and call [`LexicalRetriever::retrieve`].
@@ -10,7 +10,7 @@
 use std::ops::{Bound, RangeInclusive};
 use std::sync::Arc;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{AgentId, EntityId, MemoryId, MemoryKind, RelationId, StatementId};
 use tantivy::collector::TopDocs;
 use tantivy::query::{BooleanQuery, Occur, Query, QueryParser, RangeQuery, TermQuery};

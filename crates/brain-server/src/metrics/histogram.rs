@@ -1,4 +1,4 @@
-//! Fixed-bucket histogram per spec §14/01 §12.
+//! Fixed-bucket histogram.
 //!
 //! Buckets are cumulative ("less-than-or-equal" semantics) — the
 //! standard Prometheus convention. The implicit `+Inf` bucket is
@@ -18,7 +18,7 @@
 //!   `scale = 1`. The sum is the true integer total.
 //!
 //! Constructed via [`Histogram::new`] (raw) or
-//! [`Histogram::new_default_ms`] (ms-scaled with spec §12 buckets).
+//! [`Histogram::new_default_ms`] (ms-scaled with buckets).
 //! F-7 introduced the unit-agnostic
 //! split.
 //!
@@ -30,7 +30,7 @@
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// Default histogram buckets per spec §14/01 §12 (ms boundaries).
+/// Default histogram buckets (ms boundaries).
 pub const DEFAULT_BUCKETS_MS: &[f64] = &[
     1.0, 2.5, 5.0, 10.0, 25.0, 50.0, 100.0, 250.0, 500.0, 1000.0, 2500.0, 5000.0, 10000.0,
 ];
@@ -63,7 +63,7 @@ impl Histogram {
         Self::with_scale(bounds, 1)
     }
 
-    /// Construct an ms-scaled histogram with the spec §14/01 §12
+    /// Construct an ms-scaled histogram with the
     /// default buckets. Observations are stored as `value × 1000`
     /// internally; the rendered `_sum` is `sum_scaled / 1000` (one
     /// decimal place).
@@ -221,7 +221,6 @@ mod tests {
 
     #[test]
     fn default_buckets_match_spec() {
-        // spec §14/01 §12.
         assert_eq!(
             DEFAULT_BUCKETS_MS,
             &[

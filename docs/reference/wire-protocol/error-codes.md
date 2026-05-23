@@ -5,7 +5,7 @@ Brain returns errors as `Error(0x00FF)` frames bound to a
 human-readable message and optional details.
 
 **Source:** `crates/brain-protocol/src/error.rs`.
-**Spec:** §03/10.
+**Spec:** §02/10 statement.
 
 ## Categories
 
@@ -157,4 +157,4 @@ The admin HTTP endpoints reuse these codes (see
 - [`frame-format.md`](frame-format.md) — where the `Error(0x00FF)` frame lives in the protocol.
 - [`../../runbooks/`](../../runbooks/) — per-symptom incident response.
 
-**Spec:** §03/10. **Source:** `crates/brain-protocol/src/error.rs`.
+**Spec:** §02/10 statement. **Source:** `crates/brain-protocol/src/error.rs`.

@@ -1,13 +1,13 @@
 //! `HnswIndex<const D: usize>` — const-generic wrapper around `hnsw_rs::Hnsw<f32, DistCosine>`.
 //!
 //! Spec references:
-//! - `spec/06_ann_index/02_parameters.md` — defaults and ranges.
-//! - `spec/06_ann_index/01_hnsw_primer.md` §7 — distance metric: cosine on
+//! - `spec/09_indexing/02_parameters.md` — defaults and ranges.
+//! - `spec/09_indexing/01_hnsw_primer.md` §7 — distance metric: cosine on
 //!   L2-normalised vectors (BGE-small output, so cosine = dot product).
-//! - `spec/06_ann_index/03_insertion.md` §1–2, §10 — id_map pattern;
+//! - `spec/09_indexing/03_insertion.md` §1–2, §10 — id_map pattern;
 //!   duplicate-MemoryId is a bug we detect rather than letting hnsw_rs
 //!   silently overwrite.
-//! - `spec/06_ann_index/04_search.md` §1 — search returns sorted ascending
+//! - `spec/09_indexing/04_search.md` §1 — search returns sorted ascending
 //!   by distance.
 //!
 //! ## Current surface (through sub-task 4.2)
@@ -43,7 +43,7 @@ use crate::params::{IndexParams, IndexParamsError, DEFAULT_CAPACITY_HINT, MAX_LA
 use crate::persistence::{self, Body, BodyError, Header, HeaderError, FOOTER_LEN, HEADER_LEN};
 use crate::tombstones::TombstoneBitmap;
 
-/// Default over-fetch multiplier for post-filter search. Spec §09 §2.
+/// Default over-fetch multiplier for post-filter search.
 /// Initial fetch is `k * OVER_FACTOR`; the bailout loop escalates by
 /// doubling on each retry, bounded by the index size (no point asking
 /// hnsw_rs for more candidates than exist).
@@ -72,7 +72,7 @@ pub enum HnswError {
     #[error("invalid params: {0}")]
     InvalidParams(#[from] IndexParamsError),
 
-    /// `memory_id` was already inserted. Per spec §06/03 §10 re-inserting
+    /// `memory_id` was already inserted. Per re-inserting
     /// an existing MemoryId is a caller bug; we detect rather than let
     /// hnsw_rs silently overwrite.
     #[error("duplicate memory_id: {memory_id_bytes:?}")]
@@ -163,7 +163,7 @@ impl From<IdMapError> for HnswError {
 impl<const D: usize> HnswIndex<D> {
     /// Build a fresh empty index using the given parameters.
     ///
-    /// Validates `params` against `spec/06_ann_index/02_parameters.md`'s
+    /// Validates `params` against `spec/09_indexing/02_parameters.md`'s
     /// ranges. Pre-allocates internal tables sized to
     /// [`crate::params::DEFAULT_CAPACITY_HINT`]; this is a hint, not a cap.
     pub fn new(params: IndexParams) -> Result<Self, HnswError> {
@@ -188,7 +188,7 @@ impl<const D: usize> HnswIndex<D> {
     ///
     /// Returns [`HnswError::DuplicateMemoryId`] if `memory_id` was
     /// already inserted; the index is unchanged on the duplicate path
-    /// (no internal id burned). Spec §06/03 §10.
+    /// (no internal id burned).
     pub fn insert(&mut self, memory_id: MemoryId, vector: &[f32; D]) -> Result<(), HnswError> {
         let internal_id = self.id_map.insert(memory_id)?;
         // `Hnsw::insert_slice` takes a `(&[T], usize)` tuple.
@@ -201,25 +201,25 @@ impl<const D: usize> HnswIndex<D> {
     /// by `filter`. Returns `(MemoryId, similarity)` tuples **sorted
     /// descending by similarity** (best match first).
     ///
-    /// **Similarity, not distance.** Per spec §04 §1, results carry
+    /// **Similarity, not distance.** Per, results carry
     /// `similarity = 1.0 - distance`, in `[-1, 1]`: 1.0 = identical,
     /// 0 = orthogonal, -1 = opposite (for L2-normalised input).
     ///
-    /// **Tombstoned memories are always excluded** (spec §06/05 §2);
+    /// **Tombstoned memories are always excluded**;
     /// the tombstone filter is implicit and applies regardless of
     /// `filter`'s return value.
     ///
-    /// **Over-fetch + bailout retry** (spec §09 §2 + §7). The search
+    /// **Over-fetch + bailout retry**. The search
     /// initially requests `k * OVER_FACTOR` candidates from hnsw_rs.
     /// If fewer than `k` survive the filter chain, the loop scales up:
     /// first the fetch multiplier (capped at `OVER_FACTOR_CAP`), then
     /// `ef` doubles up to `params.ef_search_max`. If even that doesn't
-    /// gather `k`, returns fewer-than-`k` results (per spec §09 §7).
+    /// gather `k`, returns fewer-than-`k` results.
     ///
     /// `ef` argument overrides the per-query search width:
     /// - `None` → uses `params.ef_search`.
     /// - `Some(v)` → clamped to `[k, params.ef_search_max]` per
-    ///   `spec/06_ann_index/02_parameters.md` §5 + §8.
+    ///   `spec/09_indexing/02_parameters.md` §5 + §8.
     #[must_use]
     pub fn search<F>(
         &self,
@@ -253,7 +253,7 @@ impl<const D: usize> HnswIndex<D> {
                 let Ok(internal_id) = u32::try_from(n.d_id) else {
                     continue;
                 };
-                // Implicit tombstone filter (spec §06/05 §2).
+                // Implicit tombstone filter.
                 if self.tombstones.is_set(internal_id) {
                     continue;
                 }
@@ -275,7 +275,7 @@ impl<const D: usize> HnswIndex<D> {
                 break;
             }
 
-            // Bailout escalation (spec §09 §7). Grow both axes:
+            // Bailout escalation. Grow both axes:
             // - fetch_multiplier doubles, bounded by total_nodes.
             // - ef doubles, bounded by params.ef_search_max.
             // Stop when both are saturated.
@@ -378,14 +378,14 @@ impl<const D: usize> HnswIndex<D> {
 
     /// Build a fresh index from an iterator of `(MemoryId, vector)`
     /// pairs. The caller filters out tombstoned and corrupted memories
-    /// upstream (spec §06/06 §3, §07 §12); `rebuild` simply iterates
+    /// upstream (§07 §12); `rebuild` simply iterates
     /// and inserts.
     ///
     /// Returns the new index plus a [`crate::rebuild::RebuildReport`]
     /// with insert count and wall-clock duration. The new index starts
-    /// with no tombstones — spec §06/06 §3's "compaction" property.
+    /// with no tombstones's "compaction" property.
     ///
-    /// This is the **Build** phase only (spec §07 §5 step 1).
+    /// This is the **Build** phase only (step 1).
     /// Catch-up, atomic swap with the existing index, and old-index
     /// cleanup are the caller's responsibility (Phase 8 maintenance
     /// worker, composing with 4.8's `ArcSwap` wrapper).
@@ -399,7 +399,7 @@ impl<const D: usize> HnswIndex<D> {
         crate::rebuild::rebuild_impl(params, source)
     }
 
-    /// Compute the effective `ef` for a search per spec §02 §5 + §8:
+    /// Compute the effective `ef` for a search:
     ///
     /// - Floor at `k` (hnsw_rs requires `ef >= k` for k results).
     /// - Ceiling at `params.ef_search_max`.

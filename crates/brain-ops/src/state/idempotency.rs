@@ -1,7 +1,7 @@
 //! Request-hash helpers for the unified write path's idempotency
 //! cache.
 //!
-//! Spec §07/06 §5: a duplicate `request_id` with a different
+//! a duplicate `request_id` with a different
 //! `request_hash` returns `Conflict`. The hash covers every
 //! canonical field of the request **except** the `request_id` itself
 //! (that's the table key). Fields are joined with NUL separators to
@@ -13,7 +13,7 @@ use brain_planner::{EncodeOp, ForgetOp, LinkOp, UnlinkOp};
 use brain_protocol::request::ForgetMode;
 
 /// BLAKE3 over the canonical encode-request fields. Excludes
-/// `request_id` (the table key) — see spec §07/06 §5.
+/// `request_id` (the table key) —.
 #[must_use]
 pub fn hash_encode_request(op: &EncodeOp) -> [u8; 32] {
     let mut h = blake3::Hasher::new();

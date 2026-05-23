@@ -62,7 +62,7 @@ Three safe patterns, ordered by complexity:
 
 ## When admin auth lands
 
-Spec §14/06 and spec §03/06 describe an admin-token model
+Spec §02/06 and spec §02/06 describe an admin-token model
 distinct from agent tokens, gated at handshake. Once that lands,
 binding `admin_addr` to a public interface becomes safe **if** you
 configure tokens. Until then, the network boundary is the only
@@ -76,5 +76,5 @@ boundary; this page describes how to maintain it.
   ports the container exposes (and which ones it doesn't).
 - [`../../reference/configuration.md`](../../reference/configuration.md)
   — every config field with full notes.
-- [`../../../spec/14_observability_ops/06_admin_ops.md`](../../../spec/14_observability_ops/06_admin_ops.md)
+- [`../../../spec/17_observability/04_admin_ops.md`](../../../spec/17_observability/04_admin_ops.md)
   — authoritative design for admin operations.

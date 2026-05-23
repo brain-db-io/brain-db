@@ -1,4 +1,4 @@
-//! Admin HTTP handler for `rebuild-ann` (spec §14/06 §4;
+//! Admin HTTP handler for `rebuild-ann` (
 //! sub-task 10.10).
 //!
 //! Route:

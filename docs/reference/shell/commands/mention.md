@@ -147,4 +147,4 @@ WARN brain_shell: mention list: wire op MentionListReq / EdgeList(Mentions) not 
 - [`extract.md`](extract.md) — the pipeline that writes Mentions edges
 - [`recall.md`](recall.md) — fetch the memory body referenced by a mention row
 - [`../output-formats.md`](../output-formats.md) — table + JSON
-- Spec: [`spec/18_entities/02_storage.md`](../../../../spec/18_entities/02_storage.md), [`spec/22_extractors/00_purpose.md`](../../../../spec/22_extractors/00_purpose.md)
+- Spec: [`spec/02_data_model/02_storage.md`](../../../../spec/02_data_model/02_storage.md), [`spec/11_extractors/00_purpose.md`](../../../../spec/11_extractors/00_purpose.md)

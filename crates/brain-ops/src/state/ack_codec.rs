@@ -19,7 +19,7 @@
 
 use std::convert::TryFrom;
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EntityAttributes, EntityId, EntityTypeId, ExtractorId, MergeId, RelationId, StatementId,
 };
 use brain_core::MemoryId;

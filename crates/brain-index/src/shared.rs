@@ -1,6 +1,6 @@
 //! Concurrent wrapper around `HnswIndex`.
 //!
-//! See `spec/06_ann_index/08_concurrency.md` and SD-4.8-1 in
+//! See `spec/09_indexing/08_concurrency.md` and SD-4.8-1 in
 //! `docs/development/spec-deviations.md`.
 //!
 //! ## Reader / writer split
@@ -11,11 +11,11 @@
 //! - [`Writer<D>`] is the **writer handle**: not `Clone`, mutation
 //!   methods take `&mut self`. Constructed exactly once alongside
 //!   the reader via [`SharedHnsw::new`] — the type system enforces
-//!   single-writer-per-shard (spec §06/08 §1) at compile time.
+//!   single-writer-per-shard at compile time.
 //!
 //! ## RwLock not ArcSwap (SD-4.8-1)
 //!
-//! Spec §06/08 §3 mandates lock-free reads via `ArcSwap<HnswState>`
+//! mandates lock-free reads via `ArcSwap<HnswState>`
 //! and a pending-insert buffer that periodically rebuilds and
 //! publishes a new state. That model requires cloning the HNSW
 //! graph cheaply; `hnsw_rs::Hnsw` doesn't implement `Clone`, and at
@@ -25,7 +25,7 @@
 //! v1 ships with `Arc<parking_lot::RwLock<HnswIndex<D>>>` instead:
 //! concurrent readers, exclusive writes. Not lock-free, but readers
 //! aren't serialised against each other. Write latency dips reader
-//! latency briefly during inserts (~1-3 ms at 1M per spec §06/03 §4),
+//! latency briefly during inserts (~1-3 ms at 1M),
 //! which we accept for v1. Reconciliation: future Phase 11+ work
 //! either patches hnsw_rs to expose a clone-aware mutation model or
 //! replaces it with a custom HNSW.
@@ -72,7 +72,7 @@ impl<const D: usize> SharedHnsw<D> {
         (reader, writer)
     }
 
-    /// Rebuild a shared index from an iterator (spec §06/06 §2).
+    /// Rebuild a shared index from an iterator.
     /// Convenience around [`HnswIndex::rebuild`] + `from_index`.
     pub fn rebuild<I>(
         params: IndexParams,
@@ -172,7 +172,7 @@ impl<const D: usize> SharedHnsw<D> {
 
     /// Atomically replace the inner index with `new`. Used by the
     /// HNSW maintenance worker (sub-task 8.5) when a full rebuild
-    /// completes; spec §11/04 §5 describes the operation as an
+    /// completes describes the operation as an
     /// "ArcSwap" — our `Arc<RwLock<HnswIndex>>` realises the same
     /// semantics: readers complete on the old index, the brief
     /// write-lock acquisition is microsecond-scale, new reads see
@@ -191,10 +191,10 @@ impl<const D: usize> Writer<D> {
     /// Insert a vector. Takes `&mut self` — the type system rejects
     /// concurrent writes through the same `Writer`. The `Writer`
     /// itself isn't `Clone`, so only one exists per shard
-    /// (spec §06/08 §1's single-writer-per-shard discipline).
+    /// ('s single-writer-per-shard discipline).
     ///
     /// Acquires the RwLock's write lock briefly (~1-3 ms at 1M per
-    /// spec §06/03 §4); concurrent readers wait this out.
+    /// ); concurrent readers wait this out.
     pub fn insert(&mut self, memory_id: MemoryId, vector: &[f32; D]) -> Result<(), HnswError> {
         let mut guard = self.inner.write();
         guard.insert(memory_id, vector)
@@ -266,7 +266,7 @@ mod tests {
     #[test]
     fn concurrent_readers_during_writer_no_panic() {
         // The big one: 8 reader threads + 1 writer in std::thread::scope
-        // (spec §06/08 §1's lock-free-reads is the goal; RwLock gives us
+        // ('s lock-free-reads is the goal; RwLock gives us
         // concurrent reads but not lock-free). The test asserts:
         // - no panic
         // - no data race (RwLock prevents)

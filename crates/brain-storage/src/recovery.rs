@@ -1,8 +1,8 @@
 //! WAL-based recovery driver.
 //!
-//! See `spec/05_storage_arena_wal/08_recovery.md` (algorithm),
+//! See `spec/08_storage/08_recovery.md` (algorithm),
 //! `09_checkpointing.md` §2–3 (durable_lsn semantics), and
-//! `spec/15_failure_recovery/02_crash_recovery.md` §§4–6.
+//! `spec/19_failure_recovery/02_crash_recovery.md` §§4–6.
 //!
 //! [`recover`] is the entry point. The caller supplies:
 //!
@@ -18,7 +18,7 @@
 //! 1. Opens a [`WalReader`] over `wal_dir`.
 //! 2. Iterates records in strict LSN order.
 //! 3. Skips records with `lsn <= sink.durable_lsn()`.
-//! 4. Maintains a TXN buffer per spec §05/08 §6: records between
+//! 4. Maintains a TXN buffer: records between
 //!    `TXN_BEGIN` and the matching `TXN_COMMIT` are queued; `COMMIT`
 //!    flushes them; `ABORT` or end-of-WAL with no commit discards them.
 //! 5. For each applied record, writes the slot to the arena (vector +
@@ -214,7 +214,7 @@ pub fn recover(
     let mut records_discarded: u64 = 0;
     let mut next_lsn: u64 = durable_lsn + 1;
 
-    // TXN state machine per spec §05/08 §6.
+    // TXN state machine.
     let mut active_txn: Option<TxnId> = None;
     let mut txn_buffer: Vec<(WalRecord, WalPayload)> = Vec::new();
 
@@ -269,7 +269,7 @@ pub fn recover(
         }
     }
 
-    // Partial transaction at end of WAL: discard per spec §05/08 §6.
+    // Partial transaction at end of WAL: discard.
     if active_txn.is_some() {
         records_discarded += txn_buffer.len() as u64;
     }
@@ -756,7 +756,7 @@ mod tests {
         let mut sink = InMemoryMetadataSink::new();
         recover(&mut arena, &wal_dir, uuid(1), &mut sink).unwrap();
         let s = arena.slot(3);
-        // Spec §05/02 §3.2: "active but tombstoned" — both bits set.
+        // "active but tombstoned" — both bits set.
         assert!(s.is_occupied(), "OCCUPIED stays set through soft FORGET");
         assert!(s.is_tombstoned());
         assert!(s.is_valid());

@@ -1,6 +1,6 @@
 //! CRC32C micro-bench — the most-hit per-record path in the WAL write/read
 //! loop. Establishes the criterion harness pattern; later phases add op-
-//! level benches per spec §16/02 latency targets.
+//! level benches latency targets.
 //!
 //! Run with: `cargo bench -p brain-storage --bench crc32c`.
 //!

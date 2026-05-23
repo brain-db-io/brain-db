@@ -1,11 +1,10 @@
-//! Admin-surface requests (spec §07/15 – §07/25).
+//! Admin-surface requests (– §07/25).
 
 use rkyv::{Archive, Deserialize, Serialize};
 
 use super::types::{CheckScope, MemoryKindWire, StatsDetail};
 use crate::request::{WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §07/16.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -13,7 +12,6 @@ pub struct AdminStatsRequest {
     pub detail: StatsDetail,
 }
 
-/// Spec §07/17.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -24,7 +22,6 @@ pub struct AdminSnapshotRequest {
     pub request_id: WireUuid,
 }
 
-/// Spec §07/18.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -34,7 +31,6 @@ pub struct AdminRestoreRequest {
     pub request_id: WireUuid,
 }
 
-/// Spec §07/19.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -43,7 +39,6 @@ pub struct AdminIntegrityCheckRequest {
     pub repair_if_possible: bool,
 }
 
-/// Spec §07/20.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -53,7 +48,6 @@ pub struct AdminMigrateEmbeddingsRequest {
     pub rate_limit_qps: u32,
 }
 
-/// Spec §07/20.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -62,7 +56,6 @@ pub struct ModelIdentifier {
     pub fingerprint: [u8; 16],
 }
 
-/// Spec §07/21.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -72,7 +65,6 @@ pub struct AdminCreateContextRequest {
     pub request_id: WireUuid,
 }
 
-/// Spec §07/22.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -81,7 +73,6 @@ pub struct AdminRenameContextRequest {
     pub new_name: String,
 }
 
-/// Spec §07/23.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -90,7 +81,6 @@ pub struct AdminMoveMemoryRequest {
     pub new_context_id: WireContextId,
 }
 
-/// Spec §07/24.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -99,7 +89,6 @@ pub struct AdminReclassifyRequest {
     pub new_kind: MemoryKindWire,
 }
 
-/// Spec §07/25.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

@@ -1,21 +1,21 @@
 //! `PoolConfig` — per-pool sizing and lifetime knobs.
 //!
-//! Defaults derive from spec §13/03 §1 (1 min / 8 max), §5
+//! Defaults derive from (1 min / 8 max), §5
 //! (5 min idle, 30 s keep-alive), §13 (overloaded threshold).
 
 use std::time::Duration;
 
-/// Spec §13/03 §1 — default minimum connections per pool.
+/// — default minimum connections per pool.
 pub const DEFAULT_MIN_CONNECTIONS: u32 = 1;
-/// Spec §13/03 §1 — default maximum connections per pool.
+/// — default maximum connections per pool.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 8;
-/// Spec §13/03 §5 — close idle connections after this duration.
+/// — close idle connections after this duration.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long [`super::Pool::acquire`] waits for a free slot before
 /// returning `ClientError::Overloaded`. Matches `ClientConfig::timeout`'s
 /// 30 s default so callers don't see two competing budgets.
 pub const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-/// Spec §13/03 §5 — periodic keepalive interval. Reserved for 10.6;
+/// — periodic keepalive interval. Reserved for 10.6;
 /// 10.2 stores it but does not yet emit `SERVER_PING`-style frames.
 pub const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
@@ -36,7 +36,7 @@ pub struct PoolConfig {
     /// release or return `ClientError::Overloaded`.
     pub max_connections: u32,
     /// Close a connection once it's been idle for at least this
-    /// long. Spec §13/03 §5.
+    /// long.
     pub idle_timeout: Duration,
     /// How long [`super::Pool::acquire`] waits at capacity.
     pub acquire_timeout: Duration,

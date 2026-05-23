@@ -1,16 +1,16 @@
-//! Decay worker (sub-task 8.2). Spec §11/02.
+//! Decay worker (sub-task 8.2).
 //!
 //! Applies time-based salience decay to memories. The closed-form
 //! `s(t) = s_0 × 2^(-t/h)` is recomputed each cycle from
-//! `salience_initial` and `created_at_unix_nanos` — spec §2 + §8.
+//! `salience_initial` and `created_at_unix_nanos`.
 //! Boost (sub-task 8.3) re-asserts its 10 % bump on the next 10 s
 //! cycle; decay re-asserts the closed form on the next 1 h cycle.
-//! Decay is therefore idempotent and restart-safe (spec §11/00 §13).
+//! Decay is therefore idempotent and restart-safe.
 //!
 //! Cycle structure: one read txn snapshots up to `batch_size`
 //! memories above the in-process cursor; one write txn applies the
 //! deltas. Memories whose new salience differs from current by
-//! < 0.001 are skipped (spec §6). The cursor advances to the last
+//! < 0.001 are skipped. The cursor advances to the last
 //! *scanned* id (not last updated) so the minor-change filter
 //! doesn't stall progress.
 
@@ -30,20 +30,20 @@ use crate::error::WorkerError;
 use crate::worker::Worker;
 
 // ---------------------------------------------------------------------------
-// Decay constants — spec §10.
+// Decay constants.
 // ---------------------------------------------------------------------------
 
 pub const EPISODIC_HALF_LIFE_DAYS: f64 = 30.0;
 pub const SEMANTIC_HALF_LIFE_DAYS: f64 = 365.0;
 pub const CONSOLIDATED_HALF_LIFE_DAYS: f64 = 90.0;
 
-/// Spec §6 — writes below this delta are skipped (avoids many tiny
+/// — writes below this delta are skipped (avoids many tiny
 /// no-op updates dirtying redb pages).
 pub const MIN_DELTA_FOR_WRITE: f32 = 0.001;
 
 const NANOS_PER_DAY: f64 = 86_400.0 * 1_000_000_000.0;
 
-/// Spec §10 — half-life by `MemoryKind`.
+/// — half-life by `MemoryKind`.
 #[must_use]
 pub fn half_life_days(kind: MemoryKind) -> f64 {
     match kind {
@@ -53,7 +53,7 @@ pub fn half_life_days(kind: MemoryKind) -> f64 {
     }
 }
 
-/// Spec §2 — closed-form decay. Reads only immutable post-ENCODE
+/// — closed-form decay. Reads only immutable post-ENCODE
 /// fields (`salience_initial`, `created_at_unix_nanos`, `kind`),
 /// so the result is deterministic regardless of prior decay/boost
 /// writes. Clamps at `>= 0.0`.
@@ -82,8 +82,8 @@ fn compute_decayed(meta: &MemoryMetadata, now_unix_nanos: u64) -> Option<f32> {
 // ---------------------------------------------------------------------------
 
 /// In-process decay cursor. `None` means "start from the beginning of
-/// MEMORIES_TABLE." Spec §5: a full pass resets back to `None`. Lost
-/// on restart — spec §11/00 §10 allows this since decay is
+/// MEMORIES_TABLE.": a full pass resets back to `None`. Lost
+/// on restart allows this since decay is
 /// idempotent.
 pub struct DecayWorker {
     config: WorkerConfig,
@@ -199,7 +199,7 @@ async fn do_decay_cycle(worker: &DecayWorker, ctx: &WorkerContext) -> Result<usi
             }
         }
     }
-    // Yield between read and write phases (spec §11/01 §6 yield
+    // Yield between read and write phases (yield
     // discipline). We can't yield mid-scan because the read txn holds
     // a parking_lot MutexGuard; the scan is bounded by max_runtime.
     glommio::executor().yield_if_needed().await;

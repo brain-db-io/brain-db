@@ -317,4 +317,4 @@ Exit code is `2` for validation errors, `1` for I/O errors.
 - [`../configuration.md`](../configuration.md) — file schema, migration of legacy `agent_id = "<ulid>"`.
 - [`../repl-meta.md`](../repl-meta.md) — `\agent use` for live-session rebinding.
 - [`../../../guides/shell/named-agents.md`](../../../guides/shell/named-agents.md) — task-oriented walkthrough.
-- Spec: [`spec/13_sdk_design/03_connection.md`](../../../../spec/13_sdk_design/03_connection.md) — connection / auth model the agent id rides on.
+- Spec: [`spec/06_sdk/03_connection.md`](../../../../spec/06_sdk/03_connection.md) — connection / auth model the agent id rides on.

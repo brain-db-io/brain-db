@@ -1,4 +1,4 @@
-//! Handshake codec — `HELLO`, `WELCOME`, `AUTH`, `AUTH_OK` per spec §03/06.
+//! Handshake codec — `HELLO`, `WELCOME`, `AUTH`, `AUTH_OK`.
 //!
 //! All four payloads use rkyv 0.7 like the rest of `brain-protocol`. The
 //! four message structs are surfaced through `RequestBody` (HELLO, AUTH —
@@ -9,7 +9,7 @@
 //! version and intersects the [`HelloCapabilities`] flags. Auth-method
 //! intersection is *not* part of negotiation — that check happens when
 //! the server validates the AUTH frame against the methods it advertised
-//! in WELCOME (spec §06 §4.1) and is owned by Phase 9.
+//! in WELCOME and is owned by Phase 9.
 
 use rkyv::{Archive, Deserialize, Serialize};
 
@@ -22,14 +22,14 @@ use crate::rkyv_codec::{from_rkyv_bytes, to_rkyv_bytes};
 // Shared helper types.
 // ---------------------------------------------------------------------------
 
-/// Spec §06 §2 / §3 — feature flags exchanged during handshake. The same
+/// — feature flags exchanged during handshake. The same
 /// shape appears in HELLO (client-supported) and WELCOME (mutually-
 /// supported after intersection).
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub struct HelloCapabilities {
-    /// Streaming support. Always `true` in v1 (spec §06 §2.3).
+    /// Streaming support. Always `true` in v1.
     pub streaming: bool,
     /// zstd payload compression. Reserved; not used in v1.
     pub compression_zstd: bool,
@@ -37,7 +37,7 @@ pub struct HelloCapabilities {
     pub server_push: bool,
 }
 
-/// Spec §06 §3.4 — server-declared parameters carried in WELCOME.
+/// — server-declared parameters carried in WELCOME.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -49,14 +49,14 @@ pub struct ServerFeatures {
     /// Idle window before the server emits `SERVER_PING` (spec default 300 s).
     pub idle_timeout_seconds: u32,
     /// Auth methods the server accepts. Client picks one from this list
-    /// for the subsequent `AUTH` frame (spec §06 §4.1).
+    /// for the subsequent `AUTH` frame.
     pub auth_methods: Vec<AuthMethod>,
 }
 
-/// Spec §06 §3 — supported authentication method.
+/// — supported authentication method.
 ///
 /// Numeric repr is stable wire-side: `Token = 0`, `Mtls = 1`, `None = 2`.
-/// Adding a new method requires a wire-version bump per spec §03/05 §7.
+/// Adding a new method requires a wire-version bump.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -70,20 +70,20 @@ pub enum AuthMethod {
     None = 2,
 }
 
-/// Spec §06 §4 — credentials carried in the AUTH frame.
+/// — credentials carried in the AUTH frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub enum AuthCredentials {
-    /// Opaque bearer token bytes (spec §06 §4.3).
+    /// Opaque bearer token bytes.
     Token(Vec<u8>),
-    /// mTLS-presented certificate claim (spec §06 §4.4).
+    /// mTLS-presented certificate claim.
     Mtls(MtlsClaim),
-    /// No credentials (spec §06 §4.5).
+    /// No credentials.
     None,
 }
 
-/// Spec §06 §4.4 — mTLS claim accompanying an mTLS auth.
+/// — mTLS claim accompanying an mTLS auth.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -94,7 +94,7 @@ pub struct MtlsClaim {
     pub asserted_subject: String,
 }
 
-/// Spec §06 §5.2 — the agent's permitted operations after AUTH_OK.
+/// — the agent's permitted operations after AUTH_OK.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -112,7 +112,7 @@ pub struct AgentPermissions {
 // HELLO (0x01) — client → server.
 // ---------------------------------------------------------------------------
 
-/// Spec §06 §2 — first frame after TCP/TLS establishment.
+/// — first frame after TCP/TLS establishment.
 ///
 /// `client_id` and `supported_versions` are the negotiation inputs; the
 /// server intersects against its own capabilities and replies with
@@ -122,12 +122,12 @@ pub struct AgentPermissions {
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub struct HelloPayload {
-    /// Free-form client identifier (≤ 256 bytes, spec §06 §2.1).
+    /// Free-form client identifier (≤ 256 bytes).
     pub client_id: String,
-    /// Wire-protocol versions the client can speak (spec §06 §2.2).
+    /// Wire-protocol versions the client can speak.
     pub supported_versions: Vec<u8>,
     pub capabilities: HelloCapabilities,
-    /// Reserved for v2 session-resumption (spec §06 §2.4 / §8).
+    /// Reserved for v2 session-resumption.
     pub client_session_token: Option<[u8; 32]>,
 }
 
@@ -135,19 +135,18 @@ pub struct HelloPayload {
 // WELCOME (0x81) — server → client.
 // ---------------------------------------------------------------------------
 
-/// Spec §06 §3 — server's response to `HELLO`. The connection is bound
+/// — server's response to `HELLO`. The connection is bound
 /// to `chosen_version` and `session_id` once this frame is received.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
 pub struct WelcomePayload {
-    /// Free-form server identifier (≤ 256 bytes, spec §06 §3.3).
+    /// Free-form server identifier (≤ 256 bytes).
     pub server_id: String,
     /// Negotiated wire-protocol version. Highest mutual; fail-closed
-    /// otherwise per spec §06 §3.1.
+    /// otherwise.
     pub chosen_version: u8,
     /// 16 cryptographically-random bytes; per-connection identifier
-    /// (spec §06 §3.2).
     pub session_id: [u8; 16],
     /// Mutually-supported feature flags (intersection of client and
     /// server `HelloCapabilities`).
@@ -159,7 +158,7 @@ pub struct WelcomePayload {
 // AUTH (0x02) — client → server.
 // ---------------------------------------------------------------------------
 
-/// Spec §06 §4 — credentials for the agent claiming identity.
+/// — credentials for the agent claiming identity.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -177,7 +176,7 @@ pub struct AuthPayload {
 // AUTH_OK (0x82) — server → client.
 // ---------------------------------------------------------------------------
 
-/// Spec §06 §5 — server's acknowledgment of successful authentication.
+/// — server's acknowledgment of successful authentication.
 /// After this frame, the connection is in the "established" state and
 /// operations can flow.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
@@ -186,11 +185,10 @@ pub struct AuthPayload {
 pub struct AuthOkPayload {
     /// Confirmed agent_id (echoed from AUTH).
     pub agent_id: WireUuid,
-    /// Runtime shard ID this agent is bound to (spec §06 §5.1).
+    /// Runtime shard ID this agent is bound to.
     pub bound_shard_id: u16,
     pub permissions: AgentPermissions,
     /// Server's current time, for the client to detect clock skew
-    /// (spec §06 §5.3).
     pub server_time_unix_nanos: u64,
 }
 
@@ -250,10 +248,10 @@ pub struct NegotiatedSession {
 }
 
 /// Pick the highest mutually-supported wire-protocol version and
-/// intersect the capability flags (spec §06 §3.1).
+/// intersect the capability flags.
 ///
 /// Returns [`ProtocolError::BadVersion`] if no version overlaps. Per
-/// spec §06 §3.1, the over-the-wire failure path emits an `ERROR` frame
+/// the over-the-wire failure path emits an `ERROR` frame
 /// with code `VersionNotSupported`; mapping `BadVersion` → that code is
 /// the connection layer's responsibility (Phase 9).
 ///
@@ -281,7 +279,7 @@ pub fn negotiate(
         })?;
 
     let capabilities = HelloCapabilities {
-        // Streaming is always true in v1 (spec §06 §2.3); the AND below
+        // Streaming is always true in v1; the AND below
         // produces `true` whenever both sides set it, which they always
         // should. If a client somehow sends `streaming=false`, the
         // intersection still falls back to false and the server can

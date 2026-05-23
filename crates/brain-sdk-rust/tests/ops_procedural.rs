@@ -2,7 +2,7 @@
 
 mod common;
 
-use brain_protocol::knowledge::{MaterializeProceduralRequest, MaterializeProceduralResponse};
+use brain_protocol::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 use brain_protocol::opcode::Opcode;
 use brain_protocol::{RequestBody, ResponseBody};
 use brain_sdk_rust::Client;

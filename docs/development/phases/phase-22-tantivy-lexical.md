@@ -14,10 +14,10 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 
 ## Reading list
 
-- [`spec/23_retrievers/02_lexical_retriever.md`](../../spec/23_retrievers/02_lexical_retriever.md) — landed in 22.0.
-- [`spec/26_knowledge_storage/01_tantivy_layout.md`](../../spec/26_knowledge_storage/01_tantivy_layout.md) — landed in 22.0.
-- [`spec/27_knowledge_workers/02_text_indexer_workers.md`](../../spec/27_knowledge_workers/02_text_indexer_workers.md) — landed in 22.0.
-- [`spec/16_benchmarks_acceptance/02_latency_targets.md`](../../spec/16_benchmarks_acceptance/02_latency_targets.md) §2.9 — landed in 22.0.
+- [`spec/13_retrievers/02_lexical_retriever.md`](../../spec/13_retrievers/02_lexical_retriever.md) — landed in 22.0.
+- [`spec/10_metadata/06_tantivy_layout.md`](../../spec/10_metadata/06_tantivy_layout.md) — landed in 22.0.
+- [`spec/15_background_workers/06_typed_graph_workers.md`](../../spec/15_background_workers/06_typed_graph_workers.md) — landed in 22.0.
+- [`spec/19_benchmarks/02_performance_targets.md`](../../spec/19_benchmarks/02_performance_targets.md) §2.9 — landed in 22.0.
 
 ## Outputs
 
@@ -32,7 +32,7 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 
 ## Sub-tasks
 
-### 22.0 §23/02 + §26/01 + §27/02 + §16/02 §2.9 spec backfill ✓
+### 22.0 §13/02 + §02/13 + §02/14 + §02/02 §2.9 spec backfill ✓
 
 **Landed in:** [`.claude/plans/phase-22-task-00.md`](../../.claude/plans/phase-22-task-00.md).
 **Done when:** four spec files / amendments at phase-22 implementation depth; phase doc reading list links them.
@@ -45,7 +45,7 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 ### 22.2 Custom tokenizer ✓
 
 **Landed in:** [`.claude/plans/phase-22-task-02.md`](../../.claude/plans/phase-22-task-02.md).
-**Done when:** brain analyzer registered under tantivy's `"default"` name; URL / code-ID / dotted-identifier preservation; Porter stemming on residue; NO stop-word filter (§23/02 §3 binding).
+**Done when:** brain analyzer registered under tantivy's `"default"` name; URL / code-ID / dotted-identifier preservation; Porter stemming on residue; NO stop-word filter (§13/02 §3 binding).
 
 ### 22.3 MemoryTextIndexer worker ✓
 
@@ -60,12 +60,12 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 ### 22.5 LexicalRetriever trait + impl ✓
 
 **Landed in:** [`.claude/plans/phase-22-task-05.md`](../../.claude/plans/phase-22-task-05.md).
-**Done when:** trait is object-safe, dispatches BM25 via tantivy `QueryParser`; filters AND-joined via `BooleanQuery`; wrong-scope filter returns `QueryParseFailed`; `reader.reload()` per query guarantees §23/02 §6 idempotency.
+**Done when:** trait is object-safe, dispatches BM25 via tantivy `QueryParser`; filters AND-joined via `BooleanQuery`; wrong-scope filter returns `QueryParseFailed`; `reader.reload()` per query guarantees §13/02 §6 idempotency.
 
 ### 22.6 Index rebuild worker ✓
 
 **Landed in:** [`.claude/plans/phase-22-task-06.md`](../../.claude/plans/phase-22-task-06.md).
-**Done when:** atomic-swap rebuild via `std::fs::rename` per §26/01 §5; memory rebuild produces empty valid index (v1 simplification — see "Scope cuts" below); statement rebuild is content-complete via `STATEMENTS_TABLE` + entity / predicate joins; tombstoned + pending-subject + orphan rows skipped.
+**Done when:** atomic-swap rebuild via `std::fs::rename` per §02/13 §5; memory rebuild produces empty valid index (v1 simplification — see "Scope cuts" below); statement rebuild is content-complete via `STATEMENTS_TABLE` + entity / predicate joins; tombstoned + pending-subject + orphan rows skipped.
 
 ### 22.7 Recovery on shard startup ✓
 
@@ -75,7 +75,7 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 ### 22.8 Phase exit ✓
 
 **Landed in:** [`.claude/plans/phase-22-task-08.md`](../../.claude/plans/phase-22-task-08.md).
-**Done when:** 2 phase-exit integration tests (ENCODE → retrieve; FORGET → no hit) via the TCP wire path; 3 criterion benches at 10K corpus scale against §16/02 §2.9; ROADMAP + this phase doc updated; `phase-22-complete` tag cut.
+**Done when:** 2 phase-exit integration tests (ENCODE → retrieve; FORGET → no hit) via the TCP wire path; 3 criterion benches at 10K corpus scale against §02/02 §2.9; ROADMAP + this phase doc updated; `phase-22-complete` tag cut.
 
 ## Done-when (phase)
 
@@ -89,16 +89,16 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 
 | Cut | Where it goes | Reason |
 |---|---|---|
-| Memory text rebuild full content reconstruction | Post-v1 (§27/07) | `MEMORIES_TABLE` stores `text_size` but not text itself (text only on ENCODE wire path + WAL frames). v1 rebuild produces a valid empty index; operators re-ingest. |
-| Partial WAL replay on shard recovery | Post-v1 (§27/07) | Loss bound ≤ N-1 writes per indexer at crash (default N=256) accepted; cursor-tracked replay is a post-v1 improvement. |
+| Memory text rebuild full content reconstruction | Post-v1 (§02/11 relation) | `MEMORIES_TABLE` stores `text_size` but not text itself (text only on ENCODE wire path + WAL frames). v1 rebuild produces a valid empty index; operators re-ingest. |
+| Partial WAL replay on shard recovery | Post-v1 (§02/11 relation) | Loss bound ≤ N-1 writes per indexer at crash (default N=256) accepted; cursor-tracked replay is a post-v1 improvement. |
 | Hot rebuild while live writer is running | Post-v1 | v1 rebuild is startup-only — no live-writer coordination needed. |
 | Stop-word removal in tokenizer | v1 explicit cut | Breaks exact-ID queries like `ACME-1247`; BM25's idf demotes high-frequency naturally. |
 | BM25 k1 / b custom similarity | Phase 23 if needed | `LexicalRetrieverConfig` exposes fields but retriever uses tantivy defaults. |
 | Snippet generation | Post-v1 | `RankedItem.snippet` always `None` in v1. |
 | Cross-shard lexical ranking | Phase 23 router | Per-shard retrieval; router fan-out. |
 | Segment-merge windowing | Post-v1 | Rely on `LogMergePolicy`. |
-| `ADMIN_TANTIVY_REBUILD` wire op | §28/05 admin | Operator-facing rebuild is admin scope. |
-| RECALL wire-op integration | Phase 23 hybrid query | Lexical retriever is one of three retrievers in §23/00; phase 23 wires RRF fusion + the client-facing path. |
+| `ADMIN_TANTIVY_REBUILD` wire op | §02/11 relation admin | Operator-facing rebuild is admin scope. |
+| RECALL wire-op integration | Phase 23 hybrid query | Lexical retriever is one of three retrievers in §13/00; phase 23 wires RRF fusion + the client-facing path. |
 
 ## Phase exit
 
@@ -111,6 +111,6 @@ Integrate tantivy for BM25 over memory text and statement text. Implement the `L
 
 ## Pitfalls
 
-- tantivy's commit semantics: too-frequent commits are slow; too-rare loses recent docs on crash. The §26/01 §3 cadence (N=256 OR T=1 s) is the documented v1 trade-off.
+- tantivy's commit semantics: too-frequent commits are slow; too-rare loses recent docs on crash. The §02/13 §3 cadence (N=256 OR T=1 s) is the documented v1 trade-off.
 - Index size grows; segment merge is expensive. v1 uses `LogMergePolicy`; windowing post-v1.
 - Test with non-English characters; the analyzer must not crash (covered by the NFC normalisation test in 22.2).

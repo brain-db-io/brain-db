@@ -74,7 +74,7 @@ partial plan isn't mistaken for a complete one.
 | `GoalReached` | The goal was reached — the plan is complete. |
 | `BudgetExhausted` | Hit `--max-steps` or `--max-wall-time-ms`. The returned steps are valid but partial. |
 | `NoPathFound` | Search terminated without finding a path. |
-| `Timeout` | Server-side timeout (per spec §09/04 §3). |
+| `Timeout` | Server-side timeout (per spec §05/04 §3). |
 
 ### JSON
 
@@ -128,4 +128,4 @@ scripts.
   forward inference)
 - [`recall.md`](recall.md) — direct lookup, no path-finding
 - [`link.md`](link.md) — adding the edges the planner walks
-- Spec: [`spec/09_cognitive_operations/04_plan.md`](../../../../spec/09_cognitive_operations/04_plan.md)
+- Spec: [`spec/05_operations/03_read_pipeline.md`](../../../../spec/05_operations/03_read_pipeline.md)

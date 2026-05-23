@@ -1,4 +1,4 @@
-//! `LlmClient` trait. Spec §22/09 §1.
+//! `LlmClient` trait.
 //!
 //! Object-safe (no `async fn` in the trait itself; concrete impls
 //! return `Pin<Box<dyn Future + Send + 'a>>`) so multiple
@@ -15,7 +15,7 @@ pub type LlmFuture<'a> = Pin<Box<dyn Future<Output = Result<LlmResponse, LlmErro
 
 pub trait LlmClient: Send + Sync {
     /// Send the request to the provider and return the
-    /// normalised response. Errors map to spec §22/09 §9.
+    /// normalised response. Errors map to.
     fn complete<'a>(&'a self, request: LlmRequest) -> LlmFuture<'a>;
 
     /// Model identifier this client serves (e.g.,
@@ -25,7 +25,7 @@ pub trait LlmClient: Send + Sync {
     fn model(&self) -> &str;
 
     /// 64-bit BLAKE3-low of [`Self::model`]. Cache key component
-    /// per spec §22/09 §3 + §15.4.
+    /// 4.
     fn model_id_hash(&self) -> u64;
 }
 

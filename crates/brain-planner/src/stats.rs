@@ -1,14 +1,13 @@
 //! Per-shard runtime statistics consulted by the planner.
 //!
-//! Spec §08/07 §10 names the full shape; Phase 6 ships the struct
+//! names the full shape; Phase 6 ships the struct
 //! with `Default::default()` returning all-zero values so tests can
 //! construct a `PlannerContext` without a live observability layer.
 //! Phase 11+ wires real values from the monitoring layer.
 //!
 //! Two fields the cost model in 6.2 will use right away:
-//! - `memory_count` — feeds `ann_search_cost(n, ef)` (spec §07 §3).
+//! - `memory_count` — feeds `ann_search_cost(n, ef)`.
 //! - `tombstone_ratio` — biases ef upward when tombstones dominate
-//!   (spec §07 §4).
 
 #[derive(Debug, Clone, Copy, Default)]
 pub struct ShardStats {

@@ -681,7 +681,7 @@ async fn main() -> anyhow::Result<()> {
     );
     println!("  (Slot reclaimed after tombstone grace period.)");
 
-    // Hard forget — immediate zero-wipe; spec §09/06.
+    // Hard forget — immediate zero-wipe.
     let hard = client
         .encode("Sensitive operational data: API key placeholder abc-123-xyz. DO NOT RETAIN.")
         .kind(MemoryKindWire::Episodic)
@@ -709,7 +709,7 @@ async fn main() -> anyhow::Result<()> {
 
     // A recall after all the writes confirms the WAL was fsynced and the
     // HNSW index accepted the vectors. The server guarantees WAL-before-
-    // acknowledge (spec §05/03) — if encode returned Ok, it is durable.
+    // acknowledge — if encode returned Ok, it is durable.
     let dur = client
         .recall("relativity speed of light inertial observer")
         .send()

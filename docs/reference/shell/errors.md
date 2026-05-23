@@ -52,7 +52,7 @@ The ones the shell surfaces day-to-day:
 
 You retried an encode with the same `request_id` but different
 text / context / kind / etc. The idempotency cache caught the
-divergence (spec §07/06 §5).
+divergence (spec §02/06 §5).
 
 **Fix:** generate a fresh `request_id` for genuinely new content,
 or send the **exact** same params if you meant a retry. The shell

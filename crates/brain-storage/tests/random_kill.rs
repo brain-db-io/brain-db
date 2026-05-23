@@ -12,7 +12,7 @@
 //! 6. Assert that the set of recovered records is exactly the prefix that
 //!    physically survived the truncation — no extras, no gaps.
 //!
-//! See `spec/16_benchmarks_acceptance/06_durability_criteria.md` §§2–3,9.
+//! See `spec/20_benchmarks/06_durability_criteria.md` §§2–3,9.
 //!
 //! ## Why file truncation, not `kill -9`
 //!
@@ -40,7 +40,7 @@ use std::path::Path;
 const N_RECORDS: u64 = 100;
 /// Default smoke-test iteration count. Runs every `cargo test`.
 const SMOKE_ITERATIONS: u64 = 100;
-/// Full-sweep iteration count per spec §16/06 §2. Gated behind `#[ignore]`
+/// Full-sweep iteration count. Gated behind `#[ignore]`
 /// because the full sweep takes ~3 minutes in the dev container. Run via
 /// `cargo test --test random_kill -- --ignored` (or in CI).
 const FULL_ITERATIONS: u64 = 1000;
@@ -346,7 +346,7 @@ fn random_kill_recovery_smoke() {
     run_seeded_sweep(SMOKE_ITERATIONS).unwrap();
 }
 
-/// Full-sweep version per spec §16/06 §2 ("Run 1000 iterations; expect
+/// Full-sweep version ("Run 1000 iterations; expect
 /// 100% success"). Gated behind `#[ignore]` because the full sweep is
 /// slow (~3 minutes in the dev container).
 ///

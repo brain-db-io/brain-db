@@ -1,7 +1,7 @@
 //! Semantic retriever trait + value types (phase 23.1).
 //!
 //! The trait surface defined here matches
-//! `spec/23_retrievers/03_semantic_retriever.md`. The
+//! `spec/13_retrievers/03_semantic_retriever.md`. The
 //! production impl (`BrainSemanticRetriever`) lives in
 //! `brain-ops::ops::retrievers::semantic` because it needs
 //! both the HNSW handles defined here and the `MetadataDb`
@@ -12,15 +12,12 @@
 
 use std::ops::RangeInclusive;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{AgentId, MemoryKind, PredicateId};
 
 use crate::tantivy_shard::{RankedItem, RankedItemId};
 
-pub use crate::tantivy_shard::RankedItem as SemanticRankedItem;
-pub use crate::tantivy_shard::RankedItemId as SemanticRankedItemId;
-
-/// 384-dim vectors per BGE-small (§05/05).
+/// 384-dim vectors per BGE-small.
 pub const VECTOR_DIM: usize = 384;
 
 /// Substrate HNSW default `ef_search` (§06/02).

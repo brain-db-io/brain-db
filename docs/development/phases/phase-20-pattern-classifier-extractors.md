@@ -79,7 +79,7 @@ Implement the extractor framework, run pattern extractors synchronously on ENCOD
 
 ### 20.7 ENCODE handler integration
 
-**Reads:** `22_extractors/00_purpose.md`; `spec/09_cognitive_operations/`.
+**Reads:** `22_extractors/00_purpose.md`; `spec/05_operations/`.
 **Writes:** `crates/brain-server/src/handlers/substrate/encode.rs` (extended).
 **Done when:** on ENCODE, after memory write succeeds: for each active pattern + classifier extractor whose trigger matches, run synchronously, write outputs.
 **Pitfalls:** Don't extend ENCODE's contract with extraction failures — if an extractor fails, log it and continue. Memory write succeeds independently.

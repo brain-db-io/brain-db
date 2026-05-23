@@ -18,7 +18,7 @@ All four frames carry `stream_id = 0` and the `EOS` flag.
 Payloads are `rkyv`-encoded.
 
 **Source:** `crates/brain-protocol/src/handshake.rs`. **Spec:**
-§03/06.
+§02/06.
 
 ---
 
@@ -77,7 +77,7 @@ The server picks the highest version that satisfies:
 No mutual version → `Error(VersionNotSupported)` and the
 connection closes (`handshake.rs:262–299`).
 
-Per spec §03/12, the v1 wire protocol is **unstable until Brain
+Per spec §02/12 composition, the v1 wire protocol is **unstable until Brain
 v1.0.0 tags**. Compatibility commitments begin after the tag.
 
 ### Capability negotiation
@@ -161,4 +161,4 @@ or `PermissionDenied`.
 - [`opcodes.md`](opcodes.md) — every opcode, including the four handshake frames.
 - [`error-codes.md`](error-codes.md) — handshake failure codes.
 
-**Spec:** §03/06 (handshake), §03/12 (versioning). **Source:** `crates/brain-protocol/src/handshake.rs`.
+**Spec:** §02/06 (handshake), §02/12 composition (versioning). **Source:** `crates/brain-protocol/src/handshake.rs`.

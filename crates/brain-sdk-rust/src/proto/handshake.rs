@@ -1,6 +1,6 @@
 //! Client-side handshake FSM: HELLO → WELCOME → AUTH → AUTH_OK.
 //!
-//! Spec §03/06 + §13/03 §3. Returns the [`WelcomePayload`] and
+//! Returns the [`WelcomePayload`] and
 //! [`AuthOkPayload`] the server sent so `Client` can stash the
 //! negotiated capabilities + bound shard.
 
@@ -17,17 +17,17 @@ use crate::error::ClientError;
 
 use super::frames::{read_one_frame, write_frame};
 
-/// Spec §03/03 §4 — last-frame-of-stream flag. The handshake
-/// frames all carry `flags = FLAG_EOS` per spec §03/06 §2.
+/// — last-frame-of-stream flag. The handshake
+/// frames all carry `flags = FLAG_EOS`.
 const FLAG_EOS: u8 = 1 << 7;
-/// Spec §03/06 §2: handshake frames travel on the control stream
+/// handshake frames travel on the control stream
 /// (stream id 0).
 const HANDSHAKE_STREAM: u32 = 0;
 
 /// Identification the client sends in HELLO.
 #[derive(Clone, Debug)]
 pub struct ClientIdentity {
-    /// Free-form client id (≤ 256 bytes per spec §03/06 §2.1).
+    /// Free-form client id (≤ 256 bytes).
     pub client_id: String,
     /// Wire-protocol versions the client speaks.
     pub supported_versions: Vec<u8>,

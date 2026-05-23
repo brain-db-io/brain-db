@@ -90,7 +90,8 @@ impl RequestScope {
         }
     }
 
-    /// Surface the legacy `AgentPermissions` shape for `AUTH_OK`.
+    /// Project these scope claims onto the `AgentPermissions` wire
+    /// shape carried by `AUTH_OK`.
     #[must_use]
     pub fn to_agent_permissions(&self) -> AgentPermissions {
         AgentPermissions {
@@ -481,7 +482,7 @@ mod tests {
     }
 
     #[test]
-    fn permissions_project_onto_legacy_shape() {
+    fn permissions_project_onto_wire_shape() {
         let scope = RequestScope::from_resolved(ResolvedScope {
             key_hash: [0u8; 32],
             org_id: [0u8; 16],

@@ -42,8 +42,8 @@ brain-server start \
 
 # Server logs:
 # [INFO] Opened 4 shards at ~/acme-mind/data
-# [INFO] Brain 1.0.0 listening on 127.0.0.1:7860
-# [INFO] No schema declared; running substrate-only
+# [INFO] Brain 0.1.0 listening on 127.0.0.1:7860
+# [INFO] No schema declared; running schemaless
 ```
 
 Add the SDK to your Rust project:

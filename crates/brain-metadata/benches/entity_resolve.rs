@@ -1,7 +1,7 @@
 //! Entity-resolver perf bench (sub-task 16.9.4).
 //!
-//! Spec targets per [`spec/16_benchmarks_acceptance/02_latency_targets.md`](
-//! ../../spec/16_benchmarks_acceptance/02_latency_targets.md) §2.2 at
+//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
+//! ../../spec/20_benchmarks/02_latency_targets.md) §2.2 at
 //! 100K entities:
 //!
 //! - tier-1 exact lookup: p50 ≤ 1 ms, p99 ≤ 2 ms.

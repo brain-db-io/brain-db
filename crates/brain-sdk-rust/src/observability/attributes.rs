@@ -1,14 +1,14 @@
 //! OpenTelemetry-compatible attribute keys used in tracing spans.
 //!
 //! Naming mirrors what `brain-server` emits so end-to-end traces
-//! stitch cleanly (spec §13/07 §7). The `brain.*` prefix is
+//! stitch cleanly. The `brain.*` prefix is
 //! SDK-specific; `server.*` / `error.*` are OTel semantic
 //! conventions.
 
 /// Operation name (e.g. "encode", "recall", "txn_begin").
 pub const OP: &str = "brain.operation";
 
-/// Spec §13/04 §3 — UUIDv7 request id.
+/// — UUIDv7 request id.
 pub const REQUEST_ID: &str = "brain.request_id";
 
 /// The agent id bound on this connection (AUTH_OK payload).
@@ -17,7 +17,7 @@ pub const AGENT_ID: &str = "brain.agent_id";
 /// 1-indexed retry attempt counter.
 pub const ATTEMPT: &str = "brain.attempt";
 
-/// Wire-protocol error code from spec §03/10. Recorded on ERROR-
+/// Wire-protocol error code from. Recorded on ERROR-
 /// frame failures.
 pub const ERROR_CODE: &str = "brain.error_code";
 

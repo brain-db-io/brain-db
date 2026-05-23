@@ -40,7 +40,7 @@ fn to_wire_status(s: PlanStatus) -> WirePlanStatus {
         PlanStatus::GoalReached => WirePlanStatus::GoalReached,
         PlanStatus::BudgetExhausted => WirePlanStatus::BudgetExhausted,
         PlanStatus::NoPathFound => WirePlanStatus::NoPathFound,
-        // The wire enum has no `Timeout` variant; spec §09/04 §17
+        // The wire enum has no `Timeout` variant
         // calls a wall-time stop a partial result. Surface it as
         // BudgetExhausted for now; a future wire revision can add
         // the variant.

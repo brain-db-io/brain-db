@@ -1,13 +1,13 @@
 //! Executor for the `RECALL` cognitive operation.
 //!
-//! Async function (spec §08/08 §1) that orchestrates the
+//! Async function that orchestrates the
 //! planner-produced `RecallPlan`:
 //!
 //! 1. Embed the cue (single call; cache hits stay sub-µs per
 //!    `CachingDispatcher`).
 //! 2. ANN search via [`brain_index::SharedHnsw`]'s `search_active` —
 //!    tombstoned slots
-//!    are filtered out as the pre-filter (spec §03 §6).
+//!    are filtered out as the pre-filter.
 //! 3. Look up `MemoryMetadata` for each candidate from a single
 //!    read txn.
 //! 4. Apply the plan's post-filter rules.
@@ -28,7 +28,7 @@ use super::context::ExecutorContext;
 use super::error::ExecError;
 use super::result::{RecallHit, RecallResult};
 
-/// Execute a single-shard `RecallPlan`. Async to match spec §08/08 §1
+/// Execute a single-shard `RecallPlan`. Async to match
 /// even though the body has no `.await`; 6.7 wires runtime-specific
 /// yields.
 pub async fn execute_recall(
@@ -65,7 +65,7 @@ pub async fn execute_recall(
                 .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
             let Some(access) = row else {
                 // HNSW returned an id the metadata doesn't know about —
-                // spec §08/10 says surface, don't swallow.
+                // says surface, don't swallow.
                 return Err(ExecError::MemoryNotFound { memory_id });
             };
             let meta = access.value();

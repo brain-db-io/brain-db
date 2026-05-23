@@ -8,8 +8,8 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::statement_req::EvidenceRefWire;
-use brain_protocol::knowledge::{
+use brain_protocol::requests::statement::EvidenceRefWire;
+use brain_protocol::{
     EntityCreateRequest, RelationCreateRequest, RelationListFromRequest, RelationTombstoneRequest,
     RelationTraverseRequest,
 };

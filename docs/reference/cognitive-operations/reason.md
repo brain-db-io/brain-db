@@ -5,7 +5,7 @@ finds a base set via RECALL, then traverses `SUPPORTS` and
 `CONTRADICTS` edges.
 
 **Opcode:** `ReasonReq = 0x0023` / `ReasonResp = 0x00A3` (streaming).
-**Spec:** §09/05. **Source:** `crates/brain-ops/src/ops/reason.rs`.
+**Spec:** §05/05. **Source:** `crates/brain-ops/src/ops/reason.rs`.
 
 ## Request fields
 
@@ -40,7 +40,7 @@ finds a base set via RECALL, then traverses `SUPPORTS` and
 ### Supporting vs contradicting
 
 - **Supporting** = directly similar to the query (high cosine) **OR** reached from a base via `SUPPORTS` / `DERIVED_FROM` edges. Edge-traversed evidence is treated as stronger than pure-similarity evidence.
-- **Contradicting** = reached from a base via **explicit `CONTRADICTS` edges**. v1 does **not** infer contradiction from vector geometry (similar-topic-but-opposite is unreliable). For LLM-based contradiction detection see spec §09/05 §7 (deferred).
+- **Contradicting** = reached from a base via **explicit `CONTRADICTS` edges**. v1 does **not** infer contradiction from vector geometry (similar-topic-but-opposite is unreliable). For LLM-based contradiction detection see spec §05/05 §7 (deferred).
 
 ### Aggregate confidence
 
@@ -77,7 +77,7 @@ N/A — read-only.
 
 ## Performance target
 
-Spec §16/02 §6:
+Spec §02/02 §6:
 
 | Workload | p50 | p99 |
 |---|---|---|
@@ -95,4 +95,4 @@ not consulted. The same opcode works in both modes.
 - [`plan.md`](plan.md) — same machinery, different question shape.
 - [`../../architecture/05-redb-metadata.md`](../../architecture/05-redb-metadata.md) — edge storage.
 
-**Spec:** §09/05.
+**Spec:** §05/05.

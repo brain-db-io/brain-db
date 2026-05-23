@@ -1,4 +1,4 @@
-//! LLM transport errors. Spec §22/09 §9.
+//! LLM transport errors.
 
 #[derive(thiserror::Error, Debug)]
 pub enum LlmError {

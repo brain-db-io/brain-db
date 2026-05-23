@@ -20,7 +20,7 @@
 
 use std::sync::Arc;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{AgentId, MemoryId, MemoryKind, StatementId};
 use brain_index::{
     LexicalFilters, LexicalQuery, LexicalRetriever, LexicalRetrieverConfig, LexicalScope,

@@ -8,7 +8,7 @@ covers `list`, `show`, and `neighbors`.
 deployment has a schema declared via `SCHEMA_UPLOAD`. On a
 substrate-only deployment these subcommands either return empty
 results or report `not found`; the substrate's vector store doesn't
-carry typed entities. See [`spec/17_knowledge_model/00_purpose.md`](../../../../spec/17_knowledge_model/00_purpose.md).
+carry typed entities. See [`spec/02_data_model/00_purpose.md`](../../../../spec/02_data_model/00_purpose.md).
 
 ---
 
@@ -43,7 +43,7 @@ brain entity list --type Person --limit 20
 #### `--limit <N>`
 
 Maximum rows to return. Default `50`. The server may clamp larger
-values per [spec §18/02](../../../../spec/18_entities/02_storage.md).
+values per [spec §02/02](../../../../spec/02_data_model/02_storage.md).
 
 #### `--prefix <STR>`
 
@@ -287,4 +287,4 @@ sees the gap; no state is corrupted.
 - [`mention.md`](mention.md) — memory ↔ entity provenance
 - [`recall.md`](recall.md) — `--include-graph` for hybrid enrichment
 - [`../output-formats.md`](../output-formats.md) — table + JSON
-- Spec: [`spec/17_knowledge_model/`](../../../../spec/17_knowledge_model/), [`spec/18_entities/`](../../../../spec/18_entities/)
+- Spec: [`spec/02_data_model/`](../../../../spec/02_data_model/00_purpose.md), [`spec/02_data_model/`](../../../../spec/02_data_model/00_purpose.md)

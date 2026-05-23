@@ -7,7 +7,7 @@
 //! request. Flume's `send_async` / `recv_async` are reactor-agnostic — both
 //! ends `.await` natively under whichever runtime drives them.
 //!
-//! On-disk layout (spec §12/01 §2):
+//! On-disk layout:
 //!
 //! ```text
 //!   <data_dir>/<shard_id>/
@@ -31,7 +31,7 @@
 //!                 channel closes ─▶ shard_main_loop exits ─▶ joiner.join() returns
 //! ```
 //!
-//! Spec §01/04 (layers), §01/05 (hardware: io_uring, CPU pinning),
+//! (layers), §01/05 (hardware: io_uring, CPU pinning),
 //! §10/02 (single writer per shard), §12/01 §3 (shard UUID permanence).
 //! Audit `phase-09-glommio-port.md` §7 locks flume as the boundary primitive;
 //! §8.2 defers the in-shard `Rc<Cell<bool>>` shutdown flag to 9.7.
@@ -133,7 +133,7 @@ pub(crate) enum ShardRequest {
     SchedulerSnapshot {
         reply_tx: Sender<Vec<(&'static str, WorkerKind, MetricsSnapshot)>>,
     },
-    /// Trigger a synchronous snapshot. Spec §14/06 §5; sub-task 10.9.
+    /// Trigger a synchronous snapshot; sub-task 10.9.
     /// The reply carries the snapshot id (mapped from
     /// `brain_workers::snapshot::SnapshotId.0`).
     TakeSnapshot {
@@ -280,7 +280,7 @@ pub struct ShardSpawnConfig {
     ///
     /// The same `Arc` is cloned into every shard at process startup so
     /// the ~130 MiB BERT weights are loaded once and shared across all
-    /// N shards (spec §04/03 §7 "weights shared via Arc<Model>"). In
+    /// N shards ("weights shared via Arc<Model>"). In
     /// production this is a `CachingDispatcher<CpuDispatcher>`; tests
     /// inject a file-local stub.
     pub dispatcher: Arc<dyn Dispatcher>,
@@ -705,7 +705,7 @@ impl ShardHandle {
     }
 
     /// Trigger a synchronous snapshot of this shard. Returns the
-    /// snapshot's id on success. Spec §14/06 §5; sub-task 10.9.
+    /// snapshot's id on success; sub-task 10.9.
     pub async fn take_snapshot(&self) -> Result<u64, ShardError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
@@ -787,7 +787,7 @@ impl ShardHandle {
     }
 
     /// Enqueue existing memories on this shard for re-extraction.
-    /// Spec §22/05 §4 (extractor backfill). Returns the count of
+    /// (extractor backfill). Returns the count of
     /// memories successfully pushed onto the per-shard ExtractorWorker
     /// channel along with the count that were considered but skipped
     /// (channel full, missing text row, tombstoned, not found).
@@ -813,7 +813,7 @@ impl ShardHandle {
     }
 
     /// Trigger an immediate full HNSW rebuild. Returns the new
-    /// entry count + elapsed time. Spec §14/06 §4; sub-task 10.10.
+    /// entry count + elapsed time; sub-task 10.10.
     pub async fn rebuild_hnsw(&self) -> Result<RebuildReport, ShardError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
@@ -1325,7 +1325,7 @@ pub fn spawn_shard(
             // (`memory_text.tantivy/` + `statements.tantivy/`)
             // and honour any `IndexStatus::NeedsRebuild` arms by
             // calling the 22.6 rebuild functions before the
-            // indexer workers start. See spec §26/01 §6.
+            // indexer workers start..
             // Recovery failures abort shard spawn — a shard with
             // unrecoverable lexical indexes shouldn't accept
             // reads.
@@ -1556,7 +1556,7 @@ pub fn spawn_shard(
             });
 
             // 23.11: seed the per-shard schema-declared gate from
-            // the metadata DB. Spec §28/08 §1. Initial value is
+            // the metadata DB. Initial value is
             // computed under the existing metadata lock.
             let schema_gate = {
                 let metadata_guard = metadata.lock();
@@ -1596,7 +1596,7 @@ pub fn spawn_shard(
             // (atomics + Waker, no tokio I/O); polling its `recv()`
             // future inside Glommio is sound. `Lagged` is treated as
             // a transient skip — slow subscribers see gaps, not
-            // crashes (spec §17.4).
+            // crashes (4).
             {
                 let event_bus = ops.events.clone();
                 let events_tx = events_tx.clone();

@@ -1,4 +1,4 @@
-//! Idempotency primitives. Spec §22/06.
+//! Idempotency primitives.
 
 use brain_core::{ExtractorId, MemoryId};
 

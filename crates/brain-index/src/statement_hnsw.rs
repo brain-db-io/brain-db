@@ -10,7 +10,7 @@
 //! | Entity | 16 | 100 | 64 | 256 |
 //! | Statement (this module) | **32** | 200 | **128** | 1024 |
 //!
-//! Spec §26/00 §"statement.hnsw" — statement counts are typically 0.1–1×
+//! §"statement.hnsw" — statement counts are typically 0.1–1×
 //! memory counts per shard, so the index is sized similarly to memory
 //! and the wider `M`+`ef_search` give better recall on the denser
 //! semantic neighbourhoods statements form.
@@ -56,12 +56,12 @@ const OVER_FACTOR: usize = 2;
 /// `M=32, ef_construction=200, ef_search=128`, capacity hint 1024.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatementHnswParams {
-    /// Max edges per non-bottom-layer node. Spec §06/02 §1 range:
+    /// Max edges per non-bottom-layer node range:
     /// 4..=64.
     pub m: usize,
-    /// Search width during insertion. Spec §06/02 §1 range: 50..=500.
+    /// Search width during insertion range: 50..=500.
     pub ef_construction: usize,
-    /// Default search width per query. Spec §06/02 §1 range: 10..=500.
+    /// Default search width per query range: 10..=500.
     /// Per-query overrides are clamped to `[k, ef_search_max]`.
     pub ef_search: usize,
     /// Cap on per-query `ef_search` overrides.
@@ -73,7 +73,7 @@ pub struct StatementHnswParams {
 }
 
 impl StatementHnswParams {
-    /// Per spec §26/00 §"statement.hnsw". Differences vs entity HNSW
+    /// Per §"statement.hnsw". Differences vs entity HNSW
     /// are commented inline.
     #[must_use]
     pub const fn default_v1() -> Self {
@@ -86,7 +86,7 @@ impl StatementHnswParams {
         }
     }
 
-    /// Validate fields lie in the spec §06/02 ranges.
+    /// Validate fields lie in the ranges.
     pub fn validate(&self) -> Result<(), IndexParamsError> {
         if !(4..=64).contains(&self.m) {
             return Err(IndexParamsError::MOutOfRange(self.m));
@@ -124,7 +124,7 @@ pub enum StatementHnswError {
     #[error("invalid params: {0}")]
     InvalidParams(#[from] IndexParamsError),
 
-    /// `statement_id` was already inserted. Spec §19 — duplicate
+    /// `statement_id` was already inserted — duplicate
     /// inserts are caller bugs; we detect rather than letting
     /// `hnsw_rs` silently overwrite the embedding.
     #[error("duplicate statement_id {0:?}")]
@@ -233,7 +233,7 @@ impl StatementHnswIndex {
     /// Variant of [`Self::search`] with an explicit `ef_search`
     /// override. Passing `None` uses
     /// [`StatementHnswParams::ef_search`]; `Some(v)` is clamped to
-    /// `[k, ef_search_max]` per spec §06/02.
+    /// `[k, ef_search_max]`.
     pub fn search_with_ef(
         &self,
         query: &[f32; VECTOR_DIM],
@@ -401,9 +401,9 @@ mod tests {
     #[test]
     fn params_default_matches_spec() {
         let p = StatementHnswParams::default_v1();
-        assert_eq!(p.m, 32, "spec §26/00 — higher than entity");
+        assert_eq!(p.m, 32, "— higher than entity");
         assert_eq!(p.ef_construction, 200);
-        assert_eq!(p.ef_search, 128, "spec §26/00 — higher than entity");
+        assert_eq!(p.ef_search, 128, "— higher than entity");
         assert_eq!(p.ef_search_max, 500);
         assert_eq!(p.capacity_hint, 1024);
     }

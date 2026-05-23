@@ -4,7 +4,7 @@ Retrieve memories by similarity. Brain embeds the cue, searches
 HNSW, applies filters, and returns up to `k` ranked results.
 
 **Opcode:** `RecallReq = 0x0021` / `RecallResp = 0x00A1` (streaming).
-**Spec:** §09/03. **Source:** `crates/brain-ops/src/ops/recall.rs`.
+**Spec:** §05/03. **Source:** `crates/brain-ops/src/ops/recall.rs`.
 
 ## Request fields
 
@@ -89,7 +89,7 @@ results over time as the index changes.
 
 ## Performance target
 
-Spec §16/02 §4:
+Spec §02/02 §4:
 
 | Workload | p50 | p99 |
 |---|---|---|
@@ -113,4 +113,4 @@ Throughput: ~5–20 K RECALLs / sec / shard.
 - [`../schema-dsl/`](../schema-dsl/) — how to enable the hybrid path.
 - [`../../architecture/11-hybrid-retrieval-rrf.md`](../../architecture/11-hybrid-retrieval-rrf.md) — RRF fusion mechanics.
 
-**Spec:** §09/03.
+**Spec:** §05/03.

@@ -3,10 +3,10 @@
 use rkyv::{Archive, Deserialize, Serialize};
 
 use super::types::{EventType, StageKind, StageOutcome, StagePayload};
-use crate::knowledge::KnowledgeEventPayload;
+use crate::responses::KnowledgeEventPayload;
 use crate::request::{MemoryKindWire, WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §03/08 §7 — push event for a subscription.
+/// — push event for a subscription.
 ///
 /// Phase 16.7 extended the body with `knowledge_payload`, an optional
 /// typed sidecar carrying knowledge-layer event data. For substrate
@@ -19,7 +19,7 @@ use crate::request::{MemoryKindWire, WireContextId, WireMemoryId, WireUuid};
 /// that don't decode `knowledge_payload` silently drop knowledge
 /// events (or surface them as opaque `event_type` codes). Made under
 /// the pre-v1.0 compatibility policy
-/// (`spec/03_wire_protocol/12_versioning.md` §0).
+/// (`spec/04_wire_protocol/12_versioning.md` §0).
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -94,7 +94,6 @@ pub struct EdgeEventPayload {
     pub origin: u8,
 }
 
-/// Spec §08 §8.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

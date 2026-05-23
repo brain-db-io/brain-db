@@ -1,8 +1,8 @@
 //! `merge_log` table — entity merge history.
 //!
-//! See `spec/18_entities/02_storage.md` (`MergeRecord` shape) +
-//! `spec/18_entities/03_merge.md` (merge mechanics) +
-//! `spec/18_entities/04_unmerge.md` (unmerge replays this record in reverse).
+//! See `spec/02_data_model/02_storage.md` (`MergeRecord` shape) +
+//! `spec/02_data_model/03_merge.md` (merge mechanics) +
+//! `spec/02_data_model/04_unmerge.md` (unmerge replays this record in reverse).
 //!
 //! Key is `(timestamp_unix_nanos, MergeId.to_bytes())` for time-ordered
 //! traversal. Grace-period unmerge consults this table to reconstruct
@@ -28,7 +28,7 @@ pub const MERGE_LOG_TABLE: TableDefinition<'static, (u64, [u8; 16]), MergeRecord
 /// (phase 17/18+ — the lists live here; phase 16.7 never writes the
 /// table since statement/relation tables don't yet exist).
 ///
-/// Spec: `spec/18_entities/02_storage.md` §"entity_merge_log".
+/// Spec: `spec/02_data_model/02_storage.md` §"entity_merge_log".
 pub const ENTITY_MERGE_AUDIT_OVERFLOW: TableDefinition<
     'static,
     ([u8; 16], u32),
@@ -48,7 +48,7 @@ pub mod actor_kind {
 }
 
 /// Conflict-resolution policy byte values for [`AttributeConflictRecord::policy`].
-/// Mirrors `spec/18_entities/03_merge.md` §6.
+/// Mirrors `spec/02_data_model/03_merge.md` §6.
 pub mod conflict_policy {
     pub const SURVIVOR_WINS: u8 = 1;
     pub const MERGED_WINS: u8 = 2;
@@ -97,7 +97,7 @@ pub struct AttributeConflictRecord {
 /// Phase scope: `statements_rerouted` / `relations_rerouted` are always
 /// `0` in phase 16.7 (statement / relation tables don't exist yet).
 /// Phases 17 / 18 sweep this table and populate the counts + overflow
-/// rows. See `spec/18_entities/03_merge.md` §0.
+/// rows. See `spec/02_data_model/03_merge.md` §0.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct MergeRecord {

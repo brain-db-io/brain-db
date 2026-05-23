@@ -1,6 +1,6 @@
 //! Transactions (sub-task 7.9).
 //!
-//! True buffer-and-apply transaction semantics per spec §09/08.
+//! True buffer-and-apply transaction semantics.
 //! Operations carrying a `txn_id` push into a per-txn `TxnBuffer`
 //! instead of mutating redb/HNSW. TXN_COMMIT translates the buffer
 //! into a multi-phase `Write` and submits it through the unified

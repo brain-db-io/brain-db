@@ -8,9 +8,9 @@ when-to-use: |
     - New background worker — needs span + metrics
     - User says "add tracing" / "observability"
 spec-refs:
-  - spec/14_observability_ops/01_metrics.md
-  - spec/14_observability_ops/02_logs.md
-  - spec/14_observability_ops/03_tracing.md
+  - spec/18_observability/01_metrics.md
+  - spec/18_observability/02_logs.md
+  - spec/18_observability/03_tracing.md
 ---
 
 # Observability Trace

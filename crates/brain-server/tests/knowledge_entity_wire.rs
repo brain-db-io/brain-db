@@ -16,7 +16,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EntityCreateRequest, EntityGetRequest, EntityRenameRequest, EntityUpdateRequest,
 };
 use brain_protocol::opcode::Opcode;

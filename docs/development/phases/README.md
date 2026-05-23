@@ -87,8 +87,8 @@ A deployment that never calls `SCHEMA_UPLOAD` runs as a pure vector substrate โ€
 
 Each phase doc lists exact spec files in its "Reads" section. If a sub-task can't be completed because the spec is genuinely silent on a point:
 
-1. Re-read the relevant `*_open_questions.md` in the spec directory.
-2. Knowledge-layer-specific open questions live in `spec/30_knowledge_open_questions/`.
+1. Re-read the relevant `*../00_overview/04_open_questions_archive.md` in the spec directory.
+2. Knowledge-layer-specific open questions live in `spec/00_overview/04_open_questions_archive.md`.
 3. If still unclear, follow the "STOP and surface" protocol in `AUTONOMY.md` ยง3.
 
 Don't invent. Don't guess.

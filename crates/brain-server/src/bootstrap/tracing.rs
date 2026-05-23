@@ -1,18 +1,18 @@
 //! OpenTelemetry tracing — OTLP exporter pipeline.
 //!
-//! Sub-task 12.3. Spec §14/03.
+//! Sub-task 12.3.
 //!
 //! Returns a `Layer` that `bootstrap::logging` composes into the
 //! global subscriber. The layer is wired to an OTLP/HTTP exporter
 //! sending to the collector at `tracing.endpoint`. If `enabled =
 //! false` (or the endpoint is empty), this module installs *no
-//! tracer* — spec §14/03 §17 "no-trace fallback" guarantees the
+//! tracer* "no-trace fallback" guarantees the
 //! substrate runs unchanged.
 //!
 //! ## Trace context propagation
 //!
 //! The wire protocol does not currently carry a `traceparent`
-//! header (spec §03 amendment required per spec §14/03 §8). v1 emits
+//! header (amendment required). v1 emits
 //! server-side spans only; client-supplied trace context is not
 //! consumed. Tracker: `phase-13/wire-traceparent`.
 //!
@@ -97,7 +97,7 @@ pub fn build(cfg: &TracingConfig) -> Result<Option<BuiltTracing>, String> {
     Ok(Some(BuiltTracing { layer, provider }))
 }
 
-/// Resolve the sampler per spec §14/03 §4.
+/// Resolve the sampler.
 fn resolve_sampler(name: &str, ratio: f64) -> Sampler {
     match name.to_ascii_lowercase().as_str() {
         "always_on" => Sampler::AlwaysOn,
@@ -107,7 +107,7 @@ fn resolve_sampler(name: &str, ratio: f64) -> Sampler {
             Sampler::ParentBased(Box::new(Sampler::TraceIdRatioBased(ratio.clamp(0.0, 1.0))))
         }
         // Unknown sampler — fail-closed: don't sample, log a warning
-        // at install time. Spec §14/03 §17 "no-trace fallback".
+        // at install time "no-trace fallback".
         other => {
             tracing::warn!(
                 sampler = other,

@@ -41,7 +41,7 @@ Implement the Entity table, the entity type system, the entity HNSW for embeddin
 
 ### 16.3 Entity HNSW per shard
 
-**Reads:** `18_entities/02_storage.md`; `spec/06_ann_index/`.
+**Reads:** `18_entities/02_storage.md`; `spec/09_indexing/`.
 **Writes:** `crates/brain-index/src/entity_hnsw.rs`.
 **Done when:** can insert, search, tombstone entity embeddings. Tombstone+rebuild cycle works.
 **Pitfalls:** Different parameters than memory HNSW (smaller); document the difference.

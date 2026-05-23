@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for `worker` (spec §14/06 §6; sub-task 10.11).
+//! Admin HTTP handlers for `worker` (sub-task 10.11).
 //!
 //! Routes:
 //! - `GET /v1/workers[?shard=N]` → 200 + per-shard worker snapshots.

@@ -8,7 +8,7 @@
 use std::sync::Arc;
 
 use brain_core::AgentId;
-use brain_extractors::item::{EntityMention, ExtractedItem};
+use brain_extractors::framework::item::{EntityMention, ExtractedItem};
 use brain_plugins::{
     EnricherInput, EnricherOutput, EnricherPlugin, PluginError, PluginRegistry, PluginResult,
     RecallPlugin,

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use brain_core::knowledge::{Cardinality, Relation};
+use brain_core::{Cardinality, Relation};
 use brain_core::{Entity, EntityId, EntityTypeId, ExtractorId, RelationId, RelationTypeId};
 use brain_index::{
     Direction, GraphAnchor, GraphError, GraphQuery, GraphRetriever, GraphRetrieverConfig,
@@ -1152,7 +1152,7 @@ mod unified_walk {
 
     #[test]
     fn walk_with_statements_pivot_emits_statement_ids_for_entity_nodes() {
-        use brain_core::knowledge::{
+        use brain_core::{
             EvidenceRef, Statement, StatementKind, StatementObject, SubjectRef,
         };
         use brain_core::{ExtractorId, StatementId};

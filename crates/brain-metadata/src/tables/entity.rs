@@ -1,6 +1,6 @@
 //! Entity family — 5 tables.
 //!
-//! See `spec/18_entities/` (record + resolution) and
+//! See `spec/02_data_model/` (record + resolution) and
 //! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
 //!
 //! - [`ENTITIES_TABLE`]                — primary `EntityId → EntityMetadata`.
@@ -36,7 +36,7 @@ pub const ENTITY_ALIASES_TABLE: TableDefinition<'static, (u32, &'static str, [u8
 /// `(entity_type_id, trigram, EntityId.to_bytes())` → `()`.
 ///
 /// Trigrams are fixed 3-byte windows (pg_trgm-style, byte-level) per
-/// spec §18/02. 15.1 declared this with `&'static str` for the trigram
+/// 15.1 declared this with `&'static str` for the trigram
 /// component; sub-task 16.4 corrected the key shape to `[u8; 3]`.
 pub const ENTITY_TRIGRAMS_TABLE: TableDefinition<'static, (u32, [u8; 3], [u8; 16]), ()> =
     TableDefinition::new("entity_trigrams");
@@ -89,7 +89,7 @@ pub mod mention_context {
 // Value structs.
 // ---------------------------------------------------------------------------
 
-/// Primary entity record (spec §18 §"Entity record schema").
+/// Primary entity record (§"Entity record schema").
 ///
 /// Sub-task 16.1 promoted `aliases` from an opaque `Vec<u8>` blob to a
 /// typed `Vec<String>` and bumped `type_name` to `::v2`. `attributes`
@@ -102,7 +102,7 @@ pub struct EntityMetadata {
     pub entity_type_id: u32,
     pub canonical_name: String,
     pub normalized_name: String,
-    /// Spec §18/00 caps the alias list at 32 by default; not enforced
+    /// caps the alias list at 32 by default; not enforced
     /// at this layer (CRUD in 16.2 enforces).
     pub aliases: Vec<String>,
     /// rkyv-encoded `BTreeMap<String, Value>` (Value union resolves in phase 19).
@@ -392,7 +392,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let id = EntityId::new();
-        // 16.4: trigram component is `[u8; 3]` (spec §18/02), not `&str`.
+        // 16.4: trigram component is `[u8; 3]`, not `&str`.
         let key = (1u32, *b"pri", id.to_bytes());
 
         let wtxn = db.begin_write().unwrap();

@@ -40,7 +40,7 @@ pub async fn handle_link(req: LinkRequest, ctx: &OpsContext) -> Result<LinkRespo
     // Idempotency replay short-circuit + conflict detection.
     match real_writer.idempotency_lookup(write_id, Some(request_hash)) {
         crate::writer::submit::CacheLookup::Hit(_cached) => {
-            // Idempotency replay (spec §09/02 §4): mirror the original
+            // Idempotency replay: mirror the original
             // outcome transparently. The original was a successful
             // insert, so `already_existed=false` — same shape as the
             // first response. No fresh write — counts don't bump again

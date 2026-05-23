@@ -1,6 +1,6 @@
 //! Unit tests for the post-fusion filter chain (phase 23.5).
 
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceRef, Relation, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
     TombstoneReason,
 };

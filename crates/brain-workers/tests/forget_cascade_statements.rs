@@ -8,7 +8,7 @@
 
 use std::sync::Arc;
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
     StatementKind, StatementObject, StatementValue, SubjectRef,
 };
@@ -276,7 +276,7 @@ fn hard_forget_cascade_tombstones_single_evidence_statement() {
 
 #[test]
 fn soft_forget_also_enqueues_cascade() {
-    // Spec §17/03 Rule 3.1: soft FORGET also triggers re-derivation;
+    // Rule 3.1: soft FORGET also triggers re-derivation;
     // readers must not see stale-confidence statements during the
     // grace window.
     let fx = build_fixture();

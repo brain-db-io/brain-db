@@ -14,7 +14,7 @@ use std::sync::Arc;
 
 use brain_core::AgentId;
 use brain_extractors::enricher_hook::{EnricherHook, EnricherHookOutcome};
-use brain_extractors::item::ExtractedItem;
+use brain_extractors::framework::item::ExtractedItem;
 
 use crate::connector::{ConnectorPlugin, ConnectorRequest, ConnectorResponse};
 use crate::enricher::{EnricherInput, EnricherOutput, EnricherPlugin};
@@ -294,7 +294,7 @@ mod tests {
     use super::*;
     use crate::recall::RecallPlugin;
     use brain_core::AgentId;
-    use brain_extractors::item::{EntityMention, ExtractedItem};
+    use brain_extractors::framework::item::{EntityMention, ExtractedItem};
     use serde_json::Value;
 
     // -- helpers -----------------------------------------------------

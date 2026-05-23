@@ -8,7 +8,7 @@ when-to-use: |
     - Investigating a TSAN-style bug
     - Phase exit checklist for crates that have lock-free code
 spec-refs:
-  - spec/01_system_architecture/04_layers.md
+  - spec/01_architecture/04_layers.md
 ---
 
 # Loom Design

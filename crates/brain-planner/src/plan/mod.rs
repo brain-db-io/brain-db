@@ -1,7 +1,7 @@
-//! The `ExecutionPlan` enum + per-request plan types. Spec §08/01 §2.
+//! The `ExecutionPlan` enum + per-request plan types.
 //!
 //! Each variant carries an immutable, owned plan value. Plans don't
-//! cross the wire (spec §01 §8), so they don't derive `serde` /
+//! cross the wire, so they don't derive `serde` /
 //! `rkyv`; they're built by the planner, consumed by the executor,
 //! and dropped after the response is sent.
 
@@ -33,7 +33,7 @@ pub use recall::{
 ///
 /// Admin / Txn / Subscribe plans are deferred to later sub-tasks
 /// (they don't fit the cognitive-operation shape and their lifecycles
-/// differ — see spec §08/02 §15–§16).
+/// differ — –§16).
 #[derive(Debug, Clone)]
 pub enum ExecutionPlan {
     Encode(EncodePlan),

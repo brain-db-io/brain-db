@@ -1,6 +1,6 @@
 //! Unit tests for the query planner (phase 23.6).
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{EntityId, PredicateId};
 
 use super::{

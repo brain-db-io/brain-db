@@ -41,7 +41,7 @@ on-call rotation.
 
 - [`../docs/guides/observability.md`](../docs/guides/observability.md)
   — operator-facing setup guide.
-- [`../spec/14_observability_ops/`](../spec/14_observability_ops/)
+- [`../spec/18_observability/`](../spec/18_observability/00_purpose.md)
   — authoritative metric / tracing / logging design.
 - [`../docs/runbooks/`](../docs/runbooks/) — per-alert
   procedures.

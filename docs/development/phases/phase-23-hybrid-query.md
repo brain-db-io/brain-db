@@ -14,20 +14,20 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 
 ## Reading list
 
-- [`spec/23_retrievers/00_purpose.md`](../../spec/23_retrievers/00_purpose.md) (full)
-- [`spec/23_retrievers/01_rrf_fusion.md`](../../spec/23_retrievers/01_rrf_fusion.md)
-- [`spec/23_retrievers/03_semantic_retriever.md`](../../spec/23_retrievers/03_semantic_retriever.md) — landed in 23.0.
-- [`spec/23_retrievers/04_graph_retriever.md`](../../spec/23_retrievers/04_graph_retriever.md) — landed in 23.0.
-- [`spec/24_hybrid_query/00_purpose.md`](../../spec/24_hybrid_query/00_purpose.md)
-- [`spec/16_benchmarks_acceptance/02_latency_targets.md`](../../spec/16_benchmarks_acceptance/02_latency_targets.md) §2.10 — landed in 23.0.
-- [`spec/28_knowledge_wire_protocol/08_schema_optional_mode.md`](../../spec/28_knowledge_wire_protocol/08_schema_optional_mode.md) §5 — RECALL transparent-routing contract.
+- [`spec/13_retrievers/00_purpose.md`](../../spec/13_retrievers/00_purpose.md) (full)
+- [`spec/13_retrievers/01_rrf_fusion.md`](../../spec/13_retrievers/01_rrf_fusion.md)
+- [`spec/13_retrievers/03_semantic_retriever.md`](../../spec/13_retrievers/03_semantic_retriever.md) — landed in 23.0.
+- [`spec/13_retrievers/04_graph_retriever.md`](../../spec/13_retrievers/04_graph_retriever.md) — landed in 23.0.
+- [`spec/13_retrievers/05_hybrid_query.md`](../../spec/13_retrievers/05_hybrid_query.md)
+- [`spec/19_benchmarks/02_performance_targets.md`](../../spec/19_benchmarks/02_performance_targets.md) §2.10 — landed in 23.0.
+- [`spec/04_wire_protocol/09_typed_graph_admin.md`](../../spec/04_wire_protocol/09_typed_graph_admin.md) §5 — RECALL transparent-routing contract.
 
 ## Outputs
 
-- [x] §23/03 (`SemanticRetriever`), §23/04 (`GraphRetriever`), §16/02 §2.10 (hybrid perf targets) brought to phase-23 implementation depth.
+- [x] §13/03 (`SemanticRetriever`), §13/04 (`GraphRetriever`), §02/02 §2.10 (hybrid perf targets) brought to phase-23 implementation depth.
 - [x] `SemanticRetriever` trait + `BrainSemanticRetriever` (Memory + Statement scopes; push-down filters via `SemanticFilters`).
 - [x] `GraphRetriever` trait + `BrainGraphRetriever` (Star / Path / Subgraph queries).
-- [x] Rule-based query router (5 routing rules from §24/00).
+- [x] Rule-based query router (5 routing rules from §13/05).
 - [x] Reciprocal Rank Fusion (`fuse_rrf` with `k = 60` default).
 - [x] Post-fusion filter chain (type / temporal / confidence / tombstone / supersession) reading metadata via a single redb `ReadTransaction`.
 - [x] Query planner (`plan(req)`) producing an immutable `QueryPlan` DAG.
@@ -40,7 +40,7 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 
 ## Sub-tasks
 
-### 23.0 §23/03 + §23/04 + §16/02 §2.10 spec backfill ✓
+### 23.0 §13/03 + §13/04 + §02/02 §2.10 spec backfill ✓
 
 **Landed in:** [`.claude/plans/phase-23-task-00.md`](../../.claude/plans/phase-23-task-00.md).
 **Done when:** three spec files at phase-23 implementation depth; phase doc reading list links them.
@@ -58,7 +58,7 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 ### 23.3 Query router (rule-based) ✓
 
 **Landed in:** [`.claude/plans/phase-23-task-03.md`](../../.claude/plans/phase-23-task-03.md).
-**Done when:** `brain-planner::knowledge::router::route(req)` implements the 5 routing rules from §24/00; emits `RoutingDecision` with retrievers + weights + `temporal_pushdown` hint.
+**Done when:** `brain-planner::knowledge::router::route(req)` implements the 5 routing rules from §13/05; emits `RoutingDecision` with retrievers + weights + `temporal_pushdown` hint.
 
 ### 23.4 RRF fusion ✓
 
@@ -83,7 +83,7 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 ### 23.8 EXPLAIN + TRACE renderers ✓
 
 **Landed in:** [`.claude/plans/phase-23-task-08.md`](../../.claude/plans/phase-23-task-08.md).
-**Done when:** `render_plan(plan)` and `render_trace(plan, metadata)` produce monospace text blocks with PLAN / RETRIEVERS / FUSION / POST_FILTERS / LIMIT / EXECUTION sections per §24/00 §"Plan structure".
+**Done when:** `render_plan(plan)` and `render_trace(plan, metadata)` produce monospace text blocks with PLAN / RETRIEVERS / FUSION / POST_FILTERS / LIMIT / EXECUTION sections per §13/05 §"Plan structure".
 
 ### 23.9 Wire opcodes 0x0160-0x0163 ✓
 
@@ -103,12 +103,12 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 ### 23.12 Phase exit ✓
 
 **Landed in:** [`.claude/plans/phase-23-task-12.md`](../../.claude/plans/phase-23-task-12.md).
-**Done when:** 4 phase-exit integration tests via the TCP wire path; 3 criterion benches at 10K corpus scale against §16/02 §2.10; ROADMAP + this phase doc updated; §30 open-questions appended; `phase-23-complete` tag cut.
+**Done when:** 4 phase-exit integration tests via the TCP wire path; 3 criterion benches at 10K corpus scale against §02/02 §2.10; ROADMAP + this phase doc updated; §00 open-questions appended; `phase-23-complete` tag cut.
 
 ## Done-when (phase)
 
 - [x] Hybrid query end-to-end works (`QUERY`, `RECALL_HYBRID`, and transparent `RECALL`).
-- [x] Router picks reasonable retrievers per query class (5 rules in §24/00).
+- [x] Router picks reasonable retrievers per query class (5 rules in §13/05).
 - [x] RRF fusion correct (score-scale-invariant, deterministic ties).
 - [x] EXPLAIN / TRACE useful for debugging (planner sections + per-retriever execution metrics).
 - [x] Substrate RECALL transparently uses hybrid when a schema is present.
@@ -118,13 +118,13 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 
 | Cut | Where it goes | Reason |
 |---|---|---|
-| Streaming hybrid query results (limit > 100) | Post-v1 — see §30 OQ-23-A | v1 returns a single `QueryResponse`; the SUBSCRIBE path for streaming was not in scope. |
-| Hybrid recall + transactional read-your-writes | Post-v1 — see §30 OQ-23-B | Lens layering across statements + relations is multi-week work. v1 txn'd RECALL stays on the substrate path; spec §09/08 §5 only covers substrate semantics. |
-| Filter-only retriever mode (no text, no anchor) | Post-v1 — see §30 OQ-23-C | The planner returns `NoSignal` when neither text nor anchor is supplied. A "find by filters only" mode requires a new "everything" retriever. |
-| Learned router on top of rule-based | Future versions — `OQ-V2-1` + §30 OQ-23-D | Need labeled query traffic to train. Rule-based stays as fallback. |
-| Cross-shard hybrid result merging | Post-v1 — see §30 OQ-23-E | v1 routing is per-shard; the connection layer's fan-out lives upstream of the hybrid engine. |
+| Streaming hybrid query results (limit > 100) | Post-v1 — see §00 OQ-23-A | v1 returns a single `QueryResponse`; the SUBSCRIBE path for streaming was not in scope. |
+| Hybrid recall + transactional read-your-writes | Post-v1 — see §00 OQ-23-B | Lens layering across statements + relations is multi-week work. v1 txn'd RECALL stays on the substrate path; spec §05/08 §5 only covers substrate semantics. |
+| Filter-only retriever mode (no text, no anchor) | Post-v1 — see §00 OQ-23-C | The planner returns `NoSignal` when neither text nor anchor is supplied. A "find by filters only" mode requires a new "everything" retriever. |
+| Learned router on top of rule-based | Future versions — `OQ-V2-1` + §00 OQ-23-D | Need labeled query traffic to train. Rule-based stays as fallback. |
+| Cross-shard hybrid result merging | Post-v1 — see §00 OQ-23-E | v1 routing is per-shard; the connection layer's fan-out lives upstream of the hybrid engine. |
 | `MemoryResult.text` population on the hybrid path | Matches existing substrate behaviour (text only when caller requests) | Hybrid projection leaves `text = ""`; substrate had the same default. `include_text` future work covers both paths. |
-| Parallel retriever execution | v1 sequential per §23.7 plan | Retriever traits are sync; async-trait migration deferred. §16/02 §2.10 headroom comfortable (3 × 10 ms vs 50 ms p99). |
+| Parallel retriever execution | v1 sequential per §23.7 plan | Retriever traits are sync; async-trait migration deferred. §02/02 §2.10 headroom comfortable (3 × 10 ms vs 50 ms p99). |
 
 ## Phase exit
 
@@ -138,7 +138,7 @@ Implement the query router, RRF fusion, filter chain, and full hybrid query exec
 ## Pitfalls
 
 - Don't over-tune the router; the rule-based router is a sensible-default, not optimal. Learned routing is `OQ-V2-1`.
-- Fusion `k=60` is documented in `§23/01 §"Choice of k"`; per-query override rides on `FusionConfig`.
+- Fusion `k=60` is documented in `§13/01 §"Choice of k"`; per-query override rides on `FusionConfig`.
 - Push-down filter optimization: temporal goes down into retrievers per the routing decision; everything else applies post-fusion. Don't chase additional push-downs in v1.
 - The hybrid path doesn't fetch `MemoryResult.text` inline; clients that need text use the existing `include_text` path on substrate RECALL or `STATEMENT_GET` / `ENTITY_GET` to hydrate.
 - `MissingRetriever` from the executor (e.g. operator left the lexical slot empty) falls back to substrate RECALL with a warn log; don't fail the request.

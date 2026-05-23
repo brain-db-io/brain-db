@@ -20,7 +20,7 @@ use brain_metadata::MetadataDb;
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{ExtractorDisableRequest, ExtractorListRequest};
+use brain_protocol::{ExtractorDisableRequest, ExtractorListRequest};
 use brain_protocol::opcode::Opcode;
 use brain_protocol::request::{EncodeRequest, MemoryKindWire, RequestBody};
 use brain_protocol::response::ResponseBody;

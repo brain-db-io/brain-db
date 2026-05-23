@@ -1,4 +1,4 @@
-//! HNSW maintenance worker (sub-task 8.5). Spec §11/04, §06/07.
+//! HNSW maintenance worker (sub-task 8.5).
 //!
 //! Every 5 min, the worker:
 //!   1. Collects `IndexStats` from `SharedHnsw`.
@@ -13,9 +13,9 @@
 //!   The worker stamps `recall_estimate = 1.0` so the recall-based
 //!   thresholds never fire; `decide_action` is still tested for them
 //!   via pure-function tests.
-//! - **No catch-up phase**: spec §11/04 §7 wants WAL replay between
+//! - **No catch-up phase**: wants WAL replay between
 //!   build-start LSN and swap; no WAL is wired yet, so Phase 9.
-//! - **No partial rebuild**: spec §06/07 §8 is an open question.
+//! - **No partial rebuild**: is an open question.
 //! - **No `ann.rebuild_max_memory_gb` cap**: Phase 9 server config.
 //! - **Default [`DisabledRebuildSource`]**: production deployments
 //!   inject an arena-backed source in Phase 9. Until then, the worker
@@ -37,7 +37,7 @@ use crate::error::WorkerError;
 use crate::worker::Worker;
 
 // ---------------------------------------------------------------------------
-// Stats + decision logic. Spec §11/04 §2, §06/07 §3.
+// Stats + decision logic, §06/07 §3.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -48,12 +48,12 @@ pub struct IndexStats {
     /// `tombstone_count / total_entries`, with `total_entries == 0`
     /// mapped to 0.0.
     pub tombstone_ratio: f32,
-    /// Spec §11/04 §3 — sampled recall@K estimate. v1 always
+    /// — sampled recall@K estimate. v1 always
     /// `1.0` (no query-sample logging yet).
     pub recall_estimate: f32,
 }
 
-/// Spec §11/04 §2 — configurable thresholds for the decision
+/// — configurable thresholds for the decision
 /// function. Defaults match the spec's literal values.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RebuildThresholds {
@@ -81,7 +81,7 @@ pub enum Action {
     FullRebuild,
 }
 
-/// Spec §11/04 §2 / §06/07 §3 decision function. Pure; unit-testable
+/// decision function. Pure; unit-testable
 /// without a runtime.
 #[must_use]
 pub fn decide_action(stats: IndexStats, t: RebuildThresholds) -> Action {

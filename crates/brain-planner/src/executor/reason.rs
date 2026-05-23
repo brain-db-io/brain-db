@@ -1,5 +1,5 @@
 //! `execute_reason` — evidence-traversal executor for the REASON
-//! cognitive operation. Spec §09/05.
+//! cognitive operation.
 //!
 //! Steps:
 //!
@@ -78,7 +78,7 @@ pub async fn execute_reason(
     )?;
 
     // Direct-similarity supporting items: every base memory is a
-    // supporting item at distance 0. Spec §09/05 §4.
+    // supporting item at distance 0.
     for (&id, &sim) in &base_scores {
         supporting.push(EvidenceItem {
             memory_id: id,
@@ -151,7 +151,7 @@ fn resolve_base(
     match &plan.observation {
         ObservationInput::ByMemoryId(raw) => {
             let id = MemoryId::from(*raw);
-            // Sub-task 9.16: spec §16/01 §12 — a tombstoned seed
+            // Sub-task 9.16: — a tombstoned seed
             // returns an empty base. The downstream BFS short-
             // circuits to an empty result set, matching
             // `search_active`'s silent-filter for ByText seeds.
@@ -248,7 +248,7 @@ fn walk_outward(
                 .collect();
 
         // Sub-task 9.16: drop committed tombstoned memories from
-        // REASON traversals (spec §16/01 §12). Outside an active txn
+        // REASON traversals. Outside an active txn
         // this is the only filter; inside one, the snap retain below
         // layers in-flight tombstones on top.
         neighbours.retain(|(_, t, _)| !ctx.index.is_tombstoned(*t));
@@ -285,7 +285,7 @@ fn walk_outward(
             let (edge_path, edge_weights) = reconstruct_path(next, &visited);
             #[allow(clippy::cast_precision_loss)]
             let decay = 1.0_f32 / (1.0 + new_depth as f32);
-            // Spec §09/05 §17: evidence_strength =
+            // evidence_strength =
             // base_similarity × ∏ edge.weight × decay(distance).
             // We take abs() on weights so Contradicts paths with
             // negative weights still produce well-defined positive

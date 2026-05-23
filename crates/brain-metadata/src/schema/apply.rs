@@ -1,6 +1,6 @@
 //! Fan-out from a `ValidatedSchema` into the existing
 //! entity_type / predicate / relation_type intern paths
-//! (spec §21/05 §1, phase 19.7).
+//! (phase 19.7).
 //!
 //! Called by [`crate::schema::store::schema_upload`] after the
 //! schema-version row is written. The single code path used both
@@ -8,7 +8,7 @@
 
 use std::collections::HashSet;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{Cardinality, EntityTypeId, ExtractorKind, PredicateId};
 use brain_protocol::schema::{
     CardinalityAst, ExtractorKindAst, ObjectTypeDecl, SchemaItem, StatementKindAst, ValidatedSchema,

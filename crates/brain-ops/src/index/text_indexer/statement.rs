@@ -7,7 +7,7 @@
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
-use brain_core::knowledge::{Statement, StatementObject, StatementValue, SubjectRef};
+use brain_core::{Statement, StatementObject, StatementValue, SubjectRef};
 use brain_core::{StatementId, StatementKind};
 use brain_index::{schema_payload_json, IndexHandle, LexicalScope};
 use flume::{bounded, Receiver, Sender};

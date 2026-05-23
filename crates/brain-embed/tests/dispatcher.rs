@@ -48,7 +48,7 @@ fn cpu_dispatcher_concurrent_calls_match_serial() {
     let baseline = dispatcher.embed(text).expect("serial embed");
 
     // 8 threads each compute the same embedding. All must match the
-    // baseline to cosine ≥ 1 - 1e-6 (CPU determinism per spec §03 §12).
+    // baseline to cosine ≥ 1 - 1e-6 (CPU determinism).
     let mut handles = Vec::with_capacity(8);
     for _ in 0..8 {
         let d = Arc::clone(&dispatcher);

@@ -1,6 +1,6 @@
 //! WAL reader — streams `WalRecord`s from a directory of segments.
 //!
-//! See `spec/05_storage_arena_wal/08_recovery.md` §§4, 10.
+//! See `spec/08_storage/08_recovery.md` §§4, 10.
 //!
 //! [`WalReader::open`] enumerates `*.wal` segment files, validates each
 //! segment's 4 KB header, and sorts by `segment_seq`. The `Iterator` impl
@@ -15,14 +15,14 @@
 //! | Decode outcome | At end of last segment | Elsewhere |
 //! |---|---|---|
 //! | `Truncated` | clean tail → `None` | `MidSegmentCorruption` |
-//! | `CrcMismatch` | clean tail → `None` (spec §05/08 §4) | `MidSegmentCorruption` (spec §10.3) |
+//! | `CrcMismatch` | clean tail → `None` | `MidSegmentCorruption` (3) |
 //! | `UnknownRecordType` / `NonZeroReserved` / `PayloadTooLarge` | `RecordError` | `RecordError` |
 //!
 //! Plus boundary checks:
 //!
-//! - `segment_seq` sequence must be contiguous (spec §05/08 §10.1).
+//! - `segment_seq` sequence must be contiguous.
 //! - Next segment's `starting_lsn` must equal `last_decoded_lsn + 1`
-//!   (spec §05/08 §4's "strict LSN order" extended across boundaries).
+//!   ('s "strict LSN order" extended across boundaries).
 //!
 //! Violations of either are hard errors.
 
@@ -136,7 +136,7 @@ pub enum WalReadError {
         found_lsn: u64,
     },
 
-    #[error("mid-segment corruption in segment {segment_seq} (spec §05/08 §10.3)")]
+    #[error("mid-segment corruption in segment {segment_seq}")]
     MidSegmentCorruption { segment_seq: u64 },
 
     #[error("record error in segment {in_segment} at expected LSN {expected_lsn}: {source}")]
@@ -175,7 +175,7 @@ impl WalReader {
         // Sort by segment_seq.
         infos.sort_by_key(|info| info.segment_seq);
 
-        // Validate the seq sequence is contiguous (spec §05/08 §10.1).
+        // Validate the seq sequence is contiguous.
         for w in infos.windows(2) {
             if w[1].segment_seq != w[0].segment_seq + 1 {
                 return Err(WalReadError::SegmentSequenceGap {
@@ -334,7 +334,7 @@ impl Iterator for WalReader {
                     let segment_seq = self.segments[self.current_idx].segment_seq;
                     self.finished = true;
                     if is_last {
-                        // Spec §05/08 §4: tail truncation is the expected
+                        // tail truncation is the expected
                         // post-crash case. Log once for diagnostics; the
                         // iterator ends cleanly.
                         tracing::info!(
@@ -764,7 +764,7 @@ mod tests {
             got.push(item.unwrap());
         }
         // First 2 records survive; the 3rd is dropped (CRC mismatch on the
-        // last segment's last record → spec §05/08 §4 "assume truncation").
+        // last segment's last record → "assume truncation").
         assert_eq!(got.len(), 2);
         assert_eq!(reader.last_decoded_lsn(), Some(2));
     }

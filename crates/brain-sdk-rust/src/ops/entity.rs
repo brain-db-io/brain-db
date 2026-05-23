@@ -32,7 +32,7 @@
 use std::marker::PhantomData;
 
 use brain_core::EntityId;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EntityCreateRequest, EntityGetRequest, EntityListRequest, EntityListResponseFrame,
     EntityMergeRequest, EntityRenameRequest, EntityResolveRequest, EntityTombstoneRequest,
     EntityUnmergeRequest, EntityUpdateRequest, ResolutionOutcomeWire,
@@ -308,7 +308,7 @@ where
 // ---------------------------------------------------------------------------
 
 /// Builder for `ENTITY_UPDATE` (full-replace semantics at the wire
-/// layer per spec §28/01 §5.1).
+/// layer).
 ///
 /// **Field-by-field semantics in 16.8:**
 ///
@@ -874,7 +874,7 @@ fn unexpected_body(expected: &str, body: ResponseBody) -> ClientError {
 /// Returns `true` iff `err` is a server-side ENTITY_NOT_FOUND. Used
 /// by `get()` to translate "not found" into `Ok(None)`. Delegates to
 /// [`ClientErrorEntityExt`] which inspects the server's message
-/// (Strategy B per spec §28/03 §2). Strategy A migration is a
+/// (Strategy B). Strategy A migration is a
 /// follow-up tracked in §28/09 Q1.
 fn is_entity_not_found(err: &ClientError) -> bool {
     err.is_entity_not_found()

@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{AgentId, MemoryId, MemoryKind, StatementId};
 use tantivy::TantivyDocument;
 use tempfile::TempDir;

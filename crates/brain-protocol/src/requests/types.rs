@@ -8,7 +8,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::request::WireMemoryId;
 
-/// Spec §02/02 — three durable kinds.
+/// — three durable kinds.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, Hash, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -19,7 +19,7 @@ pub enum MemoryKindWire {
     Consolidated = 2,
 }
 
-/// Spec §02/06 — eight built-in edge kinds.
+/// — eight built-in edge kinds.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -35,7 +35,7 @@ pub enum EdgeKindWire {
     PartOf = 7,
 }
 
-/// Spec §07/4 — plan-strategy hint.
+/// — plan-strategy hint.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -47,7 +47,7 @@ pub enum PlanStrategy {
     AttractorRollout = 3,
 }
 
-/// Spec §07/4 — plan endpoint specification. Variant names mirror the
+/// — plan endpoint specification. Variant names mirror the
 /// spec's `ByMemoryId` / `ByText` / `ByVector` discriminator naming.
 /// (See the crate-level `#![allow(clippy::enum_variant_names)]` for why
 /// the per-item allow isn't enough.)
@@ -60,7 +60,7 @@ pub enum PlanState {
     ByVector { offset: u32, dim: u16 },
 }
 
-/// Spec §07/5 — what to reason about.
+/// — what to reason about.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -69,7 +69,7 @@ pub enum ObservationInput {
     ByText(String),
 }
 
-/// Spec §07/6 — soft tombstone vs. hard erase.
+/// — soft tombstone vs. hard erase.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -79,7 +79,7 @@ pub enum ForgetMode {
     Hard = 1,
 }
 
-/// Spec §07/12 — cancellation reason.
+/// — cancellation reason.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -89,7 +89,7 @@ pub enum CancellationReason {
     Other(String),
 }
 
-/// Spec §07/16 — admin stats verbosity.
+/// — admin stats verbosity.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -101,7 +101,7 @@ pub enum StatsDetail {
     Full = 3,
 }
 
-/// Spec §07/19 — integrity-check scope.
+/// — integrity-check scope.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

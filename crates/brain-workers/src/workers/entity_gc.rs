@@ -1,4 +1,4 @@
-//! Entity GC worker (sub-task 24.6). Spec §27/03 §6.
+//! Entity GC worker (sub-task 24.6).
 //!
 //! **Off by default.** When enabled, tombstones entities with no
 //! active inbound references after a grace period (default 30 d).

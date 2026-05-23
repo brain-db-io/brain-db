@@ -39,10 +39,10 @@
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{EntityId, MemoryId, RelationId, StatementId};
 use brain_protocol::error::ProtocolError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     FusionConfigWire, ItemIdWire, QueryExplainRequest as WireExplainReq,
     QueryExplainResponse as WireExplainResp, QueryRequest as WireQueryRequest, QueryResponse,
     QueryResultItem as WireQueryResultItem, QueryTraceRequest as WireTraceReq,
@@ -76,7 +76,7 @@ pub const MAX_EXPLICIT_RETRIEVERS: usize = 3;
 // ---------------------------------------------------------------------------
 
 /// A retriever family. The hybrid engine runs zero or more of these
-/// in parallel and fuses their ranks (`spec/23_retrievers/00_purpose.md`).
+/// in parallel and fuses their ranks (`spec/13_retrievers/00_purpose.md`).
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Retriever {
     Semantic,
@@ -986,7 +986,7 @@ impl<'a> QueryBuilder<'a> {
 // ---------------------------------------------------------------------------
 
 impl Client {
-    /// Start a fluent hybrid query builder. Spec §29 §"Fluent
+    /// Start a fluent hybrid query builder §"Fluent
     /// query builder".
     ///
     /// The builder validates its inputs once, inside the terminal

@@ -16,7 +16,7 @@
 //! - EXPLAIN / TRACE (23.8) — renders the plan without
 //!   executing.
 
-use brain_core::knowledge::StatementKind;
+use brain_core::StatementKind;
 use brain_core::{AgentId, MemoryKind, PredicateId, RelationTypeId};
 use brain_index::Direction as GraphDirection;
 
@@ -24,7 +24,7 @@ use super::filters::FilterChain;
 use super::fusion::DEFAULT_K;
 use super::router::{
     route, GraphAnchorMode, PerRetrieverWeights, QueryRequest, RetrievalProfile, Retriever,
-    RetrieverSelection, RoutingDecision, TimeRange,
+    RoutingDecision, TimeRange,
 };
 
 // ---------------------------------------------------------------------------
@@ -423,20 +423,6 @@ impl QueryPlan {
                 .iter()
                 .all(|r| matches!(r.pre_filter, Some(PreFilter::Temporal(_))))
     }
-}
-
-// `RetrieverSelection` is consumed indirectly via the router;
-// re-export the discriminant for tests.
-#[allow(dead_code)]
-pub use super::router::OverrideKind;
-#[allow(dead_code)]
-pub use super::router::RetrieverSelection as PlannerRetrieverSelection;
-
-// Silence the unused-import warning if some downstream callers
-// don't reach for these.
-#[allow(dead_code)]
-fn _ensure_used(s: RetrieverSelection) {
-    let _ = s;
 }
 
 #[cfg(test)]

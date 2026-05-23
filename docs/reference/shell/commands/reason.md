@@ -117,4 +117,4 @@ exits `0` regardless.
 
 - [`plan.md`](plan.md) — when you have a goal state as well as a start
 - [`recall.md`](recall.md) — direct lookup
-- Spec: [`spec/09_cognitive_operations/05_reason.md`](../../../../spec/09_cognitive_operations/05_reason.md)
+- Spec: [`spec/05_operations/03_read_pipeline.md`](../../../../spec/05_operations/03_read_pipeline.md)

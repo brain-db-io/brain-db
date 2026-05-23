@@ -242,7 +242,7 @@ impl WalSink for ChannelWalSink {
             // free slot instead of unbounded-buffering pending appends
             // in memory. Under sustained overload the caller's encode
             // request becomes flow-controlled by the WAL — which is
-            // exactly the spec §05/06 semantics we want.
+            // exactly the semantics we want.
             tx.send_async((record, reply_tx))
                 .await
                 .map_err(|_| WalSinkError::Disconnected)?;

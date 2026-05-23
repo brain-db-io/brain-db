@@ -1,6 +1,6 @@
 //! WAL record kind discriminator.
 //!
-//! This module defines the `record_type` byte from `spec/05_storage_arena_wal/
+//! This module defines the `record_type` byte from `spec/08_storage/
 //! 05_wal_records.md` §3 and the knowledge-layer extensions from
 //! `spec/26_knowledge_storage/00_purpose.md`.
 //!
@@ -24,7 +24,7 @@
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum WalRecordKind {
-    // ---- Substrate (spec §05/05 §3) ----
+    // ---- Substrate ----
     Encode = 1,
     Forget = 2,
     Link = 3,
@@ -41,7 +41,7 @@ pub enum WalRecordKind {
     TxnAbort = 14,
     MigrateEmbedding = 15,
 
-    // ---- Knowledge layer (spec §26 "WAL frame types") ----
+    // ---- Knowledge layer ("WAL frame types") ----
     /// 0x10 — entity creation.
     EntityCreate = 0x10,
     /// 0x11 — entity attribute / alias update.
@@ -71,10 +71,10 @@ pub enum WalRecordKind {
 impl WalRecordKind {
     /// Inverse of the `#[repr(u8)]` cast. Returns `None` for `0`
     /// (reserved per spec) and any value not in a defined slot of the
-    /// substrate (1..=15) or knowledge-layer (per spec §26) tables.
+    /// substrate (1..=15) or knowledge-layer tables.
     pub const fn from_u8(b: u8) -> Option<Self> {
         Some(match b {
-            // Substrate (spec §05/05).
+            // Substrate.
             1 => Self::Encode,
             2 => Self::Forget,
             3 => Self::Link,
@@ -90,7 +90,7 @@ impl WalRecordKind {
             13 => Self::TxnCommit,
             14 => Self::TxnAbort,
             15 => Self::MigrateEmbedding,
-            // Knowledge layer (spec §26).
+            // Knowledge layer.
             0x10 => Self::EntityCreate,
             0x11 => Self::EntityUpdate,
             0x12 => Self::EntityMerge,
@@ -160,7 +160,7 @@ mod tests {
 
     #[test]
     fn discriminants_match_spec_table() {
-        // Substrate (spec/05_storage_arena_wal/05_wal_records.md §3).
+        // Substrate (spec/08_storage/05_wal_records.md §3).
         assert_eq!(WalRecordKind::Encode.as_u8(), 1);
         assert_eq!(WalRecordKind::Forget.as_u8(), 2);
         assert_eq!(WalRecordKind::Reclaim.as_u8(), 6);

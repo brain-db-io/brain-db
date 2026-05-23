@@ -23,8 +23,8 @@
 //! [`RelationHandle`].
 
 use brain_core::{EntityId, MemoryId, RelationId, RelationTypeId};
-use brain_protocol::knowledge::statement_req::EvidenceRefWire;
-use brain_protocol::knowledge::{
+use brain_protocol::requests::statement::EvidenceRefWire;
+use brain_protocol::{
     RelationCreateRequest, RelationGetRequest, RelationListFromRequest, RelationListToRequest,
     RelationSupersedeRequest, RelationTombstoneRequest, RelationTraverseRequest, RelationView,
     RelationWireError,
@@ -246,7 +246,7 @@ impl<'a> RelationBuilder<'a> {
         self
     }
 
-    /// Set the evidence list (≤ 32 entries per spec §20/05 §3 soft
+    /// Set the evidence list (≤ 32 entries soft
     /// cap). Overflow evidence is not supported for relations in v1.
     #[must_use]
     pub fn evidence(mut self, memories: Vec<MemoryId>) -> Self {
@@ -818,7 +818,7 @@ fn is_relation_not_found(err: &ClientError) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_protocol::knowledge::statement_req::EvidenceRefWire;
+    use brain_protocol::requests::statement::EvidenceRefWire;
 
     fn sample_view() -> RelationView {
         RelationView {

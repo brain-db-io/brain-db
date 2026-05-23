@@ -1,4 +1,4 @@
-//! Backfill worker (sub-task 24.1). Spec §27/04 §3.
+//! Backfill worker (sub-task 24.1).
 //!
 //! Admin-triggered worker that walks a `(memory_range × extractor_ids)`
 //! grid and re-runs extractors against each memory. Each
@@ -44,7 +44,7 @@ use crate::worker::Worker;
 pub const WORKER_ID: &str = "backfill";
 
 /// Per-request item-failure threshold beyond which the worker
-/// aborts the request (spec §27/04 §3.3 — "bad-extractor abort").
+/// aborts the request (— "bad-extractor abort").
 pub const MAX_ATTEMPTS_PER_ITEM: u32 = 3;
 
 pub struct BackfillWorker {

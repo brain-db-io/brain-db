@@ -1,27 +1,27 @@
 //! `texts` table: per-memory UTF-8 text, stored separately from
 //! `memories` so metadata reads don't pay for text bytes.
 //!
-//! See `spec/07_metadata_graph/07_text_storage.md` (full).
+//! See `spec/10_metadata/07_text_storage.md` (full).
 //!
 //! ## What lives here
 //!
 //! - [`TEXTS_TABLE`] — `MemoryId` → raw UTF-8 bytes.
 //!
 //! That's the whole sub-task. The substrate stores the bytes
-//! byte-for-byte (spec §5: "carries UTF-8; the substrate stores it
+//! byte-for-byte ("carries UTF-8; the substrate stores it
 //! byte-for-byte"); every other concern lives above the storage layer.
 //!
 //! ## What does NOT live here
 //!
-//! - **UTF-8 validation** (spec §5) — wire layer (Phase 4).
-//! - **`max_text_bytes` size limit** (spec §4, §7) — wire layer.
-//! - **Immutability enforcement** (spec §8) — application-level
+//! - **UTF-8 validation** — wire layer (Phase 4).
+//! - **`max_text_bytes` size limit** — wire layer.
+//! - **Immutability enforcement** — application-level
 //!   invariant; ENCODE is the only insert path and writes each
 //!   MemoryId once.
-//! - **Hard-forget secure-erase** (spec §9) — the zero-then-delete
+//! - **Hard-forget secure-erase** — the zero-then-delete
 //!   pattern needs `FALLOC_FL_PUNCH_HOLE` on the redb file to actually
 //!   evict pages, which is below redb's API. Phase 8 worker territory.
-//! - **Same-transaction coupling with `memories`** (spec §15) —
+//! - **Same-transaction coupling with `memories`** —
 //!   composed inside `MetadataDb` (sub-task 3.10), which opens both
 //!   tables inside one `begin_write()`.
 //! - **Compression** — not in the spec.
@@ -92,7 +92,7 @@ mod tests {
 
     #[test]
     fn overwrite_replaces_bytes() {
-        // Spec §8 makes text immutable at the application level; the
+        // makes text immutable at the application level; the
         // storage layer doesn't enforce that. A second insert at the
         // same key replaces the prior bytes. Documented here so a
         // future change to add storage-level immutability doesn't
@@ -166,7 +166,7 @@ mod tests {
     #[test]
     fn utf8_bytes_round_trip_byte_for_byte() {
         // Multi-byte UTF-8 sequences must survive unchanged. The
-        // substrate doesn't decode or re-encode (spec §5).
+        // substrate doesn't decode or re-encode.
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let key = mid(5);

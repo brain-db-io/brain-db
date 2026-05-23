@@ -2,7 +2,7 @@
 //! index ops. Sub-task 16.4.
 //!
 //! Implements the tier-2 fuzzy-resolution primitives per
-//! `spec/18_entities/01_resolution.md` § Tier 2. Free functions over
+//! `spec/02_data_model/01_resolution.md` § Tier 2. Free functions over
 //! redb transactions; matches the `entity_ops` precedent so callers
 //! can compose multi-table writes within one transaction.
 //!
@@ -45,7 +45,7 @@ pub enum TrigramOpError {
 // are re-exported for compatibility with existing callers.
 // ---------------------------------------------------------------------------
 
-pub use brain_core::knowledge::trigrams::{extract_trigrams, jaccard};
+pub use brain_core::resolution::trigrams::{extract_trigrams, jaccard};
 
 /// Union of trigrams across an entity's `canonical_name` and every
 /// alias. Normalizes each component internally.

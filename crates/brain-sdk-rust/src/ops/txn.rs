@@ -1,4 +1,4 @@
-//! TXN_BEGIN / TXN_COMMIT / TXN_ABORT (spec §07/9-11 + §13/02 §9).
+//! TXN_BEGIN / TXN_COMMIT / TXN_ABORT (-11 + §13/02 §9).
 //!
 //! 10.5 ships these as plain `Client::txn_*` methods returning the
 //! TxnId / response. The fluent `let txn = client.txn().begin();`
@@ -15,7 +15,7 @@ use crate::client::Client;
 use crate::error::ClientError;
 use crate::ops::common::{send_and_read_one, FLAG_EOS};
 
-/// Default txn timeout — spec §07/9 default 30 s.
+/// Default txn timeout default 30 s.
 pub const DEFAULT_TXN_TIMEOUT_SECONDS: u32 = 30;
 
 pub(crate) async fn txn_begin(

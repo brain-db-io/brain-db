@@ -1,4 +1,4 @@
-//! HNSW insert micro-bench. Spec §16/02 §3 attributes ~2-5 ms of the
+//! HNSW insert micro-bench attributes ~2-5 ms of the
 //! 20 ms RECALL p99 to HNSW search; ENCODE additionally pays an
 //! HNSW *insert* cost that this bench measures in isolation.
 //!
@@ -44,7 +44,7 @@ impl Xs {
 }
 
 /// Generate a random L2-normalised vector. Production data is
-/// l2-normalised post-embedding (spec §05/06 §3); the bench mirrors
+/// l2-normalised post-embedding; the bench mirrors
 /// that.
 fn random_vector(rng: &mut Xs) -> [f32; VECTOR_DIM] {
     let mut v = [0.0f32; VECTOR_DIM];
@@ -76,7 +76,7 @@ fn bench_insert(c: &mut Criterion) {
     let params = IndexParams::default();
 
     let mut group = c.benchmark_group("hnsw_insert");
-    // Spec §16/13: ±10 % variance is normal. Keep sample size modest
+    // ±10 % variance is normal. Keep sample size modest
     // to bound CI time; criterion's default measurement_time is
     // fine but we cap warm-up.
     group.warm_up_time(Duration::from_secs(2));

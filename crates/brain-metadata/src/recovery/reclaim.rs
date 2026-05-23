@@ -66,7 +66,7 @@ impl MetadataDb {
             let slot_version = memory_id.version();
 
             // For Consolidated memories: the source-derived agent_id /
-            // context_id aren't in the payload. Spec §11/02 describes
+            // context_id aren't in the payload describes
             // consolidation as agent-scoped — every source shares an
             // agent. v1 storage uses the brain-core NULL sentinels;
             // wire layer (Phase 9) populates these via a richer

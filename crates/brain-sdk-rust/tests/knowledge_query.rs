@@ -18,7 +18,7 @@
 
 mod common;
 
-use brain_protocol::knowledge::{
+use brain_protocol::{
     ItemIdWire, QueryExplainResponse as WireExplainResp, QueryResponse,
     QueryResultItem as WireQueryResultItem, QueryTraceResponse as WireTraceResp,
     RetrieverContributionWire, RetrieverOutcomeWire, RetrieverWire,

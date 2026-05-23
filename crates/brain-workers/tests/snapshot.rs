@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Snapshot worker tests (sub-task 8.13). Spec §11/08 §6.
+//! Snapshot worker tests (sub-task 8.13).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
@@ -367,7 +367,7 @@ fn worker_registers_with_correct_kind_and_default_cadence_disabled() {
             .unwrap();
         let cfg = sched.config(WorkerKind::Snapshot.name()).unwrap();
         assert_eq!(cfg.interval, Duration::from_secs(3600));
-        assert!(!cfg.enabled, "spec §6.2 — Snapshot defaults to disabled");
+        assert!(!cfg.enabled, ".2 — Snapshot defaults to disabled");
         sched.shutdown().await.unwrap();
     });
 }

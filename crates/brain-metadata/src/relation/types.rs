@@ -2,13 +2,13 @@
 //! Sub-task 18.3. Mirrors [`crate::schema::predicate`] (17.3).
 //!
 //! Spec refs:
-//! - `spec/20_relations/00_purpose.md` §"Relation type declaration".
+//! - `spec/02_data_model/00_purpose.md` §"Relation type declaration".
 //! - `spec/26_knowledge_storage/00_purpose.md` — relation_types row
 //!   lives in the knowledge-storage catalog.
 
 use std::collections::HashSet;
 
-use brain_core::knowledge::RelationType;
+use brain_core::RelationType;
 use brain_core::{Cardinality, EntityTypeId, RelationTypeId};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 

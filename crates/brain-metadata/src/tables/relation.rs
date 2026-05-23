@@ -22,7 +22,7 @@
 //! is the directional index.
 
 use crate::impl_redb_rkyv_value;
-use brain_core::knowledge::Relation;
+use brain_core::Relation;
 use brain_core::{EntityId, ExtractorId, MemoryId, NodeRef, RelationId, RelationTypeId};
 use redb::TableDefinition;
 
@@ -225,7 +225,7 @@ pub fn relation_from_metadata(id: RelationId, m: &RelationMetadata) -> Relation 
 mod tests {
     use super::*;
     use crate::tables::fresh_db;
-    use brain_core::knowledge::Relation;
+    use brain_core::Relation;
     use redb::ReadableDatabase;
 
     fn sample_relation() -> Relation {

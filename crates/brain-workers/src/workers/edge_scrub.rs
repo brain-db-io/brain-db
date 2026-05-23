@@ -1,7 +1,7 @@
-//! Edge scrub worker (sub-task 8.9). Spec §11/08 §1.
+//! Edge scrub worker (sub-task 8.9).
 //!
 //! Removes dangling edge entries left behind by slot reclamation.
-//! Spec §1.1: when memory M is reclaimed, rows keyed at M are
+//! 1: when memory M is reclaimed, rows keyed at M are
 //! deleted, but the paired entries from live memories survive:
 //!
 //! - `EDGES_OUT[X, kind, M]` — X alive, target M dead.
@@ -17,7 +17,7 @@
 //!   full pass per cycle. After slot reclamation does its job
 //!   `EDGES_IN` is the smaller of the two; a second cursor adds
 //!   complexity v1 doesn't need.
-//! - Pre-compute scrub at reclamation time (spec §1.4) is out of
+//! - Pre-compute scrub at reclamation time (4) is out of
 //!   scope. Periodic full-scan is simpler.
 
 use std::future::Future;

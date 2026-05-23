@@ -1,6 +1,6 @@
 //! Statement family — 8 tables.
 //!
-//! See `spec/19_statements/` (record + supersession rules) and
+//! See `spec/02_data_model/` (record + supersession rules) and
 //! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
 //!
 //! - [`STATEMENTS_TABLE`]                  — primary `StatementId → StatementMetadata`.
@@ -15,12 +15,12 @@
 //! Phase 15.1 declared the tables with minimal value shapes. Phase 17.4
 //! widens `StatementMetadata.evidence_inline` from `Vec<[u8; 16]>` to
 //! a parallel structure carrying confidence + timestamp + extractor
-//! per spec §19/05 §1, and adds the typed `StatementObject` encoding
+//! and adds the typed `StatementObject` encoding
 //! via a private rkyv shim. Archive ids bumped to `v2` — pre-v1.0,
 //! no migration needed.
 
 use crate::impl_redb_rkyv_value;
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
     INLINE_EVIDENCE_CAP,
 };
@@ -89,7 +89,7 @@ pub const STATEMENT_EMBED_QUEUE_TABLE: TableDefinition<'static, [u8; 16], u64> =
 // Tombstone-reason discriminant.
 // ---------------------------------------------------------------------------
 
-/// `StatementMetadata::tombstone_reason` byte values (spec §19).
+/// `StatementMetadata::tombstone_reason` byte values.
 pub mod tombstone_reason {
     pub const NOT_TOMBSTONED: u8 = 0;
     pub const SOURCE_MEMORY_FORGOTTEN: u8 = 1;
@@ -103,7 +103,7 @@ pub mod tombstone_reason {
 // ---------------------------------------------------------------------------
 
 /// Per-evidence row stored inside `StatementMetadata.evidence_inline`.
-/// Mirrors `brain_core::knowledge::EvidenceEntry`; uses `confidence_milli`
+/// Mirrors `brain_core::EvidenceEntry`; uses `confidence_milli`
 /// (u16) so the rkyv-archived shape is fixed-width and cache-friendly.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
@@ -140,7 +140,7 @@ impl EvidenceEntryRow {
 // Object encoding shim — keeps brain-core rkyv-free.
 // ---------------------------------------------------------------------------
 
-/// Private rkyv shim for `brain_core::knowledge::StatementValue`.
+/// Private rkyv shim for `brain_core::StatementValue`.
 ///
 /// One variant byte + one populated payload field; the rest are zero/
 /// empty. Stable byte layout so phase-21 readers can skim past the
@@ -212,7 +212,7 @@ impl StatementValueBlob {
     }
 }
 
-/// Private rkyv shim for `brain_core::knowledge::StatementObject`.
+/// Private rkyv shim for `brain_core::StatementObject`.
 ///
 /// `discriminant`:
 /// - `1` = `Entity(EntityId)` — payload in `entity_bytes`.
@@ -302,7 +302,7 @@ pub fn decode_object(bytes: &[u8]) -> Option<StatementObject> {
 }
 
 /// Map a `[0, 1]` confidence float to the 11-bucket coarse quantisation
-/// used by `STATEMENTS_BY_PREDICATE_TABLE`. Spec §19/03 §1.3.
+/// used by `STATEMENTS_BY_PREDICATE_TABLE`.
 #[must_use]
 pub fn confidence_bucket(c: f32) -> u8 {
     let scaled = (c.clamp(0.0, 1.0) * 10.0).floor() as i32;
@@ -313,7 +313,7 @@ pub fn confidence_bucket(c: f32) -> u8 {
 // Value structs.
 // ---------------------------------------------------------------------------
 
-/// Primary statement record. Carries every field per spec §19/00 §"Schema"
+/// Primary statement record. Carries every field §"Schema"
 /// in rkyv-archived form.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
@@ -343,7 +343,7 @@ pub struct StatementMetadata {
     pub superseded_by_bytes: Option<[u8; 16]>,
     pub supersedes_bytes: Option<[u8; 16]>,
     /// Inline evidence list. Bounded length (`INLINE_EVIDENCE_CAP = 8`
-    /// — spec §19/05 §1); overflow spills into `evidence_overflow`.
+    /// ); overflow spills into `evidence_overflow`.
     pub evidence_inline: Vec<EvidenceEntryRow>,
     pub evidence_overflow_id_bytes: Option<[u8; 16]>,
     pub tombstoned: u8,
@@ -449,7 +449,7 @@ impl_redb_rkyv_value!(StatementMetadata, "brain_metadata::StatementMetadata::v5"
 
 /// Overflow row for statements whose inline evidence list outgrew the
 /// `INLINE_EVIDENCE_CAP = 8` inline budget. Four parallel vectors per
-/// spec §19/05 §4 — one entry across all = one `EvidenceEntry`.
+/// — one entry across all = one `EvidenceEntry`.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct EvidenceOverflow {
@@ -528,7 +528,7 @@ impl_redb_rkyv_value!(EvidenceOverflow, "brain_metadata::EvidenceOverflow::v2");
 
 /// `Statement → StatementMetadata`. Derives the `is_current` byte from
 /// `superseded_by / tombstoned` only — validity-window timing is left
-/// to query-time per spec §19/03 §1.2.
+/// to query-time.
 #[must_use]
 pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
     let (subject_entity_bytes, subject_is_pending) = match s.subject {
@@ -605,7 +605,7 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
     let subject = if m.subject_is_pending == 0 {
         SubjectRef::Entity(EntityId::from_bytes(m.subject_entity_bytes))
     } else {
-        SubjectRef::Pending(brain_core::knowledge::AuditId::from_bytes(
+        SubjectRef::Pending(brain_core::AuditId::from_bytes(
             m.subject_entity_bytes,
         ))
     };
@@ -621,7 +621,7 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
         EvidenceRef::Inline(Box::new(entries))
     };
 
-    let tombstone_reason = brain_core::knowledge::TombstoneReason::from_u8(m.tombstone_reason);
+    let tombstone_reason = brain_core::TombstoneReason::from_u8(m.tombstone_reason);
 
     Some(Statement {
         id: m.statement_id(),
@@ -662,7 +662,7 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
 mod tests {
     use super::*;
     use crate::tables::fresh_db;
-    use brain_core::knowledge::INLINE_EVIDENCE_CAP;
+    use brain_core::INLINE_EVIDENCE_CAP;
     use brain_core::{ContextId, EntityId, MemoryId};
     use redb::ReadableDatabase;
 

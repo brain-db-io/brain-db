@@ -15,8 +15,8 @@ trigger-files:
   - crates/brain-ops/**/*.rs
   - crates/brain-protocol/src/{frame,request,response}.rs
 spec-refs:
-  - spec/16_benchmarks_acceptance/02_latency_targets.md
-  - spec/01_system_architecture/05_hardware.md
+  - spec/20_benchmarks/02_latency_targets.md
+  - spec/01_architecture/05_hardware_and_targets.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/m10-performance
 ---

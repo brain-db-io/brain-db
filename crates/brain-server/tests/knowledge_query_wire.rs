@@ -19,7 +19,7 @@
 use brain_protocol::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::knowledge::{
+use brain_protocol::{
     QueryExplainRequest, QueryRequest, QueryTraceRequest, RecallHybridRequest,
     RetrieverSelectionWire, RetrieverWire,
 };

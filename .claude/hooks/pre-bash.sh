@@ -17,7 +17,6 @@ CMD=$(echo "$PAYLOAD" | jq -r '.tool_input.command // empty' 2>/dev/null || true
 if [ -z "$CMD" ]; then
   CMD=$(echo "$PAYLOAD" | grep -oE '"command"[[:space:]]*:[[:space:]]*"[^"]*"' | head -1 | sed 's/.*"command"[[:space:]]*:[[:space:]]*"\(.*\)"/\1/' || true)
 fi
-
 # Patterns that are NEVER allowed, even autonomously.
 DENY_PATTERNS=(
   # Destructive filesystem

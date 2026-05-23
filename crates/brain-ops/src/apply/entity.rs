@@ -8,7 +8,7 @@
 //! - apply_unmerge_entities      — entity_merge::unmerge_entity
 //! - apply_merge_entities        — entity_merge_ops::merge_entity
 
-use brain_core::knowledge::{Entity, EntityAttributes, EntityId};
+use brain_core::{Entity, EntityAttributes, EntityId};
 use brain_metadata::entity::ops::{
     entity_get_inside_wtxn, entity_put, entity_rename, entity_tombstone, entity_update,
     normalize_name,
@@ -227,7 +227,7 @@ pub fn apply_approve_merge(
 #[allow(clippy::too_many_arguments)]
 pub fn apply_approve_merge_with_status(
     wtxn: &WriteTransaction,
-    proposal_id: brain_core::knowledge::MergeId,
+    proposal_id: brain_core::MergeId,
     actor: brain_metadata::entity::merge::MergeActor,
     grace_seconds: u64,
     at_unix_nanos: u64,
@@ -348,7 +348,7 @@ pub fn apply_unmerge_entities(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::{EntityAttributes, EntityId, EntityType};
+    use brain_core::{EntityAttributes, EntityId, EntityType};
     use brain_metadata::MetadataDb;
     use tempfile::TempDir;
 
@@ -365,7 +365,7 @@ mod tests {
             WriteId::new(),
             brain_core::AgentId::default(),
             Phase::SetExtractorEnabled {
-                id: brain_core::knowledge::ExtractorId::from(0),
+                id: brain_core::ExtractorId::from(0),
                 enabled: true,
             },
         )

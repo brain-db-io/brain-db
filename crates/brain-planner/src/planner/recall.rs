@@ -3,7 +3,7 @@
 //! Takes a wire `RecallRequest` (from `brain-protocol`) and produces a
 //! single-shard `RecallPlan`. Pure: no I/O, no async, no state.
 //!
-//! See `spec/08_query_planner/03_recall_planning.md` for the
+//! See `spec/12_query_optimizer/03_recall_planning.md` for the
 //! authoritative shape. Phase 6 ships single-shard (orientation
 //! plan §4.7); Phase 12 lights up the cross-shard branch using the
 //! same `RecallPlan { shards: Vec<_> }` envelope.
@@ -38,7 +38,7 @@ pub fn plan_recall_inner(
     let selectivity = cost::estimate_filter_selectivity(&post_rules);
     let k = req.top_k as usize;
 
-    let ef = cost::pick_ef(k, selectivity, ctx).max(k); // spec §03 §13: ef ≥ k
+    let ef = cost::pick_ef(k, selectivity, ctx).max(k); // ef ≥ k
     let factor = cost::over_factor(selectivity);
     #[allow(
         clippy::cast_precision_loss,
@@ -50,7 +50,7 @@ pub fn plan_recall_inner(
         .min(ctx.config.max_candidates_per_search);
 
     // Pessimistic about cache: the planner assumes a miss when
-    // estimating; spec §07 §3 uses the cache-miss mid-point.
+    // estimating uses the cache-miss mid-point.
     let estimated = cost::cost_recall(k, selectivity, /* cache_hit */ false, ctx);
     cost::check_budget(estimated, ctx)?;
 

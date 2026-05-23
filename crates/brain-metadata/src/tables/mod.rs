@@ -1,6 +1,6 @@
 //! redb table definitions and value types, one module per table.
 //!
-//! See `spec/07_metadata_graph/02_table_layout.md` §1 for the v1 table
+//! See `spec/10_metadata/02_table_layout.md` §1 for the v1 table
 //! catalog (13 spec'd domain tables; one internal `__schema_meta` from
 //! [`crate::storage_version`]).
 

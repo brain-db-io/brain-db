@@ -1,12 +1,12 @@
 //! Listing, history walk, contradiction surface.
 //!
 //! Spec refs:
-//! - `spec/19_statements/01_supersession.md` §4.1 — anchor-from-any-member.
-//! - `spec/19_statements/02_contradiction.md` §3 — Fact-only,
+//! - `spec/02_data_model/01_supersession.md` §4.1 — anchor-from-any-member.
+//! - `spec/02_data_model/02_contradiction.md` §3 — Fact-only,
 //!   surface-don't-resolve.
-//! - `spec/19_statements/03_storage.md` §7 — narrowest-index dispatch.
+//! - `spec/02_data_model/03_storage.md` §7 — narrowest-index dispatch.
 
-use brain_core::knowledge::Statement;
+use brain_core::Statement;
 use brain_core::{EntityId, MemoryId, PredicateId, StatementId, StatementKind};
 use redb::{ReadTransaction, ReadableTable};
 
@@ -91,7 +91,7 @@ pub fn statement_history(
 
 /// Surface contradicting active Facts for `(subject, predicate)`.
 /// Returns `Vec::new()` when no contradiction (zero or one distinct
-/// object value). Spec §19/02 §3.
+/// object value).
 pub fn statements_contradicting(
     rtxn: &ReadTransaction,
     subject: EntityId,
@@ -112,7 +112,7 @@ pub fn statements_contradicting(
 }
 
 /// List statements matching `filter`. Dispatches to the narrowest
-/// applicable index per spec §19/03 §7.
+/// applicable index.
 pub fn statement_list(
     rtxn: &ReadTransaction,
     filter: &StatementListFilter,

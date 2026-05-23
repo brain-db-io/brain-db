@@ -20,7 +20,7 @@
 use std::sync::{Arc, Barrier};
 use std::thread;
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
 };
 use brain_core::{

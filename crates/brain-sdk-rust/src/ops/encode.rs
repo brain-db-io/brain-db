@@ -1,4 +1,4 @@
-//! ENCODE op (spec §07/01 + §13/02 §3).
+//! ENCODE op.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::Client;
@@ -124,7 +124,7 @@ impl<'a> EncodeBuilder<'a> {
         self
     }
 
-    /// Override the auto-generated request id. Spec §13/04 §3 —
+    /// Override the auto-generated request id —
     /// reuse the same id on retries (the SDK does this automatically).
     #[must_use]
     pub fn request_id(mut self, id: RequestId) -> Self {

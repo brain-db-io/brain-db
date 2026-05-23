@@ -1,4 +1,4 @@
-//! End-to-end load generator. Sub-task 13.2 / spec §16/03.
+//! End-to-end load generator. Sub-task 13.2 /.
 //!
 //! Drives a running `brain-server` via the Rust SDK at a configurable
 //! sustained rate. Emits a CSV-shaped summary line per measurement
@@ -15,7 +15,7 @@
 //!     --mix encode=25,recall=70,link=5
 //! ```
 //!
-//! The mix matches spec §16/02 §1's "steady-state mixed workload"
+//! The mix matches 's "steady-state mixed workload"
 //! (70 % recall, 25 % encode, 5 % other) by default.
 //!
 //! Output (CSV, one line per measurement window):

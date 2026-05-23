@@ -14,7 +14,7 @@ behaviour. Not "why these verbs" (see
 |---|---|---|
 | [`encode.md`](encode.md) | Persist a memory (or, with a schema, typed statements) | Write side. Returns a `MemoryId` after WAL fsync. |
 | [`recall.md`](recall.md) | Retrieve by similarity / filter | Read side. Substrate or hybrid depending on whether a schema is declared. |
-| [`plan.md`](plan.md) | Multi-step retrieval with reasoning | Compound op; spec §09/04. |
+| [`plan.md`](plan.md) | Multi-step retrieval with reasoning | Compound op; spec §05/04. |
 | [`reason.md`](reason.md) | Inferential retrieval over the knowledge layer | Knowledge-layer-only. Requires a declared schema. |
 | [`forget.md`](forget.md) | Soft (tombstone) or hard delete | Soft = tombstone + 7-day grace; hard = zero-immediate. |
 
@@ -34,5 +34,5 @@ Every operation honours:
 
 - [`../../concepts/cognitive-operations.md`](../../concepts/cognitive-operations.md)
   — why the API looks this way.
-- [`../../../spec/09_cognitive_operations/`](../../../spec/09_cognitive_operations/)
+- [`../../../spec/05_operations/`](../../../spec/05_operations/00_purpose.md)
   — authoritative spec.

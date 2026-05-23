@@ -1,17 +1,17 @@
 //! `checkpoints` table: durable record of completed WAL checkpoints.
 //!
 //! Spec references:
-//! - `spec/05_storage_arena_wal/09_checkpointing.md` §2 — full struct + table shape.
-//! - `spec/07_metadata_graph/02_table_layout.md` §1 row 11 — catalog entry.
+//! - `spec/08_storage/09_checkpointing.md` §2 — full struct + table shape.
+//! - `spec/10_metadata/02_table_layout.md` §1 row 11 — catalog entry.
 //!
 //! ## Why this matters
 //!
-//! Spec §05/09 §1: without checkpointing, recovery replays the entire
+//! without checkpointing, recovery replays the entire
 //! WAL from the first record — recovery time grows unbounded. A
 //! checkpoint marks an LSN below which records are reflected in arena
 //! and metadata, so recovery can skip everything before it.
 //!
-//! Multiple checkpoint rows can exist (spec §2: "the substrate keeps
+//! Multiple checkpoint rows can exist ("the substrate keeps
 //! the most recent one as the recovery target"); [`latest`] returns
 //! the highest-id row in O(log N).
 //!
@@ -19,7 +19,7 @@
 //!
 //! - [`CHECKPOINTS_TABLE`] — `checkpoint_id: u64` → [`CheckpointMeta`].
 //! - [`CheckpointMeta`] — rkyv-derived row with the six u64 fields
-//!   spec §2 prescribes.
+//!   prescribes.
 //! - [`latest`] — read-only "most recent checkpoint" query; the
 //!   recovery target.
 //!
@@ -30,7 +30,7 @@
 //!   `CheckpointReport` to [`CheckpointMeta`], filling
 //!   `metadata_version_at_checkpoint` from
 //!   [`crate::storage_version::CURRENT_SCHEMA_VERSION`].
-//! - **Retention sweep** (delete old checkpoints) — spec §05/09 §6;
+//! - **Retention sweep** (delete old checkpoints);
 //!   Phase 8 maintenance worker.
 //! - **Recovery handshake** (read [`latest`], replay WAL after its
 //!   `durable_lsn`) — 3.11.
@@ -38,12 +38,12 @@
 use redb::{ReadOnlyTable, ReadableTable, TableDefinition};
 
 /// The `checkpoints` table. Key is the monotonic `checkpoint_id`
-/// (spec §05/09 §2: "Monotonic counter"); value is the durable
+/// ("Monotonic counter"); value is the durable
 /// checkpoint record.
 pub const CHECKPOINTS_TABLE: TableDefinition<'static, u64, CheckpointMeta> =
     TableDefinition::new("checkpoints");
 
-/// Persisted checkpoint record. Spec §05/09 §2.
+/// Persisted checkpoint record.
 ///
 /// Field renaming from spec: `started_at` / `completed_at` → suffixed
 /// `_unix_nanos` to match the established 3.x time-field convention.
@@ -77,7 +77,7 @@ pub struct CheckpointMeta {
     pub metadata_version_at_checkpoint: u64,
 
     /// Unix nanoseconds at the moment the checkpoint worker began
-    /// step 1 of spec §05/09 §3 (the `CHECKPOINT_BEGIN` write).
+    /// step 1 of (the `CHECKPOINT_BEGIN` write).
     pub started_at_unix_nanos: u64,
 
     /// Unix nanoseconds at the moment the checkpoint worker finished
@@ -143,7 +143,7 @@ impl redb::Value for CheckpointMeta {
 }
 
 /// Return the checkpoint with the highest `checkpoint_id`, or `None`
-/// if the table is empty. Spec §05/09 §2: "the substrate keeps the
+/// if the table is empty: "the substrate keeps the
 /// most recent one as the recovery target."
 ///
 /// Implementation: `iter().next_back()` walks one B-tree path to the

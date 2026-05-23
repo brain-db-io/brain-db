@@ -2,7 +2,7 @@
 //!
 //! Maps a wire `ForgetRequest` into a [`ForgetPlan`]. Pure.
 //!
-//! Single-shard, single-memory v1 (spec §08/06 §2.1). The wire shape
+//! Single-shard, single-memory v1. The wire shape
 //! only carries one `MemoryId`; batch + filter modes need a wire bump.
 
 use brain_core::{MemoryId, RequestId};

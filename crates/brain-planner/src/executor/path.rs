@@ -1,5 +1,5 @@
 //! `execute_path` — bidirectional-BFS executor for the PLAN
-//! cognitive operation. Spec §09/04.
+//! cognitive operation.
 //!
 //! Steps:
 //!
@@ -10,7 +10,7 @@
 //!    by one hop, scanning `edges_out` (forward) or `edges_in`
 //!    (backward) filtered to the plan's `edge_kinds`. Stop on
 //!    intersection or budget exhaustion.
-//! 3. **Path scoring.** Per spec §09/04 §10:
+//! 3. **Path scoring.** Per:
 //!    `score = length × edge_weight × salience` (geometric mean for
 //!    edge-weight and salience).
 //! 4. **Truncate** to `scoring.top_n` and return.
@@ -97,7 +97,7 @@ fn resolve_endpoint(
     match state {
         PlanState::ByMemoryId(raw) => {
             let id = MemoryId::from(*raw);
-            // Sub-task 9.16: spec §16/01 §12 — tombstoned memories
+            // Sub-task 9.16: — tombstoned memories
             // aren't visible unless explicitly requested. A
             // tombstoned start / goal returns an empty endpoint
             // set; `execute_path` short-circuits to `NoPathFound`.
@@ -265,14 +265,14 @@ fn run_bidirectional_bfs(
             };
 
             // Sub-task 9.16: drop committed tombstoned memories from
-            // PLAN traversals (spec §16/01 §12). Outside an active
+            // PLAN traversals. Outside an active
             // txn this is the only filter; inside one, the
             // `snap.tombstoned` retain below layers in-flight
             // tombstones on top.
             neighbours.retain(|(_, other, _)| !ctx.index.is_tombstoned(*other));
 
             // Layer the txn snapshot on top: add pending links matching
-            // this direction; remove pending unlinks. Spec §09/08 §5.
+            // this direction; remove pending unlinks.
             if let Some(snap) = &ctx.txn {
                 if is_forward {
                     for (src, kind, tgt, w) in &snap.pending_links {
@@ -519,7 +519,7 @@ fn score_path(p: &Path, scoring: &crate::plan::path::ScoringStep) -> f32 {
         1.0
     };
     // Edge-weight: geometric mean of the per-edge weights along the
-    // path (spec §09/04 §10). For symmetric kinds like SimilarTo and
+    // path. For symmetric kinds like SimilarTo and
     // for Contradicts (which can be negative), we take absolute value
     // so the geomean stays well-defined; the magnitude is what
     // contributes to confidence.

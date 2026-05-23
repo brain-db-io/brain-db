@@ -14,7 +14,7 @@ use std::fmt;
 
 use brain_core::AgentId;
 
-use crate::item::ExtractedItem;
+use crate::framework::item::ExtractedItem;
 
 /// Per-plugin counters reported back from one enricher invocation.
 /// Mirrors the shape `brain-plugins::EnricherOutput` exposes; we
@@ -85,7 +85,7 @@ pub fn run_pipeline_enrichers(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::item::{EntityMention, ExtractedItem};
+    use crate::framework::item::{EntityMention, ExtractedItem};
 
     struct NoopHook;
     impl EnricherHook for NoopHook {

@@ -17,8 +17,8 @@ trigger-files:
   - crates/brain-protocol/src/response.rs
   - crates/brain-protocol/src/error.rs
 spec-refs:
-  - spec/03_wire_protocol/05_opcodes.md
-  - spec/03_wire_protocol/10_errors.md
+  - spec/04_wire_protocol/03_opcodes.md
+  - spec/04_wire_protocol/07_error_handling.md
 ---
 
 # Wire-Version Bump Detector

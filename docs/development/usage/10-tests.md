@@ -110,7 +110,7 @@ cargo test -p brain-storage --test random_kill -- --ignored
 **Verify:**
 
 All three suites exit `0 failed`. Each chaos scenario asserts
-spec §15/07 "no silent corruption" — recovery must error or stop
+spec §02/07 "no silent corruption" — recovery must error or stop
 at the bad record, never return a corrupted record as valid.
 
 ## 6. Miri
@@ -150,11 +150,11 @@ cargo bench --workspace --no-run
 **Verify:**
 
 Each bench prints criterion's standard summary block (mean,
-std-dev, min, max, throughput). Spec §16/13 expects ±10 %
+std-dev, min, max, throughput). Spec §02/13 expects ±10 %
 run-to-run variance; ±30 % indicates instability.
 
 Full performance baselines are run on quiet reference hardware
-per spec §16/07. See [`docs/reference/performance.md`](../performance/README.md).
+per spec §02/07. See [`docs/reference/performance.md`](../performance/README.md).
 
 ## 8. Load generator (operator-run)
 
@@ -179,7 +179,7 @@ window_unix,op,count,errors,p50_ms,p95_ms,p99_ms,p999_ms,mean_ms
 **Verify:**
 
 `errors` column is `0` per op; `p99_ms` values are within an
-order of magnitude of spec §16/02 targets (ENCODE 25 ms,
+order of magnitude of spec §02/02 targets (ENCODE 25 ms,
 RECALL 20 ms).
 
 ## 9. Soak rig (operator-run, 48 h)
@@ -200,7 +200,7 @@ the methodology.
 
 ## 10. Acceptance suite
 
-Spec §16/08's 10 release gates:
+Spec §02/08's 10 release gates:
 
 ```bash
 bash scripts/acceptance/run.sh

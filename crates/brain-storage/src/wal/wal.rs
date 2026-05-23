@@ -4,18 +4,18 @@
 //! ported to Glommio in 9.6a), and [`WalReader`] (sub-task 2.7) into one type
 //! that:
 //!
-//! - Allocates monotonic LSNs per spec §05/04 §3 (LSN 0 reserved; first
+//! - Allocates monotonic LSNs (LSN 0 reserved; first
 //!   record after fresh creation is LSN 1).
 //! - Owns the active segment via the committer task.
 //! - Triggers segment rollover when the active segment plus the next record
-//!   would exceed `max_segment_bytes`. Rollover follows spec §05/06 §7:
+//!   would exceed `max_segment_bytes`. Rollover follows:
 //!   drain current commit → close old segment → create new segment → fsync
 //!   directory → restart committer.
 //!
 //! ## Async on `&self`
 //!
 //! After 9.6a, `Wal::append` is `async fn(&self, ...)`. Single-writer-per-shard
-//! (spec §10/02) is enforced by living on a single Glommio executor: there's
+//! is enforced by living on a single Glommio executor: there's
 //! no cross-thread access, and the borrow checker over the internal
 //! `RefCell<WalInner>` catches any same-task `borrow_mut` reentrance at runtime.
 //!
@@ -444,7 +444,7 @@ fn segment_path(dir: &Path, seq: u64) -> PathBuf {
 }
 
 /// `fsync` the parent directory so a recently-created segment file's
-/// directory entry is durable (spec §05/06 §7 step 4). Stays sync because
+/// directory entry is durable (step 4). Stays sync because
 /// it's a brief metadata sync, and we don't have an io_uring directory-sync
 /// path in Glommio's typed API.
 fn fsync_dir(dir: &Path) -> Result<(), WalError> {

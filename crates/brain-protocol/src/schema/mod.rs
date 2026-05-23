@@ -1,4 +1,4 @@
-//! Schema-DSL surface (spec §21).
+//! Schema-DSL surface.
 //!
 //! - 19.2 — AST value types.
 //! - 19.3 — Pest parser.

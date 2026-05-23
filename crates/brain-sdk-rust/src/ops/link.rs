@@ -1,4 +1,4 @@
-//! LINK op (spec §07/05 + §13/02 §8).
+//! LINK op.
 
 use brain_core::{MemoryId, RequestId};
 use brain_protocol::opcode::Opcode;

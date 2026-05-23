@@ -15,7 +15,7 @@
 
 mod common;
 
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EntityCreateResponse, EntityGetResponse, EntityListItem, EntityListResponseFrame,
     EntityMergeResponse, EntityRenameResponse, EntityResolveResponse, EntityTombstoneResponse,
     EntityUnmergeResponse, EntityUpdateResponse, EntityView, ResolutionOutcomeWire,

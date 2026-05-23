@@ -1,6 +1,6 @@
 //! `Client` — the SDK's user-facing entry point.
 //!
-//! Backed by an [`Arc<Pool>`]. Spec §13/02 §1 / §13/03 §1.
+//! Backed by an [`Arc<Pool>`].
 //!
 //! 10.1 shipped this as a single-TCP wrapper; 10.2 reshapes it
 //! around the pool while preserving the public surface (
@@ -49,7 +49,7 @@ pub struct Client {
     /// same source so concurrent op calls still see distinct ids.
     req_id_source: Arc<dyn RequestIdSource>,
     /// Shared metrics state. Snapshots from any cloned client
-    /// reflect every op anywhere in the process. Spec §13/07.
+    /// reflect every op anywhere in the process.
     pub(crate) metrics: Arc<MetricsState>,
 }
 
@@ -76,7 +76,7 @@ impl Client {
     /// Open with an explicit agent id and config. Eagerly opens
     /// `config.pool.min_connections` connections via
     /// [`Pool::warm_up`], so the first op call doesn't pay the
-    /// handshake latency (spec §13/03 §4). If `min_connections`
+    /// handshake latency. If `min_connections`
     /// is 0, this is equivalent to [`Client::new_lazy`].
     pub async fn connect_with(
         addr: SocketAddr,
@@ -119,7 +119,7 @@ impl Client {
     }
 
     /// Pre-establish `min_connections` connections in parallel.
-    /// Returns once all are ready. Spec §13/03 §4.
+    /// Returns once all are ready.
     pub async fn warm_up(&self) -> Result<(), ClientError> {
         self.pool.warm_up().await
     }
@@ -158,7 +158,7 @@ impl Client {
 
     /// Point-in-time snapshot of the SDK's internal counters
     /// (request totals, retry totals, in-flight gauge, per-op
-    /// breakdown). Spec §13/07.
+    /// breakdown).
     ///
     /// All counters are monotonically increasing across the
     /// process lifetime; callers compute deltas between
@@ -168,7 +168,7 @@ impl Client {
         self.metrics.snapshot()
     }
 
-    // ---- Cognitive operations (spec §13/02 §3-§11) ----
+    // ---- Cognitive operations (-§11) ----
 
     /// ENCODE a memory. Returns an [`EncodeBuilder`]; chain
     /// optional fields and call `.send().await`.
@@ -199,7 +199,7 @@ impl Client {
     }
 
     /// FORGET a memory. Single-id mode only in 10.5; batch /
-    /// filter modes are deferred (spec §13/02 §7).
+    /// filter modes are deferred.
     #[must_use]
     pub fn forget(&self, memory_id: MemoryId) -> ForgetBuilder<'_> {
         ForgetBuilder::new(self, memory_id)
@@ -258,7 +258,7 @@ impl Client {
 
     /// Open a transaction. Returns the `TxnBeginResponse`
     /// (carries the `txn_id` that subsequent ops attach via
-    /// `.txn(id)`). Spec §07/9.
+    /// `.txn(id)`).
     pub async fn txn_begin(&self) -> Result<TxnBeginResponse, ClientError> {
         txn_begin(self, DEFAULT_TXN_TIMEOUT_SECONDS).await
     }
@@ -271,17 +271,17 @@ impl Client {
         txn_begin(self, timeout_seconds).await
     }
 
-    /// Commit the transaction. Spec §07/10.
+    /// Commit the transaction.
     pub async fn txn_commit(&self, txn_id: [u8; 16]) -> Result<TxnCommitResponse, ClientError> {
         txn_commit(self, txn_id).await
     }
 
-    /// Abort the transaction. Spec §07/11.
+    /// Abort the transaction.
     pub async fn txn_abort(&self, txn_id: [u8; 16]) -> Result<TxnAbortResponse, ClientError> {
         txn_abort(self, txn_id).await
     }
 
-    /// Run `op` through the client's retry policy (spec §13/04).
+    /// Run `op` through the client's retry policy.
     /// Each attempt re-invokes `op`. Returns
     /// [`ClientError::RetryExhausted`] once `max_attempts` /
     /// `total_timeout` is hit; the original error for the first

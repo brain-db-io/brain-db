@@ -302,7 +302,7 @@ impl Worker for SchemaMigrationWorker {
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::{
+    use brain_core::{
         Entity, EntityType, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue,
         SubjectRef,
     };

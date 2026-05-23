@@ -5,7 +5,7 @@ writes the WAL record (fsynced before ack), updates metadata and
 indexes, and returns a stable `MemoryId`.
 
 **Opcode:** `EncodeReq = 0x0020` / `EncodeResp = 0x00A0`.
-**Spec:** §09/02. **Source:** `crates/brain-ops/src/ops/encode.rs`.
+**Spec:** §05/02. **Source:** `crates/brain-ops/src/ops/encode.rs`.
 
 ## Request fields
 
@@ -61,7 +61,7 @@ Reuse with different params → `IdempotencyConflict`.
 
 ## Performance target
 
-Spec §16/02 §3:
+Spec §02/02 §3:
 
 | Percentile | Target |
 |---|---|
@@ -82,4 +82,4 @@ Spec §16/02 §3:
 - [`../wire-protocol/opcodes.md`](../wire-protocol/opcodes.md) — opcode list.
 - [`../../architecture/03-arena-and-wal.md`](../../architecture/03-arena-and-wal.md) — what happens under the hood.
 
-**Spec:** §09/02.
+**Spec:** §05/02.

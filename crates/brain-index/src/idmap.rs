@@ -1,12 +1,12 @@
 //! Bidirectional `MemoryId ↔ u32` map for the HNSW index.
 //!
-//! See `spec/06_ann_index/03_insertion.md` §1–2 (id_map pattern), §10
+//! See `spec/09_indexing/03_insertion.md` §1–2 (id_map pattern), §10
 //! (duplicate-MemoryId is a bug — we detect and reject rather than
 //! letting hnsw_rs silently overwrite).
 //!
 //! ## Type choices
 //!
-//! - **Internal id is `u32`** (spec §06/03 §2). Saves ~80 MB at the
+//! - **Internal id is `u32`**. Saves ~80 MB at the
 //!   spec's 10M-memory per-shard ceiling vs `usize`. Cast to `usize`
 //!   at the hnsw_rs API boundary; overflow at `u32::MAX` returns
 //!   [`IdMapError::Exhausted`] (sibling of `AlreadyInserted`).
@@ -15,7 +15,7 @@
 //!   coupling to MemoryId's internal `u128` hashing.
 //! - **No atomic counter.** Brain's `HnswIndex::insert(&mut self, ...)`
 //!   borrow discipline rules out concurrent inserts at compile time;
-//!   spec §06/03 §1's `AtomicU32::fetch_add` example assumes a
+//!   's `AtomicU32::fetch_add` example assumes a
 //!   multi-writer path Brain doesn't have.
 
 use brain_core::MemoryId;
@@ -25,7 +25,7 @@ use thiserror::Error;
 /// `MemoryId ↔ u32` bidirectional map plus a sequential allocator.
 ///
 /// Insert-only at this layer. Removal of stale entries (slot reclamation
-/// per spec §06/05 §11) lives in the Phase 8 maintenance worker.
+/// ) lives in the Phase 8 maintenance worker.
 #[derive(Default)]
 pub struct IdMap {
     forward: HashMap<[u8; 16], u32>,
@@ -36,7 +36,7 @@ pub struct IdMap {
 /// Errors from [`IdMap::insert`].
 #[derive(Debug, Error, Clone, Copy, PartialEq, Eq)]
 pub enum IdMapError {
-    /// `memory_id` was already inserted. Per spec §06/03 §10 this is a
+    /// `memory_id` was already inserted. Per this is a
     /// caller bug; the counter is not advanced.
     #[error("memory_id already inserted: {memory_id_bytes:?}")]
     AlreadyInserted { memory_id_bytes: [u8; 16] },
@@ -85,7 +85,7 @@ impl IdMap {
     ///
     /// On duplicate, returns [`IdMapError::AlreadyInserted`] and **does
     /// not** advance the counter — a caller's mistake shouldn't burn
-    /// IDs. Spec §06/03 §10.
+    /// IDs.
     pub fn insert(&mut self, memory_id: MemoryId) -> Result<u32, IdMapError> {
         let key = memory_id.to_be_bytes();
         if self.forward.contains_key(&key) {

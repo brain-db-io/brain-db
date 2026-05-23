@@ -1,6 +1,6 @@
 //! `ReasonPlan` — the plan for a `REASON` request.
 //!
-//! Spec §08/05 §9: embed the observation, RECALL similar memories,
+//! embed the observation, RECALL similar memories,
 //! traverse SUPPORTS / DERIVED_FROM edges (supporting evidence) and
 //! CONTRADICTS edges (contradicting evidence), aggregate scores into
 //! a confidence value.
@@ -34,7 +34,7 @@ pub struct ReasonPlan {
     pub estimated_cost_ms: f32,
 }
 
-/// Spec §08/05 §10's confidence aggregation.
+/// 's confidence aggregation.
 #[derive(Debug, Clone, Copy)]
 pub struct AggregationStep {
     pub max_supporting: usize,
@@ -54,13 +54,13 @@ impl Default for AggregationStep {
     }
 }
 
-/// Default edge kinds for REASON's supports-traversal. Spec §08/05 §9.
+/// Default edge kinds for REASON's supports-traversal.
 #[must_use]
 pub fn default_supports_edge_kinds() -> Vec<EdgeKind> {
     vec![EdgeKind::Supports, EdgeKind::DerivedFrom]
 }
 
-/// Default edge kinds for REASON's contradicts-traversal. Spec §08/05 §9.
+/// Default edge kinds for REASON's contradicts-traversal.
 #[must_use]
 pub fn default_contradicts_edge_kinds() -> Vec<EdgeKind> {
     vec![EdgeKind::Contradicts]

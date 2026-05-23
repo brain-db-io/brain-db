@@ -1,9 +1,8 @@
-//! Spec §09/01 §12 error taxonomy.
+//! error taxonomy.
 //!
 //! `OpError` is brain-ops's runtime error type. Each variant maps to
 //! a stable wire `ErrorCode` (`error_code()`) and carries a
 //! `retryable` flag (`retryable()`) — both surfaced to clients per
-//! spec §12.
 //!
 //! `#[from]` conversions wrap `brain_planner::PlanError` and
 //! `brain_planner::ExecError` so handlers can `?` upstream errors
@@ -16,33 +15,33 @@ use brain_planner::{ExecError, PlanError, WriterError};
 
 #[derive(Debug, Error)]
 pub enum OpError {
-    /// Spec §09/01 §12 — malformed or invalid request.
+    /// — malformed or invalid request.
     #[error("invalid request: {0}")]
     InvalidRequest(String),
 
-    /// Spec §09/01 §12 — referenced entity does not exist.
+    /// — referenced entity does not exist.
     #[error("{what} not found: {detail}")]
     NotFound { what: &'static str, detail: String },
 
-    /// Spec §09/01 §12 — idempotency mismatch on duplicate
-    /// `request_id`. Spec §09/02 §4: "same RequestId returns same
+    /// — idempotency mismatch on duplicate
+    /// `request_id`: "same RequestId returns same
     /// response within 24h; different params → Conflict".
     #[error("idempotency conflict: {0}")]
     Conflict(String),
 
-    /// Spec §09/01 §12 — agent limits exceeded.
+    /// — agent limits exceeded.
     #[error("quota exceeded: {0}")]
     QuotaExceeded(String),
 
-    /// Spec §09/01 §12 — credentials don't allow this operation.
+    /// — credentials don't allow this operation.
     #[error("unauthorized: {0}")]
     Unauthorized(String),
 
-    /// Spec §09/01 §12 — substrate is shedding load. Retryable.
+    /// — substrate is shedding load. Retryable.
     #[error("overloaded: {0}")]
     Overloaded(String),
 
-    /// Spec §08/06 §6 — single FORGET targets > 100 000 memories.
+    /// — single FORGET targets > 100 000 memories.
     #[error("too many memories targeted by one request")]
     TooManyMemories,
 
@@ -126,13 +125,13 @@ pub enum OpError {
     #[error("hybrid retrieval unavailable on this shard: {0}")]
     HybridUnavailable(String),
 
-    /// Catch-all for internal bookkeeping. Spec §09/01 §12: maps to
+    /// Catch-all for internal bookkeeping: maps to
     /// wire `InternalError`. Not retryable.
     #[error("internal error: {0}")]
     Internal(String),
 }
 
-/// Spec §09/01 §12 — stable wire error codes.
+/// — stable wire error codes.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ErrorCode {
     InvalidRequest,
@@ -167,7 +166,7 @@ pub enum ErrorCode {
 }
 
 impl OpError {
-    /// Map this error to its spec §12 wire `ErrorCode`.
+    /// Map this error to its wire `ErrorCode`.
     #[must_use]
     pub fn error_code(&self) -> ErrorCode {
         match self {
@@ -204,7 +203,7 @@ impl OpError {
         }
     }
 
-    /// Spec §09/01 §12: clients see a `retryable` flag. Only
+    /// clients see a `retryable` flag. Only
     /// `Overloaded` (and the same condition surfacing from the
     /// writer) is retryable; everything else needs operator
     /// investigation or is a client-side bug.

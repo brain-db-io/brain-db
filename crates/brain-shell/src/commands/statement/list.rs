@@ -1,6 +1,6 @@
 //! `statement list [--subject E] [--predicate P] [--object E]` — table.
 
-use brain_core::knowledge::{StatementObject, SubjectRef};
+use brain_core::{StatementObject, SubjectRef};
 use brain_sdk_rust::{Client, ClientError, StatementHandle};
 use uuid::Uuid;
 

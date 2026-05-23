@@ -13,7 +13,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-use brain_core::knowledge::ExtractorKind;
+use brain_core::ExtractorKind;
 use brain_core::{ExtractorId, Memory as CoreMemory, MemoryId};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_extractors::{

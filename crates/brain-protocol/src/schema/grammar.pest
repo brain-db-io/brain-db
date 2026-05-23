@@ -1,4 +1,4 @@
-// Schema DSL grammar — spec §21/01.
+// Schema DSL grammar.
 //
 // Pest 2.x. Whitespace + comments are implicit between tokens via
 // the silent WHITESPACE / COMMENT rules below. Strings, heredocs,

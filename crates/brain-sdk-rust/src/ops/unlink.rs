@@ -1,4 +1,4 @@
-//! UNLINK op (spec §07/06 + §13/02 §8).
+//! UNLINK op.
 
 use brain_core::{MemoryId, RequestId};
 use brain_protocol::opcode::Opcode;

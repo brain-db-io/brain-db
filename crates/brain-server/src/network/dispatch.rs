@@ -3,7 +3,7 @@
 //! Owns:
 //!
 //! - The per-connection state machine (HELLO → WELCOME → AUTH → AUTH_OK
-//!   → Established → Closing) per spec §03/06.
+//!   → Established → Closing).
 //! - Inline handlers for connection-management opcodes (HELLO, AUTH,
 //!   PING, CLIENT_PONG, BYE).
 //! - Op routing: BLAKE3(agent_id) or MemoryId::shard() picks the shard;
@@ -49,7 +49,7 @@ use crate::shard::{DispatchError, ShardHandle};
 // Conn state
 // ---------------------------------------------------------------------------
 
-/// Connection lifecycle phase. Spec §03/06.
+/// Connection lifecycle phase.
 #[derive(Clone, Debug)]
 pub(crate) enum ConnPhase {
     AwaitingHello,
@@ -88,7 +88,7 @@ impl ConnState {
 /// `routing` is wrapped in [`arc_swap::ArcSwap`] so future cluster
 /// reconfiguration (admin RPC + gossip, post-Phase-9) can publish a
 /// new `RoutingTable` atomically — without restarting connections
-/// (spec §10/05 §4, §12/02 §2). Readers call `routing.load_full()`
+/// (§12/02 §2). Readers call `routing.load_full`
 /// per request; the refcount bump is ~50 ns and invisible next to
 /// the agent-id hash + shard lookup.
 #[derive(Clone)]
@@ -173,7 +173,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
     let opcode = match Opcode::from_u16(frame.header.opcode_u16()) {
         Ok(o) => o,
         Err(_) => {
-            // Per spec §03/11 §2.6: unknown opcodes return BadOpcode and
+            // Per: unknown opcodes return BadOpcode and
             // the connection stays open. F-3
             // reconciled the previous CloseWith behaviour.
             return Action::Inline(error_frame(
@@ -184,7 +184,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         }
     };
 
-    // F-2 , spec §03/11 §2.5:
+    // F-2:
     // - Connection-level opcodes (HELLO/AUTH/PING/PONG/BYE/…)
     //   MUST ride on stream_id = 0.
     // - Client-initiated op streams MUST be odd (and != 0).
@@ -236,7 +236,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
     };
 
     // Reject opcodes we don't expect from the client (response opcodes,
-    // server-pushed events). spec §03/05 §4.
+    // server-pushed events).
     if !opcode.is_request() {
         return Action::Inline(error_frame(
             frame.header.stream_id_u32(),
@@ -447,7 +447,7 @@ fn on_ping(frame: Frame) -> Action {
 
 fn on_bye(frame: Frame) -> Action {
     // Echo a BYE back, then close. The protocol uses the same `Bye`
-    // opcode for both directions (spec §03/05 §1.1), so we hand-build
+    // opcode for both directions, so we hand-build
     // the frame rather than going through `ResponseBody`.
     let reply = Frame::new(Opcode::Bye.as_u16(), FLAG_EOS, 0, frame.payload.clone());
     Action::CloseWith(reply)
@@ -498,7 +498,7 @@ pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>
 fn pick_target_shard(req: &RequestBody, bound_shard: u16, routing: &RoutingTable) -> Option<u16> {
     // Requests carrying a target MemoryId route by memory shard; other
     // requests use the agent's bound shard. The `source` end of LINK /
-    // UNLINK is the routing anchor (spec §12/02 §4); the `target`
+    // UNLINK is the routing anchor; the `target`
     // memory's shard may differ (cross-shard edges are 9.11+).
     match req {
         RequestBody::Forget(r) => Some(shard_for_memory(brain_core::MemoryId::from_raw(
@@ -773,7 +773,7 @@ mod tests {
     }
 
     /// F-2: HELLO with stream_id != 0 returns BadFrame and stays
-    /// open. Spec §03/11 §2.5.
+    /// open.
     #[test]
     fn connection_level_opcode_rejects_nonzero_stream() {
         // HELLO payload is valid; the only violation is stream_id=1.
@@ -822,7 +822,7 @@ mod tests {
     }
 
     /// F-3: unknown opcode returns BadOpcode but the connection stays
-    /// open (Action::Inline, not CloseWith). Spec §03/11 §2.6.
+    /// open (Action::Inline, not CloseWith).
     #[test]
     fn unknown_opcode_stays_open() {
         // 0xAA is not in the Opcode enum.

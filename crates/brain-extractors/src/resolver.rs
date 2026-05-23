@@ -46,7 +46,7 @@
 use std::collections::HashSet;
 use std::sync::Arc;
 
-use brain_core::knowledge::trigrams;
+use brain_core::resolution::trigrams;
 use brain_core::MergeId;
 use brain_core::{Entity, EntityId, EntityTypeId};
 use brain_embed::Dispatcher;
@@ -90,7 +90,7 @@ pub const EMBED_RESOLVE_THRESHOLD: f32 = 0.78;
 ///
 /// Lower than the auto-alias threshold (0.78) and higher than the
 /// floor below which the candidate is not even considered (0.7).
-/// Spec §18/03 §4.2 — "0.7 to 0.95 goes to review".
+/// — "0.7 to 0.95 goes to review".
 pub const PARTIAL_MATCH_FLOOR: f32 = 0.7;
 
 /// Env-var override for [`EMBED_RESOLVE_THRESHOLD`]. Parsed as an
@@ -291,7 +291,7 @@ fn trigram_candidates_wtxn(
 /// neither: an HNSW without an embedder can't be queried, and an
 /// embedder without an HNSW has nowhere to send the vector. `None`
 /// (the caller's choice) makes the resolver skip tier-3b cleanly
-/// and the gauntlet collapses to the legacy 1/2/3a/4 flow.
+/// and the gauntlet runs as the 1/2/3a/4 flow.
 #[derive(Clone)]
 pub struct EmbeddingDeps {
     pub hnsw: Arc<RwLock<EntityHnswIndex>>,

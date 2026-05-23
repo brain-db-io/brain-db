@@ -3,7 +3,7 @@
 //! Full P2c coverage: UpsertRelation, Tombstone(Relation),
 //! Supersede(Relation) all real.
 
-use brain_core::knowledge::Relation;
+use brain_core::Relation;
 use brain_metadata::relation::ops::{relation_create, relation_supersede, relation_tombstone};
 use redb::WriteTransaction;
 

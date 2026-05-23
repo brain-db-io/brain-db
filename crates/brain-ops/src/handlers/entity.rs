@@ -1,5 +1,5 @@
 //! Entity wire-op handlers — `ENTITY_CREATE` / `_GET` / `_UPDATE` /
-//! `_RENAME` (spec §28/00, phase 16.6c).
+//! `_RENAME` (phase 16.6c).
 //!
 //! Each handler:
 //!
@@ -8,7 +8,7 @@
 //! 3. Opens a redb write (or read) transaction.
 //! 4. Calls into `brain_metadata::entity::ops::*`.
 //! 5. Commits the transaction.
-//! 6. Maps `EntityOpError` to `OpError` per spec §28's error codes
+//! 6. Maps `EntityOpError` to `OpError` 's error codes
 //!    (mapped through the substrate ErrorCode taxonomy until §28 error
 //!    codes land as first-class — see the module-private
 //!    `map_entity_op_error` helper).
@@ -26,7 +26,7 @@ use brain_metadata::entity::trigram::{
     candidates_for_query, extract_trigrams, jaccard, trigrams_of_components,
 };
 use brain_planner::WriterError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     EntityCreateRequest, EntityCreateResponse, EntityCreatedEvent, EntityGetRequest,
     EntityGetResponse, EntityListItem, EntityListRequest, EntityListResponseFrame,
     EntityMergeRequest, EntityMergeResponse, EntityMergedEvent, EntityRenameRequest,
@@ -287,10 +287,6 @@ pub async fn handle_entity_merge(
     let phase = Phase::MergeEntities {
         source: merged,
         target: survivor,
-        // v1 metadata helper always merges both alias + attribute sets;
-        // the booleans are forward-compat hooks (see Phase::MergeEntities
-        // docs). `true` keeps the apply behavior matching the legacy
-        // direct-wtxn path.
         retain_aliases: true,
         retain_attributes: true,
         at_unix_nanos: now,
@@ -405,9 +401,9 @@ pub async fn handle_entity_tombstone(
     let write_id = WriteId::from_request(RequestId::from(req.request_id));
     let request_hash = hash_entity_tombstone_request(&req, id);
 
-    // Pre-check existence so we return NotFound consistently with the
-    // legacy path, before the writer accepts a phase whose apply would
-    // surface the same NotFound from inside the wtxn.
+    // Pre-check existence so we return NotFound at the handler edge
+    // before the writer accepts a phase whose apply would surface the
+    // same error from inside the wtxn.
     {
         let db_guard = ctx.executor.metadata.lock();
         let rtxn = db_guard
@@ -469,7 +465,7 @@ pub async fn handle_entity_tombstone(
 /// `request_id` (it's the cache key). The reason string is folded in
 /// so two tombstones with different reasons on the same entity_id
 /// reuse-attempt counts as a conflict, matching the substrate
-/// idempotency model in spec §07/06 §5.
+/// idempotency model in.
 fn hash_entity_tombstone_request(req: &EntityTombstoneRequest, id: EntityId) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     h.update(b"entity_tombstone:");
@@ -482,7 +478,7 @@ fn hash_entity_tombstone_request(req: &EntityTombstoneRequest, id: EntityId) -> 
 /// BLAKE3 over the canonical ENTITY_CREATE request fields. Excludes
 /// `request_id` (cache key). Aliases hash in order — a reordering
 /// counts as a different request, matching the substrate idempotency
-/// model in spec §07/06 §5.
+/// model in.
 fn hash_entity_create_request(req: &EntityCreateRequest) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     h.update(b"entity_create:");

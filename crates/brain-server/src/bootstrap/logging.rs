@@ -1,6 +1,6 @@
 //! Tracing/log subscriber installation.
 //!
-//! Sub-task 12.2. Spec §14/02.
+//! Sub-task 12.2.
 //!
 //! Two entry points:
 //!
@@ -17,7 +17,7 @@
 //!
 //! - `compact` — single-line `<ts> <LEVEL> <target>: <message>`. Dev
 //!   default; readable in a terminal.
-//! - `json` — newline-delimited JSON per spec §14/02 §1. Production
+//! - `json` — newline-delimited JSON. Production
 //!   default; ingestible by Loki / Elastic / Splunk.
 //!
 //! ## Environment
@@ -95,7 +95,7 @@ pub fn init_pre_config() {
 /// Returns the `TracerProvider` when the OTel pipeline installed —
 /// callers must keep it alive (drop on shutdown to flush). Returns
 /// `None` when tracing is disabled or the OTel exporter failed to
-/// build (failure is logged via `warn!`, not propagated; spec §14/03
+/// build (failure is logged via `warn!`, not propagated
 /// §17 mandates "no-trace fallback").
 #[must_use = "drop the returned TracerProvider on shutdown to flush spans"]
 pub fn reinit_from_config(

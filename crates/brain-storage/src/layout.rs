@@ -42,19 +42,18 @@ use std::path::{Path, PathBuf};
 /// (generated on first open).
 pub const SHARD_UUID_FILE: &str = "shard.uuid";
 
-/// `arena.bin` — memory-mapped vector arena (spec §05/02).
+/// `arena.bin` — memory-mapped vector arena.
 pub const ARENA_FILE: &str = "arena.bin";
 
 /// `metadata.redb` — substrate + knowledge-layer redb tables
-/// (spec §07/02 + §26).
 pub const METADATA_DB_FILE: &str = "metadata.redb";
 
 /// `wal/` — write-ahead log directory; segments live inside as
-/// `seg-XXXXXXXXXX.wal` (spec §05/04..08).
+/// `seg-XXXXXXXXXX.wal` (.08).
 pub const WAL_DIR: &str = "wal";
 
 // ---------------------------------------------------------------------------
-// Knowledge-layer names (spec §26).
+// Knowledge-layer names.
 // ---------------------------------------------------------------------------
 
 /// `entity.hnsw` — HNSW index over entity embeddings (phase 16).

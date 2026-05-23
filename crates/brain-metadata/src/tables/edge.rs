@@ -540,7 +540,7 @@ pub fn list_memory_edges_to(
 mod tests {
     use super::*;
     use brain_core::{
-        knowledge::ids::{EntityId, RelationId, RelationTypeId},
+        ids::{EntityId, RelationId, RelationTypeId},
         EdgeKind, MemoryId,
     };
     use proptest::prelude::*;

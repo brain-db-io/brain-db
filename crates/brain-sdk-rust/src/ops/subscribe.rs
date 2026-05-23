@@ -1,4 +1,4 @@
-//! SUBSCRIBE op (spec §07/07 + §13/02 §10).
+//! SUBSCRIBE op.
 //!
 //! 10.5 ships a `collect(max_events)` form that gathers up to N
 //! events then returns. The real streaming surface (async
@@ -151,7 +151,7 @@ impl<'a> SubscribeBuilder<'a> {
     /// drop it to release the connection back to the pool.
     ///
     /// SUBSCRIBE streams do NOT retry on transient errors;
-    /// resume semantics (spec §13/05 §8) require server-side
+    /// resume semantics require server-side
     /// support beyond v1. Surface errors to the caller.
     pub async fn send_stream(self) -> Result<FrameStream<SubscriptionEvent>, ClientError> {
         let filter = SubscriptionFilter {

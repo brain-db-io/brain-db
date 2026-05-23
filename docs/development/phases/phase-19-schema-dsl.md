@@ -6,7 +6,7 @@
 >
 > **Scope cut:** migration plan computation was omitted per user
 > direction (no existing deployments to migrate). Tracked as
-> [`spec/21_schema_dsl/07_open_questions.md`](../../spec/21_schema_dsl/07_open_questions.md)
+> [`../00_overview/04_open_questions_archive.md`](../..../00_overview/04_open_questions_archive.md)
 > Q3.
 
 ## Goal

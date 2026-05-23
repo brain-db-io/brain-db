@@ -11,9 +11,9 @@ when-to-use: |
 trigger-files:
   - crates/brain-metadata/**/*.rs
 spec-refs:
-  - spec/07_metadata_graph/02_table_layout.md
-  - spec/07_metadata_graph/06_idempotency.md
-  - spec/07_metadata_graph/08_transactions.md
+  - spec/10_metadata/02_table_layout.md
+  - spec/10_metadata/06_idempotency.md
+  - spec/10_metadata/08_transactions.md
 ---
 
 # redb Schema Audit

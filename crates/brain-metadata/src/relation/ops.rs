@@ -22,7 +22,7 @@
 //!   `(from, Typed(rel_type_id), *)` and filter on sidecar
 //!   `is_current = 1`.
 
-use brain_core::knowledge::{canonical_pair, Relation};
+use brain_core::{canonical_pair, Relation};
 use brain_core::{
     Cardinality, EdgeKindRef, EntityId, MemoryId, NodeRef, RelationId, RelationTypeId,
 };
@@ -579,7 +579,7 @@ mod tests {
     use super::*;
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::relation::types::relation_type_intern;
-    use brain_core::knowledge::{Entity, EntityType};
+    use brain_core::{Entity, EntityType};
     use brain_core::ExtractorId;
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {

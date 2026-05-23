@@ -6,8 +6,8 @@
 
 mod common;
 
-use brain_protocol::knowledge::statement_req::EvidenceRefWire;
-use brain_protocol::knowledge::{
+use brain_protocol::requests::statement::EvidenceRefWire;
+use brain_protocol::{
     RelationCreateResponse, RelationGetResponse, RelationListFromResponseFrame,
     RelationListToResponseFrame, RelationSupersedeResponse, RelationTombstoneResponse,
     RelationTraverseResponseFrame, RelationView, TraversalPathWire, TraversalStepWire,

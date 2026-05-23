@@ -1,4 +1,4 @@
-//! Schema-management SDK surface. Spec §29/00 "Schema management",
+//! Schema-management SDK surface "Schema management",
 //! phase 19.8.
 //!
 //! ```no_run
@@ -18,7 +18,7 @@
 //! Builders for programmatic upload land alongside `upload_text` —
 //! see [`SchemaBuilder`] and [`SchemaClient::upload`].
 
-use brain_protocol::knowledge::{
+use brain_protocol::{
     SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
     SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
     SchemaValidateResponse, SchemaValidationErrorWire,
@@ -277,7 +277,7 @@ impl<'c> SchemaClient<'c> {
 }
 
 impl Client {
-    /// Entry-point for schema management. Spec §29/00 "Schema management".
+    /// Entry-point for schema management "Schema management".
     #[must_use]
     pub fn schema(&self) -> SchemaClient<'_> {
         SchemaClient::new(self)

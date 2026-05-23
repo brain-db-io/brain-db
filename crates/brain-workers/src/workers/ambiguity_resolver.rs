@@ -531,7 +531,7 @@ fn now_unix_nanos() -> u64 {
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::{Entity, EntityType};
+    use brain_core::{Entity, EntityType};
     use brain_embed::EmbedError;
     use brain_embed::VECTOR_DIM;
     use brain_index::entity_hnsw::EntityHnswParams;

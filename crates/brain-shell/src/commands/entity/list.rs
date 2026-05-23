@@ -2,11 +2,9 @@
 //!
 //! The wire op (`EntityListReq`) takes an `entity_type_id` (u32). The
 //! shell CLI exposes a string `--type` flag (e.g. `Person`); resolving
-//! qname → numeric type id requires a SCHEMA_GET op the SDK doesn't
-//! ship today. For the built-in `Person` we go through
-//! `Client::entity::<Person>()`; for everything else the command emits
-//! a clear warning and a `todo!` so a follow-up PR can wire the
-//! schema-resolver.
+//! a qname to its numeric type id needs a schema-resolver op the SDK
+//! doesn't ship. The command supports only the built-in `Person` for
+//! now; other types return a structured error.
 
 use brain_sdk_rust::{Client, ClientError, Person};
 
@@ -23,15 +21,10 @@ pub async fn run(
 ) -> Result<Rendered, ClientError> {
     let qname = args.type_qname.as_deref().unwrap_or("Person");
     if !qname.eq_ignore_ascii_case("person") {
-        tracing::warn!(
-            target: "brain_shell",
-            "entity list --type {qname}: only `Person` is wired today; \
-             arbitrary types require a schema-resolver wire op.",
-        );
-        todo!(
-            "wire op required: arbitrary entity types in `entity list --type {qname}`. \
-             Need a SCHEMA_GET-style op to resolve qname → entity_type_id."
-        );
+        return Err(ClientError::Internal(format!(
+            "entity list --type {qname}: only `Person` is supported. \
+             Listing other types needs a schema-resolver wire op (not in this build)."
+        )));
     }
 
     let mut builder = client.entity::<Person>().list().limit(args.limit);

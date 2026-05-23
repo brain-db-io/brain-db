@@ -15,7 +15,7 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
-use brain_core::knowledge::{
+use brain_core::{
     Entity, EntityType, EvidenceEntry, EvidenceRef, Statement, StatementId, StatementKind,
     StatementObject, StatementValue, SubjectRef,
 };

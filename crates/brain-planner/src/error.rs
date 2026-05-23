@@ -1,7 +1,7 @@
 //! Planner-side errors. Distinct from the executor's runtime errors
 //! (those will live in `executor.rs` when 6.7 lands).
 //!
-//! Spec §08/07 §5 names `QueryTooExpensive`; the other variants
+//! names `QueryTooExpensive`; the other variants
 //! collect malformed-request and not-yet-supported cases. `Unsupported`
 //! is a deliberate catch-all so partial planner coverage doesn't panic
 //! — the planner returns a structured error and the layer above
@@ -11,7 +11,6 @@ use thiserror::Error;
 
 #[derive(Debug, Error, PartialEq)]
 pub enum PlanError {
-    /// Spec §08/07 §5.
     #[error("query too expensive: estimated {estimated_ms:.1} ms > budget {budget_ms:.1} ms")]
     QueryTooExpensive { estimated_ms: f32, budget_ms: f32 },
 

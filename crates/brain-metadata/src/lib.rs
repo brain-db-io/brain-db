@@ -5,7 +5,7 @@
 //! lives in `recovery/` (one file per WalPayload family), implementing
 //! `brain_storage::recovery::MetadataSink` for `MetadataDb`.
 //!
-//! See `spec/07_metadata_graph/` for the authoritative design.
+//! See `spec/10_metadata/` for the authoritative design.
 
 #![allow(
     clippy::module_name_repetitions,

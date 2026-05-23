@@ -1,4 +1,4 @@
-//! Typed CRUD + interning over the extractor registry. Spec §22 +
+//! Typed CRUD + interning over the extractor registry +
 //! §21/05 §1.
 //!
 //! Mirrors [`crate::schema::predicate`] / [`crate::relation::types`]

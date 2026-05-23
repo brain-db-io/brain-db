@@ -7,7 +7,7 @@
 //! happen and TCP backpressure propagates to the server.
 //!
 //! Retry is intentionally out of scope for streams: SUBSCRIBE's
-//! `from_lsn` resume semantics (spec §13/05 §8) require server-
+//! `from_lsn` resume semantics require server-
 //! side support that isn't wired in v1. Transient errors surface
 //! to the caller, who can choose to re-open the stream.
 

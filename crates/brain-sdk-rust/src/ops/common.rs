@@ -1,6 +1,6 @@
 //! Shared helpers used by every op's `send()` path.
 //!
-//! - [`FLAG_EOS`] — last-frame-of-stream flag (spec §03/03 §4).
+//! - [`FLAG_EOS`] — last-frame-of-stream flag.
 //! - [`send_and_read_one`] — write one request frame, read one
 //!   response frame. Maps `ERROR` opcode to [`ClientError::Server`].
 //! - [`send_and_collect_until_eos`] — write request, collect
@@ -17,7 +17,7 @@ use crate::error::ClientError;
 use crate::pool::{Connection, PoolGuard};
 use crate::proto::frames::{read_one_frame, write_frame};
 
-/// Spec §03/03 §4 last-frame-of-stream flag.
+/// last-frame-of-stream flag.
 pub const FLAG_EOS: u8 = 1 << 7;
 
 /// Classify a [`ClientError`] as "the connection is dead, throw it
@@ -156,7 +156,7 @@ pub fn map_error_frame(payload: &[u8]) -> ClientError {
     }
 }
 
-/// Default cap on streamed frames per op. Spec §06/05 default
+/// Default cap on streamed frames per op default
 /// `max_concurrent_streams` is 1024; we cap collection well
 /// below that to keep a single op bounded.
 pub const DEFAULT_STREAM_FRAME_CAP: usize = 512;

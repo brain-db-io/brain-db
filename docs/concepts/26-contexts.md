@@ -61,7 +61,7 @@ shape: a namespace within the principal's namespace.
 
 ## What values are allowed
 
-The wire field is `context_id: u64` ([spec §02/03](../../spec/02_data_model/03_identifiers.md)).
+The wire field is `context_id: u64` ([spec §02/03](../../spec/02_data_model/02_memory.md)).
 The shell accepts a `u64` after `--context`. Three categories:
 
 | Value | Meaning |
@@ -77,7 +77,7 @@ specific ID, use the SDK or the admin API. The brain-cli
 admin surface may grow `brain-cli context create <name>`
 later (tracked in spec §02/04 §3).
 
-Per [`spec/02_data_model/04_context.md`](../../spec/02_data_model/04_context.md)
+Per [`spec/02_data_model/03_context.md`](../../spec/02_data_model/03_context.md)
 §7 there's no hard cap below `2^64`; practical agents have
 single-digit to a few dozen contexts. If you find yourself
 generating contexts programmatically, you probably want a
@@ -292,7 +292,7 @@ Salience is **per-memory**, not per-context. A high-salience
 memory in context 7 doesn't get a salience bump when
 queried from context 12 — it just doesn't match the filter
 at all. Cross-context relevance scoring would require a join
-we don't do in v1. ([Spec §02/04 §10](../../spec/02_data_model/04_context.md#10-context-aware-salience).)
+we don't do in v1. ([Spec §02/04 §10](../../spec/02_data_model/03_context.md#10-context-aware-salience).)
 
 ### Edges
 
@@ -300,7 +300,7 @@ Edges may cross context boundaries. A memory in context "work"
 may have a `DERIVED_FROM` edge into context "personal". The
 edge is visible during graph traversals, but if your recall
 filters to one context, only the same-context side of the
-edge is auto-loaded. ([Spec §02/04 §11](../../spec/02_data_model/04_context.md#11-edges-across-contexts).)
+edge is auto-loaded. ([Spec §02/04 §11](../../spec/02_data_model/03_context.md#11-edges-across-contexts).)
 
 ---
 
@@ -357,7 +357,7 @@ brain encode "the build broke" --context 7    # dedup hit → m1
 
 ## See also
 
-- [`spec/02_data_model/04_context.md`](../../spec/02_data_model/04_context.md)
+- [`spec/02_data_model/03_context.md`](../../spec/02_data_model/03_context.md)
   — the authoritative spec (creation, ID allocation, capacity,
   edges across contexts, persistence layout).
 - [`05-memories.md`](05-memories.md) — what a memory contains,

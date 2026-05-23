@@ -1,10 +1,10 @@
-//! ERROR response frame (spec §08 §25).
+//! ERROR response frame.
 
 use rkyv::{Archive, Deserialize, Serialize};
 
 use super::types::{ErrorCategoryWire, ErrorCodeWire};
 
-/// Spec §08 §25 — error frame body.
+/// — error frame body.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -16,7 +16,6 @@ pub struct ErrorResponse {
     pub retry_after_ms: Option<u32>,
 }
 
-/// Spec §08 §25.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

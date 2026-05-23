@@ -1,4 +1,4 @@
-//! FORGET cascade operations (sub-task 24.2). Spec §25/00
+//! FORGET cascade operations (sub-task 24.2)
 //! §"Cascading effects of FORGET".
 //!
 //! When a memory is forgotten, statements / relations whose
@@ -30,7 +30,7 @@
 //! enhancement; the cascade still updates the row, so an
 //! external observer can see the change via the change feed.
 
-use brain_core::knowledge::{
+use brain_core::{
     aggregate_confidence, ConfidenceConfig, EvidenceEntry, ExtractorId, StatementKind,
     TombstoneReason,
 };
@@ -46,7 +46,7 @@ use crate::tables::statement::{EvidenceEntryRow, StatementMetadata, STATEMENTS_T
 
 /// Default confidence threshold below which a statement that
 /// loses its only piece of evidence is tombstoned. Configurable
-/// at the caller; spec §25/00 doesn't pin a number.
+/// at the caller doesn't pin a number.
 pub const DEFAULT_CASCADE_CONFIDENCE_THRESHOLD: f32 = 0.2;
 
 /// Outcome of cascading one FORGET against one statement.
@@ -443,7 +443,7 @@ mod edge_cascade_tests {
         self, derived_by, origin, EdgeData, EDGES_REVERSE_TABLE, EDGES_TABLE,
     };
     use crate::MetadataDb;
-    use brain_core::knowledge::{Entity, EntityType, Relation};
+    use brain_core::{Entity, EntityType, Relation};
     use brain_core::{Cardinality, EntityId, ExtractorId, RelationId, RelationTypeId};
 
     const NOW: u64 = 1_700_000_000_000_000_000;

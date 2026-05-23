@@ -1,5 +1,5 @@
 //! Provider routing: maps a model identifier to its serving
-//! provider. Spec §22/09 §2.
+//! provider.
 //!
 //! Phase 21.1 ships the skeleton + Anthropic prefixes. Phase 21.2
 //! extends with OpenAI prefixes. Unknown prefixes return

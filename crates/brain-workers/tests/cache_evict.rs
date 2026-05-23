@@ -1,5 +1,5 @@
 #![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Embedder cache eviction worker tests (sub-task 8.12). Spec §11/08 §4.
+//! Embedder cache eviction worker tests (sub-task 8.12).
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;

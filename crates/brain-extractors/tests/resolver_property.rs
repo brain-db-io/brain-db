@@ -174,7 +174,7 @@ proptest! {
 
 #[test]
 fn higher_threshold_never_increases_dedup_count() {
-    use brain_core::knowledge::trigrams;
+    use brain_core::resolution::trigrams;
     let target_norm = normalize_name("Priya Patel");
     let candidates = [
         "Priya Patell",

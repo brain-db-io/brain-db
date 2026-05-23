@@ -9,7 +9,7 @@ wrong. Not vulnerability reporting (see
 ## State of the world
 
 Brain v1.0 ships with **`mode = "none"`** as the only fully-wired
-auth mode. Token and mTLS auth are designed (spec §03/06
+auth mode. Token and mTLS auth are designed (spec §02/06
 handshake) but deferred to Phase 14+. Until they land, Brain's
 network policy
 must be enforced at the boundary — not inside Brain.
@@ -34,7 +34,7 @@ internet**. Either:
 
 - [`../deployment/tls.md`](../deployment/tls.md) — terminating
   TLS on the data port if you don't have a proxy.
-- [`../../../spec/03_wire_protocol/06_handshake.md`](../../../spec/03_wire_protocol/06_handshake.md)
+- [`../../../spec/04_wire_protocol/04_handshake.md`](../../../spec/04_wire_protocol/04_handshake.md)
   — authoritative auth design (handshake-level capability negotiation).
 - [`../../../SECURITY.md`](../../../SECURITY.md) — how to report
   a vulnerability to the maintainers.

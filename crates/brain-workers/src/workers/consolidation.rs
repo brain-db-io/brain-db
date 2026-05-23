@@ -1,4 +1,4 @@
-//! Consolidation worker (sub-task 8.4). Spec §11/03.
+//! Consolidation worker (sub-task 8.4).
 //!
 //! Identifies clusters of recent Episodic memories in the same
 //! context, asks the [`Summarizer`] for a summary, and encodes the
@@ -8,7 +8,7 @@
 //!
 //! ## Idempotency
 //!
-//! Spec §8 wants encode + edges + source-stamps in one transaction.
+//! wants encode + edges + source-stamps in one transaction.
 //! v1 splits the source-stamp into a follow-up wtxn but achieves
 //! restart-safety via a **deterministic `RequestId`** derived from
 //! the sorted set of source ids. A partial-crash retry replays the
@@ -18,7 +18,7 @@
 //!
 //! ## Clustering
 //!
-//! Spec §4 calls for DBSCAN over vector cosine. v1's HNSW backend
+//! calls for DBSCAN over vector cosine. v1's HNSW backend
 //! doesn't expose `vector_for(memory_id)` (the arena lookup lands in
 //! Phase 9), so the **worker can't run vector-based clustering yet**.
 //!
@@ -28,7 +28,6 @@
 //! already consolidated. The proper similarity clustering is shipped
 //! as a tested pure helper ([`cluster_by_similarity`]) for Phase 9 to
 //! wire up once vectors become id-accessible. Documented v1 deviation
-//! from spec §4.
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::future::Future;
@@ -53,20 +52,20 @@ use crate::error::WorkerError;
 use crate::summarizer::{Summarizer, SummarizerError};
 use crate::worker::Worker;
 
-/// Spec §4 default — cosine similarity above which two memories are
+/// default — cosine similarity above which two memories are
 /// considered "in the same cluster". Tunable.
 pub const DEFAULT_CONSOLIDATION_SIMILARITY_THRESHOLD: f32 = 0.6;
 
-/// Spec §4 default — minimum cluster size below which a group is
+/// default — minimum cluster size below which a group is
 /// dropped (singletons / pairs aren't worth consolidating).
 pub const DEFAULT_MIN_CLUSTER_SIZE: usize = 5;
 
-/// Spec §4 default — only memories created within this window are
+/// default — only memories created within this window are
 /// candidates ("temporally close" — 24 h).
 pub const DEFAULT_RECENCY_WINDOW: Duration = Duration::from_secs(24 * 3600);
 
-/// Spec §11/02 §14 — Consolidated memories start with 0.7 salience.
-/// 90-day half-life (spec §11/02 §1) gives them durable presence.
+/// — Consolidated memories start with 0.7 salience.
+/// 90-day half-life gives them durable presence.
 pub const DEFAULT_INITIAL_SALIENCE: f32 = 0.7;
 
 // ---------------------------------------------------------------------------
@@ -275,7 +274,7 @@ async fn do_consolidation_cycle(
     }
 
     // Probe the summarizer once. If it's disabled, the worker is a
-    // no-op (spec §6 / §16). We swallow Disabled silently.
+    // no-op. We swallow Disabled silently.
     if let Err(SummarizerError::Disabled) = worker.summarizer.summarize(&[]).await {
         return Ok(0);
     }
@@ -304,7 +303,7 @@ async fn do_consolidation_cycle(
         // v1 window-based grouping. Sort by recency and take the
         // oldest `min_cluster_size` ids as "the cluster" — older
         // memories are the ones most likely to benefit from
-        // consolidation. (Spec §4's similarity clustering is the
+        // consolidation. ('s similarity clustering is the
         // Phase 9 upgrade; `cluster_by_similarity` ships as a pure
         // helper for that.)
         let mut sorted: Vec<WindowCandidate> = candidates;
@@ -323,7 +322,7 @@ async fn do_consolidation_cycle(
             if consolidations >= cfg.batch_size {
                 break;
             }
-            // Skip if any source is already consolidated (spec §11).
+            // Skip if any source is already consolidated.
             if any_already_consolidated(ctx, &cluster)? {
                 continue;
             }

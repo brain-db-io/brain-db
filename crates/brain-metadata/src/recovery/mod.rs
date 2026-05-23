@@ -6,11 +6,11 @@
 //! transaction.
 //!
 //! Spec references:
-//! - `spec/05_storage_arena_wal/08_recovery.md` — the recovery contract.
-//! - `spec/07_metadata_graph/08_transactions.md` §11 — multi-table atomic writes.
-//! - `spec/05_storage_arena_wal/09_checkpointing.md` §2, §12.1 — checkpoint pairing.
-//! - `spec/07_metadata_graph/06_idempotency.md` §17 — which ops record idempotency.
-//! - `spec/02_data_model/03_identifiers.md` §2.3 — MemoryId stability under reclaim.
+//! - `spec/08_storage/08_recovery.md` — the recovery contract.
+//! - `spec/10_metadata/08_transactions.md` §11 — multi-table atomic writes.
+//! - `spec/08_storage/09_checkpointing.md` §2, §12.1 — checkpoint pairing.
+//! - `spec/10_metadata/06_idempotency.md` §17 — which ops record idempotency.
+//! - `spec/02_data_model/02_memory.md` §2.3 — MemoryId stability under reclaim.
 //!
 //! ## Module layout
 //!

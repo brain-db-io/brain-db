@@ -1,4 +1,4 @@
-//! Access-boost worker (sub-task 8.3). Spec §11/02 §7, §8, §16.
+//! Access-boost worker (sub-task 8.3), §8, §16.
 //!
 //! Drains the per-shard `AccessBuffer` (filled by RECALL responses)
 //! and applies a `salience × (1 + boost_factor)` bump, capped at 1.0.
@@ -19,13 +19,13 @@ use crate::context::WorkerContext;
 use crate::error::WorkerError;
 use crate::worker::Worker;
 
-/// Spec §11/02 §10 — default 10 % boost per access cycle.
+/// — default 10 % boost per access cycle.
 pub const DEFAULT_BOOST_FACTOR: f32 = 0.10;
 
-/// Spec §11/02 §2 — salience caps at 1.0.
+/// — salience caps at 1.0.
 pub const MAX_SALIENCE: f32 = 1.0;
 
-/// Spec §11/02 §7 boost formula. Pure; unit-testable without a runtime.
+/// boost formula. Pure; unit-testable without a runtime.
 #[must_use]
 pub fn boosted_salience(current: f32, boost_factor: f32) -> f32 {
     let raw = current * (1.0 + boost_factor);

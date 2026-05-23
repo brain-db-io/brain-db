@@ -1,4 +1,4 @@
-//! Worker error taxonomy. Mirrors spec §11/01 §15: errors are
+//! Worker error taxonomy. Mirrors: errors are
 //! counted in `WorkerMetrics::errors_total` and logged via tracing;
 //! they don't propagate beyond the scheduler loop.
 

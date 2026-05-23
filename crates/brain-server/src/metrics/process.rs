@@ -1,6 +1,5 @@
 //! Process-level resource metrics, sourced from `/proc/self/*`.
 //!
-//! Spec §14/01 §10.
 //!
 //! - `process_cpu_seconds_total` — counter, derived from
 //!   `/proc/self/stat` field 14 (utime) + field 15 (stime), in clock

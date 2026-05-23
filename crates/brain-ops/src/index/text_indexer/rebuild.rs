@@ -29,7 +29,7 @@
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use brain_core::knowledge::{StatementKind, StatementObject, StatementValue, SubjectRef};
+use brain_core::{StatementKind, StatementObject, StatementValue, SubjectRef};
 use brain_index::{
     build_analyzer, memory_text_schema, schema_payload_json, statements_schema, LexicalScope,
     BRAIN_TOKENIZER_NAME,

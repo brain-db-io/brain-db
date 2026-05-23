@@ -1,6 +1,6 @@
 //! HNSW parameters with Brain's spec defaults.
 //!
-//! See `spec/06_ann_index/02_parameters.md` (M=16, ef_construction=200,
+//! See `spec/09_indexing/02_parameters.md` (M=16, ef_construction=200,
 //! ef_search=64, ef_search_max=500).
 
 use thiserror::Error;
@@ -26,7 +26,7 @@ pub const DEFAULT_CAPACITY_HINT: usize = 1024;
 
 /// HNSW knobs.
 ///
-/// Defaults from [`Self::default_v1`] match `spec/06_ann_index/02_parameters.md`:
+/// Defaults from [`Self::default_v1`] match `spec/09_indexing/02_parameters.md`:
 /// `M=16, ef_construction=200, ef_search=64, ef_search_max=500`.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct IndexParams {
@@ -42,7 +42,7 @@ pub struct IndexParams {
 }
 
 impl IndexParams {
-    /// Brain's v1 defaults per `spec/06_ann_index/02_parameters.md`.
+    /// Brain's v1 defaults per `spec/09_indexing/02_parameters.md`.
     #[must_use]
     pub const fn default_v1() -> Self {
         Self {

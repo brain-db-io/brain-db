@@ -2,7 +2,7 @@
 //!
 //! Entry point for the Brain cognitive substrate.
 //!
-//! See `spec/01_system_architecture/` for the layering and request lifecycle.
+//! See `spec/01_architecture/` for the layering and request lifecycle.
 //! Phase 9 status: as of 9.9 the Tokio connection layer accepts TCP/TLS and
 //! routes each accepted stream through a per-connection task; the frame
 //! dispatcher lands in 9.10.
@@ -229,7 +229,7 @@ mod linux_main {
 
         // Sub-task 9.12: publish the routing table via `ArcSwap` so a
         // future admin RPC can hot-reload it without restarting
-        // connections. Spec §10/05 §4 / §12/02 §2.
+        // connections.
         let routing = match RoutingTable::new(cfg.storage.shard_count as u16, HashMap::new()) {
             Ok(t) => Arc::new(arc_swap::ArcSwap::from_pointee(t)),
             Err(e) => {

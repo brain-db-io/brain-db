@@ -1,5 +1,5 @@
 //! Extractor governance wire-op handlers — `EXTRACTOR_LIST /
-//! _DISABLE / _ENABLE` (spec §28/05 §6-§7, phase 20.8).
+//! _DISABLE / _ENABLE` (-§7, phase 20.8).
 //!
 //! `LIST` is read-only and stays on the direct-rtxn path. `DISABLE` and
 //! `ENABLE` go through the unified writer (`submit(Write)`), giving
@@ -11,7 +11,7 @@
 use brain_core::{ExtractorId, RequestId};
 use brain_metadata::extractor::ops::{extractor_get, extractor_list, ExtractorOpError};
 use brain_planner::WriterError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     ExtractorDisableRequest, ExtractorDisableResponse, ExtractorEnableRequest,
     ExtractorEnableResponse, ExtractorListItem, ExtractorListRequest, ExtractorListResponseFrame,
 };
@@ -194,7 +194,7 @@ async fn submit_set_enabled(
 }
 
 /// BLAKE3 over the canonical `set_extractor_enabled` request fields.
-/// Excludes `request_id` (the table key). Spec §07/06 §5.
+/// Excludes `request_id` (the table key).
 fn hash_extractor_set_enabled_request(extractor_id_raw: u32, enabled: bool) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     h.update(b"set_extractor_enabled:");

@@ -1,6 +1,6 @@
 //! Statement wire-op handlers — `STATEMENT_CREATE` / `_GET` /
 //! `_SUPERSEDE` / `_TOMBSTONE` / `_RETRACT` / `_HISTORY` / `_LIST`
-//! (spec §28/06, phase 17.7).
+//! (phase 17.7).
 //!
 //! Write handlers go through the unified writer's `submit(Write)` path:
 //! pre-submit reads validate inputs and resolve predicate qnames against
@@ -13,7 +13,7 @@
 //!
 //! Read handlers (GET / HISTORY / LIST) stay direct-rtxn.
 //!
-//! Subscription events (CREATE / SUPERSEDE / TOMBSTONE per spec §28/02
+//! Subscription events (CREATE / SUPERSEDE / TOMBSTONE
 //! §3.2) and the statement text-indexer dispatch (§27/02 §3) remain
 //! on the handler path; a later slice unifies them with the writer's
 //! post-commit fan-out.
@@ -21,7 +21,7 @@
 //! Phase 17.7 handlers do **not** touch the statement HNSW (17.5);
 //! the embedding worker that populates it lives in phase 21.
 
-use brain_core::knowledge::{EvidenceEntry, Statement, TombstoneReason};
+use brain_core::{EvidenceEntry, Statement, TombstoneReason};
 use brain_core::{EntityId, PredicateId, RequestId, StatementId, StatementKind};
 use brain_metadata::schema::predicate::{
     predicate_get, predicate_intern_or_get, predicate_lookup_by_qname,
@@ -34,7 +34,7 @@ use brain_metadata::statement::{
 };
 use brain_metadata::tables::statement::{statement_flags, StatementMetadata, STATEMENTS_TABLE};
 use brain_planner::WriterError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     statement_kind_from_wire, KnowledgeEventPayload, StatementCreateRequest,
     StatementCreateResponse, StatementCreatedEvent, StatementGetRequest, StatementGetResponse,
     StatementHistoryRequest, StatementHistoryResponseFrame, StatementListRequest,
@@ -55,7 +55,7 @@ use crate::write::{
     SupersedeTarget, TombstoneTarget, Write, WriteId,
 };
 
-// 30 days, per spec §19. Used by STATEMENT_RETRACT for the
+// 30 days. Used by STATEMENT_RETRACT for the
 // will_zero_at hint.
 const RETRACT_GRACE_NANOS: u64 = 30 * 24 * 60 * 60 * 1_000_000_000;
 const REASON_MESSAGE_MAX: usize = 4096;
@@ -796,7 +796,7 @@ fn build_statement_from_create(
     now: u64,
     kind: StatementKind,
 ) -> Result<Statement, OpError> {
-    use brain_protocol::knowledge::{evidence_ref_from_wire, statement_object_from_wire};
+    use brain_protocol::{evidence_ref_from_wire, statement_object_from_wire};
 
     match kind {
         StatementKind::Event => {
@@ -816,7 +816,7 @@ fn build_statement_from_create(
     }
 
     let evidence = evidence_ref_from_wire(&req.evidence).map_err(|e| match e {
-        brain_protocol::knowledge::WireToStatementError::EvidenceInlineTooLarge { len, cap } => {
+        brain_protocol::WireToStatementError::EvidenceInlineTooLarge { len, cap } => {
             OpError::InvalidRequest(format!(
                 "inline evidence list exceeds cap of {cap}; got {len}"
             ))
@@ -825,7 +825,7 @@ fn build_statement_from_create(
     })?;
 
     let object = statement_object_from_wire(&req.object);
-    let subject = brain_core::knowledge::SubjectRef::Entity(EntityId::from(req.subject));
+    let subject = brain_core::SubjectRef::Entity(EntityId::from(req.subject));
 
     let id = StatementId::new();
     let mut s = Statement::new_root(
@@ -883,7 +883,7 @@ fn project_view(rtxn: &redb::ReadTransaction, s: &Statement) -> Result<Statement
     // STATEMENT_ADD_EVIDENCE will let callers fetch the per-entry
     // metadata separately if needed.
     let mut s = s.clone();
-    if let brain_core::knowledge::EvidenceRef::Overflow(id) = s.evidence {
+    if let brain_core::EvidenceRef::Overflow(id) = s.evidence {
         let entries = evidence_overflow_load(rtxn, id)
             .map_err(map_statement_op_error)?
             .ok_or_else(|| {
@@ -893,15 +893,15 @@ fn project_view(rtxn: &redb::ReadTransaction, s: &Statement) -> Result<Statement
                 ))
             })?;
         let mut sv = smallvec::SmallVec::<
-            [brain_core::knowledge::EvidenceEntry; brain_core::knowledge::INLINE_EVIDENCE_CAP],
+            [brain_core::EvidenceEntry; brain_core::INLINE_EVIDENCE_CAP],
         >::new();
         for e in entries
             .into_iter()
-            .take(brain_core::knowledge::INLINE_EVIDENCE_CAP)
+            .take(brain_core::INLINE_EVIDENCE_CAP)
         {
             sv.push(e);
         }
-        s.evidence = brain_core::knowledge::EvidenceRef::inline(sv);
+        s.evidence = brain_core::EvidenceRef::inline(sv);
     }
 
     Ok(StatementView::from_statement(&s, qname))
@@ -913,11 +913,11 @@ fn project_view(rtxn: &redb::ReadTransaction, s: &Statement) -> Result<Statement
 /// equivalent row.
 fn build_upsert_statement_phase(s: &Statement) -> Phase {
     let evidence = match &s.evidence {
-        brain_core::knowledge::EvidenceRef::Inline(entries) => {
+        brain_core::EvidenceRef::Inline(entries) => {
             let v: Vec<EvidenceEntry> = entries.iter().copied().collect();
             EvidenceRefPhase::Inline(v)
         }
-        brain_core::knowledge::EvidenceRef::Overflow(id) => EvidenceRefPhase::Overflow(*id),
+        brain_core::EvidenceRef::Overflow(id) => EvidenceRefPhase::Overflow(*id),
     };
     Phase::UpsertStatement {
         id: s.id,
@@ -937,7 +937,7 @@ fn build_upsert_statement_phase(s: &Statement) -> Phase {
 /// BLAKE3 over the canonical STATEMENT_CREATE fields. Excludes the
 /// request_id (which is the cache key) and the freshly-minted
 /// statement id (the writer's idempotency cache resolves replays via
-/// request_id, not by output id). Spec §07/06 §5.
+/// request_id, not by output id).
 fn hash_statement_create_request(req: &StatementCreateRequest) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     h.update(b"statement_create:");
@@ -996,9 +996,9 @@ fn hash_statement_retract_request(req: &StatementRetractRequest) -> [u8; 32] {
 
 fn hash_statement_object(
     h: &mut blake3::Hasher,
-    obj: &brain_protocol::knowledge::StatementObjectWire,
+    obj: &brain_protocol::StatementObjectWire,
 ) {
-    use brain_protocol::knowledge::{StatementObjectWire, StatementValueWire};
+    use brain_protocol::{StatementObjectWire, StatementValueWire};
     h.update(&[obj.discriminant()]);
     match obj {
         StatementObjectWire::EntityRef(id) => {
@@ -1043,8 +1043,8 @@ fn hash_statement_object(
     }
 }
 
-fn hash_evidence_ref(h: &mut blake3::Hasher, ev: &brain_protocol::knowledge::EvidenceRefWire) {
-    use brain_protocol::knowledge::EvidenceRefWire;
+fn hash_evidence_ref(h: &mut blake3::Hasher, ev: &brain_protocol::EvidenceRefWire) {
+    use brain_protocol::EvidenceRefWire;
     match ev {
         EvidenceRefWire::Inline(ids) => {
             h.update(b"I");

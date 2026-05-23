@@ -1,7 +1,7 @@
 //! LLM extractor perf bench (sub-task 21.7).
 //!
 //! Spec targets per
-//! `spec/16_benchmarks_acceptance/02_latency_targets.md` §2.8:
+//! `spec/20_benchmarks/02_latency_targets.md` §2.8:
 //!
 //! - `LlmExtractor::predict` cache hit: p50 1 ms / p99 5 ms.
 //! - Cost-budget skip path (no LLM call): p50 200 µs / p99 1 ms.
@@ -26,7 +26,7 @@ use std::time::Duration;
 
 use brain_core::{AgentId, ContextId, ExtractorId, Memory, MemoryId, MemoryKind, Salience};
 use brain_extractors::{
-    extractor::ExtractionContext, CostBudget, Extractor, ExtractorRegistry, LlmExtractor,
+    framework::extractor::ExtractionContext, CostBudget, Extractor, ExtractorRegistry, LlmExtractor,
 };
 use brain_llm::client::{model_id_hash, LlmFuture};
 use brain_llm::{LlmClient, LlmError, LlmRequest, LlmResponse};

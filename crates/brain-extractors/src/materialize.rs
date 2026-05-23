@@ -1,6 +1,6 @@
 //! Convert persisted
 //! [`brain_metadata::tables::extractor::ExtractorDefinition`]
-//! rows into runtime `Arc<dyn Extractor>` instances. Spec §22 +
+//! rows into runtime `Arc<dyn Extractor>` instances +
 //! §21/05 §1.
 //!
 //! Called once at server / shard startup to populate the
@@ -23,10 +23,10 @@ use parking_lot::Mutex;
 use serde_json::Value;
 
 use crate::classifier::{ClassifierExtractor, ClassifierModel};
-use crate::extractor::ExtractorError;
+use crate::framework::extractor::ExtractorError;
 use crate::llm::{CostBudget, LlmExtractor};
-use crate::pattern::PatternExtractor;
-use crate::registry::ExtractorRegistry;
+use crate::pattern::extractor::PatternExtractor;
+use crate::framework::registry::ExtractorRegistry;
 
 const DEFAULT_LLM_CACHE_TTL_SECS: u64 = 7 * 24 * 60 * 60;
 const DEFAULT_LLM_CONFIDENCE_THRESHOLD: f32 = 0.7;
@@ -465,7 +465,7 @@ fn _ensure_imports(k: ExtractorKindAst, t: ExtractorTarget) -> (ExtractorKindAst
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::extractor::Extractor;
+    use crate::framework::extractor::Extractor;
     use brain_protocol::schema::{
         ExtractorDef as AstExtractorDef, ExtractorField, ExtractorKindAst, ExtractorTarget,
     };
@@ -660,7 +660,7 @@ mod tests {
         // We can't downcast Arc<dyn Extractor>, but we can verify
         // kind + presence; the label thread-through is exercised in
         // the classifier::tests label-capture test.
-        assert_eq!(ext.kind(), brain_core::knowledge::ExtractorKind::Classifier);
+        assert_eq!(ext.kind(), brain_core::ExtractorKind::Classifier);
     }
 
     #[test]
@@ -801,7 +801,7 @@ mod tests {
             created_at_unix_ms: 0,
             last_accessed_at_unix_ms: 0,
         };
-        let ctx = crate::extractor::ExtractionContext {
+        let ctx = crate::framework::extractor::ExtractionContext {
             schema_version: 1,
             now_unix_nanos: 0,
             registry: &reg,
@@ -985,7 +985,7 @@ mod tests {
         let by_id = reg
             .lookup(brain_core::ExtractorId::from(2))
             .expect("llm registered");
-        assert_eq!(by_id.kind(), brain_core::knowledge::ExtractorKind::Llm);
+        assert_eq!(by_id.kind(), brain_core::ExtractorKind::Llm);
     }
 
     #[test]
@@ -1008,6 +1008,6 @@ mod tests {
         let by_id = reg
             .lookup(brain_core::ExtractorId::from(1))
             .expect("registered");
-        assert_eq!(by_id.kind(), brain_core::knowledge::ExtractorKind::Llm);
+        assert_eq!(by_id.kind(), brain_core::ExtractorKind::Llm);
     }
 }

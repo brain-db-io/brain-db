@@ -3,7 +3,7 @@
 //! Round-trips `config/dev.toml`. Env overrides follow the
 //! `BRAIN__SECTION__FIELD=value` pattern (double underscore separates nesting).
 //!
-//! See spec §01/04 §15 — config is restart-only for v1 (no hot reload).
+//! — config is restart-only for v1 (no hot reload).
 
 use std::collections::HashMap;
 use std::net::SocketAddr;
@@ -535,7 +535,7 @@ impl Default for LoggingConfig {
 #[serde(deny_unknown_fields)]
 pub struct TracingConfig {
     /// Master switch. When false, no spans are exported regardless of
-    /// other fields. Default `false` so spec §14/03 §17 "no-trace
+    /// other fields. Default `false` so "no-trace
     /// fallback" is honoured out of the box.
     #[serde(default)]
     pub enabled: bool,
@@ -589,7 +589,7 @@ pub enum AuthMode {
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
 #[serde(rename_all = "lowercase")]
 pub enum SummarizerBackend {
-    /// Spec §11/03 §6 default: consolidation worker is a no-op.
+    /// default: consolidation worker is a no-op.
     Disabled,
     /// Chat Completions over HTTPS. Requires `summarizer-openai` feature.
     Openai,

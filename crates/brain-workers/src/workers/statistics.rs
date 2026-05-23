@@ -1,4 +1,4 @@
-//! Statistics update worker (sub-task 8.11). Spec §11/08 §3.
+//! Statistics update worker (sub-task 8.11).
 //!
 //! Every 5 min, scans `MEMORIES_TABLE` + `SharedHnsw` and refreshes
 //! a per-shard `Stats` cache. Phase 9's `ADMIN_STATS` handler will
@@ -7,14 +7,14 @@
 //!
 //! ## v1 deviations (documented)
 //!
-//! Spec §3.1 lists nine fields; v1 fills five and leaves the others
+//! 1 lists nine fields; v1 fills five and leaves the others
 //! as `Option::None`:
 //! - `arena_used_bytes` / `arena_capacity_bytes` — no arena yet.
 //! - `wal_size_bytes` — no WAL hookup.
 //! - `metadata_size_bytes` — `OpsContext` doesn't hold the metadata
 //!   filesystem path.
 //!
-//! Spec §3.1's "histograms of salience / edge degree / age" is Phase
+//! 1's "histograms of salience / edge degree / age" is Phase
 //! 9 admin tooling. v1 ships the counts + age range layer.
 
 use std::future::Future;

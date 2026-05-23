@@ -360,7 +360,7 @@ async fn unsubscribe_emits_final_eos_and_response() {
     .await;
     tokio::time::sleep(Duration::from_millis(50)).await;
 
-    // UNSUBSCRIBE on a different stream id (spec §03/05 §5.3).
+    // UNSUBSCRIBE on a different stream id.
     let unsub_stream = 9u32;
     send_frame(
         &mut client,
@@ -378,7 +378,7 @@ async fn unsubscribe_emits_final_eos_and_response() {
 
     // Read up to two frames: the unsubscribe response on unsub_stream,
     // and the final EOS SUBSCRIBE_EVENT on sub_stream. Order isn't
-    // guaranteed (spec §03/02 §5.3).
+    // guaranteed.
     let mut saw_unsub = false;
     let mut saw_final_eos = false;
     for _ in 0..2 {
@@ -506,7 +506,7 @@ async fn subscribe_from_lsn_past_tail_is_accepted() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn double_subscribe_with_same_stream_id_errors() {
     // Calling SUBSCRIBE twice with the same stream_id should error
-    // (spec §03/09 §2.2 — stream IDs in use).
+    // (— stream IDs in use).
     let server = start_with_shards(1).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
@@ -742,7 +742,7 @@ async fn subscribe_agents_filter_isolates_per_agent() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn subscribe_from_lsn_zero_replays_everything_in_wal() {
-    // from_lsn=0 means "everything still in the WAL"; spec §09/09 §16
+    // from_lsn=0 means "everything still in the WAL"
     // says this is not an error.
     let server = start_with_shards(1).await;
     let agent_id = *uuid::Uuid::now_v7().as_bytes();

@@ -1,13 +1,13 @@
 //! Per-shard slot allocator.
 //!
 //! Owns the free list and the "next fresh slot" pointer per
-//! `spec/05_storage_arena_wal/07_write_path.md` §2. Together with
+//! `spec/08_storage/07_write_path.md` §2. Together with
 //! `ArenaFile`, it decides which slot the next ENCODE writes into and
 //! which slots become reusable after FORGET + reclaim.
 //!
 //! ## Version bump location
 //!
-//! Spec §05/07 §56 says `slot_version_new = current_version + 1` — the
+//! says `slot_version_new = current_version + 1` — the
 //! version increment lives at *alloc* time, not at free time. Concretely:
 //!
 //! - `alloc(arena)` reads `arena.slot[idx].metadata.slot_version`, returns
@@ -28,7 +28,7 @@
 //!
 //! ## PENDING_WRITE flag
 //!
-//! Spec §05/07 §48: "The allocated slot is marked as 'pending-write'
+//! "The allocated slot is marked as 'pending-write'
 //! (flags bit 2) before any data is written." `alloc` sets this on disk
 //! so a crashed encode is detectable on the next startup (the recovery
 //! path in 2.10 treats slots with `PENDING_WRITE` as free).
@@ -41,7 +41,7 @@ use brain_core::SlotVersion;
 #[derive(Debug)]
 pub struct SlotAllocator {
     /// Slots that were used and freed. LIFO for cache locality and to match
-    /// spec §05/07 §1 ("pop the head").
+    /// ("pop the head").
     free_list: Vec<u64>,
     /// Lowest never-used slot index. Slots at `[next_fresh, capacity)` are
     /// guaranteed zeroed (sparse-file region).
@@ -61,14 +61,13 @@ pub enum AllocError {
 
     /// A slot popped from the free list has `OCCUPIED` set on disk. This
     /// shouldn't happen under normal use; surfaces as a loud error rather
-    /// than a silent skip (spec §05/07 §1: "check the slot's flags to
+    /// than a silent skip ("check the slot's flags to
     /// confirm it's still free").
     #[error("slot {idx} popped from free_list but is OCCUPIED — likely a bug elsewhere")]
     FreeListSlotOccupied { idx: u64 },
 
     /// Version saturated at `u32::MAX`; the slot is permanently retired
-    /// per spec §05/02 §8.
-    #[error("slot {idx} version saturated at u32::MAX; permanently retired per spec §05/02 §8")]
+    #[error("slot {idx} version saturated at u32::MAX; permanently retired")]
     SlotRetired { idx: u64 },
 }
 
@@ -93,7 +92,7 @@ impl SlotAllocator {
     }
 
     /// Rebuild the allocator state by scanning the arena's slot metadata
-    /// (spec §05/01 §10). O(capacity). Used on reopen and recovery.
+    /// O(capacity). Used on reopen and recovery.
     ///
     /// Two-pass classifier:
     ///
@@ -163,11 +162,11 @@ impl SlotAllocator {
     /// vector, setting `OCCUPIED`, clearing `PENDING_WRITE`, and refreshing
     /// the CRC.
     ///
-    /// Sets `PENDING_WRITE` on the slot before returning (spec §05/07 §48).
+    /// Sets `PENDING_WRITE` on the slot before returning.
     pub fn alloc(&mut self, arena: &mut ArenaFile) -> Result<(u64, SlotVersion), AllocError> {
         // 1. Pick a slot.
         let idx = if let Some(idx) = self.free_list.pop() {
-            // Spec §05/07 §1: re-verify the slot is still free.
+            // re-verify the slot is still free.
             if arena.slot(idx).is_occupied() {
                 return Err(AllocError::FreeListSlotOccupied { idx });
             }
@@ -183,14 +182,14 @@ impl SlotAllocator {
             });
         };
 
-        // 2. Compute the new version: current + 1 (spec §05/07 §56).
+        // 2. Compute the new version: current + 1.
         let current = arena.slot(idx).metadata.slot_version;
         let new_version = match current.checked_add(1) {
             Some(v) => v,
             None => return Err(AllocError::SlotRetired { idx }),
         };
 
-        // 3. Set PENDING_WRITE on disk (spec §05/07 §48). Encoder will clear
+        // 3. Set PENDING_WRITE on disk. Encoder will clear
         //    it (and set OCCUPIED) when the slot's data is fully written.
         let s = arena.slot_mut(idx);
         s.set_flag(flags::PENDING_WRITE, true);
@@ -239,7 +238,7 @@ impl SlotAllocator {
     ///
     /// # Panics
     /// Panics if `new_capacity < self.capacity` — the arena does not
-    /// shrink in v1 (spec §05/03 §8).
+    /// shrink in v1.
     pub fn on_capacity_grow(&mut self, new_capacity: u64) {
         assert!(
             new_capacity >= self.capacity,
@@ -391,7 +390,7 @@ mod tests {
         let (idx, ver) = alloc.alloc(&mut arena).unwrap();
         assert_eq!(idx, 0);
         assert_eq!(ver, 1);
-        // PENDING_WRITE set on the slot (spec §05/07 §48); OCCUPIED not yet.
+        // PENDING_WRITE set on the slot; OCCUPIED not yet.
         assert!(arena.slot(0).is_pending_write());
         assert!(!arena.slot(0).is_occupied());
         // On-disk version is *unchanged* — encoder writes it later.

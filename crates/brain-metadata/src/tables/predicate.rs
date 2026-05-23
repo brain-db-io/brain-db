@@ -1,17 +1,17 @@
 //! `predicates` table — interned predicate registry.
 //!
-//! See `spec/19_statements/00_purpose.md` (predicate vocabulary) and
+//! See `spec/02_data_model/00_purpose.md` (predicate vocabulary) and
 //! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
 //!
 //! Phase 15.1 declared the table with a minimal row. Phase 17.3 widens
-//! the row to match `spec/19_statements/00_purpose.md` §"Predicate
+//! the row to match `spec/02_data_model/00_purpose.md` §"Predicate
 //! vocabulary" — adds `kind_constraint`, `object_type_constraint_byte`,
 //! `schema_version`, and `description`, and adds a `predicates_by_qname`
 //! lookup index. Schema DSL (phase 19) populates user predicates at
 //! `SCHEMA_UPLOAD` time; phase 17.3 owns the built-ins.
 
 use crate::impl_redb_rkyv_value;
-use brain_core::knowledge::{Predicate, StatementKind};
+use brain_core::{Predicate, StatementKind};
 use brain_core::PredicateId;
 use redb::TableDefinition;
 

@@ -1,7 +1,7 @@
 //! `entity_types` table — user-declared entity types.
 //!
-//! See `spec/18_entities/00_purpose.md` (type system) and
-//! `spec/21_schema_dsl/00_purpose.md` (declaration syntax). The
+//! See `spec/02_data_model/00_purpose.md` (type system) and
+//! `spec/03_schema/00_purpose.md` (declaration syntax). The
 //! attribute schema is stored as an opaque `Vec<u8>` blob in 15.1; the
 //! typed AST lands in phase 19 (schema DSL).
 

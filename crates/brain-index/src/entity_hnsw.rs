@@ -8,7 +8,7 @@
 //! | Memory (existing) | 16 | 200 | 64 | 1024 |
 //! | Entity (this module) | 16 | **100** | 64 | **256** |
 //!
-//! Spec §18/02 "Entity embedding HNSW" — entity counts are typically
+//! "Entity embedding HNSW" — entity counts are typically
 //! 10–100× smaller than memory counts per shard, so the index is
 //! initialized smaller and its `ef_construction` is lower.
 //!
@@ -41,32 +41,32 @@ const OVER_FACTOR: usize = 2;
 // ---------------------------------------------------------------------------
 
 /// HNSW knobs for the entity index. Defaults from
-/// [`Self::default_v1`] match `spec/18_entities/02_storage.md`:
+/// [`Self::default_v1`] match `spec/02_data_model/02_storage.md`:
 /// `M=16, ef_construction=100, ef_search=64`, capacity hint 256.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityHnswParams {
-    /// Max edges per non-bottom-layer node. Spec §06/02 §1 range:
+    /// Max edges per non-bottom-layer node range:
     /// 4..=64. Same ranges as memory HNSW.
     pub m: usize,
-    /// Search width during insertion. Spec §06/02 §1 range: 50..=500.
+    /// Search width during insertion range: 50..=500.
     /// Entity HNSW uses 100 (lower than memory's 200) — entities are
     /// fewer per shard, the marginal gain of a wider construction
     /// search is small.
     pub ef_construction: usize,
-    /// Default search width per query. Spec §06/02 §1 range: 10..=500.
+    /// Default search width per query range: 10..=500.
     /// Per-query overrides are clamped to `[k, ef_search_max]`.
     pub ef_search: usize,
     /// Cap on per-query `ef_search` overrides.
     pub ef_search_max: usize,
     /// Initial `max_elements` hint to `hnsw_rs::Hnsw::new`. The crate
     /// uses this only to pre-size internal tables; it doesn't cap
-    /// insert count. Spec §18/02 says "typically 10K–100K entities
+    /// insert count says "typically 10K–100K entities
     /// per shard"; 256 is the small-test footprint.
     pub capacity_hint: usize,
 }
 
 impl EntityHnswParams {
-    /// Per spec §18/02. Differences vs memory HNSW are commented
+    /// Per. Differences vs memory HNSW are commented
     /// inline.
     #[must_use]
     pub const fn default_v1() -> Self {
@@ -79,7 +79,7 @@ impl EntityHnswParams {
         }
     }
 
-    /// Validate fields lie in the spec §06/02 ranges (entity HNSW
+    /// Validate fields lie in the ranges (entity HNSW
     /// inherits the same range envelope as memory HNSW).
     pub fn validate(&self) -> Result<(), IndexParamsError> {
         if !(4..=64).contains(&self.m) {
@@ -118,7 +118,7 @@ pub enum EntityHnswError {
     #[error("invalid params: {0}")]
     InvalidParams(#[from] IndexParamsError),
 
-    /// `entity_id` was already inserted. Spec §18/02 — duplicate
+    /// `entity_id` was already inserted — duplicate
     /// inserts are caller bugs; we detect rather than letting
     /// hnsw_rs silently overwrite the embedding.
     #[error("duplicate entity_id {0:?}")]
@@ -226,7 +226,7 @@ impl EntityHnswIndex {
 
     /// Variant of [`Self::search`] with an explicit `ef_search`
     /// override. Passing `None` uses [`EntityHnswParams::ef_search`];
-    /// `Some(v)` is clamped to `[k, ef_search_max]` per spec §06/02.
+    /// `Some(v)` is clamped to `[k, ef_search_max]`.
     pub fn search_with_ef(
         &self,
         query: &[f32; VECTOR_DIM],
@@ -396,10 +396,10 @@ mod tests {
     fn params_default_matches_spec() {
         let p = EntityHnswParams::default_v1();
         assert_eq!(p.m, 16);
-        assert_eq!(p.ef_construction, 100, "spec §18/02 — lower than memory");
+        assert_eq!(p.ef_construction, 100, "— lower than memory");
         assert_eq!(p.ef_search, 64);
         assert_eq!(p.ef_search_max, 500);
-        assert_eq!(p.capacity_hint, 256, "spec §18/02 — smaller than memory");
+        assert_eq!(p.capacity_hint, 256, "— smaller than memory");
     }
 
     #[test]

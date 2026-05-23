@@ -1,5 +1,5 @@
 //! SDK-level observability: tracing-span attributes + internal
-//! metric counters. Spec §13/07.
+//! metric counters.
 //!
 //! 10.7 ships the minimum that's useful for v1:
 //! - [`MetricsSnapshot`] — point-in-time copy of the

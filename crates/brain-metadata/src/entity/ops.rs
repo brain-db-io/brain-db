@@ -120,7 +120,7 @@ pub fn entity_lookup_by_canonical_name(
 
 /// Alias lookup. Returns every EntityId whose alias set contains
 /// `normalize_name(candidate)` under `type_id`. Multi-value index
-/// (spec §18/02 — "the same alias maps to entities of different
+/// (— "the same alias maps to entities of different
 /// types" plus within-type duplicates).
 pub fn entity_lookup_by_alias(
     rtxn: &ReadTransaction,

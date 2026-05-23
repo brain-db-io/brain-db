@@ -14,7 +14,7 @@
 use crate::errors::PluginResult;
 use crate::recall::RecallPlugin;
 use brain_core::AgentId;
-use brain_extractors::item::ExtractedItem;
+use brain_extractors::framework::item::ExtractedItem;
 
 /// Inputs handed to [`EnricherPlugin::enrich`].
 ///

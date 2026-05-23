@@ -43,7 +43,7 @@
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
-use brain_core::knowledge::SubjectRef;
+use brain_core::SubjectRef;
 use brain_core::{
     EdgeKindRef, EntityId, MemoryId, NodeRef, RelationId, RelationTypeId, StatementId,
 };

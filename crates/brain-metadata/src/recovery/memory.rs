@@ -170,7 +170,7 @@ impl MetadataDb {
 
             // Update memory: set HARD_FORGOTTEN flag + forgot_at. Capture
             // (agent, context, hash) for the matching FINGERPRINTS row so
-            // we can evict it in the same write txn (spec §07/07 §6.3 —
+            // we can evict it in the same write txn (—
             // the dedup index must never reference a forgotten memory).
             let dedup_key: Option<(brain_core::AgentId, brain_core::ContextId, [u8; 32])> = {
                 let mut t = wtxn.open_table(MEMORIES_TABLE).map_err(transient)?;

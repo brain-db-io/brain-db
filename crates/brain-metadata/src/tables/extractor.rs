@@ -1,6 +1,6 @@
 //! `extractors` table — interned extractor registry.
 //!
-//! Spec §22/00 (three-tier model) + §21/05 §1 (schema fan-out).
+//! (three-tier model) + §21/05 §1 (schema fan-out).
 //!
 //! Phase 15.1 declared a placeholder row. Phase 20.5 widens to the
 //! canonical pattern (namespace + name + qname index) matching

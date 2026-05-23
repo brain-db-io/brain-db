@@ -212,12 +212,6 @@ async fn run_one(
                 .await
                 .map(|r| (op, r))
         }
-        Command::Extract(sub) => {
-            let op = commands::extract::op_name(&sub).to_string();
-            commands::extract::run(client, session, sub)
-                .await
-                .map(|r| (op, r))
-        }
         Command::Config(_) | Command::Agent(_) => {
             // `\config …` / `\agent …` are handled by parse_meta; the
             // clap path only fires if someone typed the bare verbs
@@ -325,7 +319,6 @@ fn inherits_active_txn(cmd: &Command) -> bool {
         | Command::Statement(_)
         | Command::Relation(_)
         | Command::Mention(_)
-        | Command::Extract(_)
         | Command::Subscribe(_)
         | Command::Txn(_)
         | Command::Config(_)

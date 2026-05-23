@@ -39,7 +39,7 @@ trigger-files:                      # globs that auto-route this skill
   - crates/brain-storage/**/*.rs
 
 spec-refs:                          # spec sections this skill enforces
-  - spec/05_storage_arena_wal/02_arena_layout.md
+  - spec/08_storage/02_arena_layout.md
 
 license: MIT                        # only for vendored skills
 source: https://github.com/.../tree/<sha>/skills/<name>   # only for vendored

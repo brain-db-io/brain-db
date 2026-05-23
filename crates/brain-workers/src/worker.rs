@@ -1,5 +1,5 @@
 //! The `Worker` trait every background worker implements + the
-//! `drive_batch` helper that codifies spec §11/01 §5 / §6's
+//! `drive_batch` helper that codifies 's
 //! "bounded cycle with periodic yields" pattern.
 
 use std::future::Future;
@@ -10,12 +10,12 @@ use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;
 use crate::error::WorkerError;
 
-/// Yield to the runtime every N processed units, per spec §11/01 §6.
+/// Yield to the runtime every N processed units.
 /// At 50 units the scheduler stays responsive even when batch_size is
 /// in the thousands.
 const YIELD_EVERY: usize = 50;
 
-/// Spec §11/01 §1: each worker has a `run_cycle` the scheduler calls
+/// each worker has a `run_cycle` the scheduler calls
 /// on its interval, plus stable name + config accessors so the
 /// registry can index it.
 ///
@@ -37,7 +37,7 @@ pub trait Worker: 'static {
     /// processed — the scheduler adds it to `processed_total`.
     ///
     /// Implementations typically delegate to [`drive_batch`], which
-    /// honours the spec §11/01 §5 batch / runtime bounds and the
+    /// honours the batch / runtime bounds and the
     /// §11/01 §6 yield discipline. Workers with monolithic cycles
     /// (e.g., HNSW rebuild) may implement their own bounded body.
     fn run_cycle<'a>(
@@ -46,7 +46,7 @@ pub trait Worker: 'static {
     ) -> Pin<Box<dyn Future<Output = Result<usize, WorkerError>> + 'a>>;
 }
 
-/// Spec §11/01 §5: drive a stream of work-units, bounded by batch
+/// drive a stream of work-units, bounded by batch
 /// size, wall-clock time, and shutdown. Yields every
 /// `YIELD_EVERY` units (§11/01 §6).
 ///

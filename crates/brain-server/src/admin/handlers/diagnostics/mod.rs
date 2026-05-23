@@ -1,5 +1,5 @@
 //! Admin HTTP handlers for `profile` + `debug-snapshot`
-//! (spec §14/06 §9; sub-task 10.12).
+//! (sub-task 10.12).
 //!
 //! Routes:
 //! - `POST /v1/diagnostics/profile?shard=N[&duration_secs=D]` → 501.
@@ -30,7 +30,7 @@ mod tests {
 
     #[test]
     fn deferred_fields_match_plan() {
-        // Spec §14/06 §9 lists 5 fields; one (worker_statuses) is
+        // lists 5 fields; one (worker_statuses) is
         // populated, four remain deferred in v1.
         assert!(DEFERRED_FIELDS.contains(&"active_tasks"));
         assert!(DEFERRED_FIELDS.contains(&"pending_requests"));

@@ -5,7 +5,6 @@ use rkyv::{Archive, Deserialize, Serialize};
 use super::types::MemoryKindWire;
 use crate::request::{WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §07/7.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -16,7 +15,6 @@ pub struct SubscribeRequest {
     pub max_inflight: u32,
 }
 
-/// Spec §07/7.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -33,7 +31,6 @@ pub struct SubscriptionFilter {
     pub agents: Option<Vec<WireUuid>>,
 }
 
-/// Spec §07/7.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -42,7 +39,6 @@ pub struct SimilarityFilter {
     pub threshold: f32,
 }
 
-/// Spec §07/8.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

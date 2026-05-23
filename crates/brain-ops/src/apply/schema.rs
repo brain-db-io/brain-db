@@ -97,7 +97,7 @@ mod tests {
                 &wtxn,
                 "test",
                 "pat",
-                brain_core::knowledge::ExtractorKind::Pattern,
+                brain_core::ExtractorKind::Pattern,
                 1,
                 Vec::new(),
                 1_700_000_000_000,

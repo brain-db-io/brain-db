@@ -35,12 +35,12 @@
 //! v1 returns a uniform [`StatementHandle`] that callers branch on by
 //! [`StatementHandle::kind`].
 
-use brain_core::knowledge::{
+use brain_core::{
     EvidenceEntry, EvidenceRef, Statement, StatementObject, SubjectRef, TombstoneReason,
     INLINE_EVIDENCE_CAP,
 };
 use brain_core::{EntityId, MemoryId, StatementId, StatementKind};
-use brain_protocol::knowledge::{
+use brain_protocol::{
     evidence_ref_from_wire, statement_object_from_wire, EvidenceRefWire, StatementCreateRequest,
     StatementGetRequest, StatementHistoryRequest, StatementKindWire, StatementListRequest,
     StatementListResponseFrame, StatementObjectWire, StatementRetractRequest,
@@ -94,7 +94,7 @@ pub struct StatementHandle {
 impl StatementHandle {
     /// Build from the wire-side `StatementView`. Uses the same
     /// `WireToStatementError` mapping as
-    /// `brain_protocol::knowledge::statement_resp`.
+    /// `brain_protocol::statement_resp`.
     ///
     /// `to_statement` requires the predicate's `PredicateId` for full
     /// fidelity (so internal storage can refer by id); the SDK keeps
@@ -571,7 +571,7 @@ impl<'a> StatementsClient<'a> {
     }
 
     /// Walk the supersession chain anchored at `anchor`. Anchor may
-    /// be a chain root or any chain member per spec §19/01 §4.1.
+    /// be a chain root or any chain member.
     /// Returns the chain in version-ascending order; excludes
     /// tombstoned entries.
     pub async fn history(&self, anchor: StatementId) -> Result<Vec<StatementHandle>, ClientError> {
@@ -849,7 +849,7 @@ fn _imports_keepalive(
     _: SmallVec<[EvidenceEntry; INLINE_EVIDENCE_CAP]>,
     _: fn(&EvidenceRefWire) -> Result<EvidenceRef, WireToStatementError>,
     _: fn(&StatementObjectWire) -> StatementObject,
-    _: fn(brain_core::knowledge::StatementValue) -> StatementValueWire,
+    _: fn(brain_core::StatementValue) -> StatementValueWire,
     _: Statement,
 ) {
     let _ = evidence_ref_from_wire;

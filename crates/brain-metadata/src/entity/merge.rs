@@ -1,9 +1,9 @@
 //! Entity merge / unmerge mechanics. Sub-task 16.7.2.
 //!
-//! Implements `merge_entity` per `spec/18_entities/03_merge.md` §5
+//! Implements `merge_entity` per `spec/02_data_model/03_merge.md` §5
 //! (phase-scoped — §5 steps 8-9 statement/relation re-routing are
 //! deferred to phases 17/18) and `unmerge_entity` per
-//! `spec/18_entities/04_unmerge.md` §4.
+//! `spec/02_data_model/04_unmerge.md` §4.
 //!
 //! Free functions over `WriteTransaction`, matching the
 //! `entity_ops` precedent so callers can compose multi-table writes
@@ -119,7 +119,7 @@ pub enum EntityMergeOpError {
 }
 
 /// Minimum confidence for a wire-initiated merge to apply.
-/// Per `spec/18_entities/03_merge.md` §4.
+/// Per `spec/02_data_model/03_merge.md` §4.
 pub const MIN_MERGE_CONFIDENCE: f32 = 0.7;
 
 /// Default grace window for unmerge — 7 days. Configurable per-call
@@ -131,7 +131,7 @@ pub const DEFAULT_MERGE_GRACE_NANOS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
 // ---------------------------------------------------------------------------
 
 /// Merge `merged` into `survivor`. Phase-scoped per
-/// `spec/18_entities/03_merge.md` §0 — statement / relation re-routing
+/// `spec/02_data_model/03_merge.md` §0 — statement / relation re-routing
 /// is deferred to phases 17/18.
 ///
 /// Returns the freshly allocated `MergeId` for the audit row.
@@ -329,7 +329,7 @@ pub fn merge_entity(
 // ---------------------------------------------------------------------------
 
 /// Reverse a recent merge identified by the `merged` entity. Phase-
-/// scoped per `spec/18_entities/04_unmerge.md` §4 — statement /
+/// scoped per `spec/02_data_model/04_unmerge.md` §4 — statement /
 /// relation re-route restoration is deferred to phases 17/18.
 ///
 /// Returns the survivor's `EntityId` for caller convenience.

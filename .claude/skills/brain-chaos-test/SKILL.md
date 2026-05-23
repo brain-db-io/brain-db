@@ -8,9 +8,9 @@ when-to-use: |
     - Phase exit checklist for brain-storage
     - Investigating a durability incident
 spec-refs:
-  - spec/05_storage_arena_wal/08_recovery.md
-  - spec/16_benchmarks_acceptance/06_durability_criteria.md
-  - spec/05_storage_arena_wal/11_failure_modes.md
+  - spec/08_storage/08_recovery.md
+  - spec/20_benchmarks/06_durability_criteria.md
+  - spec/08_storage/11_failure_modes.md
 ---
 
 # Chaos Test Design

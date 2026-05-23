@@ -7,7 +7,7 @@
 //! Two facts re-shaped the test:
 //!
 //! 1. `brain-sdk-rust` is a placeholder; the real client SDK is a
-//!    Phase 13 effort (`spec/13_sdk_design/`). 9.17 drives the
+//!    Phase 13 effort (`spec/06_sdk/`). 9.17 drives the
 //!    server via the same hand-rolled frame helpers used by 9.10
 //!    / 9.11's wire tests.
 //! 2. The shard scaffold uses [`crate::shard::NopDispatcher`]
@@ -15,7 +15,7 @@
 //!    vectors is degenerate; RECALL returns memories essentially
 //!    at random. So *content-level* correctness — "RECALL returns
 //!    the memory I just encoded with relevance 0.95" — can't be
-//!    asserted on this path. Spec §16/01's content-correctness
+//!    asserted on this path's content-correctness
 //!    suite lives in the brain-ops / brain-planner crates with
 //!    proper fixtures.
 //!

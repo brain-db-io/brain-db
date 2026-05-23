@@ -1,4 +1,4 @@
-//! `brain-cli config {get,reload,set}` — spec §14/06 §7;
+//! `brain-cli config {get,reload,set}`;
 //! sub-task 10.11. Only `get` is backed today.
 
 pub mod get;

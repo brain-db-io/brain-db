@@ -99,7 +99,7 @@ The default v1 → v2 expectation:
 
 ## Wire-protocol versioning
 
-Spec §03/02 §3 defines the HELLO/WELCOME handshake's version
+Spec §02/02 §3 defines the HELLO/WELCOME handshake's version
 negotiation. The substrate accepts a range of protocol versions;
 the SDK picks the highest mutually-supported. Versions are
 explicit in the wire (frame header → `protocol_version`).
@@ -111,7 +111,7 @@ PRs for breaking changes.
 ## Upgrade test matrix
 
 The Phase 13 acceptance gates include migration testing per spec
-§16/08 §11:
+§02/08 §11:
 
 - Load v1 data with v1 binary: works.
 - Load v1 data with v1.x binary (newer): works.

@@ -1,6 +1,6 @@
 //! `memories` table: per-memory metadata.
 //!
-//! See `spec/07_metadata_graph/03_memory_table.md`. Row layout per §1
+//! See `spec/10_metadata/03_memory_table.md`. Row layout per §1
 //! (~140 bytes/row), flags per §2.7, lifecycle per §10.
 //!
 //! ## Storage representation
@@ -15,7 +15,7 @@
 //! ## Deserialize-on-read, not zero-copy
 //!
 //! [`redb::Value::from_bytes`] returns an owned `MemoryMetadata`
-//! (full rkyv deserialize). Spec §07/02 §5 advertises rkyv's
+//! (full rkyv deserialize) advertises rkyv's
 //! "zero-copy" path — supplying a `&ArchivedMemoryMetadata` view into
 //! the redb-mmap'd page. We defer that until profiling identifies a
 //! hot read path; owned reads are simpler to reason about and test.
@@ -28,7 +28,7 @@ use redb::TableDefinition;
 // ---------------------------------------------------------------------------
 
 /// The `memories` table. Key is the `MemoryId`'s 16-byte big-endian wire
-/// form (per spec §02/03 §2.2); value is [`MemoryMetadata`].
+/// form; value is [`MemoryMetadata`].
 pub const MEMORIES_TABLE: TableDefinition<'static, [u8; 16], MemoryMetadata> =
     TableDefinition::new("memories");
 
@@ -98,7 +98,7 @@ pub fn agent_timeline_prefix_agent_time(
 }
 
 // ---------------------------------------------------------------------------
-// Flag bits (spec §07/03 §2.7).
+// Flag bits.
 // ---------------------------------------------------------------------------
 
 pub mod flags {
@@ -149,10 +149,10 @@ pub enum BadMemoryKind {
 // MemoryMetadata.
 // ---------------------------------------------------------------------------
 
-/// Per-memory metadata row. Spec §07/03 §1.
+/// Per-memory metadata row.
 ///
 /// Fields are mostly `pub` because callers do read-modify-write inside a
-/// redb transaction (spec §07/03 §4.1) — wrapping every field in a
+/// redb transaction — wrapping every field in a
 /// setter would add ceremony for no benefit. Typed wrappers for the
 /// brain-core types come via getter methods (`memory_id()`, etc.).
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
@@ -191,7 +191,7 @@ pub struct MemoryMetadata {
     pub edges_out_count: u32,
     pub edges_in_count: u32,
 
-    // -- Opt-in dedup index back-reference (spec §07/07 §6) --
+    // -- Opt-in dedup index back-reference --
     /// `Some(BLAKE3(text)[..32])` iff this row was written by an
     /// ENCODE with `deduplicate = true` — used by `do_forget` /
     /// slot reclamation to evict the matching `FINGERPRINTS` row
@@ -512,7 +512,7 @@ mod tests {
         assert!(t.get(&key).unwrap().is_none());
     }
 
-    // ----- Scan-with-filter (spec §07/03 §3.2's v1 path) -----------------
+    // ----- Scan-with-filter ('s v1 path) -----------------
 
     #[test]
     fn scan_filter_counts_by_agent_and_context() {

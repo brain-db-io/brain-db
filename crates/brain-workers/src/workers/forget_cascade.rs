@@ -7,12 +7,12 @@
 //! [`brain_metadata::cascade::cascade_forget_to_statements`] and
 //! [`brain_metadata::cascade::cascade_forget_to_edges`].
 //!
-//! Per spec §17/03 Rule 3 the cascade must, for every statement
+//! Per Rule 3 the cascade must, for every statement
 //! whose `evidence_inline` cites the forgotten memory:
 //!
 //! 1. Drop the forgotten memory from the evidence list.
 //! 2. Re-derive `confidence` via noisy-OR over the remaining evidence
-//!    (`brain_core::knowledge::aggregate_confidence`).
+//!    (`brain_core::aggregate_confidence`).
 //! 3. If the inline list becomes empty AND no overflow row exists AND
 //!    the recomputed confidence is below the cascade threshold,
 //!    tombstone the statement with reason `SourceMemoryForgotten`
@@ -226,7 +226,7 @@ impl Worker for ForgetCascadeWorker {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_core::knowledge::{
+    use brain_core::{
         Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
         StatementKind, StatementObject, StatementValue, SubjectRef,
     };
@@ -524,7 +524,7 @@ mod tests {
         assert_eq!(row.is_current, 0);
         assert_eq!(
             row.tombstone_reason,
-            brain_core::knowledge::TombstoneReason::SourceMemoryForgotten.as_u8()
+            brain_core::TombstoneReason::SourceMemoryForgotten.as_u8()
         );
     }
 

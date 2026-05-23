@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for the snapshot family (spec §14/06 §5;
+//! Admin HTTP handlers for the snapshot family (
 //! sub-task 10.9).
 //!
 //! Routes:

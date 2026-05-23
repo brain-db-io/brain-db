@@ -291,7 +291,7 @@ Tombstoned memories are *always* excluded
 (`crates/brain-index/src/hnsw.rs:257`):
 
 ```rust
-// Implicit tombstone filter (spec §06/05 §2).
+// Implicit tombstone filter (spec §05/05 §2).
 if self.tombstones.is_set(internal_id) { continue; }
 ```
 

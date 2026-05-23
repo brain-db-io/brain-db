@@ -1,12 +1,12 @@
 //! `model_fingerprints` table: per-shard registry of seen embedding-model
 //! fingerprints.
 //!
-//! See `spec/04_embedding_layer/07_fingerprinting.md` §8 (table shape +
-//! purpose) and `spec/07_metadata_graph/02_table_layout.md` §1 row 10.
+//! See `spec/07_embedding/07_fingerprinting.md` §8 (table shape +
+//! purpose) and `spec/10_metadata/02_table_layout.md` §1 row 10.
 //!
 //! ## Why fingerprint
 //!
-//! Spec §04/07 §1: vectors from different models live in different
+//! vectors from different models live in different
 //! geometric spaces; comparing across them is noise. The substrate
 //! tags every memory with the 16-byte fingerprint of the model that
 //! produced its vector (a truncated BLAKE3 over the model's
@@ -27,25 +27,25 @@
 //!
 //! ## What does NOT live here
 //!
-//! - **Auto-registration on first-seen fingerprint** (spec §04/07 §5)
+//! - **Auto-registration on first-seen fingerprint**
 //!   — wire layer composes ENCODE → insert-if-absent. Phase 4.
-//! - **`ADMIN_REGISTER_MODEL` opcode** (spec §04/07 §11) — Phase 9.
+//! - **`ADMIN_REGISTER_MODEL` opcode** — Phase 9.
 //! - **`memory_count_at_fingerprint` maintenance** — Phase 8 worker
 //!   reconciles by scanning `memories`.
 
 use redb::TableDefinition;
 
 /// The `model_fingerprints` table. Key is the 16-byte fingerprint
-/// (spec §04/07 §2: `ModelFingerprint = [u8; 16]`, a BLAKE3 truncation
+/// (`ModelFingerprint = [u8; 16]`, a BLAKE3 truncation
 /// over the model's config/tokenizer/weights + substrate-specific
 /// fields like `vector_dim` and `normalize`).
 pub const MODEL_FINGERPRINTS_TABLE: TableDefinition<'static, [u8; 16], ModelInfo> =
     TableDefinition::new("model_fingerprints");
 
-/// Per-fingerprint metadata row. Spec §04/07 §8.
+/// Per-fingerprint metadata row.
 ///
 /// - `model_name` — human-readable label (e.g., `"bge-small-en-v1.5"`).
-///   Spec §04/07 §14: this is *content-addressed* via the fingerprint;
+///   this is *content-addressed* via the fingerprint;
 ///   the name is for human convenience (logs, ADMIN_STATS).
 /// - `seen_at_unix_nanos` — when the substrate first inserted this row.
 ///   Spec field is `seen_at`; we follow the established 3.x convention

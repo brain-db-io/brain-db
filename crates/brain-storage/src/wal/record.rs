@@ -1,6 +1,6 @@
 //! WAL record framing.
 //!
-//! On-disk layout per `spec/05_storage_arena_wal/05_wal_records.md`:
+//! On-disk layout per `spec/08_storage/05_wal_records.md`:
 //!
 //! ```text
 //! header (32 bytes, all little-endian):
@@ -58,13 +58,13 @@ impl fmt::Display for Lsn {
     }
 }
 
-/// Header size in bytes (spec §05/05 §2).
+/// Header size in bytes.
 pub const HEADER_LEN: usize = 32;
 
-/// Footer size in bytes (spec §05/05 §2).
+/// Footer size in bytes.
 pub const FOOTER_LEN: usize = 8;
 
-/// Maximum payload size (spec §05/05 §19: default 16 MiB).
+/// Maximum payload size (default 16 MiB).
 pub const MAX_PAYLOAD: u32 = 16 * 1024 * 1024;
 
 /// In-memory representation of one WAL record.
@@ -245,7 +245,7 @@ pub enum DecodeOutcome {
 
 /// Validation failures that are *not* truncation.
 ///
-/// Per spec §05/05 §18, recovery may collapse these into "truncate here". We
+/// Per, recovery may collapse these into "truncate here". We
 /// keep them distinct at this layer so callers (`WalReader`, recovery, audit
 /// tooling) can decide policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]

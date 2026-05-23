@@ -1,4 +1,4 @@
-//! Planner-side context. Pure data — no async, no I/O. Spec §08/01 §4
+//! Planner-side context. Pure data — no async, no I/O
 //! says the planner has access to:
 //!
 //! - The request itself (passed as an argument, not here).
@@ -8,7 +8,7 @@
 //!   the wiring.
 //!
 //! The planner does **not** have access to the storage layer
-//! (spec §08/01 §9 — "planning is computation only; no I/O"). The
+//! (— "planning is computation only; no I/O"). The
 //! executor's context (lives in `executor.rs` when 6.7 lands) holds
 //! the storage handles separately.
 

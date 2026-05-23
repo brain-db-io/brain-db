@@ -1,7 +1,7 @@
 //! Brain-side tantivy analyzer (phase 22.2).
 //!
 //! Implements the pipeline defined in
-//! `spec/23_retrievers/02_lexical_retriever.md` §3:
+//! `spec/13_retrievers/02_lexical_retriever.md` §3:
 //!
 //! 1. Unicode NFC normalisation.
 //! 2. Lowercase (Unicode-aware).

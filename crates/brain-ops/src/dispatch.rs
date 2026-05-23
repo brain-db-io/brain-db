@@ -1,5 +1,5 @@
 //! Top-level dispatch. Routes a wire `RequestBody` to its handler
-//! and returns a wire `ResponseBody`. Spec §09/01 §1: each operation
+//! and returns a wire `ResponseBody`: each operation
 //! is a request-response interaction (or streaming for SUBSCRIBE).
 //!
 //! The `match req { … }` is exhaustive over `RequestBody`'s variants.
@@ -264,7 +264,7 @@ pub async fn dispatch(
         }
 
         // -----------------------------------------------------------
-        // Knowledge layer — Phase 16+ (spec §28/00).
+        // Knowledge layer — Phase 16+.
         // -----------------------------------------------------------
         RequestBody::EntityCreate(r) => crate::handlers::entity::handle_entity_create(r, ctx)
             .await
@@ -302,7 +302,7 @@ pub async fn dispatch(
             .await
             .map(ResponseBody::EntityTombstone),
 
-        // Statement ops — phase 17.7. Spec §28/06.
+        // Statement ops — phase 17.7.
         RequestBody::StatementCreate(r) => {
             crate::handlers::statement::handle_statement_create(r, ctx)
                 .await
@@ -335,7 +335,7 @@ pub async fn dispatch(
             .await
             .map(ResponseBody::StatementList),
 
-        // Relation ops — phase 18.7. Spec §28/07.
+        // Relation ops — phase 18.7.
         RequestBody::RelationCreate(r) => crate::handlers::relation::handle_relation_create(r, ctx)
             .await
             .map(ResponseBody::RelationCreate),
@@ -368,7 +368,7 @@ pub async fn dispatch(
                 .map(ResponseBody::RelationTraverse)
         }
 
-        // Schema ops — phase 19.6. Spec §28/05.
+        // Schema ops — phase 19.6.
         RequestBody::SchemaUpload(r) => crate::handlers::schema::handle_schema_upload(r, ctx)
             .await
             .map(ResponseBody::SchemaUpload),
@@ -382,7 +382,7 @@ pub async fn dispatch(
             .await
             .map(ResponseBody::SchemaValidate),
 
-        // Extractor governance ops — phase 20.8. Spec §28/05 §6-§7.
+        // Extractor governance ops — phase 20.8-§7.
         RequestBody::ExtractorList(r) => {
             crate::handlers::extractor_admin::handle_extractor_list(r, ctx)
                 .await
@@ -399,7 +399,7 @@ pub async fn dispatch(
                 .map(ResponseBody::ExtractorEnable)
         }
 
-        // Hybrid query ops — phase 23.9. Spec §24 + §28/04.
+        // Hybrid query ops — phase 23.9.
         RequestBody::Query(r) => crate::query::handle_query(r, ctx)
             .await
             .map(ResponseBody::Query),
@@ -541,7 +541,7 @@ fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_protocol::knowledge::{SchemaGetRequest, SchemaListRequest};
+    use brain_protocol::{SchemaGetRequest, SchemaListRequest};
     use brain_protocol::requests::cognitive::EncodeRequest;
     use brain_protocol::requests::types::MemoryKindWire;
 

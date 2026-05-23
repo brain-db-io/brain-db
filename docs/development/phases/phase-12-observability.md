@@ -2,7 +2,7 @@
 
 ## Goal
 
-Make every part of Brain visible. Spec §14 mandates a specific metrics
+Make every part of Brain visible. Spec §10 mandates a specific metrics
 taxonomy, log schema, tracing spans, dashboards, and alert rules; this
 phase implements the lot. Benchmarks, chaos tests, and the v1.0.0
 acceptance gate are split out to Phase 13 and Phase 14 so this phase
@@ -15,17 +15,17 @@ stays tight enough to land in one push.
 
 ## Reading list
 
-1. [`spec/14_observability_ops/01_metrics.md`](../../spec/14_observability_ops/01_metrics.md) — the full `brain_*` taxonomy.
-2. [`spec/14_observability_ops/02_logs.md`](../../spec/14_observability_ops/02_logs.md) — JSON log schema.
-3. [`spec/14_observability_ops/03_tracing.md`](../../spec/14_observability_ops/03_tracing.md) — OTel span model.
-4. [`spec/14_observability_ops/04_dashboards.md`](../../spec/14_observability_ops/04_dashboards.md) — the 8 reference Grafana dashboards.
-5. [`spec/14_observability_ops/05_alerts.md`](../../spec/14_observability_ops/05_alerts.md) — alert rules.
-6. [`spec/14_observability_ops/07_runbooks.md`](../../spec/14_observability_ops/07_runbooks.md) — runbooks (validated in Phase 14).
+1. [`spec/17_observability/01_signals.md`](../../spec/17_observability/01_signals.md) — the full `brain_*` taxonomy.
+2. [`spec/17_observability/01_signals.md`](../../spec/17_observability/01_signals.md) — JSON log schema.
+3. [`spec/17_observability/01_signals.md`](../../spec/17_observability/01_signals.md) — OTel span model.
+4. [`spec/17_observability/02_dashboards.md`](../../spec/17_observability/02_dashboards.md) — the 8 reference Grafana dashboards.
+5. [`spec/17_observability/03_alerts.md`](../../spec/17_observability/03_alerts.md) — alert rules.
+6. [`spec/17_observability/05_runbooks.md`](../../spec/17_observability/05_runbooks.md) — runbooks (validated in Phase 14).
 
 ## Outputs
 
 - Full `brain_*` Prometheus metrics taxonomy (~50 families) emitted on `/metrics`.
-- Structured JSON logs (`tracing-subscriber` JSON layer) matching spec §14/02.
+- Structured JSON logs (`tracing-subscriber` JSON layer) matching spec §02/02.
 - OpenTelemetry tracing with OTLP exporter; spans cover the request lifecycle through the Tokio↔Glommio boundary.
 - Reference Grafana dashboards in `monitoring/dashboards/` (8 JSON files).
 - Alertmanager rules in `monitoring/alerts/brain-rules.yml`.
@@ -43,7 +43,7 @@ stays tight enough to land in one push.
 ## Sub-tasks
 
 ### Task 12.1 — Full metrics taxonomy
-**Reads:** `spec/14_observability_ops/01_metrics.md`
+**Reads:** `spec/17_observability/01_signals.md`
 **Writes:** `crates/brain-server/src/metrics/` (Counter / Gauge / Histogram primitives, registry, exposition); per-crate emission points (`brain-embed`, `brain-index`).
 **Done when:** every in-scope metric family from the plan emits on `/metrics` in valid Prometheus text format; integration tests assert the body shape; deferred families documented with `phase-12/<slug>` markers.
 
@@ -55,22 +55,22 @@ Status: **12.1a + 12.1b + 12.1c shipped.** In-scope families now live on `/metri
 Deferred (each has a `phase-12/<slug>` marker in `crates/brain-server/src/metrics/mod.rs`): connection-extended frame counters / size histogram; storage `_wal_size_bytes` / `_metadata_size_bytes` (needs a storage-stat API); HNSW node / tombstone counts (needs `SharedHnsw` getter); embedder calls / cache / queue / duration (needs hooks); Glommio executor latency.
 
 ### Task 12.2 — Structured JSON logs
-**Reads:** `spec/14_observability_ops/02_logs.md`
+**Reads:** `spec/17_observability/01_signals.md`
 **Writes:** `tracing-subscriber` JSON layer wired in `brain-server/src/main.rs`; log macro audit across crates to ensure the schema fields (level, timestamp, target, request_id, agent_id, shard_id, message) are populated.
 **Done when:** every server log line is a single valid JSON object; level configurable via `BRAIN_LOG=...`; an integration test exercises a request path and asserts the JSON shape.
 
 ### Task 12.3 — OpenTelemetry tracing
-**Reads:** `spec/14_observability_ops/03_tracing.md`
+**Reads:** `spec/17_observability/01_signals.md`
 **Writes:** `crates/brain-server/src/tracing/` (init + OTLP exporter setup); span attribution at the connection layer and shard dispatch boundary; brain-http's `connection_span` / `request_span` hooks promoted to load-bearing.
 **Done when:** OTLP spans for a request lifecycle (connection → frame decode → shard dispatch → operation → frame encode) flow to a collector under integration test; trace context propagates from the SDK's `RequestId`.
 
 ### Task 12.4 — Reference Grafana dashboards
-**Reads:** `spec/14_observability_ops/04_dashboards.md`
+**Reads:** `spec/17_observability/02_dashboards.md`
 **Writes:** `monitoring/dashboards/{overview,per-shard,storage,hnsw,workers,network,errors,capacity}.json`.
 **Done when:** all 8 dashboards import into Grafana 11.x and render real data when pointed at a running server with synthetic load.
 
 ### Task 12.5 — Alertmanager rules
-**Reads:** `spec/14_observability_ops/05_alerts.md`
+**Reads:** `spec/17_observability/03_alerts.md`
 **Writes:** `monitoring/alerts/brain-rules.yml` (Prometheus rule format).
 **Done when:** every alert in spec §05 has a corresponding rule; `promtool check rules` is clean; each rule's labels match the metric families emitted in 12.1.
 

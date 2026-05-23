@@ -67,17 +67,16 @@ pub async fn handle_forget(
 
     // Peek MEMORIES_TABLE: distinguish MemoryNotFound /
     // AlreadyTombstoned / Tombstoned. apply_tombstone_memory returns
-    // NotFound for missing rows; legacy wire semantic treats that as
-    // a successful no-op with was_already_forgotten=true. So we
-    // branch pre-submit rather than swallowing the apply error.
+    // NotFound for missing rows; the wire contract treats a missing
+    // memory as a successful no-op with was_already_forgotten=true. So
+    // we branch pre-submit rather than swallowing the apply error.
     let outcome = peek_forget_outcome(ctx, memory_id)?;
     let was_already_forgotten = matches!(
         outcome,
         ForgetOutcome::AlreadyTombstoned | ForgetOutcome::MemoryNotFound
     );
 
-    // Drop the lexical-index row when we'll actually tombstone.
-    // Matches the legacy gate.
+    // Drop the lexical-index row only when we'll actually tombstone.
     if matches!(outcome, ForgetOutcome::Tombstoned) {
         if let Some(dispatcher) = ctx.memory_text_dispatcher.as_ref() {
             dispatcher

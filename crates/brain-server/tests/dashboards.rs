@@ -1,4 +1,4 @@
-//! CI gate for `monitoring/dashboards/*.json` per spec §14/04 §15.
+//! CI gate for `monitoring/dashboards/*.json`.
 //!
 //! Verifies each dashboard:
 //! - Parses as valid JSON.
@@ -13,7 +13,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-/// All dashboards Brain ships per spec §14/04 §1.
+/// All dashboards Brain ships.
 const EXPECTED_DASHBOARDS: &[&str] = &[
     "overview",
     "per-shard",
@@ -45,7 +45,7 @@ fn every_dashboard_is_present() {
         let path = dir.join(format!("{name}.json"));
         assert!(
             path.exists(),
-            "missing dashboard file: {} — spec §14/04 §1 lists 8 dashboards",
+            "missing dashboard file: {} — lists 8 dashboards",
             path.display()
         );
     }

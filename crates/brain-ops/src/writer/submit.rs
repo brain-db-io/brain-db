@@ -296,8 +296,7 @@ impl RealWriterHandle {
 
         // 3. HNSW side effects (P3d). Run before the redb wtxn opens
         // so the wtxn lifetime stays minimal and a HNSW failure
-        // abandons the encode before any metadata commits — same
-        // ordering as the legacy do_encode path.
+        // abandons the encode before any metadata commits.
         if let Err(e) = execute_hnsw_side_effects(self, &write) {
             record_phase_outcomes(&metrics, &write, SubmitOutcome::Err, start.elapsed());
             return Err(e);
@@ -676,9 +675,9 @@ async fn wal_append_for_write(
 }
 
 /// P3d: HNSW writes per phase. Runs after WAL append and before the
-/// redb wtxn opens — matches the legacy `do_encode` ordering. A HNSW
-/// failure here aborts the write before any metadata commits; the
-/// WAL record stays and recovery's replay will retry on next start.
+/// redb wtxn opens. A HNSW failure here aborts the write before any
+/// metadata commits; the WAL record stays and recovery's replay will
+/// retry on next start.
 ///
 /// Phases this handles:
 /// - `UpsertMemory`     → HNSW insert
@@ -689,8 +688,7 @@ async fn wal_append_for_write(
 ///
 /// Note: the arena is NOT written in the live path — arena bytes are
 /// populated only by WAL recovery on shard restart, then HNSW serves
-/// vectors from its own in-memory storage. Matches the legacy
-/// architecture.
+/// vectors from its own in-memory storage.
 fn execute_hnsw_side_effects(writer: &RealWriterHandle, write: &Write) -> Result<(), WriterError> {
     for phase in write.phases.iter() {
         match phase {
@@ -1398,7 +1396,7 @@ mod tests {
     #[tokio::test]
     async fn mixed_mapped_and_unmapped_phases_wal_only_the_mapped() {
         use crate::writer::wal_sink::RecordingWalSink;
-        use brain_core::knowledge::EntityId;
+        use brain_core::EntityId;
         use brain_storage::wal::kinds::WalRecordKind;
 
         let (_dir, mut writer) = build_writer();
@@ -1469,7 +1467,7 @@ mod tests {
     #[tokio::test]
     async fn all_unmapped_phases_no_wal_records() {
         use crate::writer::wal_sink::RecordingWalSink;
-        use brain_core::knowledge::EntityId;
+        use brain_core::EntityId;
 
         let (_dir, mut writer) = build_writer();
         let sink = Arc::new(RecordingWalSink::new());

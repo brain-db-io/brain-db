@@ -6,7 +6,7 @@ use rkyv::{Archive, Deserialize, Serialize};
 
 use crate::error::{ErrorCategory, ErrorCode};
 
-/// Spec §08 §4 — `PlanResponseFrame::TransitionKind`.
+/// — `PlanResponseFrame::TransitionKind`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -22,17 +22,17 @@ pub enum TransitionKind {
 // enum to the substrate response field. Lives here so the
 // substrate response module stays free of knowledge-namespace
 // imports beyond this single conversion.
-impl From<crate::knowledge::RetrieverWire> for RetrieverNameWire {
-    fn from(w: crate::knowledge::RetrieverWire) -> Self {
+impl From<crate::requests::RetrieverWire> for RetrieverNameWire {
+    fn from(w: crate::requests::RetrieverWire) -> Self {
         match w {
-            crate::knowledge::RetrieverWire::Semantic => Self::Semantic,
-            crate::knowledge::RetrieverWire::Lexical => Self::Lexical,
-            crate::knowledge::RetrieverWire::Graph => Self::Graph,
+            crate::requests::RetrieverWire::Semantic => Self::Semantic,
+            crate::requests::RetrieverWire::Lexical => Self::Lexical,
+            crate::requests::RetrieverWire::Graph => Self::Graph,
         }
     }
 }
 
-/// Spec §28/08 §5 — names the retriever family that surfaced a
+/// — names the retriever family that surfaced a
 /// memory in a `MemoryResult`. Populated when the substrate
 /// `RECALL_REQ` routes through the hybrid query engine
 /// (schema-declared deployments).
@@ -51,7 +51,7 @@ pub enum RetrieverNameWire {
     Graph = 2,
 }
 
-/// Spec §08 §4 — `PlanResponseFrame::PlanStatus` (set on the final frame
+/// — `PlanResponseFrame::PlanStatus` (set on the final frame
 /// only).
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
@@ -64,7 +64,7 @@ pub enum PlanStatus {
     Cancelled = 3,
 }
 
-/// Spec §08 §5 — `ReasonResponseFrame::InferenceKind`.
+/// — `ReasonResponseFrame::InferenceKind`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -75,7 +75,7 @@ pub enum InferenceKind {
     Other(String),
 }
 
-/// Spec §08 §5 — `ReasonResponseFrame::ReasonStatus`.
+/// — `ReasonResponseFrame::ReasonStatus`.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -87,7 +87,7 @@ pub enum ReasonStatus {
     Cancelled = 3,
 }
 
-/// Spec §03/08 §7 — `SubscriptionEvent::EventType`.
+/// — `SubscriptionEvent::EventType`.
 ///
 /// Phase 16.7 extended this enum with the 14 knowledge-layer event
 /// variants ([`Self::EntityCreated`] through [`Self::SchemaUpdated`]).
@@ -242,7 +242,7 @@ pub enum StageAuditStatus {
     Skipped = 3,
 }
 
-/// Spec §08 §18 — `IntegrityIssue::IntegrityIssueType`.
+/// — `IntegrityIssue::IntegrityIssueType`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -255,7 +255,7 @@ pub enum IntegrityIssueType {
     Other(String),
 }
 
-/// Spec §08 §19 — `AdminMigrateEmbeddingsResponseFrame::MigrationStatus`.
+/// — `AdminMigrateEmbeddingsResponseFrame::MigrationStatus`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, Eq, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

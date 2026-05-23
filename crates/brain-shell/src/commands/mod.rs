@@ -4,7 +4,6 @@
 
 pub mod encode;
 pub mod entity;
-pub mod extract;
 pub mod forget;
 pub mod info;
 pub mod link;

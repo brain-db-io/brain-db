@@ -1,17 +1,16 @@
 //! # brain-llm
 //!
-//! LLM transport clients (Anthropic, OpenAI) for Brain's LLM
-//! extractor tier. Spec §22/09.
+//! LLM transport clients for Brain's LLM extractor tier and supersession
+//! judge.
 //!
-//! Phase 21.1 + 21.2 land:
-//! - `LlmClient` trait (object-safe, returns boxed future).
-//! - `LlmRequest` / `LlmResponse` / `LlmError`.
-//! - `AnthropicClient` (api.anthropic.com Messages API).
-//! - `OpenAIClient` (api.openai.com Chat Completions, with
-//!   structured-output mode for schema-validated requests).
-//! - `ModelRouter` with both providers wired.
+//! ## Module map
 //!
-//! Phase 21.3 wires the LLM extractor in brain-extractors.
+//! - [`types`] — provider-agnostic `LlmMessage` / `LlmRequest` /
+//!   `LlmResponse` / `LlmRole` / `SystemBlock`.
+//! - [`client`] — `LlmClient` trait + `LlmFuture`.
+//! - [`error`] — `LlmError` taxonomy.
+//! - [`router`] — `ModelRouter` + `Provider` (maps model id → provider).
+//! - [`providers`] — concrete impls (`AnthropicClient`, `OpenAIClient`).
 
 #![allow(
     clippy::module_name_repetitions,
@@ -20,16 +19,14 @@
 )]
 #![forbid(unsafe_code)]
 
-pub mod anthropic;
 pub mod client;
 pub mod error;
-pub mod openai;
+pub mod providers;
 pub mod router;
 pub mod types;
 
-pub use anthropic::AnthropicClient;
 pub use client::LlmClient;
 pub use error::LlmError;
-pub use openai::OpenAIClient;
+pub use providers::{AnthropicClient, OpenAIClient};
 pub use router::{ModelRouter, Provider};
 pub use types::{LlmMessage, LlmRequest, LlmResponse, LlmRole};

@@ -1,24 +1,24 @@
-//! Slot reclamation worker (sub-task 8.7). Spec §11/06.
+//! Slot reclamation worker (sub-task 8.7).
 //!
 //! Scans for memories whose `tombstoned_at_unix_nanos + grace_period`
 //! is past, and reclaims them: delete the MEMORIES row + adjacent
-//! edges. Spec §8 — one wtxn per memory keeps lock duration small.
+//! edges — one wtxn per memory keeps lock duration small.
 //!
 //! ## v1 deviations (documented)
 //!
-//! - **No arena / free-list push.** Spec §3 step 6 wants the slot id
+//! - **No arena / free-list push.** step 6 wants the slot id
 //!   pushed back onto the arena free list. v1 has no arena and never
 //!   reuses slots (each ENCODE mints a fresh slot from a monotonic
 //!   counter), so the push is a no-op until Phase 9.
 //! - **No SLOT_VERSIONS table / version bump.** v1 doesn't reuse
-//!   slots, so the version bump (spec §4) has no observable effect.
+//!   slots, so the version bump has no observable effect.
 //!   `MemoryId` already encodes the version, and stale references
 //!   already mismatch via the existing slot-version field.
-//! - **Adjacent edges only.** Spec §6: we delete `EDGES_OUT` where
+//! - **Adjacent edges only.**: we delete `EDGES_OUT` where
 //!   `source = id` and `EDGES_IN` where `target = id`. Other-direction
 //!   dangling edges (`EDGES_OUT` where `target = id`) survive — the
 //!   edge-scrub worker (sub-task 8.9) cleans those up.
-//! - **No HNSW node deletion.** Spec §7 — the HNSW node referencing
+//! - **No HNSW node deletion.** — the HNSW node referencing
 //!   the reclaimed slot is left for the maintenance worker (8.5) to
 //!   rebuild away.
 
@@ -37,7 +37,7 @@ use crate::context::WorkerContext;
 use crate::error::WorkerError;
 use crate::worker::Worker;
 
-/// Spec §14 — default 7-day FORGET grace window. Configurable per
+/// — default 7-day FORGET grace window. Configurable per
 /// worker via [`SlotReclamationWorker::with_grace_period`].
 pub const DEFAULT_FORGET_GRACE: Duration = Duration::from_secs(7 * 24 * 3600);
 
@@ -147,7 +147,7 @@ async fn do_reclaim_cycle(
         return Ok(0);
     }
 
-    // ── Reclaim phase: one wtxn per memory (spec §8). ────────────
+    // ── Reclaim phase: one wtxn per memory. ────────────
     let mut reclaimed = 0usize;
     for id in candidates {
         if started.elapsed() >= cfg.max_runtime {
@@ -220,7 +220,7 @@ fn reclaim_one(
 }
 
 /// Remove all rows from `EDGES_OUT` keyed by `(id, *, *)` and from
-/// `EDGES_IN` keyed by `(id, *, *)`. Spec §6 — "adjacent" edges only;
+/// `EDGES_IN` keyed by `(id, *, *)` — "adjacent" edges only;
 /// dangling edges from other memories pointing to `id` are left for
 /// the edge-scrub worker.
 fn purge_adjacent_edges(wtxn: &redb::WriteTransaction, id: MemoryId) -> Result<(), WorkerError> {

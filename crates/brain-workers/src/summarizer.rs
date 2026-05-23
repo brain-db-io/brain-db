@@ -1,9 +1,9 @@
-//! Summarizer seam for the consolidation worker. Spec §11/03 §6.
+//! Summarizer seam for the consolidation worker.
 //!
 //! Brain doesn't bundle an LLM; production deployments inject a
 //! `Summarizer` impl that calls their LLM service. The default
 //! [`DisabledSummarizer`] makes the consolidation worker a no-op,
-//! matching spec §6 / §16: "For deployments without an LLM,
+//! matching: "For deployments without an LLM,
 //! consolidation is disabled."
 
 use std::future::Future;
@@ -13,7 +13,7 @@ use thiserror::Error;
 
 #[derive(Debug, Error)]
 pub enum SummarizerError {
-    /// Spec §16: no LLM configured. The consolidation worker treats
+    /// no LLM configured. The consolidation worker treats
     /// this as the "disabled" state and produces zero consolidations
     /// per cycle.
     #[error("summarizer disabled")]
@@ -36,7 +36,7 @@ pub trait Summarizer: Send + Sync + 'static {
 }
 
 /// The substrate-default summarizer. Always returns
-/// `SummarizerError::Disabled`. Spec §16: consolidation is a no-op
+/// `SummarizerError::Disabled`: consolidation is a no-op
 /// until an LLM-backed impl is injected.
 pub struct DisabledSummarizer;
 

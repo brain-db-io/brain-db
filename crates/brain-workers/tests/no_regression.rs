@@ -2,7 +2,7 @@
 //! Phase 8 no-regression smoke gate (sub-task 8.14).
 //!
 //! Goal: catch a worker implementation that catastrophically starves
-//! the foreground request path. Not the spec §16/02 acceptance
+//! the foreground request path. Not the acceptance
 //! bench — that runs against 16-core x86_64 hardware on 1M memories
 //! for 10 minutes, and lives in Phase 9. Here we just compare a
 //! workers-off baseline to a workers-on run and assert the
@@ -240,7 +240,7 @@ fn register_all_workers(sched: &mut WorkerScheduler, ctx: Arc<OpsContext>) {
             ctx.clone(),
         )
         .unwrap();
-    // Snapshot defaults disabled (spec §6.2); flip it on for this
+    // Snapshot defaults disabled (2); flip it on for this
     // stress test.
     sched
         .register(

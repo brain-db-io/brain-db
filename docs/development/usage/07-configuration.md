@@ -3,7 +3,7 @@
 Full reference for `config/dev.toml`. The same schema applies to
 production configs at any path passed via `--config`.
 
-The authoritative spec is in `spec/01_system_architecture/`. For
+The authoritative spec is in `spec/01_architecture/`. For
 production sizing recommendations, see
 [`docs/guides/configure.md`](../guides/configure.md).
 
@@ -71,12 +71,12 @@ The file size matches `arena_capacity_bytes`.
 
 ```toml
 [hnsw]
-m = 16                  # max edges per node (spec §06/02)
+m = 16                  # max edges per node (spec §05/02)
 ef_construction = 200   # candidate list during index build
 ef_search = 64          # candidate list during recall
 ```
 
-Spec §06/02 documents why these defaults; tuning trade-offs are:
+Spec §05/02 documents why these defaults; tuning trade-offs are:
 
 - Higher `m` → better recall, more memory per node.
 - Higher `ef_construction` → better recall, slower writes.
@@ -133,7 +133,7 @@ embedder_cache_eviction_interval_sec = 86400
 snapshot_interval_sec              = 86400
 ```
 
-A value of `0` disables the worker. Spec §11/03 documents what
+A value of `0` disables the worker. Spec §02/03 documents what
 each worker does.
 
 **Verify:**

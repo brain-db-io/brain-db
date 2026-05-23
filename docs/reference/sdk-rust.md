@@ -9,7 +9,7 @@ For task-oriented walk-throughs see
 see [`wire-protocol/`](wire-protocol/).
 
 **Source:** `crates/brain-sdk-rust/src/`. **Spec:** §13 (substrate
-SDK), §29 (knowledge SDK).
+SDK), §13 (knowledge SDK).
 
 ## Runtime + transport
 
@@ -95,7 +95,7 @@ println!("new memory: {:?}", resp.memory_id);
 Returns `EncodeResponse { memory_id, was_deduplicated, salience, auto_edges_added, … }`.
 
 `.deduplicate(true)` opts in to the per-shard fingerprint index
-(spec §07/07 §6): on a content match within the same
+(spec §02/07 §6): on a content match within the same
 `(agent_id, context_id)`, the existing `MemoryId` is returned and
 `was_deduplicated = true`. Default `false` — sibling encodes of
 identical text produce distinct memories. See
@@ -154,7 +154,7 @@ let resp = client.forget(memory_id)
 ```
 
 v1 ships single-id form. Batch + filter variants follow in
-later releases (spec §13/02 §7).
+later releases (spec §06/02 §7).
 
 ### `link` / `unlink`
 
@@ -286,7 +286,7 @@ mechanisms, in order from cheapest to most active:
 | Layer | What it catches | Mechanism | Detection budget |
 |---|---|---|---|
 | **1. Kernel TCP keepalive** (`SO_KEEPALIVE` + `TCP_KEEPIDLE/INTVL/CNT`) | Half-broken peers: NAT timeout, route loss, server power-cut without FIN | Set on every socket in `Connection::open`. Linux: idle 30 s, interval 10 s, retries 3 → ~60 s. macOS / Windows: same idle + interval, OS-default retries (~80 s). | ~60 s |
-| **2. App-level CLIENT_PONG** (spec §03/02 §6.1) | Server's idle-close cycle. Server emits `SERVER_PING` after `idle_timeout` (300 s default); without a `CLIENT_PONG` within `ping_timeout` (30 s), it closes the connection. | `IdleConnection` background tokio task auto-responds to every `SERVER_PING` with a `CLIENT_PONG` that echoes the server timestamp. Pool connections survive arbitrary idle. | Instant (responds within ms of receiving the ping) |
+| **2. App-level CLIENT_PONG** (spec §02/02 §6.1) | Server's idle-close cycle. Server emits `SERVER_PING` after `idle_timeout` (300 s default); without a `CLIENT_PONG` within `ping_timeout` (30 s), it closes the connection. | `IdleConnection` background tokio task auto-responds to every `SERVER_PING` with a `CLIENT_PONG` that echoes the server timestamp. Pool connections survive arbitrary idle. | Instant (responds within ms of receiving the ping) |
 | **3. Pool slot discard** | Connection that died for any reason despite layers 1–2 (rare) | `PoolGuard::mark_failed()` on `Io`/`Closed`/`Protocol`. `Drop` transitions slot → `Closed` instead of recycling. | Op-time |
 | **4. Retry policy** | Recovery surface for layer 3 | `RetryConfig` default: 3 attempts, exponential backoff. Same `request_id` reused — server's 24 h idempotency cache makes writes safe to retry. | Up to ~600 ms |
 
@@ -299,7 +299,7 @@ This catches up to the design space that **gRPC** ([gRPC keepalive
 guide](https://grpc.io/docs/guides/keepalive/)) and **NATS** ([NATS
 PING/PONG](https://docs.nats.io/using-nats/developer/connecting/pingpong))
 settled on: app-level PING/PONG layered over kernel keepalive. Brain
-spec §03/02 §6.1 has always called for it; the SDK now honors it.
+spec §02/02 §6.1 has always called for it; the SDK now honors it.
 
 ### Deferred (not in v1)
 
@@ -390,5 +390,5 @@ moving anything that's already public.
 - [`wire-protocol/`](wire-protocol/) — what the SDK speaks.
 - [`cognitive-operations/`](cognitive-operations/) — semantics of each verb.
 
-**Spec:** §13 (substrate SDK), §29 (knowledge SDK). **Source:**
+**Spec:** §13 (substrate SDK), §13 (knowledge SDK). **Source:**
 `crates/brain-sdk-rust/src/`.

@@ -1,16 +1,16 @@
 //! `agents` table: per-agent metadata.
 //!
-//! See `spec/07_metadata_graph/02_table_layout.md` §12 (table shape) and
-//! `spec/02_data_model/03_identifiers.md` §3 (AgentId definition).
+//! See `spec/10_metadata/02_table_layout.md` §12 (table shape) and
+//! `spec/02_data_model/02_memory.md` §3 (AgentId definition).
 //!
 //! ## Minimal v1 shape
 //!
-//! Spec §07/02 §12 lists five concept areas: AgentId, display name,
+//! lists five concept areas: AgentId, display name,
 //! created_at, stats (memory/context counts), and configuration
 //! overrides. v1 stores the load-bearing fields and defers
 //! "configuration overrides" — typical workloads don't use it, and
 //! adding an `Option<config>` later is the field-addition path covered
-//! by spec §02/09 §2.
+//! by.
 
 use brain_core::AgentId;
 use redb::TableDefinition;
@@ -20,7 +20,7 @@ use redb::TableDefinition;
 pub const AGENTS_TABLE: TableDefinition<'static, [u8; 16], AgentMetadata> =
     TableDefinition::new("agents");
 
-/// Per-agent metadata row. Spec §07/02 §12.
+/// Per-agent metadata row.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct AgentMetadata {

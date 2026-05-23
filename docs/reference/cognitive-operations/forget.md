@@ -5,7 +5,7 @@ and zero physical data after a grace period (default 7 days);
 hard forgets zero immediately for compliance use cases.
 
 **Opcode:** `ForgetReq = 0x0024` / `ForgetResp = 0x00A4`.
-**Spec:** §09/06. **Source:** `crates/brain-ops/src/ops/forget.rs`.
+**Spec:** §05/06. **Source:** `crates/brain-ops/src/ops/forget.rs`.
 
 ## Request fields
 
@@ -80,7 +80,7 @@ already-forgotten memory is a no-op.
 
 ## Performance target
 
-Spec §16/02 §7:
+Spec §02/02 §7:
 
 | Workload | p50 | p99 |
 |---|---|---|
@@ -106,4 +106,4 @@ extracted from it** by default. Use the knowledge-layer
 - [`../../runbooks/mass-forget.md`](../../runbooks/mass-forget.md) — operating runbook for bulk forgets.
 - [`../../architecture/03-arena-and-wal.md`](../../architecture/03-arena-and-wal.md) — slot lifecycle.
 
-**Spec:** §09/06.
+**Spec:** §05/06.

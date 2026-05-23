@@ -1,6 +1,6 @@
 //! `ClientError` — the SDK's unified error type.
 //!
-//! Mirrors the spec §13/02 §13 enum sketch. Variants present in
+//! Mirrors the enum sketch. Variants present in
 //! 10.1 cover the failure surface a connecting client can hit;
 //! later sub-tasks may add `Overloaded`, `Timeout`, etc. without
 //! breaking callers (the enum is `#[non_exhaustive]`).
@@ -45,7 +45,7 @@ pub enum ClientError {
 
     /// The pool is at `max_connections`, no connection was freed
     /// within `acquire_timeout`, and the request couldn't be
-    /// served. Distinct from a server-side overload (spec §13/03
+    /// served. Distinct from a server-side overload (
     /// §13).
     #[error("client overloaded: {detail}")]
     Overloaded {
@@ -70,13 +70,13 @@ pub enum ClientError {
     /// [`code`]: ClientError::code
     #[error("server error ({code}): {message}")]
     Server {
-        /// Wire error code from spec §03/10.
+        /// Wire error code from.
         code: u16,
         /// Human-readable detail from the server.
         message: String,
     },
 
-    /// Spec §13/04 §10 — the retry loop gave up after exhausting
+    /// — the retry loop gave up after exhausting
     /// `max_attempts` (or `total_timeout`). Carries the most
     /// recent underlying error for diagnostics.
     #[error("retry exhausted after {attempts} attempt(s) in {total_duration:?}: {last_error}")]
@@ -91,7 +91,7 @@ pub enum ClientError {
 }
 
 impl ClientError {
-    /// Return the spec §03/10 error code for variants that carry
+    /// Return the error code for variants that carry
     /// one. Returns `None` for client-side failures (Connect, Io,
     /// Closed) that don't map to a wire code.
     #[must_use]
@@ -105,7 +105,7 @@ impl ClientError {
 
     /// Whether retrying the same request is safe.
     ///
-    /// Per spec §13/04 §3, retryable failures are: `Overloaded`,
+    /// Per, retryable failures are: `Overloaded`,
     /// transient network errors. 10.2 adds `Overloaded`; 10.3
     /// refines this with the full mapping.
     #[must_use]

@@ -14,8 +14,8 @@ trigger-files:
   - crates/brain-ops/**/*.rs
   - crates/brain-workers/**/*.rs
 spec-refs:
-  - spec/01_system_architecture/04_layers.md
-  - spec/01_system_architecture/05_hardware.md
+  - spec/01_architecture/04_layers.md
+  - spec/01_architecture/05_hardware_and_targets.md
 ---
 
 # Glommio Shard Rules

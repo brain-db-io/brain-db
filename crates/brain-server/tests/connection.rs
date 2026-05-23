@@ -134,7 +134,7 @@ async fn bind_and_accept_succeeds() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ping_works_pre_handshake_and_keeps_connection_alive() {
-    // PING is a stream_id=0 control frame; spec §03/06 doesn't gate it
+    // PING is a stream_id=0 control frame doesn't gate it
     // behind AUTH_OK. The frame dispatcher (9.10) replies with PONG and
     // resets the idle timer. After the reply, the connection stays
     // open — the handshake-deadline timer kicks in eventually, but

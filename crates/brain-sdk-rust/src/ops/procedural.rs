@@ -4,7 +4,7 @@
 //! a fully-rendered system block ready for LLM-prompt injection.
 
 use brain_core::{AgentId, ContextId, RequestId};
-use brain_protocol::knowledge::{MaterializeProceduralRequest, MaterializeProceduralResponse};
+use brain_protocol::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 use brain_protocol::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 

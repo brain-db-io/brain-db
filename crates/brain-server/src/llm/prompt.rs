@@ -1,4 +1,4 @@
-//! Spec §11/03 §7 — default consolidation prompt builder.
+//! — default consolidation prompt builder.
 //!
 //! Both adapters share the same prompt today. Operators wanting
 //! a custom prompt set `cfg.summarizer.prompt_template` (a v2

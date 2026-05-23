@@ -1,5 +1,5 @@
-//! LLM-tier startup wiring for the per-shard executor. Spec §22/09
-//! §2 (provider routing) + spec §15.4 / §26 (per-shard
+//! LLM-tier startup wiring for the per-shard executor
+//! §2 (provider routing) +.4 / §26 (per-shard
 //! `llm_cache.redb`).
 //!
 //! Phase 21.5 builds the `MaterializeDeps` slots that 21.4 left
@@ -17,7 +17,7 @@
 //!
 //! ## Why one client per provider in v1
 //!
-//! Spec §22/09 §2 routes by **prefix only**: the operator's
+//! routes by **prefix only**: the operator's
 //! `model:` schema field selects the provider, not the wire
 //! model. The wire model is whichever model the server-side
 //! client was constructed for. Per-extractor model selection +

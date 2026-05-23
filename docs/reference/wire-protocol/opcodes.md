@@ -4,7 +4,7 @@ Complete enumeration. Encoded as `u16` big-endian in the frame
 header (bytes 5–6). High byte = namespace, low byte = op index.
 
 **Source:** `crates/brain-protocol/src/opcode.rs`.
-**Spec:** §03/05 (substrate), §28 (knowledge layer).
+**Spec:** §02/05 (substrate), §03 (knowledge layer).
 
 ## Direction encoding
 
@@ -226,4 +226,4 @@ Active when a schema has been declared via `SchemaUploadReq`.
 - [`error-codes.md`](error-codes.md) — what an `Error(0x00FF)` payload looks like.
 - [`../cognitive-operations/`](../cognitive-operations/) — semantics of substrate ops.
 
-**Spec:** §03/05 (substrate), §28 (knowledge wire protocol). **Source:** `crates/brain-protocol/src/opcode.rs`.
+**Spec:** §02/05 (substrate), §03 (knowledge wire protocol). **Source:** `crates/brain-protocol/src/opcode.rs`.

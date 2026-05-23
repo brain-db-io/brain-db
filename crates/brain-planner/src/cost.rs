@@ -1,19 +1,19 @@
 //! Cost model. Pure functions; no I/O, no state. Consumed by
 //! 6.3–6.6's planners.
 //!
-//! See `spec/08_query_planner/07_cost_estimation.md` for the
+//! See `spec/12_query_optimizer/07_cost_estimation.md` for the
 //! authoritative coefficients and formulas. Highlights:
 //!
 //! - Time is the only cost unit we track (§1). Memory / disk-I/O are
 //!   mentioned in the spec but never used by the planner; we ignore.
 //! - Coefficients live as crate-private `const f32` values pinned to
 //!   the spec's §2 table.
-//! - `pick_ef` and `over_factor` are spec §03 §4-§5 + §07 §4.
+//! - `pick_ef` and `over_factor` are -§5 + §07 §4.
 //! - `check_budget` raises [`PlanError::QueryTooExpensive`] above
 //!   `ctx.config.cost_budget_ms`; logs `tracing::warn!` above the
-//!   hardcoded `BUDGET_WARN_MS = 100` per spec §07 §5.
+//!   hardcoded `BUDGET_WARN_MS = 100`.
 //!
-//! Spec §07 §15: this is **intentionally** a hand-tuned heuristic —
+//! this is **intentionally** a hand-tuned heuristic —
 //! no calibration, no probing, no ML. If a coefficient is wrong, fix
 //! the constant; the formulas don't change.
 
@@ -22,7 +22,7 @@ use crate::error::PlanError;
 use crate::plan::FilterRule;
 
 // ---------------------------------------------------------------------------
-// Per-op coefficients (spec §08/07 §2 table). All in milliseconds.
+// Per-op coefficients (table). All in milliseconds.
 // ---------------------------------------------------------------------------
 
 pub(crate) const EMBED_CACHE_HIT_MS: f32 = 0.005;
@@ -41,7 +41,7 @@ pub(crate) const HNSW_INSERT_MS: f32 = 1.25;
 #[allow(dead_code)]
 pub(crate) const NETWORK_INTRA_SHARD_MS: f32 = 0.1;
 
-// Encode phase coefficients from spec §04 §16's latency table.
+// Encode phase coefficients from 's latency table.
 pub(crate) const ENCODE_IDEMPOTENCY_MS: f32 = 0.0075; // 5–10 µs mid
 pub(crate) const ENCODE_CONTEXT_RESOLVE_MS: f32 = 0.005;
 pub(crate) const ENCODE_SLOT_ALLOC_MS: f32 = 0.001;
@@ -49,11 +49,11 @@ pub(crate) const ENCODE_METADATA_WRITE_MS: f32 = 0.5;
 pub(crate) const ENCODE_PER_EDGE_MS: f32 = 0.05;
 pub(crate) const ENCODE_RESPONSE_MS: f32 = 0.05;
 
-// Cross-shard overhead (spec §08/07 §8).
+// Cross-shard overhead.
 pub(crate) const CROSS_SHARD_MERGE_MS: f32 = 0.05;
 pub(crate) const CROSS_SHARD_PER_SHARD_SERIALISATION_MS: f32 = 0.1;
 
-// Budget thresholds (spec §08/07 §5).
+// Budget thresholds.
 /// Above this, the planner logs a `tracing::warn!`.
 pub(crate) const BUDGET_WARN_MS: f32 = 100.0;
 
@@ -74,7 +74,7 @@ pub fn embedding_cost(cache_hit: bool) -> f32 {
     }
 }
 
-/// Spec §08/07 §3: `0.05 + ef * log2(n) * 0.001`.
+/// `0.05 + ef * log2(n) * 0.001`.
 ///
 /// `n <= 1` short-circuits to `0.0` for the log term — `log2(0)` is
 /// undefined and `log2(1) = 0`, so either reading yields the baseline.
@@ -118,7 +118,6 @@ pub fn hnsw_insert_cost() -> f32 {
     HNSW_INSERT_MS
 }
 
-/// Spec §08/07 §8.
 #[must_use]
 pub fn cross_shard_overhead(n_shards: usize) -> f32 {
     #[allow(clippy::cast_precision_loss)]
@@ -130,7 +129,7 @@ pub fn cross_shard_overhead(n_shards: usize) -> f32 {
 // Selectivity + ef picking.
 // ---------------------------------------------------------------------------
 
-/// Hand-tuned per-rule heuristic. Spec §08/07 §15 explicitly prefers
+/// Hand-tuned per-rule heuristic explicitly prefers
 /// "simple rules that have been hand-tuned" over calibration.
 ///
 /// Each rule maps to a per-rule selectivity factor; the product is the
@@ -166,7 +165,7 @@ fn per_rule_selectivity(rule: &FilterRule) -> f32 {
     }
 }
 
-/// Spec §08/03 §5: `(1.0 / selectivity).max(1.0).min(8.0)`.
+/// `(1.0 / selectivity).max(1.0).min(8.0)`.
 ///
 /// Defensively clamps `selectivity` to `[SELECTIVITY_FLOOR, 1.0]`
 /// before dividing — `selectivity = 0.0` would otherwise produce
@@ -177,7 +176,7 @@ pub fn over_factor(selectivity: f32) -> f32 {
     (1.0 / s).clamp(1.0, 8.0)
 }
 
-/// Spec §08/07 §4 + §08/03 §4. Picks `ef` for an HNSW search given
+/// Picks `ef` for an HNSW search given
 /// the request's `k`, the estimated filter selectivity, and the
 /// shard's runtime stats.
 ///
@@ -231,7 +230,7 @@ pub fn pick_ef(k: usize, selectivity: f32, ctx: &PlannerContext) -> usize {
 // Per-request totals.
 // ---------------------------------------------------------------------------
 
-/// Spec §08/07 §3, in full.
+/// in full.
 ///
 /// `selectivity = 1.0` means "no filter" (or all-pass); the filter
 /// post-cost branch is skipped.
@@ -256,7 +255,7 @@ pub fn cost_recall(k: usize, selectivity: f32, cache_hit: bool, ctx: &PlannerCon
     }
     if selectivity < 1.0 {
         // Post-filter cost: a metadata fetch per candidate to evaluate
-        // the rule (spec §07 §3 last branch).
+        // the rule (last branch).
         #[allow(clippy::cast_precision_loss)]
         {
             ms += (candidates as f32) * metadata_point_lookup_cost();
@@ -265,7 +264,7 @@ pub fn cost_recall(k: usize, selectivity: f32, cache_hit: bool, ctx: &PlannerCon
     ms
 }
 
-/// Sum of phase costs from spec §08/04 §16.
+/// Sum of phase costs from.
 #[must_use]
 pub fn cost_encode(cache_hit: bool, edge_count: usize) -> f32 {
     #[allow(clippy::cast_precision_loss)]
@@ -296,7 +295,7 @@ pub fn cost_forget(hard: bool) -> f32 {
 }
 
 /// PLAN cost: two embeddings + two RECALLs + bidirectional traversal.
-/// Spec §08/05 §11 cites 30-100 ms for typical inputs (max_depth=4).
+/// cites 30-100 ms for typical inputs (max_depth=4).
 #[must_use]
 pub fn cost_path(max_depth: usize, max_branches: usize, ctx: &PlannerContext) -> f32 {
     let embed = 2.0 * embedding_cost(false);
@@ -307,7 +306,7 @@ pub fn cost_path(max_depth: usize, max_branches: usize, ctx: &PlannerContext) ->
 }
 
 /// REASON cost: one embedding + base RECALL + two parallel traversals
-/// (supports + contradicts). Spec §08/05 §11 cites 30-50 ms.
+/// (supports + contradicts) cites 30-50 ms.
 #[must_use]
 pub fn cost_reason(depth: usize, max_inferences: usize, ctx: &PlannerContext) -> f32 {
     let embed = embedding_cost(false);
@@ -321,7 +320,7 @@ pub fn cost_reason(depth: usize, max_inferences: usize, ctx: &PlannerContext) ->
 // Budget + fast path.
 // ---------------------------------------------------------------------------
 
-/// Spec §08/07 §5. Above `ctx.config.cost_budget_ms` → hard error;
+/// Above `ctx.config.cost_budget_ms` → hard error;
 /// above `BUDGET_WARN_MS` (100) → `tracing::warn!`.
 pub fn check_budget(estimated_cost_ms: f32, ctx: &PlannerContext) -> Result<(), PlanError> {
     let budget = ctx.config.cost_budget_ms;
@@ -342,7 +341,7 @@ pub fn check_budget(estimated_cost_ms: f32, ctx: &PlannerContext) -> Result<(), 
     Ok(())
 }
 
-/// Spec §08/07 §9 — fast-path predicate. Inputs are unpacked from the
+/// — fast-path predicate. Inputs are unpacked from the
 /// wire `RecallRequest` by 6.3; this function stays free of wire
 /// types.
 #[must_use]
@@ -371,7 +370,7 @@ mod tests {
 
     #[test]
     fn coefficients_match_spec_ranges() {
-        // Spec §07 §2 ranges; we pick mid-points where ranges exist.
+        // ranges; we pick mid-points where ranges exist.
         const _CACHE_HIT_BELOW_HUNDREDTH: () = assert!(EMBED_CACHE_HIT_MS < 0.01);
         assert!((5.0..=10.0).contains(&EMBED_CACHE_MISS_MS));
         assert!((0.5..=2.0).contains(&HNSW_INSERT_MS));
@@ -384,7 +383,7 @@ mod tests {
 
     #[test]
     fn ann_search_cost_at_1m_ef64_in_spec_range() {
-        // Spec §07 §2: "HNSW search (1M, ef=64): 1-2 ms".
+        // "HNSW search (1M, ef=64): 1-2 ms".
         let ms = ann_search_cost(1_000_000, 64);
         assert!(
             (1.0..=2.0).contains(&ms),
@@ -394,7 +393,7 @@ mod tests {
 
     #[test]
     fn ann_search_cost_at_10m_ef64_in_spec_range() {
-        // Spec §07 §2: "HNSW search (10M, ef=64): 3-5 ms" — formula gives ~1.5 ms.
+        // "HNSW search (10M, ef=64): 3-5 ms" — formula gives ~1.5 ms.
         // The formula doesn't perfectly match the spec table at 10M
         // because the table includes constant overhead at scale. Our
         // §07 §11 accuracy budget is ±20% for simple queries, but ±50%
@@ -445,7 +444,7 @@ mod tests {
     #[test]
     fn pick_ef_grows_with_k_above_50() {
         let c = ctx_default();
-        // K=100 ⇒ ef ≥ 400 per spec §03 §4.
+        // K=100 ⇒ ef ≥ 400.
         assert!(pick_ef(100, 1.0, &c) >= 400);
     }
 
@@ -515,13 +514,13 @@ mod tests {
 
     #[test]
     fn cost_recall_at_defaults_under_15ms() {
-        // Spec §00 §4 latency budget says total RECALL ~10-15 ms.
+        // latency budget says total RECALL ~10-15 ms.
         // The planner sees only embed + ann + meta lookups; minimum
         // is roughly 7.5 + 1.5 + 0.05 ≈ 9 ms at cache miss.
         let c = ctx_with_stats(1_000_000, 0.0);
         let ms = cost_recall(10, 1.0, /* cache_hit */ false, &c);
         assert!(ms > 1.0, "{ms} should be above the cache-hit floor");
-        assert!(ms < 15.0, "{ms} should fit the spec §00 §4 budget");
+        assert!(ms < 15.0, "{ms} should fit the budget");
     }
 
     #[test]
@@ -538,7 +537,7 @@ mod tests {
 
     #[test]
     fn cost_encode_matches_spec_table() {
-        // Spec §04 §16: total cache-miss encode ≈ 7-13 ms.
+        // total cache-miss encode ≈ 7-13 ms.
         let ms = cost_encode(false, /* edges */ 0);
         assert!(
             (7.0..=13.0).contains(&ms),

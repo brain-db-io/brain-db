@@ -1,11 +1,11 @@
-//! Schema migration types (sub-task 24.8). Spec §27/04 §5.
+//! Schema migration types (sub-task 24.8).
 //!
 //! Pure value types shared across the SCHEMA_UPLOAD response,
 //! brain-workers' migration worker, and operator-facing CLIs.
 
 use uuid::Uuid;
 
-use crate::knowledge::ExtractorId;
+use crate::ids::ExtractorId;
 use crate::MemoryId;
 
 /// UUIDv7 identifier for a single schema-migration request.
@@ -29,7 +29,7 @@ impl Default for MigrationId {
     }
 }
 
-/// Why a migration item exists. Spec §27/04 §5.1.
+/// Why a migration item exists.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MigrationReason {
     ExtractorVersionBump,

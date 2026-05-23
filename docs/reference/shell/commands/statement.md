@@ -7,8 +7,8 @@ entities. The verb covers `list` and `show`.
 **Knowledge layer prerequisite.** Statements exist only when a schema
 is declared via `SCHEMA_UPLOAD`. On substrate-only deployments these
 subcommands return empty rows or `not found`. The three statement
-kinds live in [`spec/17_knowledge_model/02_three_statement_kinds.md`](../../../../spec/17_knowledge_model/02_three_statement_kinds.md);
-their storage shape is in [`spec/19_statements/03_storage.md`](../../../../spec/19_statements/03_storage.md).
+kinds live in [`spec/02_data_model/02_three_statement_kinds.md`](../../../../spec/02_data_model/02_three_statement_kinds.md);
+their storage shape is in [`spec/02_data_model/03_storage.md`](../../../../spec/02_data_model/03_storage.md).
 
 ---
 
@@ -221,4 +221,4 @@ just thinner than the final card.
 - [`mention.md`](mention.md) — evidence memories
 - [`extract.md`](extract.md) — the pipeline that wrote these statements
 - [`../output-formats.md`](../output-formats.md) — table + JSON
-- Spec: [`spec/17_knowledge_model/02_three_statement_kinds.md`](../../../../spec/17_knowledge_model/02_three_statement_kinds.md), [`spec/19_statements/`](../../../../spec/19_statements/)
+- Spec: [`spec/02_data_model/02_three_statement_kinds.md`](../../../../spec/02_data_model/02_three_statement_kinds.md), [`spec/02_data_model/`](../../../../spec/02_data_model/00_purpose.md)

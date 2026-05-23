@@ -1,4 +1,4 @@
-//! Worker runtime context. Spec §11/01 §2 + §11/00 §3 — the handle
+//! Worker runtime context — the handle
 //! bag every worker reads from while a cycle is in flight.
 //!
 //! After sub-task 9.7 (audit §6 + §8.2): shutdown is `Arc<AtomicBool>`

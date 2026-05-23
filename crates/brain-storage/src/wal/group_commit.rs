@@ -1,7 +1,7 @@
 //! Group commit: batches concurrent `WalRecord` appends into a single
 //! `write_at` + `fdatasync` (both io_uring) for amortized fsync cost.
 //!
-//! See `spec/05_storage_arena_wal/06_wal_durability.md`.
+//! See `spec/08_storage/06_wal_durability.md`.
 //!
 //! ## Architecture (sub-task 9.6a port)
 //!
@@ -46,10 +46,10 @@ use crate::wal::segment::WalSegment;
 #[derive(Debug, Clone, Copy)]
 pub struct GroupCommitConfig {
     /// Maximum time the committer waits for additional records once the
-    /// first record of a batch has arrived. Default: 100 µs (spec §06 §4).
+    /// first record of a batch has arrived. Default: 100 µs.
     pub commit_window: Duration,
     /// Buffer-size threshold that triggers an early flush. Default:
-    /// 60 KiB (spec §06 §4).
+    /// 60 KiB.
     pub max_batch_bytes: usize,
 }
 

@@ -1,8 +1,8 @@
-//! Counter reconciliation worker (sub-task 8.10). Spec §11/08 §2.
+//! Counter reconciliation worker (sub-task 8.10).
 //!
 //! Walks `MEMORIES_TABLE` and verifies each row's `edges_out_count` /
 //! `edges_in_count` against the live edge tables. Drift gets fixed.
-//! Spec §2.3 — drift is expected to be near-zero in normal operation;
+//! 3 — drift is expected to be near-zero in normal operation;
 //! a non-trivial rate indicates a bug worth investigating.
 //!
 //! v1 reconciles **only** per-memory edge counts. Other counters spec
@@ -29,7 +29,7 @@ use crate::worker::Worker;
 pub struct CounterReconcileWorker {
     config: WorkerConfig,
     /// Cursor across cycles. Walks `MEMORIES_TABLE` above this key.
-    /// `None` means start. Lost on restart per spec §11/00 §10.
+    /// `None` means start. Lost on restart.
     cursor: Mutex<Option<MemoryId>>,
 }
 

@@ -7,7 +7,7 @@
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use brain_core::knowledge::Entity;
+use brain_core::Entity;
 use brain_core::{EntityId, EntityType, EntityTypeId};
 use brain_embed::{Dispatcher, EmbedError};
 use brain_extractors::resolver::{
@@ -300,6 +300,6 @@ fn tier_create_populates_hnsw_for_next_paraphrase() {
 #[test]
 fn tier_embedding_threshold_constant_matches_spec() {
     // Regression guard: tightening the constant changes Recall@10
-    // behaviour materially. Pin the default at 0.78 per spec §18/01.
+    // behaviour materially. Pin the default at 0.78.
     assert!((EMBED_RESOLVE_THRESHOLD - 0.78).abs() < 1e-6);
 }

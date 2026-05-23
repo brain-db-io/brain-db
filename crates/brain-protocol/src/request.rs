@@ -1,6 +1,6 @@
 //! Request-frame payload codecs.
 //!
-//! One variant of [`RequestBody`] per server-bound opcode in spec §03/07.
+//! One variant of [`RequestBody`] per server-bound opcode in.
 //! Structured fields are encoded with [rkyv] 0.7; raw vector blobs (per
 //! `ENCODE_VECTOR_DIRECT_REQ` and `RECALL_REQ` with a pre-supplied cue
 //! vector) live in the trailing raw section of the payload and are
@@ -35,13 +35,13 @@ use crate::rkyv_codec::{from_rkyv_bytes, to_rkyv_bytes};
 // ---------------------------------------------------------------------------
 
 /// 16-byte UUID-shaped identifier (`AgentId`, `RequestId`, `TxnId`).
-/// Matches the on-the-wire byte layout described in spec §07.
+/// Matches the on-the-wire byte layout described in.
 pub type WireUuid = [u8; 16];
 
-/// Wire-side `ContextId` (spec §02/03 §4 + §8 — 8 bytes / `u64`).
+/// Wire-side `ContextId` (— 8 bytes / `u64`).
 pub type WireContextId = u64;
 
-/// Packed `MemoryId` per spec §02/03 §2.1 (shard 16 + slot 48 +
+/// Packed `MemoryId` (shard 16 + slot 48 +
 /// version 32 + reserved 32, all rolled into a `u128`).
 pub type WireMemoryId = u128;
 
@@ -50,15 +50,15 @@ pub type WireMemoryId = u128;
 // `brain_protocol::request::EncodeRequest` etc.
 pub use crate::requests::*;
 
-/// One variant per server-bound opcode in spec §03/07. The variant carries
+/// One variant per server-bound opcode in. The variant carries
 /// the rkyv-archivable structured payload; raw vector blobs (for opcodes
 /// that include them) are appended by the [`crate::Frame`] layer as the
 /// trailing raw section, not by this enum.
 #[derive(Clone, Debug, PartialEq)]
 pub enum RequestBody {
-    /// Spec §06 §2 — opening handshake frame (connection-level, stream 0).
+    /// — opening handshake frame (connection-level, stream 0).
     Hello(HelloPayload),
-    /// Spec §06 §4 — authentication frame following WELCOME.
+    /// — authentication frame following WELCOME.
     Auth(AuthPayload),
     Encode(EncodeRequest),
     Recall(RecallRequest),
@@ -87,58 +87,58 @@ pub enum RequestBody {
     AdminReclassify(AdminReclassifyRequest),
     AdminListTombstoned(AdminListTombstonedRequest),
 
-    // Knowledge namespace (spec §28/00). 16.6c landed CREATE/GET/UPDATE/
+    // Knowledge namespace. 16.6c landed CREATE/GET/UPDATE/
     // RENAME; 16.7 adds MERGE/UNMERGE/RESOLVE/LIST/TOMBSTONE. Statement /
     // relation / query / admin opcodes follow in phases 17-24.
-    EntityCreate(crate::knowledge::EntityCreateRequest),
-    EntityGet(crate::knowledge::EntityGetRequest),
-    EntityUpdate(crate::knowledge::EntityUpdateRequest),
-    EntityRename(crate::knowledge::EntityRenameRequest),
-    EntityMerge(crate::knowledge::EntityMergeRequest),
-    EntityUnmerge(crate::knowledge::EntityUnmergeRequest),
-    EntityResolve(crate::knowledge::EntityResolveRequest),
-    EntityList(crate::knowledge::EntityListRequest),
-    EntityTombstone(crate::knowledge::EntityTombstoneRequest),
+    EntityCreate(crate::requests::EntityCreateRequest),
+    EntityGet(crate::requests::EntityGetRequest),
+    EntityUpdate(crate::requests::EntityUpdateRequest),
+    EntityRename(crate::requests::EntityRenameRequest),
+    EntityMerge(crate::requests::EntityMergeRequest),
+    EntityUnmerge(crate::requests::EntityUnmergeRequest),
+    EntityResolve(crate::requests::EntityResolveRequest),
+    EntityList(crate::requests::EntityListRequest),
+    EntityTombstone(crate::requests::EntityTombstoneRequest),
 
-    // Statement ops (phase 17.6). Spec §28/06.
-    StatementCreate(crate::knowledge::StatementCreateRequest),
-    StatementGet(crate::knowledge::StatementGetRequest),
-    StatementSupersede(crate::knowledge::StatementSupersedeRequest),
-    StatementTombstone(crate::knowledge::StatementTombstoneRequest),
-    StatementRetract(crate::knowledge::StatementRetractRequest),
-    StatementHistory(crate::knowledge::StatementHistoryRequest),
-    StatementList(crate::knowledge::StatementListRequest),
+    // Statement ops (phase 17.6).
+    StatementCreate(crate::requests::StatementCreateRequest),
+    StatementGet(crate::requests::StatementGetRequest),
+    StatementSupersede(crate::requests::StatementSupersedeRequest),
+    StatementTombstone(crate::requests::StatementTombstoneRequest),
+    StatementRetract(crate::requests::StatementRetractRequest),
+    StatementHistory(crate::requests::StatementHistoryRequest),
+    StatementList(crate::requests::StatementListRequest),
 
-    // Relation ops (phase 18.6). Spec §28/07.
-    RelationCreate(crate::knowledge::RelationCreateRequest),
-    RelationGet(crate::knowledge::RelationGetRequest),
-    RelationSupersede(crate::knowledge::RelationSupersedeRequest),
-    RelationTombstone(crate::knowledge::RelationTombstoneRequest),
-    RelationListFrom(crate::knowledge::RelationListFromRequest),
-    RelationListTo(crate::knowledge::RelationListToRequest),
-    RelationTraverse(crate::knowledge::RelationTraverseRequest),
+    // Relation ops (phase 18.6).
+    RelationCreate(crate::requests::RelationCreateRequest),
+    RelationGet(crate::requests::RelationGetRequest),
+    RelationSupersede(crate::requests::RelationSupersedeRequest),
+    RelationTombstone(crate::requests::RelationTombstoneRequest),
+    RelationListFrom(crate::requests::RelationListFromRequest),
+    RelationListTo(crate::requests::RelationListToRequest),
+    RelationTraverse(crate::requests::RelationTraverseRequest),
 
-    // Schema ops (phase 19.6). Spec §28/05.
-    SchemaUpload(crate::knowledge::SchemaUploadRequest),
-    SchemaGet(crate::knowledge::SchemaGetRequest),
-    SchemaList(crate::knowledge::SchemaListRequest),
-    SchemaValidate(crate::knowledge::SchemaValidateRequest),
+    // Schema ops (phase 19.6).
+    SchemaUpload(crate::requests::SchemaUploadRequest),
+    SchemaGet(crate::requests::SchemaGetRequest),
+    SchemaList(crate::requests::SchemaListRequest),
+    SchemaValidate(crate::requests::SchemaValidateRequest),
 
-    // Extractor governance ops (phase 20.8). Spec §28/05 §6-§7.
-    ExtractorList(crate::knowledge::ExtractorListRequest),
-    ExtractorDisable(crate::knowledge::ExtractorDisableRequest),
-    ExtractorEnable(crate::knowledge::ExtractorEnableRequest),
+    // Extractor governance ops (phase 20.8)-§7.
+    ExtractorList(crate::requests::ExtractorListRequest),
+    ExtractorDisable(crate::requests::ExtractorDisableRequest),
+    ExtractorEnable(crate::requests::ExtractorEnableRequest),
 
-    // Hybrid query ops (phase 23.9). Spec §28/04 + §24.
-    Query(crate::knowledge::QueryRequest),
-    QueryExplain(crate::knowledge::QueryExplainRequest),
-    QueryTrace(crate::knowledge::QueryTraceRequest),
-    RecallHybrid(crate::knowledge::RecallHybridRequest),
+    // Hybrid query ops (phase 23.9).
+    Query(crate::requests::QueryRequest),
+    QueryExplain(crate::requests::QueryExplainRequest),
+    QueryTrace(crate::requests::QueryTraceRequest),
+    RecallHybrid(crate::requests::RecallHybridRequest),
 
     // Procedural-memory materialization (wire v2). Reads an agent's
     // stored `brain:behavior_*` Preferences and renders a system
     // block for LLM prompt injection.
-    MaterializeProcedural(crate::knowledge::MaterializeProceduralRequest),
+    MaterializeProcedural(crate::requests::MaterializeProceduralRequest),
 }
 
 impl RequestBody {

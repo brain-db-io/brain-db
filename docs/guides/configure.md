@@ -57,7 +57,7 @@ service_name  = "brain-server"
 | Org (~1M memories) | 4-8 | 4 GiB | 32 GiB |
 | Production at scale (~10M+) | 16+ | 10 GiB | 64+ GiB |
 
-Spec §16/04 §3-§4 documents the per-shard memory budget
+Spec §02/04 §3-§4 documents the per-shard memory budget
 (~500-1000 MB at 1M memories). Plan for 1.5-2× headroom.
 
 ## Auth modes
@@ -114,7 +114,7 @@ embedder_cache_eviction_interval_sec = 86400
 snapshot_interval_sec              = 86400
 ```
 
-A value of `0` disables the worker. Spec §11/03 documents what
+A value of `0` disables the worker. Spec §02/03 documents what
 each worker does.
 
 ## Env overrides

@@ -7,7 +7,7 @@ use super::types::{
 };
 use crate::request::{EdgeKindWire, MemoryKindWire, WireContextId, WireMemoryId, WireUuid};
 
-/// Spec §08 §1 `ENCODE_RESP`.
+/// `ENCODE_RESP`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -67,7 +67,7 @@ pub struct EncodeResponse {
     pub has_llm_extractor: bool,
 }
 
-/// Spec §08 §3 — one streaming RECALL frame.
+/// — one streaming RECALL frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -78,7 +78,6 @@ pub struct RecallResponseFrame {
     pub estimated_remaining: Option<u32>,
 }
 
-/// Spec §08 §3.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -95,11 +94,10 @@ pub struct MemoryResult {
     pub edges: Option<Vec<EdgeView>>,
     /// Retrievers that surfaced this memory. Empty when no schema is
     /// declared and inside transactions; populated when the server
-    /// routes RECALL through the hybrid engine (spec §28/08 §5).
+    /// routes RECALL through the hybrid engine.
     pub contributing_retrievers: Vec<RetrieverNameWire>,
     /// Post-RRF fused rank score. `0.0` on no-schema deployments
     /// and inside transactions; positive when hybrid retrieval ran
-    /// (spec §28/08 §5).
     pub fused_score: f32,
     // ── Memory provenance + decay signals (v1 expansion) ──
     /// Salience the row was first written with. Together with
@@ -202,7 +200,6 @@ pub struct EnrichedRelation {
     pub to_name: String,
 }
 
-/// Spec §08 §3.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -212,7 +209,7 @@ pub struct EdgeView {
     pub weight: f32,
 }
 
-/// Spec §08 §4 — one streaming PLAN frame.
+/// — one streaming PLAN frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -222,7 +219,6 @@ pub struct PlanResponseFrame {
     pub plan_status: Option<PlanStatus>,
 }
 
-/// Spec §08 §4.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -235,7 +231,7 @@ pub struct PlanStep {
     pub estimated_distance_to_goal: f32,
 }
 
-/// Spec §08 §5 — one streaming REASON frame.
+/// — one streaming REASON frame.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -245,7 +241,6 @@ pub struct ReasonResponseFrame {
     pub reason_status: Option<ReasonStatus>,
 }
 
-/// Spec §08 §5.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]
@@ -258,7 +253,6 @@ pub struct InferenceStep {
     pub inference_kind: InferenceKind,
 }
 
-/// Spec §08 §6.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

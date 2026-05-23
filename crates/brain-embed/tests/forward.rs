@@ -5,7 +5,7 @@
 //! opt-in by exporting `BRAIN_EMBED_MODEL_DIR` before `cargo test`.
 //! Without the env var, each test is logged and skipped.
 //!
-//! Asserts (per spec §04/03 + §04/04):
+//! Asserts:
 //! - Output shape is `[f32; 384]` per row.
 //! - Norm is exactly unit (within 1e-5).
 //! - Identical text on consecutive calls → cosine similarity = 1.0

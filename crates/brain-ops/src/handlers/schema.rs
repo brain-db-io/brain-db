@@ -1,5 +1,5 @@
 //! Schema wire-op handlers — `SCHEMA_UPLOAD / _GET / _LIST /
-//! _VALIDATE` (spec §28/05, phase 19.6).
+//! _VALIDATE` (phase 19.6).
 //!
 //! Each handler:
 //!
@@ -18,7 +18,7 @@
 use brain_core::RequestId;
 use brain_metadata::schema::store::{schema_active, schema_get, schema_list, SchemaStoreError};
 use brain_planner::WriterError;
-use brain_protocol::knowledge::{
+use brain_protocol::{
     KnowledgeEventPayload, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire,
     SchemaListRequest, SchemaListResponseFrame, SchemaUpdatedEvent, SchemaUploadRequest,
     SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, SchemaValidationErrorWire,
@@ -116,7 +116,7 @@ pub async fn handle_schema_upload(
         }
     };
 
-    // 5. Flip the per-shard schema-declared gate. Spec §28/08 §1:
+    // 5. Flip the per-shard schema-declared gate:
     //    "The cutover is the redb commit, not the response
     //    emission." Subsequent RECALL frames on this shard route
     //    through the hybrid engine.
