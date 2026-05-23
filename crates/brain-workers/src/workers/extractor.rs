@@ -1444,12 +1444,7 @@ fn resolution_tier_to_metric(tier: ResolutionTier) -> ResolverOutcome {
         ResolutionTier::Alias => ResolverOutcome::Alias,
         ResolutionTier::Fuzzy => ResolverOutcome::Fuzzy,
         ResolutionTier::Embedding => ResolverOutcome::Embedding,
-        // Disambiguated paths share the resolver-outcome bucket with
-        // the embedding tier — the metric exposes "the embedding path
-        // accepted this candidate", which the disambiguator just
-        // ratified. Splitting them needs an enum-variant bump tracked
-        // alongside the audit-counter widening.
-        ResolutionTier::Disambiguated => ResolverOutcome::Embedding,
+        ResolutionTier::Disambiguated => ResolverOutcome::Disambiguated,
         ResolutionTier::Created => ResolverOutcome::Create,
     }
 }

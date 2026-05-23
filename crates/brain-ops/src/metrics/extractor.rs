@@ -28,16 +28,28 @@ pub const LLM_CONTEXT_FETCH_BUCKETS_SECONDS: &[f64] =
     &[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0];
 
 /// Resolver outcome the worker reports per resolved `EntityMention`.
-/// `exact` / `alias` / `fuzzy` / `embedding` correspond to the four
-/// lookup tiers in `brain-extractors::resolver`; `create` is the
-/// tier-5 fall-through that minted a fresh entity.
+///
+/// - `exact` / `alias` / `fuzzy` / `embedding` correspond to the four
+///   lookup tiers in `brain-extractors::resolver` (Exact-canonical,
+///   Alias, Trigram-fuzzy, Embedding-HNSW).
+/// - `disambiguated` is the post-embedding step where an
+///   [`EntityDisambiguator`](brain_extractors::resolver::EntityDisambiguator)
+///   confirmed an embedding partial-match as the same entity. Split
+///   from `embedding` so dashboards can show how often the
+///   disambiguator earns its cost.
+/// - `create` is the tier-5 fall-through that minted a fresh entity.
+///
+/// Discriminants are append-only — they index counter slots that
+/// observability systems read by position. Reordering is a breaking
+/// metric change.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ResolverOutcome {
     Exact = 0,
     Alias = 1,
     Fuzzy = 2,
     Embedding = 3,
-    Create = 4,
+    Disambiguated = 4,
+    Create = 5,
 }
 
 impl ResolverOutcome {
