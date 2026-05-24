@@ -1,6 +1,6 @@
 # 11. Extractors
 
-> **TL;DR.** Three-tier pipeline that derives Entities, Statements, and Relations from Memories. Pattern (regex, tens of microseconds, free) runs synchronously on ENCODE. Classifier (pinned model, milliseconds, cheap) runs near-foreground. LLM (cached, hundreds of milliseconds to seconds, dollar-significant) runs in background workers with strict cost budgets, schema-validated output, and a per-call cache keyed by `(input_hash, extractor_version, model_version)`. All tiers are required to be idempotent. Built-in extractors ship for common entity types, temporal expressions, and basic relations.
+> **TL;DR.** Three-tier pipeline that derives Entities, Statements, and Relations from Memories. **Extractors are always wired** — every shard runs them on every ENCODE regardless of whether a user schema is declared. Pattern (regex, tens of microseconds, free) runs synchronously on ENCODE. Classifier (pinned model, milliseconds, cheap) runs near-foreground. LLM (cached, hundreds of milliseconds to seconds, dollar-significant) runs in background workers with strict cost budgets, schema-validated output, and a per-call cache keyed by `(input_hash, extractor_version, model_version)`. Persistence is **per-entity gated**: an extracted entity / statement / relation whose type exists in some active schema namespace is persisted; one whose type is undeclared is silently dropped (extraction is best-effort). Tier-level enable flags live in `config.toml`; an enabled tier that fails to load at shard spawn → `ShardError::ExtractorInitFailed`. All tiers are required to be idempotent. Built-in extractors ship for common entity types, temporal expressions, and basic relations.
 
 ## Status
 
@@ -17,6 +17,41 @@
 The three-tier extractor pipeline that turns raw Memory text into typed Entities, Statements, and Relations: pattern matching (Tier 1) → GLiNER classifier (Tier 2) → LLM (Tier 3). Includes the resolver gauntlet (surface name → `EntityId`), per-extraction audit, idempotency cache, prompt-caching scaffolding, and the plugin surface (enricher + connector hooks).
 
 The pipeline's design goal: **reject ~80-90% of naive candidates before storage**. The cheaper tiers handle the bulk; the LLM tier only sees what survives. This is the cost moat against extract-everything-via-LLM systems.
+
+## Always-on, persistence-gated
+
+Extractors are **not** a schema-gated capability. They run on every ENCODE, on every shard, regardless of how many user namespaces are active. The model is:
+
+```
+ENCODE → extract (pattern → classifier → LLM tiers per config)
+       → per-candidate persistence check:
+           candidate.type ∈ some active schema namespace
+             → persist into typed-graph tables
+           else
+             → drop silently (best-effort)
+```
+
+The seeded `brain:` system namespace already declares the common entity types (Person, Place, Organization) the built-in extractors target, so even shards without any user `SCHEMA_UPLOAD` produce useful typed-graph rows. Adding a user namespace declaring `Project` (say) extends the persisted set — extracted Person candidates still land via `brain:Person`, and extracted Project candidates now also land via `acme:Project`.
+
+### Operator-controlled tier gates
+
+Each tier is independently enabled via `config.toml`:
+
+```toml
+[extractors.pattern]
+enabled = true
+
+[extractors.classifier]
+enabled = true
+
+[extractors.llm]
+enabled = true     # set false to skip the LLM tier on this shard
+```
+
+- A **disabled** tier is skipped silently — the operator chose to opt out; this is not a degradation, no warning is logged.
+- An **enabled** tier that fails to load at shard spawn (model file missing, classifier weights corrupt, LLM client init error) is a hard spawn failure: `ShardError::ExtractorInitFailed { tier, source }`. The shard refuses to start rather than running with a quietly-missing tier.
+
+There is no `has_llm_extractor` planning input. The pipeline always runs whichever tiers are loaded; clients call `GET_CAPABILITIES` (§04/03) to introspect which tiers are live on the connected shard.
 
 ## Purpose
 

@@ -98,6 +98,16 @@ A wedge weakens when:
 
 Flag any change that weakens a wedge for explicit review.
 
+### Resolved — mode bifurcation (substrate vs hybrid)
+
+**Status:** Resolved in phase 26 (`f2d2f61` / `778fe54` / `2bc5181`).
+
+Historically Brain branched between a "substrate" path (no schema declared → memory-only ANN search) and a "hybrid" path (schema declared → typed-graph fan-out). The branch lived in the read pipeline (`substrate_recall` vs `hybrid_recall`), the planner inputs (`has_active_schema`, `has_llm_extractor`), and the shard wiring (`Option<Arc<dyn LexicalRetriever>>`). The bifurcation violated Wedge 4 (one codebase, one shape) and made client behavior depend on what the deployment happened to have uploaded.
+
+Phase 26 collapsed it: every shard wires the three retrievers and the tantivy indexes at spawn, `SCHEMA_UPLOAD` became associative-merge against the seeded `brain:` namespace, and extractors run on every ENCODE with per-entity persistence gating. A new `GET_CAPABILITIES` opcode (`0x0032` / `0x00B2`) lets clients introspect the shard's enabled tiers. The "schemaless mode" framing is retired throughout the spec.
+
+Kept in the wedges log for the historical record; the bifurcation no longer exists in code or spec.
+
 ---
 
 ## Roadmap {#roadmap}

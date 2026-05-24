@@ -4,7 +4,7 @@ The read-side cognitive primitives: RECALL (similarity search), PLAN (graph path
 
 ## RECALL
 
-The RECALL primitive: find memories by similarity.
+The RECALL primitive: find memories by similarity. **One verb, one code path** — every request walks the same pipeline regardless of whether a user schema has been declared.
 
 ### 1. Semantic contract
 
@@ -12,12 +12,31 @@ The RECALL primitive: find memories by similarity.
 RECALL(cue_text, agent_id, k, filter, ...) → Vec<RecallResult>
 ```
 
-Brain:
+Brain runs a single pipeline on every request:
 
-1. Embeds the cue text into a vector.
-2. Searches the HNSW index for nearest neighbors.
-3. Filters candidates by the supplied filter.
-4. Returns up to K results, sorted by similarity.
+```
+RECALL → validate → embed cue → fan out to three retrievers
+       (semantic / lexical / graph, all always-wired)
+       → RRF fusion (k=60)
+       → filter chain (tombstone, kind, context, temporal,
+         confidence, salience, supersession)
+       → metadata enrichment from redb
+       → optional cross-encoder rerank
+         (if request.rerank == true AND CrossEncoderSlot::Enabled)
+       → wire response
+```
+
+The three retrievers are mandatory shard wiring — they are never `None`. If `request.rerank == true` and the cross-encoder is `Disabled` (operator opt-out), the request fails fast with `CapabilityNotEnabled { capability: "rerank" }`; there is no silent fallback. Schema declarations do not gate any stage of this pipeline. They only narrow what `STATEMENT_CREATE` / `RELATION_CREATE` and predicate-aware filters accept.
+
+#### In-transaction read-your-writes overlay
+
+When `req.txn_id` is set, the txn's pending ENCODE buffer is overlaid on the committed hybrid result before the response is built:
+
+- Tombstoned ids in the buffer drop committed hits.
+- Pending encodes are scored against the cue vector and merged with the committed list.
+- The combined list is re-sorted by similarity (descending) and trimmed to `top_k`.
+
+This is the single read-your-writes path; the same overlay runs whether or not a schema is active.
 
 ### 2. The arguments
 
@@ -228,7 +247,7 @@ filter.tags = Some(vec!["urgent".to_string(), "personal".to_string()])
 
 Returns memories that have ALL the specified tags (intersection). For "any of these tags" (union), make multiple recalls.
 
-Tags are filtered post-search; selective tag filters need higher ef_search (substrate handles automatically).
+Tags are filtered post-search; selective tag filters need higher ef_search (the planner adjusts automatically).
 
 ### 18. The "score-only" mode
 

@@ -1,14 +1,28 @@
-# 13.05 Query Engine and Router
+# 13.05 The Query Pipeline
 
 ## Purpose
 
-The Query Engine plans and executes hybrid queries over Memories, Statements, Relations, and Entities. The Query Router classifies incoming queries and decides which retrievers and filters to invoke.
+The Query Pipeline is the **single** read pipeline every shard runs.
+It plans and executes queries over Memories, Statements, Relations,
+and Entities through one stack: validate → embed cue → fan out to
+the three always-wired retrievers (semantic + lexical + graph) →
+RRF fusion → filter chain → optional cross-encoder rerank → wire
+response. The Query Router classifies each incoming query to pick
+weights and adjust top-K hints, **not** to switch between modes —
+every retriever lane is available every time.
 
 This section extends Brain's Query Planner (§12) with:
 - Multi-retriever execution (semantic + lexical + graph in parallel).
 - Filter chain (type, temporal, confidence, tombstone).
 - RRF fusion.
-- Query classification and routing.
+- Query classification and routing (weight selection, not mode selection).
+
+The historical "hybrid query" name reflects the fact that the
+pipeline fuses three retriever families. There is no "non-hybrid"
+counterpart — the pipeline is the same whether or not a user
+schema has been declared. Schema declarations narrow what
+predicate-aware filters accept; they do not gate any stage of this
+pipeline.
 
 ## Query shape
 

@@ -50,6 +50,15 @@ The opcode is a big-endian `u16` in the frame header (bytes 5–6). The high byt
 | 0x0031 | `UNSUBSCRIBE_REQ` | C → S | Stop a subscription |
 | 0x00B1 | `UNSUBSCRIBE_RESP` | S → C | Acknowledgment |
 
+### 1.3a Capability introspection
+
+| Opcode | Name | Direction | Purpose |
+|---|---|---|---|
+| 0x0032 | `GET_CAPABILITIES_REQ` | C → S | Query the shard's enabled features (rerank, extractor tiers, schema namespaces, vector dim) |
+| 0x00B2 | `GET_CAPABILITIES_RESP` | S → C | Capability descriptor |
+
+`GET_CAPABILITIES` is available to every authenticated client — not admin-only. Clients call it after `WELCOME` to avoid issuing requests the shard can't serve (e.g. `request.rerank = true` against a shard with `rerank.enabled = false`). The response carries explicit booleans per capability plus the set of currently-active schema namespaces; there is no "feature flag" fallback — capabilities that are disabled by config or unavailable on this shard are surfaced concretely.
+
 ### 1.4 Transactions
 
 | Opcode | Name | Direction | Purpose |
@@ -135,13 +144,16 @@ The low byte's high bit selects direction within this namespace, mirroring the s
 
 | Opcode | Name | Body | Response |
 |---|---|---|---|
-| 0x0120 | `SCHEMA_UPLOAD` | schema document (text) | schema_version, validation_errors |
+| 0x0120 | `SCHEMA_UPLOAD` | schema document (text) | schema_version, validation_errors. Additive-merge: classifies each declared item as Insert / Idempotent / Conflict against the current namespace; one conflict aborts the whole upload. See [`../03_schema/05_versioning.md`](../03_schema/05_versioning.md) §1a. |
 | 0x0121 | `SCHEMA_GET` | version_id (latest if 0) | schema document |
 | 0x0122 | `SCHEMA_LIST` | (none) | list of versions with timestamps |
 | 0x0123 | `SCHEMA_VALIDATE` | schema document | validation_errors (without commit) |
 | 0x0124 | `EXTRACTOR_LIST` | (none) | active extractors |
 | 0x0125 | `EXTRACTOR_DISABLE` | extractor_id | confirmation |
 | 0x0126 | `EXTRACTOR_ENABLE` | extractor_id | confirmation |
+| 0x0127 | `SCHEMA_REPLACE` | schema document + `force_drop_existing: true` | namespace, schema_version, dropped_count, validation_errors |
+
+`SCHEMA_REPLACE` (request `0x0127`, response `0x01A7`) is the destructive counterpart to the additive-merge `SCHEMA_UPLOAD`. It tombstones every schema-declared predicate, relation_type, and extractor row in the target namespace and re-runs the apply path against a clean slate inside a single redb wtxn. Entity types are **not** dropped (they are global in v1; see [`../03_schema/05_versioning.md`](../03_schema/05_versioning.md) §1c). Admin-only; the handler rejects the call unless `force_drop_existing` is exactly `true`. See [`../03_schema/05_versioning.md`](../03_schema/05_versioning.md) §9.
 
 ### 2.2 Entity operations (0x0130–0x013F)
 
@@ -195,7 +207,7 @@ The low byte's high bit selects direction within this namespace, mirroring the s
 
 `MATERIALIZE_PROCEDURAL` (`0x0164` request, `0x01E4` response) renders the agent's procedural-memory predicates (`brain:behavior_*` — see [`../03_schema/06_system_schema.md`](../03_schema/06_system_schema.md)) into a single system-prompt block the agent can re-inject at conversation start. Semantically a read-only structured query under the hood; conceptually a memory primitive because the agent treats the materialised block as a separate handle.
 
-The substrate `RECALL` opcode (`0x0021`) is the primary vector recall. Hybrid retrieval (semantic + lexical + memory-edge graph) is the default `RECALL` path; the server runs it regardless of whether a schema has been declared. The response always carries `contributing_retrievers` and `fused_score`. What declaring a schema adds here is typed entity-anchored graph traversal and predicate-vocabulary checking; it does not toggle the retrieval mode.
+The substrate `RECALL` opcode (`0x0021`) is the primary vector recall. The pipeline (semantic + lexical + memory-edge graph fused by RRF) is the **only** `RECALL` path; every shard runs it on every request. The response always carries `contributing_retrievers` and `fused_score`. Declaring a user schema does not toggle a different retrieval path — it makes typed entity-anchored graph traversal and predicate-vocabulary checking available to callers, and lets extracted typed rows persist; the fan-out, fusion, and filter chain are the same shape regardless.
 
 ### 2.6 Admin operations (0x0170–0x017F)
 
@@ -223,14 +235,19 @@ The SUBSCRIBE primitive (§1.3) carries event types for the typed graph:
 
 Subscribers filter by event type, entity_id, predicate, etc. Event-payload schemas and emission semantics are part of the streaming surface defined in [`06_streaming.md`](06_streaming.md).
 
-### 2.8 Schema-optional behavior
+### 2.8 Schema as a per-type gate
 
-The server operates with or without a declared schema:
+The server operates the same pipeline whether or not a user namespace has been uploaded. Every shard ships with the seeded `brain:` system namespace, so there is always at least one schema active.
 
-- **No schema declared**: typed-graph opcodes `0x0120–0x0177` return `SCHEMA_NOT_DECLARED` errors except for `SCHEMA_UPLOAD` (`0x0120`) itself. Substrate primitives (the `0x00xx` namespace) work normally.
-- **Schema declared**: all opcodes function. RECALL routes through hybrid retrieval.
+What user declarations control is **per-type acceptance** on explicit typed-graph writes:
 
-This is a deployment choice. A deployment that wants only the vector substrate simply doesn't declare a schema; typed-graph opcodes then return `SCHEMA_NOT_DECLARED`.
+- `ENTITY_CREATE` with an entity type that isn't in any active namespace → `EntityTypeNotInSchema`.
+- `STATEMENT_CREATE` with an undeclared predicate qname → `PredicateNotInSchema` (or open-vocabulary intern with `SchemaOrigin::ImplicitFromWrite` if the deployment runs in open-vocabulary mode; see §07/error-handling).
+- `RELATION_CREATE` with an undeclared relation_type qname → `RelationTypeNotInSchema` (same open-vocabulary rule).
+
+Extracted candidates whose types are not in any active schema are dropped silently (extractor best-effort; see [`../11_extractors/00_purpose.md`](../11_extractors/00_purpose.md)). `RECALL`, `QUERY`, `RECALL_HYBRID`, and the fan-out pipeline always run regardless of which user namespaces are present.
+
+There is no `SCHEMA_NOT_DECLARED` error any more — the gate is per-type, not per-namespace.
 
 ## 3. Reserved ranges
 

@@ -1,6 +1,6 @@
 # 03. Schema
 
-> **TL;DR.** A single declarative `.brain` document where users define entity types, predicates, relation types, and extractors. Brain parses it at upload time, validates syntax and semantics, versions it, and enforces declarations on writes. The DSL is readable, stable across versions, and parseable for tooling. Schema is optional — without one, Brain runs as schemaless memory; with one, the typed-graph and extractor surfaces activate.
+> **TL;DR.** A single declarative `.brain` document where users define entity types, predicates, relation types, and extractors. Brain parses it at upload time, validates syntax and semantics, versions it, and enforces declarations on writes. The DSL is readable, stable across versions, and parseable for tooling. Every shard ships with the seeded `brain:` system namespace from byte zero; user `SCHEMA_UPLOAD` calls **merge** new declarations into the active state. A schema declaration is not a mode toggle — extractors, retrievers, and the typed-graph wire path are always wired; declarations narrow what `STATEMENT_CREATE` / `RELATION_CREATE` accept and which extracted rows persist.
 
 ## Status
 
@@ -14,18 +14,20 @@
 
 ## What this spec defines
 
-The `.brain` schema DSL: the language operators use to declare entity types, predicates (statement vocabulary), and relation types for a deployment. Covers the grammar, the AST, the validator, namespacing, schema versioning, and the system schema (Brain's built-in `brain:` namespace).
+The `.brain` schema DSL: the language operators use to declare entity types, predicates (statement vocabulary), and relation types for a deployment. Covers the grammar, the AST, the validator, namespacing, the merge semantics of `SCHEMA_UPLOAD`, the destructive counterpart `SCHEMA_REPLACE`, schema versioning, and the system schema (Brain's built-in `brain:` namespace).
 
-Schema is **optional**. A deployment with no `SCHEMA_UPLOAD` runs in schemaless mode: extraction is skipped, the entity/statement/relation handlers reject with a clear error, and `RECALL` runs as memory-only ANN search. Declaring a schema activates the typed-graph features (extraction, hybrid retrieval, supersession).
+Schema is **always on**. Every shard boots with the seeded `brain:` system namespace. User `SCHEMA_UPLOAD` calls **merge** new declarations into the existing active state per namespace; the pipeline does not branch on "is a schema declared" because the answer is always yes.
 
-### Schemaless vs schema-declared
+### What user declarations control
 
-The same Brain build serves both modes. The runtime gate is a check against `SCHEMA_ACTIVE_VERSIONS_TABLE` on the per-shard redb; absent means schemaless.
+User declarations narrow two things:
 
-| Mode | What's active |
+| Surface | Effect of a declared type / predicate |
 |---|---|
-| Schemaless (default) | `ENCODE`, `RECALL`, `PLAN`, `REASON`, `FORGET`, `SUBSCRIBE`, `TXN_*` over Memory only. Extractors disabled. Entity/Statement/Relation handlers reject. |
-| Schema declared | All of the above + typed extraction (pattern → classifier → LLM) + entity/statement/relation writes + hybrid retrieval over the typed graph. |
+| `STATEMENT_CREATE`, `RELATION_CREATE`, `ENTITY_CREATE` (explicit wire ops) | Accept the call only when the referenced predicate / relation_type / entity_type exists in some active namespace. Otherwise reject with `PredicateNotInSchema` / `RelationTypeNotInSchema` / `EntityTypeNotInSchema`. |
+| Extractor outputs | The pipeline runs on every ENCODE; persistence to the typed-graph tables happens only when the extracted entity / statement / relation references a declared type. Undeclared types are dropped silently (extraction is best-effort). |
+
+Read-side surfaces (`RECALL`, `QUERY`, hybrid fan-out, lexical and semantic retrievers) run regardless of which user namespaces are present — every shard wires all three retrievers at spawn.
 
 ## Purpose
 
@@ -249,13 +251,13 @@ A deployment can have multiple schemas under different namespaces. They share st
 
 This lets a single deployment serve multiple applications with isolated schemas.
 
-## Schema-optional, progressive enhancement
+## Progressive enhancement, single pipeline
 
-Brain runs without a schema declared. ENCODE accepts text, RECALL returns memories by similarity, and the storage path, embedding layer, HNSW index, and audit tables all work. When an operator declares a schema via `SCHEMA_UPLOAD`, the typed-graph surfaces activate: typed-entity wire opcodes, statement and relation graph, hybrid retrieval with RRF fusion, the extractor pipeline, and procedural-memory materialization. Existing memories remain queryable; the new surfaces apply to writes from declaration onward.
+Every shard boots with the seeded `brain:` system schema; user namespaces add to it via `SCHEMA_UPLOAD`. The storage path, embedding layer, HNSW indexes (memory, entity, statement), both tantivy indexes (memory text, statement text), graph retriever, audit tables, and extractor pipeline are always wired — they don't activate on schema upload. ENCODE accepts text without a user schema; RECALL fans out to all three retrievers. Adding a user namespace makes its predicates / relation_types / entity_types **available** for explicit typed-graph writes and lets extracted rows referencing those types persist.
 
-This is progressive enhancement, not gated activation. The schemaless and schema-aware modes share one storage layer, one wire protocol, one set of crates. Neo4j's labeled-property graph model takes the same stance: schema is opt-in throughout the lifecycle, not a setup step. Brain's posture: agents that just want "store this string, give me similar strings back" do not need to read this section; agents that want typed claims about typed entities declare a schema and get them.
+This is progressive enhancement around one pipeline, not a mode flip. Agents that just want "store this string, give me similar strings back" never need to upload a schema — the seeded `brain:` namespace already covers the common entity types (Person, Place, Organization) that the built-in extractors target. Agents that want richer typed claims about typed entities declare additional namespaces and get them.
 
-The progression matters because the cost of schema authoring is real (validation, versioning, migration). Forcing it up-front would push small agents toward simpler stores; deferring it means Brain serves both ends of the spectrum from one codebase.
+The merge model matters because the cost of schema authoring is real (validation, versioning) and operators routinely co-evolve a schema over many small uploads. Merge semantics let those uploads compose without forcing a destructive replace each time.
 
 ## What's NOT in the DSL
 
