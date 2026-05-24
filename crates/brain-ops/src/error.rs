@@ -68,6 +68,28 @@ pub enum OpError {
         version: u32,
     },
 
+    /// `SCHEMA_UPLOAD` carried a declaration that conflicts with an
+    /// already-active row for the same name in the same namespace —
+    /// e.g. a `predicate` whose `kind` constraint differs from the
+    /// existing row, or a `relation_type` whose cardinality changed.
+    /// `kind` names the schema item kind (`"entity_type"`,
+    /// `"predicate"`, `"relation_type"`, `"extractor"`); `conflict`
+    /// is a human-readable summary of which fields diverged. The
+    /// whole upload is aborted — no half-merged state lands.
+    ///
+    /// Maps to wire `InvalidRequest`: existing wire codes don't have
+    /// a precise slot for "schema merge would conflict," and adding
+    /// new codes is out of scope for the phase-26 schema-associative
+    /// workflow. Clients distinguish this from a parse / validate
+    /// failure by inspecting the error message.
+    #[error("schema conflict: {kind} {name:?} in namespace {namespace:?}: {conflict}")]
+    SchemaConflict {
+        kind: &'static str,
+        name: String,
+        namespace: String,
+        conflict: String,
+    },
+
     /// Schema-strict mode: RELATION_CREATE referenced a relation type
     /// qname that the active schema version doesn't declare. Maps to
     /// wire `RelationTypeNotInSchema`.
@@ -184,7 +206,9 @@ impl OpError {
     #[must_use]
     pub fn error_code(&self) -> ErrorCode {
         match self {
-            Self::InvalidRequest(_) | Self::TooManyMemories => ErrorCode::InvalidRequest,
+            Self::InvalidRequest(_)
+            | Self::TooManyMemories
+            | Self::SchemaConflict { .. } => ErrorCode::InvalidRequest,
             Self::NotFound { .. } => ErrorCode::NotFound,
             Self::Conflict(_) => ErrorCode::Conflict,
             Self::TxnExpired => ErrorCode::TxnExpired,

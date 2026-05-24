@@ -85,7 +85,7 @@ pub async fn handle_encode(
                 // Dedup hit — no fresh write, so no background stages
                 // were queued. The client has nothing to wait for.
                 pending_stages: Vec::new(),
-                has_active_schema: ctx.schema_gate.is_declared(),
+                has_active_schema: true,
                 has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
             });
         }
@@ -176,7 +176,7 @@ pub async fn handle_encode(
         edges_out_count: auto_edges_added,
         embedding_model_fp,
         pending_stages,
-        has_active_schema: ctx.schema_gate.is_declared(),
+        has_active_schema: true,
         has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
     })
 }
@@ -366,7 +366,7 @@ fn reconstruct_encode_response(
         edges_out_count: auto_edges_added,
         embedding_model_fp,
         pending_stages,
-        has_active_schema: ctx.schema_gate.is_declared(),
+        has_active_schema: true,
         has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
     })
 }
@@ -464,7 +464,7 @@ async fn handle_encode_in_txn(
             // queued yet (workers fire post-commit). The COMMIT
             // ack carries the aggregated stages for the whole txn.
             pending_stages: Vec::new(),
-            has_active_schema: ctx.schema_gate.is_declared(),
+            has_active_schema: true,
             has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
         });
     }
@@ -610,7 +610,7 @@ async fn handle_encode_in_txn(
         // Workers fire post-commit; the COMMIT ack carries the
         // aggregated stages for the whole txn.
         pending_stages: Vec::new(),
-        has_active_schema: ctx.schema_gate.is_declared(),
+        has_active_schema: true,
         has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
     })
 }

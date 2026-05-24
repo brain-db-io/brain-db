@@ -17,6 +17,7 @@ pub mod reason;
 pub mod recall;
 pub mod relation;
 pub mod schema;
+pub mod schema_replace;
 pub mod statement;
 pub mod subscribe;
 pub mod txn;

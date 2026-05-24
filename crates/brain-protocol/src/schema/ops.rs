@@ -51,6 +51,31 @@ pub struct SchemaValidateRequest {
     pub schema_document: String,
 }
 
+/// `SCHEMA_REPLACE` (`0x0127`). Destructive counterpart to
+/// `SCHEMA_UPLOAD`'s associative merge: drops every schema-declared
+/// row in the namespace (predicates, relation_types, extractors) and
+/// re-runs the apply path against the supplied DSL. Existing
+/// statements / relations / entities whose predicate or relation_type
+/// disappears stay as orphans — readable as plain memories, no longer
+/// enriched from the typed-graph tables.
+///
+/// `force_drop_existing` MUST be `true`; the handler rejects a
+/// `false` value with `InvalidRequest`. The explicit flag is a
+/// confirmation step for an irreversible operation.
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct SchemaReplaceRequest {
+    /// Schema DSL source text. Must declare the same namespace as
+    /// the wire `namespace` field, or the handler rejects with
+    /// `InvalidRequest`.
+    pub schema_document: String,
+    /// Confirmation flag — MUST be `true`. Reserved name to keep the
+    /// client SDK ergonomics symmetric with the destructive intent.
+    pub force_drop_existing: bool,
+    pub request_id: WireUuid,
+}
+
 // ============================================================
 // Response payloads
 // ============================================================
@@ -126,6 +151,19 @@ pub struct SchemaValidateResponse {
     pub namespace: String,
     /// `current_active + 1` if validation passed; `0` otherwise.
     pub would_be_version: u32,
+    pub validation_errors: Vec<SchemaValidationErrorWire>,
+}
+
+/// `SCHEMA_REPLACE_RESP` (`0x01A7`). Carries the count of declared
+/// rows dropped before the new schema landed. `version` is the new
+/// active version (always > the pre-replace version).
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct SchemaReplaceResponse {
+    pub namespace: String,
+    pub schema_version: u32,
+    pub dropped_count: u32,
     pub validation_errors: Vec<SchemaValidationErrorWire>,
 }
 

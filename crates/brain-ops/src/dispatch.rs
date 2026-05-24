@@ -462,6 +462,11 @@ pub async fn dispatch(
         RequestBody::SchemaValidate(r) => crate::handlers::schema::handle_schema_validate(r, ctx)
             .await
             .map(|b| single(ResponseBody::SchemaValidate(b))),
+        RequestBody::SchemaReplace(r) => {
+            crate::handlers::schema_replace::handle_schema_replace(r, ctx)
+                .await
+                .map(|b| single(ResponseBody::SchemaReplace(b)))
+        }
 
         // Extractor governance ops — phase 20.8-§7.
         RequestBody::ExtractorList(r) => {
@@ -531,7 +536,9 @@ fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), O
         }
 
         // Schema ops.
-        RequestBody::SchemaUpload(_) => (perm_bits::SCHEMA_UPLOAD, "SCHEMA_UPLOAD"),
+        RequestBody::SchemaUpload(_) | RequestBody::SchemaReplace(_) => {
+            (perm_bits::SCHEMA_UPLOAD, "SCHEMA_UPLOAD")
+        }
         RequestBody::SchemaGet(_) | RequestBody::SchemaList(_) | RequestBody::SchemaValidate(_) => {
             (perm_bits::RECALL, "SCHEMA_READ")
         }
@@ -612,6 +619,8 @@ fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), Op
         RequestBody::SchemaList(r) => Some(r.namespace.as_str()),
         _ => None,
     };
+    // `SchemaReplace` carries the namespace inside the DSL; the
+    // namespace-bound caller check runs at handler time after parse.
     if let Some(ns) = target {
         caller.require_namespace(ns, "namespace")?;
     }

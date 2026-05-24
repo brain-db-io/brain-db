@@ -23,7 +23,6 @@ use parking_lot::{Mutex, RwLock};
 
 use crate::index::text_indexer::{MemoryTextDispatcher, StatementTextDispatcher};
 use crate::state::access_buffer::AccessBuffer;
-use crate::state::schema_gate::SchemaGate;
 use crate::subscribe::{EventBus, EventEnvelope, SubscriptionRegistry};
 use crate::txn::TxnStore;
 use crate::writer::WalSink;
@@ -103,11 +102,6 @@ pub struct OpsContext {
     /// hybrid executor's rerank stage runs only when this slot is
     /// `Some` and the caller opted in via `RecallRequest.rerank=true`.
     pub cross_encoder: Option<Arc<CrossEncoder>>,
-    /// Schema-declared gate (phase 23.11). Lock-free read on
-    /// the RECALL hot path; flipped to `true` by
-    /// `handle_schema_upload` after a successful commit. Spec
-    /// §28/08 §1.
-    pub schema_gate: SchemaGate,
     /// WAL append sink for the knowledge-layer subscribe-replay
     /// pipeline. Knowledge handlers (the `crate::handlers::knowledge_*`
     /// modules) call [`OpsContext::publish_knowledge`] after their successful
@@ -159,7 +153,6 @@ impl OpsContext {
             semantic_retriever,
             graph_retriever,
             cross_encoder: None,
-            schema_gate: SchemaGate::default(),
             wal_sink: None,
         }
     }
@@ -295,15 +288,6 @@ impl OpsContext {
     #[must_use]
     pub fn with_cross_encoder(mut self, encoder: Option<Arc<CrossEncoder>>) -> Self {
         self.cross_encoder = encoder;
-        self
-    }
-
-    /// Install the schema-declared gate (phase 23.11). The
-    /// server's per-shard spawn path seeds this from the
-    /// metadata DB at startup.
-    #[must_use]
-    pub fn with_schema_gate(mut self, gate: SchemaGate) -> Self {
-        self.schema_gate = gate;
         self
     }
 

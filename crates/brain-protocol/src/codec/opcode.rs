@@ -127,7 +127,9 @@ pub enum Opcode {
     // schema is declared via SCHEMA_UPLOAD.
     // ============================================================
 
-    // Schema operations (0x0120-0x0123 low-byte range).
+    // Schema operations (0x0120-0x0123 low-byte range, plus
+    // `SchemaReplace` at 0x0127 / 0x01A7 — destructive namespace
+    // reset, paired with the associative-merge `SchemaUpload`).
     SchemaUploadReq = 0x0120,
     SchemaUploadResp = 0x01A0,
     SchemaGetReq = 0x0121,
@@ -144,6 +146,12 @@ pub enum Opcode {
     ExtractorDisableResp = 0x01A5,
     ExtractorEnableReq = 0x0126,
     ExtractorEnableResp = 0x01A6,
+
+    // Destructive schema replace (admin-only). Tombstones every
+    // schema-declared predicate / relation_type / extractor row in
+    // the namespace before running the new schema's apply path.
+    SchemaReplaceReq = 0x0127,
+    SchemaReplaceResp = 0x01A7,
 
     // Entity operations (0x0130-0x013F low-byte range).
     EntityCreateReq = 0x0130,
@@ -377,6 +385,9 @@ impl Opcode {
             0x0126 => Self::ExtractorEnableReq,
             0x01A6 => Self::ExtractorEnableResp,
 
+            0x0127 => Self::SchemaReplaceReq,
+            0x01A7 => Self::SchemaReplaceResp,
+
             other => return Err(ProtocolError::UnknownOpcode(other)),
         })
     }
@@ -564,6 +575,9 @@ mod tests {
         (0x01A5, Opcode::ExtractorDisableResp),
         (0x0126, Opcode::ExtractorEnableReq),
         (0x01A6, Opcode::ExtractorEnableResp),
+        // Typed-graph — destructive schema replace
+        (0x0127, Opcode::SchemaReplaceReq),
+        (0x01A7, Opcode::SchemaReplaceResp),
         // Typed-graph — entity
         (0x0130, Opcode::EntityCreateReq),
         (0x01B0, Opcode::EntityCreateResp),

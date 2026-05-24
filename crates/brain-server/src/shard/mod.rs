@@ -1600,21 +1600,6 @@ pub fn spawn_shard(
             // `OpsContext.lexical_retriever`.
             let lexical_retriever_for_ops = lexical_retriever_for_closure;
 
-            // 23.11: seed the per-shard schema-declared gate from
-            // the metadata DB. Initial value is
-            // computed under the existing metadata lock.
-            let schema_gate = {
-                let metadata_guard = metadata.lock();
-                brain_ops::SchemaGate::initial(&metadata_guard).unwrap_or_else(|err| {
-                    tracing::error!(
-                        target: "brain_server::shard",
-                        error = %err,
-                        "schema_gate seed failed; using default gate state",
-                    );
-                    brain_ops::SchemaGate::default()
-                })
-            };
-
             let ops = Arc::new(
                 OpsContext::new(
                     executor_ctx,
@@ -1629,7 +1614,6 @@ pub fn spawn_shard(
                 .with_tantivy(Some(tantivy_for_ops))
                 .with_memory_text_dispatcher(memory_text_dispatcher_for_ops)
                 .with_statement_text_dispatcher(statement_text_dispatcher_for_ops)
-                .with_schema_gate(schema_gate)
                 .with_wal_sink(Some(wal_sink_for_ops)),
             );
 

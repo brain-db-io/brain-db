@@ -208,6 +208,46 @@ pub fn extractor_list(
     Ok(out)
 }
 
+/// Drop every extractor row in `namespace`. Extractors don't track an
+/// implicit-vs-declared origin (every row is schema-declared in v1),
+/// so this is an unconditional namespace sweep. Counterpart to
+/// [`crate::schema::predicate::predicate_drop_schema_declared`] and
+/// [`crate::relation::types::relation_type_drop_schema_declared`];
+/// used by `SCHEMA_REPLACE`.
+pub fn extractor_drop_namespace(
+    wtxn: &WriteTransaction,
+    namespace: &str,
+) -> Result<usize, ExtractorOpError> {
+    validate_namespace(namespace)?;
+
+    let victims: Vec<(u32, String)> = {
+        let t = wtxn.open_table(EXTRACTORS_TABLE)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let row: ExtractorDefinition = v.value();
+            if row.namespace == namespace {
+                out.push((k.value(), qname(&row.namespace, &row.name)));
+            }
+        }
+        out
+    };
+    let count = victims.len();
+    {
+        let mut t = wtxn.open_table(EXTRACTORS_TABLE)?;
+        for (id, _) in &victims {
+            t.remove(id)?;
+        }
+    }
+    {
+        let mut idx = wtxn.open_table(EXTRACTORS_BY_QNAME_TABLE)?;
+        for (_, q) in &victims {
+            idx.remove(q.as_str())?;
+        }
+    }
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Helpers.
 // ---------------------------------------------------------------------------

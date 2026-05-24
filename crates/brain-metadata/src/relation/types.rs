@@ -422,6 +422,45 @@ pub fn relation_type_intern_or_get(
     Ok(RelationTypeId::from(next_id_raw))
 }
 
+/// Drop every schema-declared relation_type row in `namespace`.
+/// Implicit-from-write rows are preserved. Counterpart to
+/// [`crate::schema::predicate::predicate_drop_schema_declared`]; used
+/// by `SCHEMA_REPLACE` to clear the existing declared vocabulary
+/// before re-running apply.
+pub fn relation_type_drop_schema_declared(
+    wtxn: &WriteTransaction,
+    namespace: &str,
+) -> Result<usize, RelationTypeOpError> {
+    validate_namespace(namespace)?;
+
+    let victims: Vec<(u32, String)> = {
+        let t = wtxn.open_table(RELATION_TYPES_TABLE)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let row: RelationTypeDefinition = v.value();
+            if row.namespace == namespace && row.origin().is_schema_declared() {
+                out.push((k.value(), qname(&row.namespace, &row.name)));
+            }
+        }
+        out
+    };
+    let count = victims.len();
+    {
+        let mut t = wtxn.open_table(RELATION_TYPES_TABLE)?;
+        for (id, _) in &victims {
+            t.remove(id)?;
+        }
+    }
+    {
+        let mut idx = wtxn.open_table(RELATION_TYPES_BY_QNAME_TABLE)?;
+        for (_, q) in &victims {
+            idx.remove(q.as_str())?;
+        }
+    }
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------

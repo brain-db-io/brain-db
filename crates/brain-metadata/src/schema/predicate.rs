@@ -463,6 +463,49 @@ pub fn predicate_intern_or_get(
     Ok(PredicateId::from(next_id_raw))
 }
 
+/// Drop every schema-declared predicate row in `namespace`. Implicit-
+/// from-write rows are preserved — they belong to the open-vocabulary
+/// world, not the declared schema. Used by `SCHEMA_REPLACE`: callers
+/// invoke this before re-running `apply_schema_definitions` with the
+/// new schema so the destructive replace doesn't trip the constraint
+/// conflict check on same-name diverging declarations.
+///
+/// Returns the number of rows removed.
+pub fn predicate_drop_schema_declared(
+    wtxn: &WriteTransaction,
+    namespace: &str,
+) -> Result<usize, PredicateOpError> {
+    validate_namespace(namespace)?;
+
+    // Collect victims first so we don't mutate while iterating.
+    let victims: Vec<(u32, String)> = {
+        let t = wtxn.open_table(PREDICATES_TABLE)?;
+        let mut out = Vec::new();
+        for entry in t.iter()? {
+            let (k, v) = entry?;
+            let row: PredicateDefinition = v.value();
+            if row.namespace == namespace && row.origin().is_schema_declared() {
+                out.push((k.value(), qname(&row.namespace, &row.name)));
+            }
+        }
+        out
+    };
+    let count = victims.len();
+    {
+        let mut t = wtxn.open_table(PREDICATES_TABLE)?;
+        for (id, _) in &victims {
+            t.remove(id)?;
+        }
+    }
+    {
+        let mut idx = wtxn.open_table(PREDICATES_BY_QNAME_TABLE)?;
+        for (_, q) in &victims {
+            idx.remove(q.as_str())?;
+        }
+    }
+    Ok(count)
+}
+
 // ---------------------------------------------------------------------------
 // Tests.
 // ---------------------------------------------------------------------------

@@ -15,9 +15,16 @@
 //! the response body's `validation_errors` field with
 //! `schema_version = 0`. This matches §28/05 §2.2 semantics.
 
-use brain_core::RequestId;
+use brain_core::{Cardinality, RequestId, StatementKind};
+use brain_metadata::entity::types::entity_type_lookup_by_name_rtxn;
+use brain_metadata::extractor::ops::extractor_lookup_by_qname;
+use brain_metadata::relation::types::relation_type_lookup_by_qname;
+use brain_metadata::schema::predicate::predicate_lookup_by_qname;
 use brain_metadata::schema::store::{schema_active, schema_get, schema_list, SchemaStoreError};
 use brain_planner::WriterError;
+use brain_protocol::schema::{
+    CardinalityAst, ExtractorKindAst, ObjectTypeDecl, SchemaItem, StatementKindAst, ValidatedSchema,
+};
 use brain_protocol::{
     KnowledgeEventPayload, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire,
     SchemaListRequest, SchemaListResponseFrame, SchemaUpdatedEvent, SchemaUploadRequest,
@@ -80,7 +87,27 @@ pub async fn handle_schema_upload(
         });
     }
 
-    // 4. Persist via the unified submit(Write) path.
+    // 4. Associative-merge pre-flight against current state. For each
+    //    declared item, classify as Insert / Idempotent / Conflict.
+    //    Conflict aborts the upload before any commit; if every item is
+    //    Idempotent we return the current active version without
+    //    bumping (re-upload of an unchanged schema is a no-op so
+    //    operators can safely re-apply the same DSL).
+    let merge_summary = classify_schema_merge(ctx, &validated)?;
+    if let (true, Some(version)) = (
+        merge_summary.all_idempotent,
+        merge_summary.current_version,
+    ) {
+        return Ok(SchemaUploadResponse {
+            namespace,
+            schema_version: version,
+            validation_errors: Vec::new(),
+            backward_compatible: true,
+            migration_summary_blob: Vec::new(),
+        });
+    }
+
+    // 5. Persist via the unified submit(Write) path.
     let now = crate::txn::now_unix_nanos_pub();
     let from_version = current_active(ctx, &namespace)?.unwrap_or(0);
 
@@ -116,13 +143,7 @@ pub async fn handle_schema_upload(
         }
     };
 
-    // 5. Flip the per-shard schema-declared gate:
-    //    "The cutover is the redb commit, not the response
-    //    emission." Subsequent RECALL frames on this shard route
-    //    through the hybrid engine.
-    ctx.schema_gate.set_declared(true);
-
-    // 6. Emit event post-commit.
+    // 5. Emit event post-commit.
     emit_knowledge_event(
         ctx,
         EventType::SchemaUpdated,
@@ -384,6 +405,235 @@ fn validation_error_to_wire(e: &ValidationError) -> SchemaValidationErrorWire {
         column,
         length,
         severity: 2,
+    }
+}
+
+// ---------------------------------------------------------------------------
+// Associative-merge pre-flight.
+// ---------------------------------------------------------------------------
+
+/// Outcome of a single declaration's merge classification.
+#[derive(Debug)]
+struct MergeSummary {
+    /// `Some` if the namespace already has a schema active.
+    current_version: Option<u32>,
+    /// `true` when every declared item already exists with matching
+    /// constraints — the upload is a no-op.
+    all_idempotent: bool,
+}
+
+/// Walk `validated.items` and classify each declaration against the
+/// current persisted state. Returns the conflict-free summary; on the
+/// first conflict produces `OpError::SchemaConflict` so the upload
+/// aborts before any writer txn opens. This keeps the merge
+/// all-or-nothing per the §03 associative-merge contract: a single
+/// conflict reverts the whole upload, the previous active version
+/// remains live.
+fn classify_schema_merge(
+    ctx: &OpsContext,
+    validated: &ValidatedSchema,
+) -> Result<MergeSummary, OpError> {
+    let schema = validated.as_schema();
+    let namespace = schema.namespace.as_str();
+
+    let db_guard = ctx.executor.metadata.lock();
+    let rtxn = db_guard
+        .read_txn()
+        .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
+
+    let current_version = schema_active(&rtxn, namespace).map_err(map_schema_store_error)?;
+
+    let mut all_idempotent = true;
+    for item in &schema.items {
+        match item {
+            SchemaItem::EntityType(e) => {
+                let existing =
+                    entity_type_lookup_by_name_rtxn(&rtxn, &e.name).map_err(|err| {
+                        OpError::Internal(format!("entity_type lookup: {err}"))
+                    })?;
+                match existing {
+                    None => all_idempotent = false,
+                    Some(row) => {
+                        // Apply currently passes `Vec::new()` for the
+                        // schema_blob, so any pre-existing row with an
+                        // empty blob is a match. A non-empty blob from a
+                        // prior cut would diverge — flag as conflict.
+                        if !row.schema_blob.is_empty() {
+                            return Err(OpError::SchemaConflict {
+                                kind: "entity_type",
+                                name: e.name.clone(),
+                                namespace: namespace.to_string(),
+                                conflict: "stored schema_blob is non-empty; merge requires a matching blob".to_string(),
+                            });
+                        }
+                    }
+                }
+            }
+            SchemaItem::Predicate(p) => {
+                let existing = predicate_lookup_by_qname(&rtxn, namespace, &p.name)
+                    .map_err(|err| OpError::Internal(format!("predicate lookup: {err}")))?;
+                match existing {
+                    None => all_idempotent = false,
+                    Some(row) => {
+                        let new_kind = map_statement_kind(p.kind);
+                        let new_object = object_type_constraint_byte(&p.object);
+                        let new_description = p.description.as_deref().unwrap_or("");
+                        let new_stateful = p.resolved_stateful();
+                        if row.kind_constraint != new_kind
+                            || row.object_type_constraint_byte != new_object
+                            || row.description != new_description
+                            || row.is_stateful != new_stateful
+                        {
+                            let mut diff = Vec::new();
+                            if row.kind_constraint != new_kind {
+                                diff.push(format!(
+                                    "kind: stored={:?} new={:?}",
+                                    row.kind_constraint, new_kind
+                                ));
+                            }
+                            if row.object_type_constraint_byte != new_object {
+                                diff.push(format!(
+                                    "object_type: stored={} new={}",
+                                    row.object_type_constraint_byte, new_object
+                                ));
+                            }
+                            if row.description != new_description {
+                                diff.push("description differs".to_string());
+                            }
+                            if row.is_stateful != new_stateful {
+                                diff.push(format!(
+                                    "stateful: stored={} new={}",
+                                    row.is_stateful, new_stateful
+                                ));
+                            }
+                            return Err(OpError::SchemaConflict {
+                                kind: "predicate",
+                                name: p.name.clone(),
+                                namespace: namespace.to_string(),
+                                conflict: diff.join(", "),
+                            });
+                        }
+                    }
+                }
+            }
+            SchemaItem::RelationType(r) => {
+                let existing = relation_type_lookup_by_qname(&rtxn, namespace, &r.name)
+                    .map_err(|err| {
+                        OpError::Internal(format!("relation_type lookup: {err}"))
+                    })?;
+                match existing {
+                    None => all_idempotent = false,
+                    Some(row) => {
+                        // from/to entity types are resolved by name at
+                        // apply time; we compare the declared names by
+                        // re-resolving the stored row's ids. For the
+                        // pre-flight a strict-equal name check is enough:
+                        // identical declarations resolve to identical
+                        // ids, divergent declarations either trip here or
+                        // get caught at apply time.
+                        let new_cardinality = map_cardinality(r.cardinality);
+                        let new_description = r.description.as_deref().unwrap_or("");
+                        if row.cardinality != new_cardinality
+                            || row.is_symmetric != r.symmetric
+                            || row.description != new_description
+                        {
+                            let mut diff = Vec::new();
+                            if row.cardinality != new_cardinality {
+                                diff.push(format!(
+                                    "cardinality: stored={:?} new={:?}",
+                                    row.cardinality, new_cardinality
+                                ));
+                            }
+                            if row.is_symmetric != r.symmetric {
+                                diff.push(format!(
+                                    "symmetric: stored={} new={}",
+                                    row.is_symmetric, r.symmetric
+                                ));
+                            }
+                            if row.description != new_description {
+                                diff.push("description differs".to_string());
+                            }
+                            return Err(OpError::SchemaConflict {
+                                kind: "relation_type",
+                                name: r.name.clone(),
+                                namespace: namespace.to_string(),
+                                conflict: diff.join(", "),
+                            });
+                        }
+                    }
+                }
+            }
+            SchemaItem::Extractor(e) => {
+                let existing = extractor_lookup_by_qname(&rtxn, namespace, &e.name)
+                    .map_err(|err| OpError::Internal(format!("extractor lookup: {err}")))?;
+                match existing {
+                    None => all_idempotent = false,
+                    Some(row) => {
+                        let new_kind = map_extractor_kind_byte(e.kind);
+                        if row.kind != new_kind {
+                            return Err(OpError::SchemaConflict {
+                                kind: "extractor",
+                                name: e.name.clone(),
+                                namespace: namespace.to_string(),
+                                conflict: format!(
+                                    "kind: stored={} new={}",
+                                    row.kind, new_kind
+                                ),
+                            });
+                        }
+                        // Blob comparison (the encoded `ExtractorDef`)
+                        // happens at apply time. Apply maps a mismatch
+                        // to `ApplyError::Metadata` which surfaces as
+                        // `OpError::Internal` — sub-optimal but rare;
+                        // matching it precisely here would require
+                        // re-encoding the AST as JSON, which couples
+                        // brain-ops to serde_json for one pre-flight
+                        // check.
+                    }
+                }
+            }
+        }
+    }
+
+    Ok(MergeSummary {
+        current_version,
+        all_idempotent,
+    })
+}
+
+fn map_statement_kind(k: StatementKindAst) -> Option<StatementKind> {
+    match k {
+        StatementKindAst::Fact => Some(StatementKind::Fact),
+        StatementKindAst::Preference => Some(StatementKind::Preference),
+        StatementKindAst::Event => Some(StatementKind::Event),
+        StatementKindAst::Any => None,
+    }
+}
+
+fn object_type_constraint_byte(o: &ObjectTypeDecl) -> u8 {
+    match o {
+        ObjectTypeDecl::Any => 0,
+        ObjectTypeDecl::Entity { .. } => 1,
+        ObjectTypeDecl::Value { .. } => 2,
+        ObjectTypeDecl::Memory => 3,
+        ObjectTypeDecl::Statement => 4,
+    }
+}
+
+fn map_cardinality(c: CardinalityAst) -> Cardinality {
+    match c {
+        CardinalityAst::OneToOne => Cardinality::OneToOne,
+        CardinalityAst::OneToMany => Cardinality::OneToMany,
+        CardinalityAst::ManyToOne => Cardinality::ManyToOne,
+        CardinalityAst::ManyToMany => Cardinality::ManyToMany,
+    }
+}
+
+fn map_extractor_kind_byte(k: ExtractorKindAst) -> u8 {
+    match k {
+        ExtractorKindAst::Pattern => brain_core::ExtractorKind::Pattern.as_u8(),
+        ExtractorKindAst::Classifier => brain_core::ExtractorKind::Classifier.as_u8(),
+        ExtractorKindAst::Llm => brain_core::ExtractorKind::Llm.as_u8(),
     }
 }
 

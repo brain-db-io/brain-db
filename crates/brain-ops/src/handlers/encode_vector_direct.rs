@@ -156,7 +156,7 @@ pub async fn handle_encode_vector_direct(
                 edges_out_count: 0,
                 embedding_model_fp: server_fp,
                 pending_stages: Vec::new(),
-                has_active_schema: ctx.schema_gate.is_declared(),
+                has_active_schema: true,
                 has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
             });
         }
@@ -246,7 +246,7 @@ pub async fn handle_encode_vector_direct(
         edges_out_count: auto_edges_added,
         embedding_model_fp: server_fp,
         pending_stages,
-        has_active_schema: ctx.schema_gate.is_declared(),
+        has_active_schema: true,
         has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
     })
 }
@@ -461,7 +461,7 @@ fn reconstruct_response(
         edges_out_count: auto_edges_added,
         embedding_model_fp,
         pending_stages,
-        has_active_schema: ctx.schema_gate.is_declared(),
+        has_active_schema: true,
         has_llm_extractor: ctx.extractor_registry.read().has_enabled_llm_extractor(),
     })
 }

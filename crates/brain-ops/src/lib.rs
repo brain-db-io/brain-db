@@ -68,7 +68,6 @@ pub use metrics::{
     RESOLVER_OUTCOME_LABELS, TIER_LABELS, TIER_STATUS_LABELS,
 };
 pub use state::access_buffer::{AccessBuffer, DEFAULT_ACCESS_BUFFER_CAPACITY};
-pub use state::schema_gate::SchemaGate;
 pub use write::{
     AllocatedId, EvidenceRefPhase, IdKind, Phase, PhaseAck, SupersedeReplacement,
     SupersedeReplacementId, SupersedeTarget, TombstoneTarget, Write, WriteAck, WriteId,

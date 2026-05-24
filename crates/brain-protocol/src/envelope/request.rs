@@ -139,6 +139,7 @@ pub enum RequestBody {
     SchemaGet(SchemaGetRequest),
     SchemaList(SchemaListRequest),
     SchemaValidate(SchemaValidateRequest),
+    SchemaReplace(SchemaReplaceRequest),
 
     // Extractor governance ops.
     ExtractorList(ExtractorListRequest),
@@ -220,6 +221,7 @@ impl RequestBody {
             Self::SchemaGet(_) => Opcode::SchemaGetReq,
             Self::SchemaList(_) => Opcode::SchemaListReq,
             Self::SchemaValidate(_) => Opcode::SchemaValidateReq,
+            Self::SchemaReplace(_) => Opcode::SchemaReplaceReq,
             Self::ExtractorList(_) => Opcode::ExtractorListReq,
             Self::ExtractorDisable(_) => Opcode::ExtractorDisableReq,
             Self::ExtractorEnable(_) => Opcode::ExtractorEnableReq,
@@ -295,6 +297,7 @@ impl RequestBody {
             Self::SchemaGet(r) => to_rkyv_bytes(r),
             Self::SchemaList(r) => to_rkyv_bytes(r),
             Self::SchemaValidate(r) => to_rkyv_bytes(r),
+            Self::SchemaReplace(r) => to_rkyv_bytes(r),
             Self::ExtractorList(r) => to_rkyv_bytes(r),
             Self::ExtractorDisable(r) => to_rkyv_bytes(r),
             Self::ExtractorEnable(r) => to_rkyv_bytes(r),
@@ -371,6 +374,7 @@ impl RequestBody {
             Opcode::SchemaGetReq => Self::SchemaGet(from_rkyv_bytes(bytes)?),
             Opcode::SchemaListReq => Self::SchemaList(from_rkyv_bytes(bytes)?),
             Opcode::SchemaValidateReq => Self::SchemaValidate(from_rkyv_bytes(bytes)?),
+            Opcode::SchemaReplaceReq => Self::SchemaReplace(from_rkyv_bytes(bytes)?),
             Opcode::ExtractorListReq => Self::ExtractorList(from_rkyv_bytes(bytes)?),
             Opcode::ExtractorDisableReq => Self::ExtractorDisable(from_rkyv_bytes(bytes)?),
             Opcode::ExtractorEnableReq => Self::ExtractorEnable(from_rkyv_bytes(bytes)?),
@@ -762,6 +766,16 @@ mod tests {
         let garbage = vec![0xAAu8; 64];
         let err = RequestBody::decode(Opcode::EncodeReq, &garbage).unwrap_err();
         assert!(matches!(err, ProtocolError::MalformedPayload(_)));
+    }
+
+    #[test]
+    fn schema_replace_request_round_trips() {
+        round_trip(RequestBody::SchemaReplace(SchemaReplaceRequest {
+            schema_document: "namespace acme\ndefine entity_type Widget { attributes {} }\n"
+                .into(),
+            force_drop_existing: true,
+            request_id: [0xAB; 16],
+        }));
     }
 
     // Wire fuzz: arbitrary bytes fed to RecallReq / EncodeReq decode
