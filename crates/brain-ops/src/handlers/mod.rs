@@ -4,6 +4,7 @@
 
 pub mod admin;
 pub mod encode;
+pub mod encode_vector_direct;
 pub mod entity;
 pub mod events;
 pub mod extractor_admin;

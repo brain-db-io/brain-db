@@ -213,6 +213,12 @@ pub async fn dispatch(
             .await
             .map(|b| single(ResponseBody::Encode(b))),
 
+        RequestBody::EncodeVectorDirect(r) => {
+            crate::encode_vector_direct::handle_encode_vector_direct(r, ctx)
+                .await
+                .map(ResponseBody::EncodeVectorDirect)
+        }
+
         RequestBody::Recall(r) => crate::recall::handle_recall(r, ctx)
             .await
             .map(|b| single(ResponseBody::Recall(b))),
@@ -476,6 +482,7 @@ fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), O
     let (op_bit, what): (u32, &'static str) = match req {
         // Cognitive primitives.
         RequestBody::Encode(_) => (perm_bits::ENCODE, "ENCODE"),
+        RequestBody::EncodeVectorDirect(_) => (perm_bits::ENCODE, "ENCODE_VECTOR_DIRECT"),
         RequestBody::Recall(_) | RequestBody::Plan(_) | RequestBody::Reason(_) => {
             (perm_bits::RECALL, "RECALL")
         }
@@ -589,9 +596,9 @@ fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), Op
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_protocol::{SchemaGetRequest, SchemaListRequest};
     use brain_protocol::EncodeRequest;
     use brain_protocol::MemoryKindWire;
+    use brain_protocol::{SchemaGetRequest, SchemaListRequest};
 
     fn agent(byte: u8) -> AgentId {
         let mut a = [0u8; 16];

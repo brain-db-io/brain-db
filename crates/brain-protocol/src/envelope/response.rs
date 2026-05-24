@@ -64,6 +64,11 @@ pub enum ResponseBody {
     /// Server confirmation of authentication.
     AuthOk(AuthOkPayload),
     Encode(EncodeResponse),
+    /// Reply to `ENCODE_VECTOR_DIRECT_REQ`. Carries the same payload
+    /// shape as a regular `EncodeResponse`; the separate wire opcode
+    /// (`0x00AA`) lets clients tell the two paths apart and lets the
+    /// SDK route by opcode without inspecting the body.
+    EncodeVectorDirect(EncodeResponse),
     Recall(RecallResponseFrame),
     Plan(PlanResponseFrame),
     Reason(ReasonResponseFrame),
@@ -161,6 +166,7 @@ impl ResponseBody {
             Self::Welcome(_) => Opcode::Welcome,
             Self::AuthOk(_) => Opcode::AuthOk,
             Self::Encode(_) => Opcode::EncodeResp,
+            Self::EncodeVectorDirect(_) => Opcode::EncodeVectorDirectResp,
             Self::Recall(_) => Opcode::RecallResp,
             Self::Plan(_) => Opcode::PlanResp,
             Self::Reason(_) => Opcode::ReasonResp,
@@ -257,6 +263,7 @@ impl ResponseBody {
             Self::Welcome(r) => to_rkyv_bytes(r),
             Self::AuthOk(r) => to_rkyv_bytes(r),
             Self::Encode(r) => to_rkyv_bytes(r),
+            Self::EncodeVectorDirect(r) => to_rkyv_bytes(r),
             Self::Recall(r) => to_rkyv_bytes(r),
             Self::Plan(r) => to_rkyv_bytes(r),
             Self::Reason(r) => to_rkyv_bytes(r),
@@ -330,6 +337,7 @@ impl ResponseBody {
             Opcode::Welcome => Self::Welcome(from_rkyv_bytes(bytes)?),
             Opcode::AuthOk => Self::AuthOk(from_rkyv_bytes(bytes)?),
             Opcode::EncodeResp => Self::Encode(from_rkyv_bytes(bytes)?),
+            Opcode::EncodeVectorDirectResp => Self::EncodeVectorDirect(from_rkyv_bytes(bytes)?),
             Opcode::RecallResp => Self::Recall(from_rkyv_bytes(bytes)?),
             Opcode::PlanResp => Self::Plan(from_rkyv_bytes(bytes)?),
             Opcode::ReasonResp => Self::Reason(from_rkyv_bytes(bytes)?),
@@ -453,6 +461,29 @@ mod tests {
             ],
             has_active_schema: true,
             has_llm_extractor: true,
+        }));
+    }
+
+    #[test]
+    fn encode_vector_direct_response_round_trips() {
+        // Same payload shape as `EncodeResponse` — the separate
+        // variant only exists so the wire opcode (`0x00AA`) is
+        // recoverable from the body.
+        round_trip(ResponseBody::EncodeVectorDirect(EncodeResponse {
+            memory_id: sample_memory_id(),
+            was_deduplicated: false,
+            salience: 0.5,
+            auto_edges_added: 0,
+            lsn: 99,
+            agent_id: [0xAA; 16],
+            context_id: 7,
+            kind: MemoryKindWire::Episodic,
+            created_at_unix_nanos: 1_700_000_000_000_000_000,
+            edges_out_count: 0,
+            embedding_model_fp: [0xBB; 16],
+            pending_stages: Vec::new(),
+            has_active_schema: false,
+            has_llm_extractor: false,
         }));
     }
 

@@ -20,6 +20,46 @@ pub struct EncodeRequest {
     pub deduplicate: bool,
 }
 
+/// Power-user encode: client supplies the embedding vector itself and
+/// the fingerprint of the model that produced it. Used by deployments
+/// running their own (often domain-specific or multi-modal) embedder
+/// outside Brain. The server skips its own embed step entirely, but
+/// still runs every downstream validation, dedup, slot reservation,
+/// edge wiring, and write submission.
+///
+/// The vector must be L2-normalised within `+/- 1e-3` (cosine
+/// similarity assumes unit norm) and the fingerprint must match the
+/// shard's currently-loaded model. Both checks fail with
+/// `InvalidArgument` carrying a precise human-readable reason — power
+/// users get to debug their embed pipeline.
+#[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
+#[archive(check_bytes)]
+#[archive_attr(derive(Debug))]
+pub struct EncodeVectorDirectRequest {
+    /// Text that produced the vector. Stored verbatim (for tantivy +
+    /// future re-embedding). May be empty when the upstream embedder
+    /// is multi-modal — but the server still requires a stable
+    /// identifier; pass an empty string and the content-hash dedup
+    /// path becomes a vector-bytes hash instead.
+    pub text: String,
+    /// The L2-normalised embedding (384 floats for the BGE-small v1
+    /// fingerprint Brain ships with). Server validates length matches
+    /// `brain_embed::VECTOR_DIM` and the norm is within tolerance.
+    pub vector: Vec<f32>,
+    /// Fingerprint of the model that produced `vector`. Must match
+    /// the shard's loaded model fingerprint — a mismatch fails the
+    /// write because the resulting memory would be unsearchable
+    /// against future text-cued recalls.
+    pub model_fingerprint: [u8; 16],
+    pub context_id: WireContextId,
+    pub kind: MemoryKindWire,
+    pub salience_hint: f32,
+    pub edges: Vec<EdgeRequest>,
+    pub request_id: WireUuid,
+    pub txn_id: Option<WireUuid>,
+    pub deduplicate: bool,
+}
+
 /// Edge attached to an `ENCODE_REQ`.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]
 #[archive(check_bytes)]

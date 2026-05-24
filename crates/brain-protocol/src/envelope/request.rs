@@ -76,6 +76,7 @@ pub enum RequestBody {
     /// Authentication frame following WELCOME.
     Auth(AuthPayload),
     Encode(EncodeRequest),
+    EncodeVectorDirect(EncodeVectorDirectRequest),
     Recall(RecallRequest),
     Plan(PlanRequest),
     Reason(ReasonRequest),
@@ -164,6 +165,7 @@ impl RequestBody {
             Self::Hello(_) => Opcode::Hello,
             Self::Auth(_) => Opcode::Auth,
             Self::Encode(_) => Opcode::EncodeReq,
+            Self::EncodeVectorDirect(_) => Opcode::EncodeVectorDirectReq,
             Self::Recall(_) => Opcode::RecallReq,
             Self::Plan(_) => Opcode::PlanReq,
             Self::Reason(_) => Opcode::ReasonReq,
@@ -238,6 +240,7 @@ impl RequestBody {
             Self::Hello(r) => to_rkyv_bytes(r),
             Self::Auth(r) => to_rkyv_bytes(r),
             Self::Encode(r) => to_rkyv_bytes(r),
+            Self::EncodeVectorDirect(r) => to_rkyv_bytes(r),
             Self::Recall(r) => to_rkyv_bytes(r),
             Self::Plan(r) => to_rkyv_bytes(r),
             Self::Reason(r) => to_rkyv_bytes(r),
@@ -311,6 +314,7 @@ impl RequestBody {
             Opcode::Hello => Self::Hello(from_rkyv_bytes(bytes)?),
             Opcode::Auth => Self::Auth(from_rkyv_bytes(bytes)?),
             Opcode::EncodeReq => Self::Encode(from_rkyv_bytes(bytes)?),
+            Opcode::EncodeVectorDirectReq => Self::EncodeVectorDirect(from_rkyv_bytes(bytes)?),
             Opcode::RecallReq => Self::Recall(from_rkyv_bytes(bytes)?),
             Opcode::PlanReq => Self::Plan(from_rkyv_bytes(bytes)?),
             Opcode::ReasonReq => Self::Reason(from_rkyv_bytes(bytes)?),
@@ -416,6 +420,29 @@ mod tests {
     fn encode_round_trips() {
         round_trip(RequestBody::Encode(EncodeRequest {
             text: "hello brain".into(),
+            context_id: 1_u64,
+            kind: MemoryKindWire::Episodic,
+            salience_hint: 0.25,
+            edges: vec![EdgeRequest {
+                target: sample_memory_id(),
+                kind: EdgeKindWire::Caused,
+                weight: 0.9,
+            }],
+            request_id: sample_uuid(2),
+            txn_id: Some(sample_uuid(3)),
+            deduplicate: true,
+        }));
+    }
+
+    #[test]
+    fn encode_vector_direct_round_trips() {
+        // A unit-norm 4-element vector is enough for the wire round
+        // trip; the server-side normalisation check lives in the
+        // handler and is exercised elsewhere.
+        round_trip(RequestBody::EncodeVectorDirect(EncodeVectorDirectRequest {
+            text: "hello brain".into(),
+            vector: vec![1.0, 0.0, 0.0, 0.0],
+            model_fingerprint: [0xAB; 16],
             context_id: 1_u64,
             kind: MemoryKindWire::Episodic,
             salience_hint: 0.25,
