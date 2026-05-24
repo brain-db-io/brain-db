@@ -20,6 +20,7 @@ pub mod distance;
 pub mod encode;
 pub mod kmeans;
 pub mod params;
+pub mod rerank;
 
 pub use codebook::{Codebook, CodebookError};
 pub use distance::{adc, install_search_lut, sdc, Lut, LutGuard, PqDist, SdcTable};
@@ -29,3 +30,4 @@ pub use params::{
     PqParams, PqParamsError, MAX_TRAINING_SAMPLE, MIN_TRAINING_SAMPLE, PQ_BITS_V1,
     PQ_CENTROIDS_PER_SUBSPACE,
 };
+pub use rerank::rerank;
