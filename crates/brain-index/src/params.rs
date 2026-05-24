@@ -64,18 +64,20 @@ impl IndexParams {
         }
     }
 
-    /// Same defaults, but with PQ enabled at the v1 profile
-    /// ([`PqParams::default_v1`]). Convenience for tests + the
-    /// activation handler.
+    /// Builder: return a copy with PQ activated using the supplied
+    /// params. Pair with [`Self::default_v1`] for the common path
+    /// `IndexParams::default_v1().with_pq(PqParams::default_v1())`.
     #[must_use]
-    pub const fn default_v1_with_pq() -> Self {
-        Self {
-            m: 16,
-            ef_construction: 200,
-            ef_search: 64,
-            ef_search_max: 500,
-            pq: Some(PqParams::default_v1()),
-        }
+    pub const fn with_pq(mut self, pq: PqParams) -> Self {
+        self.pq = Some(pq);
+        self
+    }
+
+    /// Builder: drop any PQ configuration, returning a pure-HNSW copy.
+    #[must_use]
+    pub const fn without_pq(mut self) -> Self {
+        self.pq = None;
+        self
     }
 
     /// Validate fields lie in the spec's ranges. The validation runs once

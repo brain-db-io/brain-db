@@ -16,10 +16,14 @@
 //! and the `PqHnswIndex` wrapper (25.4).
 
 pub mod codebook;
+pub mod distance;
+pub mod encode;
 pub mod kmeans;
 pub mod params;
 
 pub use codebook::{Codebook, CodebookError};
+pub use distance::{adc, install_search_lut, sdc, Lut, LutGuard, PqDist, SdcTable};
+pub use encode::{encode, encode_batch, EncodeError};
 pub use kmeans::{train, KmeansError};
 pub use params::{
     PqParams, PqParamsError, MAX_TRAINING_SAMPLE, MIN_TRAINING_SAMPLE, PQ_BITS_V1,
