@@ -171,6 +171,15 @@ pub(crate) enum ShardRequest {
         selector: brain_protocol::BackfillSelector,
         reply_tx: Sender<Result<ExtractBackfillReport, String>>,
     },
+    /// Auto-abort every Active txn owned by `session_id`. Fanned out
+    /// by the connection layer the moment a TCP/TLS connection drops
+    /// before TXN_COMMIT (spec §05/04, §01/03 §8). Reply carries the
+    /// count of aborted entries for connection-layer logging; the
+    /// individual `TxnId`s stay on the shard.
+    AbortOrphanedTxns {
+        session_id: [u8; 16],
+        reply_tx: Sender<usize>,
+    },
 }
 
 /// Per-shard counts surfaced by [`ShardRequest::ExtractBackfill`]. The
@@ -857,6 +866,35 @@ impl ShardHandle {
             .await
             .map_err(|_| DispatchError::ShardDisconnected)?
             .map_err(DispatchError::Op)
+    }
+
+    /// Auto-abort every Active txn this shard holds for the given
+    /// wire session. The connection layer invokes this on every shard
+    /// in the topology when a TCP/TLS connection drops before the
+    /// client committed (spec §05/04: "On TXN_ABORT or connection
+    /// drop before commit, none of the operations take effect"). The
+    /// shard does the work synchronously inside its Glommio executor;
+    /// the reply carries the number of entries swept so the
+    /// connection-layer logger can summarise.
+    ///
+    /// Returns `Ok(0)` when no txns belonged to that session (the
+    /// common case — most connections don't open a txn).
+    pub async fn abort_orphaned_for_session(
+        &self,
+        session_id: [u8; 16],
+    ) -> Result<usize, DispatchError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::AbortOrphanedTxns {
+                session_id,
+                reply_tx,
+            })
+            .await
+            .map_err(|_| DispatchError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| DispatchError::ShardDisconnected)
     }
 }
 
@@ -2124,6 +2162,26 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     warn!(
                         shard_id = shard.shard_id,
                         "RebuildHnsw reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::AbortOrphanedTxns {
+                session_id,
+                reply_tx,
+            } => {
+                // Synchronous on the shard executor: `TxnStore` is a
+                // parking_lot::Mutex over a HashMap, so the sweep is
+                // a single bounded pass. Returning the count (not the
+                // ids) keeps the cross-runtime reply trivially Send.
+                let aborted = shard
+                    .ops
+                    .txn_store
+                    .abort_orphaned_for_session(session_id)
+                    .len();
+                if reply_tx.send_async(aborted).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "AbortOrphanedTxns reply dropped (caller gone)"
                     );
                 }
             }

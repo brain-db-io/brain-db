@@ -40,6 +40,13 @@ pub struct RequestCaller {
     /// True when scope binding is enforced for this caller. In
     /// permissive mode (default v1.0) all checks short-circuit.
     pub scope_enforced: bool,
+    /// Wire-level session identifier minted at HELLO/WELCOME. Stamped
+    /// onto every open transaction so the connection layer can
+    /// auto-abort buffered work when the client's TCP/TLS connection
+    /// drops before TXN_COMMIT. All-zero means "no session" (in-process
+    /// test path or pre-handshake dispatch); the auto-abort sweep
+    /// treats all-zero as a no-op.
+    pub session_id: [u8; 16],
 }
 
 impl RequestCaller {
@@ -54,6 +61,7 @@ impl RequestCaller {
             namespace: String::new(),
             permissions: perm_bits::FULL,
             scope_enforced: false,
+            session_id: [0u8; 16],
         }
     }
 
@@ -73,6 +81,7 @@ impl RequestCaller {
             namespace,
             permissions,
             scope_enforced: true,
+            session_id: [0u8; 16],
         }
     }
 
@@ -87,7 +96,17 @@ impl RequestCaller {
             namespace: String::new(),
             permissions: perm_bits::FULL,
             scope_enforced: false,
+            session_id: [0u8; 16],
         }
+    }
+
+    /// Stamp the wire-level session id minted at HELLO/WELCOME. The
+    /// connection layer calls this after `to_caller()` so the txn store
+    /// can link buffered work back to the originating connection.
+    #[must_use]
+    pub fn with_session_id(mut self, session_id: [u8; 16]) -> Self {
+        self.session_id = session_id;
+        self
     }
 
     /// True iff every bit in `op` is set on this caller's permission
@@ -267,7 +286,11 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         // Transactions — 7.9.
         // -----------------------------------------------------------
-        RequestBody::TxnBegin(r) => crate::txn::handle_txn_begin(r, ctx)
+        // TXN_BEGIN stamps the wire-level session id on the entry so
+        // the connection-drop sweep (§05/04: "on connection drop
+        // before commit, none of the operations take effect") can
+        // identify which buffered work belongs to a dying connection.
+        RequestBody::TxnBegin(r) => crate::txn::handle_txn_begin(r, caller.session_id, ctx)
             .await
             .map(|b| single(ResponseBody::TxnBegin(b))),
 

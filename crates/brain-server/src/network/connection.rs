@@ -489,7 +489,10 @@ where
     // shard broadcasts.
     let subscriptions = Arc::new(SubscriptionRegistry::new(event_hub));
 
-    let result = receiver_loop(
+    // The receiver loop returns the session id it minted at
+    // HELLO/WELCOME (or all-zero when the connection died pre-handshake).
+    // We need it post-loop to drive the auto-abort sweep below.
+    let (result, session_id) = receiver_loop(
         &mut read_half,
         &topology,
         &limits,
@@ -507,7 +510,51 @@ where
     // own channel close cooperatively.)
     drop(frame_tx);
     let _ = writer.await;
+
+    // Spec §05/04 + §01/03 §8: "On TXN_ABORT or connection drop
+    // before commit, none of the operations take effect." Any txn
+    // this session opened (TXN_BEGIN without a matching COMMIT/ABORT)
+    // is still buffering work on its target shard; sweep every shard
+    // and discard the buffer. Pre-handshake disconnects carry an
+    // all-zero session_id; the sweep is a cheap no-op in that case.
+    abort_orphaned_transactions(&topology, session_id).await;
+
     result
+}
+
+/// Fan an auto-abort sweep across every shard so any txn the
+/// just-dropped session opened is discarded immediately, not lazily
+/// at the per-txn timeout. Logs a single info line summarising the
+/// abort count when at least one txn was swept; stays silent on the
+/// common "session never opened a txn" path.
+///
+/// All-zero `session_id` (pre-handshake disconnect, in-process tests)
+/// short-circuits to a no-op — `TxnStore::abort_orphaned_for_session`
+/// enforces the same guard, but skipping the cross-runtime hop saves
+/// a per-shard message per connection close.
+async fn abort_orphaned_transactions(topology: &Topology, session_id: [u8; 16]) {
+    if session_id == [0u8; 16] {
+        return;
+    }
+    let mut total_aborted = 0usize;
+    for shard in topology.shards.iter() {
+        match shard.abort_orphaned_for_session(session_id).await {
+            Ok(n) => total_aborted += n,
+            Err(e) => {
+                debug!(
+                    error = %e,
+                    "auto-abort sweep: shard unreachable (already shutting down?)"
+                );
+            }
+        }
+    }
+    if total_aborted > 0 {
+        info!(
+            session_id = %uuid::Uuid::from_bytes(session_id),
+            aborted = total_aborted,
+            "auto-aborted orphaned transactions on disconnect"
+        );
+    }
 }
 
 // One outgoing frame: bytes pre-encoded, with an optional "close after
@@ -549,13 +596,21 @@ async fn receiver_loop<R>(
     frame_tx: flume::Sender<OutgoingFrame>,
     subscriptions: Arc<SubscriptionRegistry>,
     metrics: Arc<ConnectionMetrics>,
-) -> io::Result<()>
+) -> (io::Result<()>, [u8; 16])
 where
     R: AsyncRead + Unpin,
 {
     let mut state = ConnState::new();
     let mut idle = IdleTimer::new(limits.idle_timeout, limits.ping_timeout);
     let mut handshake_deadline = Some(tokio::time::Instant::now() + limits.auth_timeout);
+
+    // Return helper so every exit path surfaces the session id the
+    // caller needs for the disconnect-time txn sweep.
+    macro_rules! exit {
+        ($result:expr) => {{
+            return ($result, state.session_id);
+        }};
+    }
 
     loop {
         // Compute the next deadline: handshake timeout while pre-AUTH,
@@ -567,7 +622,7 @@ where
 
         tokio::select! {
             biased;
-            () = shutdown.recv() => return Ok(()),
+            () = shutdown.recv() => exit!(Ok(())),
             _ = tokio::time::sleep_until(next_deadline) => {
                 if handshake_deadline.is_some() {
                     // — auth timeout before AUTH_OK.
@@ -579,7 +634,7 @@ where
                         bytes: frame.encode(),
                         close_after: true,
                     }).await;
-                    return Ok(());
+                    exit!(Ok(()));
                 }
                 match idle.fire() {
                     Tick::SendPing => {
@@ -588,13 +643,13 @@ where
                             bytes: frame.encode(),
                             close_after: false,
                         }).await.is_err() {
-                            return Ok(());
+                            exit!(Ok(()));
                         }
                     }
                     Tick::Close => {
                         // SERVER_PING went unanswered past ping_timeout.
                         metrics.record_close(CloseReason::Timeout);
-                        return Ok(());
+                        exit!(Ok(()));
                     }
                 }
             }
@@ -618,7 +673,7 @@ where
                                     bytes: frame.encode(),
                                     close_after: false,
                                 }).await.is_err() {
-                                    return Ok(());
+                                    exit!(Ok(()));
                                 }
                             }
                             Action::OpDispatch(op) => {
@@ -691,18 +746,18 @@ where
                                     CloseReason::ProtocolError
                                 };
                                 metrics.record_close(reason);
-                                return Ok(());
+                                exit!(Ok(()));
                             }
                             Action::Close => {
                                 metrics.record_close(CloseReason::Bye);
-                                return Ok(());
+                                exit!(Ok(()));
                             }
                             Action::Nothing => {}
                         }
                     }
                     Err(FrameReadError::Eof) => {
                         metrics.record_close(CloseReason::Eof);
-                        return Ok(());
+                        exit!(Ok(()));
                     }
                     Err(FrameReadError::Protocol(code, category, detail)) => {
                         let frame = build_close_error_frame_with_category(code, category, &detail);
@@ -711,18 +766,18 @@ where
                             close_after: true,
                         }).await;
                         metrics.record_close(CloseReason::ProtocolError);
-                        return Ok(());
+                        exit!(Ok(()));
                     }
                     Err(FrameReadError::Timeout) => {
                         // Per-frame read budget expired. Close quietly;
                         // the idle/SERVER_PING path is for application-
                         // level keepalive.
                         metrics.record_close(CloseReason::Timeout);
-                        return Ok(());
+                        exit!(Ok(()));
                     }
                     Err(FrameReadError::Io(e)) => {
                         metrics.record_close(CloseReason::Fatal);
-                        return Err(e);
+                        exit!(Err(e));
                     }
                 }
             }

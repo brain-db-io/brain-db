@@ -105,9 +105,15 @@ impl RequestScope {
     }
 
     /// Materialize a `brain_ops::RequestCaller` for dispatch.
+    ///
+    /// The caller is stamped with the wire-level `session_id` minted
+    /// at HELLO/WELCOME so the txn store can link buffered work back
+    /// to the originating connection — disconnect-time cleanup
+    /// (§05/04) fans out on session_id, not on agent_id, because a
+    /// single agent may hold many concurrent sessions.
     #[must_use]
-    pub fn to_caller(&self) -> brain_ops::RequestCaller {
-        if self.scope_enforced {
+    pub fn to_caller(&self, session_id: [u8; 16]) -> brain_ops::RequestCaller {
+        let base = if self.scope_enforced {
             brain_ops::RequestCaller::from_scope(
                 self.agent_id,
                 self.org_id,
@@ -117,7 +123,8 @@ impl RequestScope {
             )
         } else {
             brain_ops::RequestCaller::new(self.agent_id)
-        }
+        };
+        base.with_session_id(session_id)
     }
 }
 

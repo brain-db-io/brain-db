@@ -293,6 +293,7 @@ fn recall_p95_substrate_via_internal_entry_point() {
                 txn_id,
                 timeout_seconds: 60,
             },
+            [0u8; 16],
             &fix.ctx,
         )
         .await

@@ -572,6 +572,7 @@ fn handle_recall_routes_to_substrate_when_txn_present() {
                 txn_id,
                 timeout_seconds: 30,
             },
+            [0u8; 16],
             &fix.ctx,
         )
         .await

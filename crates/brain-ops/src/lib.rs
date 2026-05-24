@@ -53,7 +53,7 @@ pub use handlers::subscribe::{
     parse_filter, EventBus, EventEnvelope, LsnAllocator, ParsedFilter, SubscriptionHandle,
     SubscriptionRegistry, DEFAULT_EVENT_CHANNEL_CAPACITY,
 };
-pub use handlers::txn::{TxnState, TxnStore};
+pub use handlers::txn::{TxnId, TxnState, TxnStore};
 pub use metrics::{
     AmbiguityResolverMetrics, AmbiguityResolverMetricsSnapshot, ApplyErrorSnapshot,
     AutoEdgeMetrics, AutoEdgeMetricsSnapshot, CausalEdgeMetrics, CausalEdgeMetricsSnapshot,

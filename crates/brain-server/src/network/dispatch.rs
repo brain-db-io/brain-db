@@ -141,6 +141,11 @@ pub(crate) struct OpDispatch {
     /// `RequestCaller` so handlers read scope from here instead of
     /// trusting client-supplied fields.
     pub(crate) scope: RequestScope,
+    /// Wire-level session id minted at HELLO. Stamped onto the
+    /// `RequestCaller` so TXN_BEGIN can link the new entry back to
+    /// the originating connection — drives the connection-drop
+    /// auto-abort sweep (spec §05/04).
+    pub(crate) session_id: [u8; 16],
 }
 
 pub(crate) struct SubscribeStart {
@@ -299,6 +304,10 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         // cross-agent leak the `agents` subscribe filter needs to
         // enforce closes here.
         scope,
+        // Wire session id rides alongside so TXN_BEGIN can stamp it
+        // on the new entry; the connection-drop sweep needs it to
+        // find buffered work owned by a dying connection.
+        session_id: state.session_id,
     })
 }
 
@@ -476,7 +485,7 @@ pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>
             );
         }
     };
-    match shard.dispatch_op(op.req, op.scope.to_caller()).await {
+    match shard.dispatch_op(op.req, op.scope.to_caller(op.session_id)).await {
         Ok(body) => {
             // 9.10 ships single-frame EOS responses. Multi-frame
             // streaming for RECALL / PLAN / REASON is 9.11.

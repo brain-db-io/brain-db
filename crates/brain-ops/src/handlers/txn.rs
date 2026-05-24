@@ -65,6 +65,13 @@ pub struct TxnEntry {
     pub timeout_seconds: u32,
     pub final_response: Option<TxnFinalResponse>,
     pub buffer: Option<TxnBuffer>,
+    /// Wire-level session that opened this txn. The connection layer
+    /// fans out [`TxnStore::abort_orphaned_for_session`] when this
+    /// session's TCP/TLS connection drops, so buffered work doesn't
+    /// linger occupying RAM until the per-txn expiry sweep. All-zero
+    /// means "no session" (in-process tests) — the sweep treats it as
+    /// "never owned by any disconnect" and leaves the entry alone.
+    pub session_id: [u8; 16],
 }
 
 // ---------------------------------------------------------------------------
@@ -233,6 +240,43 @@ impl TxnStore {
         }
     }
 
+    /// Auto-abort every Active txn opened by the given wire session.
+    /// Called by the connection layer when a TCP/TLS connection drops
+    /// before the client COMMIT/ABORT — the spec (§05/04, §01/03 §8)
+    /// is explicit that buffered work from a dropped connection must
+    /// not take effect, and the per-txn timeout sweep is too lazy:
+    /// the entries would otherwise occupy RAM for up to
+    /// `timeout_seconds` after the socket closed.
+    ///
+    /// `session_id == [0u8; 16]` is treated as a no-op so in-process
+    /// callers (tests, embedded harnesses) can't accidentally wipe
+    /// their own txns by passing the default.
+    ///
+    /// Returns the list of txn ids that were aborted (for logging).
+    pub fn abort_orphaned_for_session(&self, session_id: [u8; 16]) -> Vec<TxnId> {
+        if session_id == [0u8; 16] {
+            return Vec::new();
+        }
+        let mut entries = self.entries.lock();
+        let mut aborted = Vec::new();
+        for (txn_id, entry) in entries.iter_mut() {
+            if entry.session_id != session_id {
+                continue;
+            }
+            if !matches!(entry.state, TxnState::Active) {
+                continue;
+            }
+            let ops = entry.buffer.as_ref().map(TxnBuffer::ops_count).unwrap_or(0);
+            entry.state = TxnState::Aborted;
+            entry.buffer = None;
+            entry.final_response = Some(TxnFinalResponse::Abort(TxnFinalAbort {
+                operations_discarded: ops,
+            }));
+            aborted.push(*txn_id);
+        }
+        aborted
+    }
+
     /// Apply `f` to the mutable buffer of an Active txn. Errors with
     /// `TxnNotFound` if no such id was ever created, `TxnExpired`
     /// otherwise. Bumps `expires_at` on success — every buffer
@@ -273,6 +317,7 @@ fn now_unix_nanos() -> u64 {
 
 pub async fn handle_txn_begin(
     req: TxnBeginRequest,
+    session_id: [u8; 16],
     ctx: &OpsContext,
 ) -> Result<TxnBeginResponse, OpError> {
     let timeout_seconds = clamp_timeout(req.timeout_seconds);
@@ -298,6 +343,7 @@ pub async fn handle_txn_begin(
         timeout_seconds,
         final_response: None,
         buffer: Some(TxnBuffer::default()),
+        session_id,
     };
     entries.insert(req.txn_id, entry);
 
