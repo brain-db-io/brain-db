@@ -13,10 +13,7 @@
 //! model isn't bootstrapped on disk), the executor never reaches
 //! this module and the RRF-only ordering is preserved.
 
-use std::sync::Arc;
-
 use brain_index::RankedItemId;
-use brain_rerank::CrossEncoder;
 
 use super::fusion::FusedItem;
 
@@ -36,38 +33,27 @@ pub struct RerankCandidate {
     pub text: String,
 }
 
-/// Re-rank the head of `fused` using the cross-encoder.
+/// Re-sort the head of `fused` by pre-computed cross-encoder scores.
 ///
-/// - Up to [`RERANK_TOP_N`] candidates are scored.
-/// - The cross-encoder's logits are written into a tail-stable
-///   sort: reranked candidates lead, in descending score order;
+/// Scoring itself happens off the shard core (see
+/// `executor::rerank_stage`, which calls the off-core
+/// `RerankService`); this function is the pure, synchronous re-sort
+/// that consumes the resulting logits.
+///
+/// - `scores[i]` is the cross-encoder logit for `candidates[i]`;
+///   the two slices must be the same length and order.
+/// - Reranked candidates lead, in descending score order;
 ///   un-reranked candidates (text not available, scoring window
 ///   exceeded) keep their RRF order behind them.
-/// - On rerank error, returns the unchanged `fused` list and logs
-///   at `warn`. Rerank is a best-effort accuracy boost; failure
-///   must never break a recall.
+/// - Empty `candidates` (or `scores`) returns `fused` unchanged.
 pub fn rerank_top_n(
-    cross_encoder: &Arc<CrossEncoder>,
-    query: &str,
+    scores: &[f32],
     fused: Vec<FusedItem>,
     candidates: &[RerankCandidate],
 ) -> Vec<FusedItem> {
-    if candidates.is_empty() {
+    if candidates.is_empty() || scores.is_empty() {
         return fused;
     }
-
-    let texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
-    let scores = match cross_encoder.score_pairs(query, &texts) {
-        Ok(s) => s,
-        Err(e) => {
-            tracing::warn!(
-                target: "brain_planner::rerank",
-                error = %e,
-                "cross-encoder scoring failed; returning RRF-only ordering",
-            );
-            return fused;
-        }
-    };
     debug_assert_eq!(scores.len(), candidates.len());
 
     // Build an id → score map for the rerank window.
@@ -121,53 +107,50 @@ mod tests {
         }
     }
 
+    fn candidate(slot: u64) -> RerankCandidate {
+        RerankCandidate {
+            id: RankedItemId::Memory(MemoryId::pack(0, slot, 0)),
+            text: format!("candidate {slot}"),
+        }
+    }
+
     #[test]
     fn rerank_with_empty_candidates_is_identity() {
-        // Build a fake cross-encoder via Arc::new on a zero-sized
-        // sentinel would require touching candle; skip by checking
-        // the early-return branch directly via the public function
-        // with `candidates = &[]`. We don't even need the encoder
-        // to be valid because the empty branch returns before
-        // calling it — but Rust still needs the Arc. Use a dummy
-        // pointer via std::mem::MaybeUninit (forbidden by our
-        // unsafe ban). Instead, rely on the implementation: the
-        // empty branch returns immediately. Wrap with a separate
-        // helper to make the test possible without a real Arc:
-        fn rerank_empty_identity(fused: Vec<FusedItem>) -> Vec<FusedItem> {
-            // Mirror of the early-return branch.
-            fused
-        }
         let f = vec![fused_item(1, 0.1), fused_item(2, 0.2)];
-        let out = rerank_empty_identity(f.clone());
+        let out = rerank_top_n(&[], f.clone(), &[]);
         assert_eq!(out.len(), 2);
         assert_eq!(out[0].id, f[0].id);
         assert_eq!(out[1].id, f[1].id);
     }
 
     #[test]
-    fn partition_preserves_out_window_order() {
-        // Re-implement the partition step in isolation to assert
-        // the invariant the production code relies on: items not
-        // in the rerank window keep their RRF order behind the
-        // reranked ones.
+    fn reranks_in_window_by_score_keeps_out_window_order() {
+        // RRF order: slots 1,2,3,4. The rerank window covers slots 1
+        // and 3; the cross-encoder ranks slot 3 above slot 1. Slots 2
+        // and 4 are out-of-window and must keep their RRF order behind
+        // the reranked pair.
         let fused = vec![
             fused_item(1, 0.9),
             fused_item(2, 0.8),
             fused_item(3, 0.7),
             fused_item(4, 0.6),
         ];
-        let in_window: std::collections::HashSet<RankedItemId> = [
-            RankedItemId::Memory(MemoryId::pack(0, 1, 0)),
-            RankedItemId::Memory(MemoryId::pack(0, 3, 0)),
-        ]
-        .into_iter()
-        .collect();
-        let (inside, outside): (Vec<_>, Vec<_>) =
-            fused.into_iter().partition(|i| in_window.contains(&i.id));
-        assert_eq!(inside.len(), 2);
-        assert_eq!(outside.len(), 2);
-        // outside should still be in RRF order (slot 2 then 4).
-        assert_eq!(outside[0].id, RankedItemId::Memory(MemoryId::pack(0, 2, 0)),);
-        assert_eq!(outside[1].id, RankedItemId::Memory(MemoryId::pack(0, 4, 0)),);
+        let candidates = [candidate(1), candidate(3)];
+        let scores = [0.1_f32, 0.9_f32];
+
+        let out = rerank_top_n(&scores, fused, &candidates);
+
+        // In-window reordered by score desc (slot 3 then slot 1),
+        // out-window preserved (slot 2 then slot 4).
+        assert_eq!(out[0].id, RankedItemId::Memory(MemoryId::pack(0, 3, 0)));
+        assert_eq!(out[1].id, RankedItemId::Memory(MemoryId::pack(0, 1, 0)));
+        assert_eq!(out[2].id, RankedItemId::Memory(MemoryId::pack(0, 2, 0)));
+        assert_eq!(out[3].id, RankedItemId::Memory(MemoryId::pack(0, 4, 0)));
+
+        // Reranked rows carry their logit; out-of-window rows don't.
+        assert_eq!(out[0].rerank_score, Some(0.9));
+        assert_eq!(out[1].rerank_score, Some(0.1));
+        assert_eq!(out[2].rerank_score, None);
+        assert_eq!(out[3].rerank_score, None);
     }
 }

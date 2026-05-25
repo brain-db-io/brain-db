@@ -20,8 +20,10 @@
 #![forbid(unsafe_code)]
 
 mod model;
+mod service;
 
 pub use model::{CrossEncoder, RerankError, DEFAULT_MAX_TOKEN_LEN};
+pub use service::RerankService;
 
 use std::env;
 use std::path::PathBuf;

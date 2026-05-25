@@ -1288,7 +1288,12 @@ pub fn spawn_shard(
                     shard_id,
                     "cross-encoder loaded; rerank capability online",
                 );
-                brain_ops::CrossEncoderSlot::Enabled(Arc::new(encoder))
+                // Move the encoder onto its own thread: the forward
+                // pass is heavy CPU work that must not block the shard
+                // core. The shard awaits scores over a channel instead.
+                brain_ops::CrossEncoderSlot::Enabled(Arc::new(
+                    brain_rerank::RerankService::spawn(encoder),
+                ))
             }
             Ok(None) => {
                 // Operator left `rerank.enabled = true` but no model

@@ -656,6 +656,7 @@ dependencies = [
  "candle-core",
  "candle-nn",
  "candle-transformers",
+ "flume 0.11.1",
  "serde",
  "serde_json",
  "tempfile",

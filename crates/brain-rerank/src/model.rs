@@ -70,6 +70,9 @@ pub enum RerankError {
 
     #[error("rerank score had unexpected shape: {0}")]
     BadShape(String),
+
+    #[error("rerank service thread is unavailable (shut down or panicked)")]
+    ServiceUnavailable,
 }
 
 /// Loaded cross-encoder. Owns the XLM-RoBERTa sequence-classifier

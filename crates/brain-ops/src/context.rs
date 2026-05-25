@@ -18,7 +18,7 @@ use brain_extractors::{ClassifierConfig, ExtractorRegistry};
 use brain_index::{GraphRetriever, LexicalRetriever, SemanticRetriever, TantivyShard};
 use brain_metadata::LlmCacheDb;
 use brain_planner::{ExecutorContext, PlannerContext};
-use brain_rerank::CrossEncoder;
+use brain_rerank::RerankService;
 use parking_lot::{Mutex, RwLock};
 
 use crate::index::text_indexer::{MemoryTextDispatcher, StatementTextDispatcher};
@@ -49,9 +49,10 @@ pub const DEFAULT_SUBSCRIBE_POLL_WINDOW: Duration = Duration::from_secs(5);
 #[derive(Clone)]
 pub enum CrossEncoderSlot {
     /// Operator enabled rerank and the model loaded cleanly. The
-    /// inner encoder is shared by every concurrent rerank call on
-    /// this shard.
-    Enabled(Arc<CrossEncoder>),
+    /// inner handle is the off-core rerank service: every concurrent
+    /// rerank call on this shard funnels through its worker thread,
+    /// so the forward pass never blocks the shard core.
+    Enabled(Arc<RerankService>),
     /// Operator set `rerank.enabled = false` in config. Recall runs
     /// RRF-only — no rerank stage, no error.
     Disabled,
@@ -64,11 +65,11 @@ impl CrossEncoderSlot {
         matches!(self, Self::Enabled(_))
     }
 
-    /// Borrow the underlying encoder. `None` when the slot is
+    /// Borrow the underlying rerank service. `None` when the slot is
     /// `Disabled` — the executor's always-on rerank stage skips and
     /// returns RRF-only ordering.
     #[must_use]
-    pub fn as_arc(&self) -> Option<&Arc<CrossEncoder>> {
+    pub fn as_arc(&self) -> Option<&Arc<RerankService>> {
         match self {
             Self::Enabled(e) => Some(e),
             Self::Disabled => None,

@@ -40,7 +40,7 @@ use brain_index::{
     SemanticRetrieverConfig, SemanticScope,
 };
 use brain_metadata::MetadataDb;
-use brain_rerank::CrossEncoder;
+use brain_rerank::RerankService;
 use futures_lite::future::poll_fn;
 
 use super::filters::{apply_filter_chain, FilterChainStats, FilterError};
@@ -63,13 +63,14 @@ pub struct HybridExecutorContext {
     pub lexical: Arc<dyn LexicalRetriever>,
     pub graph: Arc<dyn GraphRetriever>,
     pub metadata: Arc<MetadataDb>,
-    /// Cross-encoder for the always-on rerank pass. When `Some`,
-    /// the executor reranks the top fused candidates on every
-    /// query — there is no per-request opt-in. When `None` (the
-    /// operator set `config.rerank.enabled = false`, or no model is
-    /// on disk) the rerank stage is skipped and RRF order wins. No
-    /// error either way.
-    pub cross_encoder: Option<Arc<CrossEncoder>>,
+    /// Off-core cross-encoder handle for the always-on rerank pass.
+    /// When `Some`, the executor reranks the top fused candidates on
+    /// every query — there is no per-request opt-in. The forward pass
+    /// runs on the service's dedicated thread, so the shard core never
+    /// blocks on it. When `None` (the operator set
+    /// `config.rerank.enabled = false`, or no model is on disk) the
+    /// rerank stage is skipped and RRF order wins. No error either way.
+    pub cross_encoder: Option<Arc<RerankService>>,
 }
 
 /// Final hybrid-query result.
@@ -303,7 +304,7 @@ pub async fn execute(
     // the operator disabled the load (`cross_encoder` is `None`),
     // the result is RRF-only with no error.
     let (fused_after_rerank, rerank_outcome) = if ctx.cross_encoder.is_some() {
-        rerank_stage(fused, request, ctx)
+        rerank_stage(fused, request, ctx).await
     } else {
         (fused, None)
     };
@@ -331,17 +332,19 @@ pub async fn execute(
 
 /// Run the cross-encoder rerank pass over the head of the fused
 /// list. Fetches text for each in-window memory hit from the
-/// per-shard `texts` table, then delegates to `rerank::rerank_top_n`.
+/// per-shard `texts` table, scores the pairs on the off-core rerank
+/// service (the shard core is parked, not blocked, while the model
+/// runs), then delegates the re-sort to `rerank::rerank_top_n`.
 /// Returns the (possibly re-ordered) fused list plus an outcome tag
 /// for `QueryMetadata`.
-fn rerank_stage(
+async fn rerank_stage(
     fused: Vec<FusedItem>,
     request: &QueryRequest,
     ctx: &HybridExecutorContext,
 ) -> (Vec<FusedItem>, Option<RerankOutcome>) {
     // Only reached when `ctx.cross_encoder` is `Some` (the caller in
-    // `execute` gates on it), so the encoder is guaranteed present.
-    let Some(encoder) = ctx.cross_encoder.as_ref() else {
+    // `execute` gates on it), so the service is guaranteed present.
+    let Some(service) = ctx.cross_encoder.as_ref() else {
         return (fused, None);
     };
     let Some(query) = request.text.as_deref() else {
@@ -382,8 +385,23 @@ fn rerank_stage(
 
     let candidate_count = candidates.len();
     let started = std::time::Instant::now();
-    let reranked = rerank_top_n(encoder, query, fused, &candidates);
+    let texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
+    // Score off-core: `score_pairs` parks this task on the reply
+    // channel while the worker thread runs the forward pass, so the
+    // shard keeps serving other requests meanwhile.
+    let scores = match service.score_pairs(query, &texts).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::warn!(
+                target: "brain_planner::executor",
+                error = %e,
+                "cross-encoder scoring failed; returning RRF-only ranking",
+            );
+            return (fused, Some(RerankOutcome::SkippedNoCandidates));
+        }
+    };
     let latency_ms = started.elapsed().as_secs_f64() * 1000.0;
+    let reranked = rerank_top_n(&scores, fused, &candidates);
 
     (
         reranked,
