@@ -224,6 +224,12 @@ pub async fn dispatch_argv(argv: Vec<String>) -> ExitCode {
                     .await
                     .map(|r| (op, r))
             }
+            Command::Schema(sub) => {
+                let op = commands::schema::op_name(&sub).to_string();
+                commands::schema::run(&client, &mut session, sub)
+                    .await
+                    .map(|r| (op, r))
+            }
             Command::Info => {
                 // `brain info` runs the same diagnostic the REPL's
                 // `\info` meta does. It's handled here (rather than

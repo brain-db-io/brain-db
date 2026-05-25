@@ -13,6 +13,7 @@ pub use command::{
     EntityNeighborsArgs, EntityShowArgs, ForgetArgs, ForgetModeArg, GenerateCompletionArgs,
     GlobalOpts, HyperlinkMode, KindArg, LinkArgs, MemoryIdArg, MentionCommand, MentionListArgs,
     OutputFormatArg, PlanArgs, ReasonArgs, RecallArgs, RelationCommand, RelationListArgs,
+    SchemaCommand, SchemaGetArgs, SchemaListArgs, SchemaUploadArgs, SchemaValidateArgs,
     StatementCommand, StatementListArgs, StatementShowArgs, SubscribeArgs, TxnArgs, TxnCommand,
     UnlinkArgs,
 };

@@ -689,6 +689,79 @@ mod tests {
         assert_eq!(ext.kind(), brain_core::ExtractorKind::Classifier);
     }
 
+    /// Diagnostic: the seeded system-schema `entity_mentions` pattern
+    /// extractor, materialised verbatim from the DB blob, must emit an
+    /// EntityMention for the obvious "Priya Sharma" surface form. This
+    /// isolates the pattern tier from GLiNER — if this passes, an
+    /// `entities=0` ENCODE is a write-stage or label-snapshot problem,
+    /// not a pattern-tier one.
+    #[cfg(not(miri))]
+    #[test]
+    fn seeded_pattern_extractor_emits_entity_for_priya_sharma() {
+        use crate::framework::extractor::ExtractionContext;
+        use crate::framework::item::ExtractedItem;
+        use crate::framework::registry::ExtractorRegistry;
+        use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, Salience};
+        use brain_metadata::MetadataDb;
+        use tempfile::TempDir;
+
+        let dir = TempDir::new().unwrap();
+        let db =
+            MetadataDb::open(dir.path().join("metadata.redb")).expect("open seeds system schema");
+        let rtxn = db.read_txn().unwrap();
+        let defs = brain_metadata::extractor_list(&rtxn).expect("extractor_list");
+        drop(rtxn);
+
+        // Find the seeded pattern extractor (brain:entity_mentions).
+        let pattern_def = defs
+            .iter()
+            .find(|d| d.kind() == Some(ExtractorKind::Pattern))
+            .expect("system schema seeds a pattern extractor");
+        let ext = materialize_pattern_extractor(pattern_def)
+            .expect("materialize seeded pattern extractor");
+
+        let mem = brain_core::Memory {
+            id: MemoryId::pack(0, 1, 0),
+            agent: AgentId::new(),
+            context: ContextId(0),
+            kind: MemoryKind::Episodic,
+            salience: Salience::default(),
+            text: Some("Priya Sharma joined Stripe as a Senior Engineer in San Francisco".into()),
+            created_at_unix_ms: 0,
+            last_accessed_at_unix_ms: 0,
+        };
+        let reg = ExtractorRegistry::new();
+        let ctx = ExtractionContext {
+            schema_version: 1,
+            now_unix_nanos: 0,
+            registry: &reg,
+            prior_tier_items: None,
+            extractor_context: None,
+        };
+        let result = futures_lite::future::block_on(ext.run(&ctx, &mem));
+        let entity_mentions: Vec<_> = result
+            .items
+            .iter()
+            .filter_map(|i| match i {
+                ExtractedItem::EntityMention(em) => Some(em),
+                _ => None,
+            })
+            .collect();
+        assert!(
+            !entity_mentions.is_empty(),
+            "seeded pattern extractor must emit at least one entity for entity-rich text; got {:?}",
+            result.items,
+        );
+        assert!(
+            entity_mentions.iter().any(|em| em.text == "Priya Sharma"),
+            "expected 'Priya Sharma' among emitted mentions; got {:?}",
+            entity_mentions
+                .iter()
+                .map(|em| &em.text)
+                .collect::<Vec<_>>(),
+        );
+    }
+
     #[test]
     fn build_registry_collects_errors_per_row() {
         let defs = vec![

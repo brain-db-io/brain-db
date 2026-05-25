@@ -90,6 +90,28 @@ fn top_level() -> HelpTopLevel {
                 ],
             },
             HelpSection {
+                title: "SCHEMA".into(),
+                note: Some("(additive — uploads expand the active brain: vocabulary)".into()),
+                items: vec![
+                    item(
+                        "schema upload",
+                        "--from-file <PATH>",
+                        "merge declarations in",
+                    ),
+                    item(
+                        "schema get",
+                        "<ns> [--version N]",
+                        "show active/specific version",
+                    ),
+                    item("schema list", "[<ns>]", "list stored versions"),
+                    item(
+                        "schema validate",
+                        "--from-file <PATH>",
+                        "parse + validate, no persist",
+                    ),
+                ],
+            },
+            HelpSection {
                 title: "META".into(),
                 note: Some("(session-only by default; \\config set persists)".into()),
                 items: vec![

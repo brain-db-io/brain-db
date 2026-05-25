@@ -34,6 +34,7 @@ const SUBCOMMANDS: &[&str] = &[
     "statement",
     "relation",
     "mention",
+    "schema",
     "extract",
 ];
 

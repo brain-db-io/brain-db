@@ -303,6 +303,156 @@ async fn drain_pipeline_failure_publishes_one_failed_event() {
     }
 }
 
+/// End-to-end: the seeded `brain:entity_mentions` pattern extractor,
+/// materialised verbatim from the system schema and driven through a
+/// full worker cycle, must persist at least one entity for entity-rich
+/// text. This reproduces the `entities=0` ENCODE bug at the apply
+/// boundary — if the entity count comes back zero here, candidates are
+/// being dropped at resolution / write, not at the tier.
+#[tokio::test(flavor = "current_thread")]
+async fn seeded_pattern_extractor_persists_entities_end_to_end() {
+    // Build the fixture first so its DB is seeded with the system
+    // schema; then read the seeded pattern extractor def back out and
+    // materialise it into the worker's registry — exactly the shard
+    // path minus the live GLiNER model.
+    let mut fixture = build_fixture_with_registry(ExtractorRegistry::new());
+    let pattern_def = {
+        let rtxn = fixture.metadata.read_txn().unwrap();
+        let defs = brain_metadata::extractor_list(&rtxn).expect("extractor_list");
+        defs.into_iter()
+            .find(|d| d.kind() == Some(ExtractorKind::Pattern))
+            .expect("system schema seeds a pattern extractor")
+    };
+    let pattern = brain_extractors::materialize_pattern_extractor(&pattern_def)
+        .expect("materialize seeded pattern extractor");
+    let mut registry = ExtractorRegistry::new();
+    registry.register(Arc::new(pattern));
+
+    // Rebuild the fixture with the populated registry, keeping the same
+    // seeded DB semantics (a fresh seeded DB is equivalent).
+    fixture = build_fixture_with_registry(registry);
+    let mut rx = fixture.ops.events.receiver();
+
+    let memory_id = make_memory_id(99);
+    fixture
+        .extractor_tx
+        .send((
+            memory_id,
+            Arc::from("Priya Sharma joined Stripe as a Senior Engineer in San Francisco"),
+        ))
+        .unwrap();
+
+    let drained = run_cycle(&fixture).await;
+    assert_eq!(drained, 1);
+    tokio::time::sleep(Duration::from_millis(0)).await;
+
+    let events = drain_bus(&mut rx);
+    let stage = stage_completed_for(&events, memory_id);
+    assert_eq!(stage.len(), 1, "expected one StageCompleted");
+    match stage[0].stage_payload.as_ref().expect("payload") {
+        StagePayload::Extractor(p) => {
+            assert!(
+                p.entity_count > 0,
+                "seeded pattern extractor must persist entities for entity-rich text; \
+                 got entity_count=0 with audit_status={:?}",
+                p.audit_status,
+            );
+        }
+        other => panic!("unexpected payload: {other:?}"),
+    }
+}
+
+/// Gated shard-faithful reproduction: build the registry with ALL
+/// THREE tiers exactly as `brain-server` does — seeded defs + the
+/// real GLiNER model + an entity-type-qname snapshot read from the
+/// seeded DB — then drive a full cycle. This is the closest a test
+/// can get to the live shard short of booting the server. If this
+/// yields `entities=0`, the bug lives in the cross-tier wiring.
+#[tokio::test(flavor = "current_thread")]
+#[ignore = "requires BRAIN_NER_MODEL_PATH pointing at a GLiNER pickle directory"]
+async fn shard_registry_with_real_gliner_persists_entities() {
+    use brain_extractors::{ClassifierConfig, GlinerClassifier, MaterializeDeps, TierGate};
+    use redb::ReadableTable;
+    use std::path::PathBuf;
+
+    let model_path: PathBuf = std::env::var("BRAIN_NER_MODEL_PATH")
+        .expect("set BRAIN_NER_MODEL_PATH")
+        .into();
+
+    // Build a fixture (seeds the system schema), then construct the
+    // registry the way the shard does.
+    let fixture = build_fixture_with_registry(ExtractorRegistry::new());
+    let (defs, entity_type_qnames) = {
+        let rtxn = fixture.metadata.read_txn().unwrap();
+        let defs = brain_metadata::extractor_list(&rtxn).expect("extractor_list");
+        let t = rtxn
+            .open_table(brain_metadata::tables::entity_type::ENTITY_TYPES_TABLE)
+            .unwrap();
+        let mut rows: Vec<(u32, String)> = Vec::new();
+        for entry in t.iter().unwrap() {
+            let (k, v) = entry.unwrap();
+            rows.push((k.value(), v.value().name));
+        }
+        rows.sort_by_key(|(id, _)| *id);
+        let qnames: Vec<String> = rows
+            .into_iter()
+            .map(|(_, name)| format!("brain:{name}"))
+            .collect();
+        (defs, qnames)
+    };
+    assert!(
+        !entity_type_qnames.is_empty(),
+        "system schema must seed entity types for the classifier labels",
+    );
+
+    let model = GlinerClassifier::load(&ClassifierConfig::with_model_path(model_path))
+        .expect("load gliner");
+    let deps = MaterializeDeps {
+        classifier_model: Some(Arc::new(model)),
+        entity_type_qnames: Arc::new(entity_type_qnames),
+        model_router: None,
+        llm_cache: None,
+    };
+    let (registry, errors) =
+        brain_extractors::build_registry_with_gate(&defs, &deps, TierGate::all_enabled());
+    assert!(errors.is_empty(), "registry build errors: {errors:?}");
+    assert_eq!(
+        registry.iter_enabled().count(),
+        3,
+        "expected 3 enabled tiers"
+    );
+
+    // Rebuild the fixture with this registry (fresh seeded DB).
+    let fixture = build_fixture_with_registry(registry);
+    let mut rx = fixture.ops.events.receiver();
+    let memory_id = make_memory_id(123);
+    fixture
+        .extractor_tx
+        .send((
+            memory_id,
+            Arc::from("Priya Sharma joined Stripe as a Senior Engineer in San Francisco"),
+        ))
+        .unwrap();
+
+    let drained = run_cycle(&fixture).await;
+    assert_eq!(drained, 1);
+    tokio::time::sleep(Duration::from_millis(0)).await;
+
+    let events = drain_bus(&mut rx);
+    let stage = stage_completed_for(&events, memory_id);
+    assert_eq!(stage.len(), 1);
+    match stage[0].stage_payload.as_ref().expect("payload") {
+        StagePayload::Extractor(p) => {
+            assert!(
+                p.entity_count > 0,
+                "shard-faithful registry yielded entity_count=0 (audit_status={:?})",
+                p.audit_status,
+            );
+        }
+        other => panic!("unexpected payload: {other:?}"),
+    }
+}
+
 /// A drain whose memory already has an audit row publishes exactly
 /// one `StageCompleted{Extractor, Empty}` event with
 /// `audit_status = Skipped`. **This is the behavior change** — the

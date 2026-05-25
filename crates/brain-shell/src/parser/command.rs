@@ -249,6 +249,12 @@ pub enum Command {
     /// Inspect Mentions edges (memory ↔ entity provenance).
     #[command(subcommand)]
     Mention(MentionCommand),
+    /// Manage the active schema (upload / get / list / validate).
+    /// Schema is a first-class additive expansion: every upload merges
+    /// on top of the system-default `brain:` namespace; it never
+    /// replaces or toggles a mode.
+    #[command(subcommand)]
+    Schema(SchemaCommand),
     /// Drop into the interactive REPL (default when no subcommand given).
     Shell,
     /// Show server / agent / connection / session diagnostic info.
@@ -286,10 +292,61 @@ impl Command {
             | Command::Statement(_)
             | Command::Relation(_)
             | Command::Mention(_)
+            | Command::Schema(_)
             | Command::Shell
             | Command::GenerateCompletion(_) => None,
         }
     }
+}
+
+/// `brain schema <…>` subcommands. The verb mirrors `entity` /
+/// `statement` in shape; every action drives one of the
+/// `SCHEMA_UPLOAD / GET / LIST / VALIDATE` wire ops through the SDK
+/// schema client. Upload is additive — it expands the active merged
+/// schema rather than replacing it.
+#[derive(Debug, Clone, Subcommand)]
+pub enum SchemaCommand {
+    /// Upload a `.brain` DSL file. The declarations merge additively
+    /// into the active schema (the system `brain:` namespace plus any
+    /// prior user uploads).
+    Upload(SchemaUploadArgs),
+    /// Show one namespace's active (or specific) version.
+    Get(SchemaGetArgs),
+    /// List the versions stored for a namespace, newest first.
+    List(SchemaListArgs),
+    /// Parse + validate a `.brain` DSL file without persisting it.
+    Validate(SchemaValidateArgs),
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct SchemaUploadArgs {
+    /// Path to a `.brain` DSL file. Use `-` to read from stdin.
+    #[arg(long = "from-file")]
+    pub from_file: String,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct SchemaGetArgs {
+    /// Namespace to fetch (e.g. `brain`, or a user namespace).
+    pub namespace: String,
+    /// Specific version; omit (or `0`) for the active version.
+    #[arg(long, default_value_t = 0u32)]
+    pub version: u32,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct SchemaListArgs {
+    /// Namespace to list versions for. Defaults to the system
+    /// `brain:` namespace.
+    #[arg(default_value = "brain")]
+    pub namespace: String,
+}
+
+#[derive(Debug, Args, Clone)]
+pub struct SchemaValidateArgs {
+    /// Path to a `.brain` DSL file. Use `-` to read from stdin.
+    #[arg(long = "from-file")]
+    pub from_file: String,
 }
 
 /// `brain entity <…>` subcommands.
@@ -1159,5 +1216,62 @@ mod tests {
     fn parse_server_ipv4() {
         let s = parse_server("127.0.0.1:9090").expect("addr");
         assert_eq!(s.to_string(), "127.0.0.1:9090");
+    }
+
+    #[test]
+    fn schema_upload_parses_from_file() {
+        let cli = parse(&["schema", "upload", "--from-file", "team.brain"]);
+        match cli.subcommand {
+            Some(Command::Schema(SchemaCommand::Upload(args))) => {
+                assert_eq!(args.from_file, "team.brain");
+            }
+            other => panic!("expected Schema(Upload), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_get_defaults_to_active_version() {
+        let cli = parse(&["schema", "get", "brain"]);
+        match cli.subcommand {
+            Some(Command::Schema(SchemaCommand::Get(args))) => {
+                assert_eq!(args.namespace, "brain");
+                assert_eq!(args.version, 0, "0 resolves to active");
+            }
+            other => panic!("expected Schema(Get), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_get_explicit_version() {
+        let cli = parse(&["schema", "get", "acme", "--version", "3"]);
+        match cli.subcommand {
+            Some(Command::Schema(SchemaCommand::Get(args))) => {
+                assert_eq!(args.namespace, "acme");
+                assert_eq!(args.version, 3);
+            }
+            other => panic!("expected Schema(Get), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_list_defaults_to_brain_namespace() {
+        let cli = parse(&["schema", "list"]);
+        match cli.subcommand {
+            Some(Command::Schema(SchemaCommand::List(args))) => {
+                assert_eq!(args.namespace, "brain");
+            }
+            other => panic!("expected Schema(List), got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn schema_validate_parses_from_file() {
+        let cli = parse(&["schema", "validate", "--from-file", "-"]);
+        match cli.subcommand {
+            Some(Command::Schema(SchemaCommand::Validate(args))) => {
+                assert_eq!(args.from_file, "-");
+            }
+            other => panic!("expected Schema(Validate), got {other:?}"),
+        }
     }
 }
