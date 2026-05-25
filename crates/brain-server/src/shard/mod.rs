@@ -2613,6 +2613,16 @@ mod tests {
         Arc::new(TestStubDispatcher)
     }
 
+    /// Spawn config for tests that run without real model files. The
+    /// stub dispatcher fakes embeddings; rerank is turned off because
+    /// no cross-encoder weights exist in the test environment, and an
+    /// enabled-but-missing reranker is a hard spawn failure by design.
+    fn stub_spawn_config(dir: impl Into<std::path::PathBuf>) -> ShardSpawnConfig {
+        let mut cfg = ShardSpawnConfig::new(dir, stub_dispatcher());
+        cfg.rerank.enabled = false;
+        cfg
+    }
+
     #[test]
     fn shard_handle_is_send_sync_compile_check() {
         // Statically asserted above; this test exists so the file's
@@ -2662,7 +2672,7 @@ mod tests {
     #[test]
     fn spawn_unbound_and_join() {
         let dir = TempDir::new().unwrap();
-        let cfg = ShardSpawnConfig::new(dir.path(), stub_dispatcher());
+        let cfg = stub_spawn_config(dir.path());
         let (handle, joiner) =
             spawn_shard(0, cfg).expect("Glommio spawn should succeed with Unbound placement");
         assert_eq!(handle.shard_id(), 0);
@@ -2676,7 +2686,7 @@ mod tests {
     #[test]
     fn spawn_creates_knowledge_directories() {
         let dir = TempDir::new().unwrap();
-        let cfg = ShardSpawnConfig::new(dir.path(), stub_dispatcher());
+        let cfg = stub_spawn_config(dir.path());
         let (handle, joiner) = spawn_shard(3, cfg).expect("spawn");
         // Stop the executor before inspecting state so the test isn't
         // racing with shard startup.

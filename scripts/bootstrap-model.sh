@@ -7,14 +7,19 @@
 #                        DeBERTa-v3-small backbone)
 #   3. Reranker        — BAAI/bge-reranker-base (cross-encoder,
 #                        BertForSequenceClassification, num_labels=1)
-#                        — optional; activates W2.2 rerank pass
+#                        — drives the W2.2 rerank pass
 #
 # GLiNER is zero-shot: labels are the active schema's entity-type
 # qnames, passed per `predict()` call. No per-schema retraining,
 # no OntoNotes relabel layer.
 #
-# brain-server refuses to start without both on disk; this script is
-# the one-line bootstrap for new operators and dev containers.
+# brain-server refuses to start without all three on disk: the
+# embedder and NER are always required, and the reranker is required
+# whenever `[rerank] enabled = true` — which is the default. An
+# enabled-but-missing reranker is a hard spawn failure, so this script
+# fetches it by default. Operators who set `[rerank] enabled = false`
+# skip the ~1.1 GiB download with --no-rerank. This is the one-line
+# bootstrap for new operators and dev containers.
 #
 # What it places where:
 #
@@ -46,11 +51,11 @@
 # with no env vars at all.
 #
 # Usage:
-#   ./scripts/bootstrap-model.sh                  # embed + ner (default), rerank skipped
+#   ./scripts/bootstrap-model.sh                  # embed + ner + reranker (default)
 #   ./scripts/bootstrap-model.sh --only embed     # embedding only
 #   ./scripts/bootstrap-model.sh --only ner       # NER only
-#   ./scripts/bootstrap-model.sh --only rerank    # reranker only (opt-in)
-#   ./scripts/bootstrap-model.sh --with-rerank    # embed + ner + reranker
+#   ./scripts/bootstrap-model.sh --only rerank    # reranker only
+#   ./scripts/bootstrap-model.sh --no-rerank      # embed + ner; skip the ~1.1 GiB reranker
 #   ./scripts/bootstrap-model.sh --force          # re-download even if files exist
 #   ./scripts/bootstrap-model.sh --verify         # check existing files; no download
 
@@ -144,7 +149,7 @@ configure_ner() {
 FORCE=0
 VERIFY_ONLY=0
 ONLY=""
-INCLUDE_RERANK=0
+EXCLUDE_RERANK=0
 i=0
 args=("$@")
 while [[ $i -lt $# ]]; do
@@ -152,7 +157,7 @@ while [[ $i -lt $# ]]; do
   case "$arg" in
     --force)  FORCE=1 ;;
     --verify) VERIFY_ONLY=1 ;;
-    --with-rerank) INCLUDE_RERANK=1 ;;
+    --no-rerank) EXCLUDE_RERANK=1 ;;
     --only)
       i=$((i + 1))
       if [[ $i -ge $# ]]; then
@@ -184,11 +189,11 @@ done
 SCOPES=()
 if [[ -z "$ONLY" || "$ONLY" == "embed" ]];  then SCOPES+=(embed);  fi
 if [[ -z "$ONLY" || "$ONLY" == "ner" ]];    then SCOPES+=(ner);    fi
-# The rerank scope is opt-in: --with-rerank in the default flow, or
-# --only rerank when downloading just the reranker. This keeps the
-# typical bootstrap from pulling ~1.1 GiB of weights for a feature
-# operators can flip on later without re-running the script.
-if [[ "$ONLY" == "rerank" ]] || { [[ -z "$ONLY" ]] && [[ "$INCLUDE_RERANK" -eq 1 ]]; }; then
+# The reranker is on by default — the server's `[rerank]` section
+# defaults to enabled, and an enabled-but-missing reranker is a hard
+# spawn failure. --no-rerank skips the ~1.1 GiB download for operators
+# who set `[rerank] enabled = false`; --only rerank fetches just it.
+if [[ "$ONLY" == "rerank" ]] || { [[ -z "$ONLY" ]] && [[ "$EXCLUDE_RERANK" -eq 0 ]]; }; then
   SCOPES+=(rerank)
 fi
 
