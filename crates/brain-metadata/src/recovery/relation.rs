@@ -28,7 +28,7 @@ use super::transient;
 
 impl MetadataDb {
     pub(super) fn apply_relation_link(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &RelationLinkPayload,
@@ -43,7 +43,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_relation_supersede(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &RelationSupersedePayload,
@@ -89,7 +89,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_relation_tombstone(
-        &mut self,
+        &self,
         lsn: u64,
         p: &RelationTombstonePayload,
     ) -> Result<(), MetadataSinkError> {

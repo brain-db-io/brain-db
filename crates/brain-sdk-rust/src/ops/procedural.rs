@@ -4,9 +4,9 @@
 //! a fully-rendered system block ready for LLM-prompt injection.
 
 use brain_core::{AgentId, ContextId, RequestId};
-use brain_protocol::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
+use brain_protocol::{MaterializeProceduralRequest, MaterializeProceduralResponse};
 
 use crate::client::Client;
 use crate::error::ClientError;

@@ -26,7 +26,6 @@ use brain_protocol::envelope::request::{
 use brain_protocol::envelope::response::{
     PlanResponseFrame, PlanStatus as WirePlanStatus, ResponseBody, TransitionKind,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -68,7 +67,7 @@ fn make_id(i: u64) -> MemoryId {
 async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let mut metadata = MetadataDb::open(&db_path).unwrap();
+    let metadata = MetadataDb::open(&db_path).unwrap();
 
     let agent = AgentId(Uuid::nil());
     let mut ids = Vec::with_capacity(n_memories);
@@ -98,7 +97,7 @@ async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) ->
     wtxn.commit().unwrap();
 
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(metadata));
+    let metadata: SharedMetadataDb = Arc::new(metadata);
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
         Arc::new(NopDispatcher) as Arc<dyn Dispatcher>,

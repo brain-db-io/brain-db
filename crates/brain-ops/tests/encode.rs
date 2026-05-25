@@ -20,7 +20,6 @@ use brain_protocol::envelope::request::{
     EdgeKindWire, EdgeRequest, EncodeRequest, MemoryKindWire, RequestBody,
 };
 use brain_protocol::envelope::response::{EncodeResponse, ResponseBody};
-use parking_lot::Mutex;
 
 // ---------------------------------------------------------------------------
 // Mock dispatcher: deterministic per-text vector + stable fingerprint.
@@ -64,7 +63,7 @@ fn build_fixture() -> Fixture {
 fn build_fixture_with_embedder(embedder: Arc<dyn Dispatcher>) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
 
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
@@ -512,9 +511,7 @@ fn encode_persists_text_to_texts_table_atomically() {
         // and equals exactly what we encoded. Same redb file the live
         // writer just wrote.
         let memory_id_bytes = resp.memory_id.to_be_bytes();
-        let metadata = fix.ctx.executor.metadata.clone();
-        let guard = metadata.lock();
-        let rtxn = guard.read_txn().expect("read_txn");
+        let rtxn = fix.ctx.executor.metadata.read_txn().expect("read_txn");
         let table = rtxn.open_table(TEXTS_TABLE).expect("texts table exists");
         let row = table
             .get(memory_id_bytes)
@@ -529,8 +526,7 @@ fn encode_persists_text_to_texts_table_atomically() {
 /// (open / get / borrow) — tests use this on the happy path only.
 fn read_text(fix: &Fixture, memory_id: u128) -> Option<Vec<u8>> {
     use brain_metadata::tables::text::TEXTS_TABLE;
-    let guard = fix.ctx.executor.metadata.lock();
-    let rtxn = guard.read_txn().expect("read_txn");
+    let rtxn = fix.ctx.executor.metadata.read_txn().expect("read_txn");
     let table = rtxn.open_table(TEXTS_TABLE).expect("texts table exists");
     table
         .get(memory_id.to_be_bytes())

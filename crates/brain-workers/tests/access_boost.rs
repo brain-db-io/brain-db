@@ -16,7 +16,6 @@ use brain_workers::{
     boosted_salience, AccessBoostWorker, Worker, WorkerConfig, WorkerContext, WorkerKind,
     WorkerScheduler, DEFAULT_BOOST_FACTOR, MAX_SALIENCE,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
 
@@ -46,7 +45,7 @@ struct Fixture {
 fn build_fixture_with_buffer(buffer: Arc<AccessBuffer>) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -55,7 +54,8 @@ fn build_fixture_with_buffer(buffer: Arc<AccessBuffer>) -> Fixture {
         metadata.clone(),
         writer as Arc<dyn WriterHandle>,
     );
-    let ctx = brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor).with_access_buffer(buffer);
+    let ctx = brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)
+        .with_access_buffer(buffer);
     Fixture {
         ctx: Arc::new(ctx),
         metadata,
@@ -82,8 +82,7 @@ fn make_id(slot: u64) -> MemoryId {
 
 fn seed_memory(metadata: &SharedMetadataDb, slot: u64, salience: f32) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let meta = MemoryMetadata::new_active(
@@ -105,8 +104,7 @@ fn seed_memory(metadata: &SharedMetadataDb, slot: u64, salience: f32) -> MemoryI
 }
 
 fn read_meta(metadata: &SharedMetadataDb, id: MemoryId) -> Option<MemoryMetadata> {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     table.get(id.to_be_bytes()).unwrap().map(|a| a.value())
 }
@@ -323,7 +321,9 @@ fn recall_fills_buffer_then_boost_worker_applies() {
     glommio_run(|| async {
         use brain_ops::dispatch;
         use brain_ops::test_support::single_body;
-        use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, RequestBody};
+        use brain_protocol::envelope::request::{
+            EncodeRequest, MemoryKindWire, RecallRequest, RequestBody,
+        };
         use brain_protocol::envelope::response::ResponseBody;
 
         // Build a fixture with a real MockDispatcher so encode/recall
@@ -347,9 +347,8 @@ fn recall_fills_buffer_then_boost_worker_applies() {
 
         let tempdir = tempfile::tempdir().unwrap();
         let db_path = tempdir.path().join("metadata.redb");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
-        let (shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
+        let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
         let executor = ExecutorContext::new(
             Arc::new(MockDispatcher) as Arc<dyn Dispatcher>,
@@ -458,8 +457,7 @@ fn recall_fills_buffer_then_boost_worker_applies() {
         let alpha = read_meta(&metadata, make_id(1));
         // memory_id assignment depends on writer; can't pin slot=1 here.
         // Instead: scan all memories and require at least one has salience > 0.5.
-        let db = metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = metadata.read_txn().unwrap();
         let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
         let mut any_boosted = false;
         for entry in table.iter().unwrap() {

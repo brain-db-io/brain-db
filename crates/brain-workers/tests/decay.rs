@@ -16,7 +16,6 @@ use brain_workers::{
     decayed_salience, half_life_days, DecayWorker, Worker, WorkerConfig, WorkerContext, WorkerKind,
     WorkerScheduler, CONSOLIDATED_HALF_LIFE_DAYS, EPISODIC_HALF_LIFE_DAYS, SEMANTIC_HALF_LIFE_DAYS,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 const NANOS_PER_DAY: u64 = 86_400 * 1_000_000_000;
@@ -48,7 +47,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -85,8 +84,7 @@ fn seed_memory(
     created_at_unix_nanos: u64,
 ) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let meta = MemoryMetadata::new_active(
@@ -108,8 +106,7 @@ fn seed_memory(
 }
 
 fn read_salience(metadata: &SharedMetadataDb, id: MemoryId) -> f32 {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     let access = table.get(id.to_be_bytes()).unwrap().unwrap();
     access.value().salience

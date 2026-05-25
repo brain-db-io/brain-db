@@ -12,12 +12,9 @@ use brain_index::{
     SemanticError, SemanticQuery, SemanticRetriever, SemanticRetrieverConfig, SemanticScope,
 };
 use brain_metadata::MetadataDb;
-use parking_lot::Mutex;
 use tempfile::TempDir;
 
-use super::{
-    execute, HybridExecutorContext, QueryMetadata, QueryResult, RetrieverStatus,
-};
+use super::{execute, HybridExecutorContext, QueryMetadata, QueryResult, RetrieverStatus};
 use crate::hybrid::planner::plan;
 use crate::hybrid::router::{QueryRequest, Retriever, RetrieverSelection};
 
@@ -124,7 +121,7 @@ fn make_ctx(
         semantic: sem_arc,
         lexical: lex_arc,
         graph: graph_arc,
-        metadata: Arc::new(Mutex::new(metadata)),
+        metadata: Arc::new(metadata),
         cross_encoder: None,
     };
     (dir, ctx)

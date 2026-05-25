@@ -15,14 +15,14 @@
 
 mod common;
 
+use brain_protocol::codec::opcode::Opcode;
+use brain_protocol::shared::enums::{ErrorCategoryWire, ErrorCodeWire};
+use brain_protocol::ErrorResponse;
 use brain_protocol::{
     EntityCreateResponse, EntityGetResponse, EntityListItem, EntityListResponseFrame,
     EntityMergeResponse, EntityRenameResponse, EntityResolveResponse, EntityTombstoneResponse,
     EntityUnmergeResponse, EntityUpdateResponse, EntityView, ResolutionOutcomeWire,
 };
-use brain_protocol::codec::opcode::Opcode;
-use brain_protocol::ErrorResponse;
-use brain_protocol::shared::enums::{ErrorCategoryWire, ErrorCodeWire};
 use brain_protocol::{RequestBody, ResponseBody};
 use brain_sdk_rust::models::errors::{ClientErrorEntityExt, EntityErrorKind};
 use brain_sdk_rust::ops::ResolutionOutcome;

@@ -29,10 +29,10 @@ use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 use brain_core::AgentId;
 use brain_ops::error::OpError;
-use brain_protocol::error::ErrorCode;
 use brain_protocol::connection::handshake::{
     AgentPermissions, AuthOkPayload, AuthPayload, HelloPayload, ServerCapabilities, WelcomePayload,
 };
+use brain_protocol::error::ErrorCode;
 
 use crate::auth::{derive_scope_from_handshake, AuthError, AuthStore, RequestScope};
 use brain_protocol::codec::opcode::Opcode;
@@ -325,24 +325,27 @@ fn on_hello(frame: Frame, state: &mut ConnState, topology: &Topology) -> Action 
             return Action::CloseWith(error_frame(0, protocol_error_to_code(&e), &e.to_string()));
         }
     };
-    let negotiated = match brain_protocol::connection::handshake::negotiate(&hello, &topology.server_caps) {
-        Ok(n) => n,
-        Err(_) => {
-            let server_max = topology
-                .server_caps
-                .supported_versions
-                .iter()
-                .copied()
-                .max()
-                .unwrap_or(0);
-            let client_max = hello.supported_versions.iter().copied().max().unwrap_or(0);
-            return Action::CloseWith(error_frame(
-                0,
-                ErrorCode::VersionNotSupported,
-                &format!("no mutual version (client max={client_max}, server max={server_max})"),
-            ));
-        }
-    };
+    let negotiated =
+        match brain_protocol::connection::handshake::negotiate(&hello, &topology.server_caps) {
+            Ok(n) => n,
+            Err(_) => {
+                let server_max = topology
+                    .server_caps
+                    .supported_versions
+                    .iter()
+                    .copied()
+                    .max()
+                    .unwrap_or(0);
+                let client_max = hello.supported_versions.iter().copied().max().unwrap_or(0);
+                return Action::CloseWith(error_frame(
+                    0,
+                    ErrorCode::VersionNotSupported,
+                    &format!(
+                        "no mutual version (client max={client_max}, server max={server_max})"
+                    ),
+                ));
+            }
+        };
 
     // Allocate a fresh session_id. uuid v7 + the bytes is fine.
     let session_id = *uuid::Uuid::now_v7().as_bytes();
@@ -473,10 +476,7 @@ fn on_bye(frame: Frame) -> Action {
 /// Single-frame ops return a one-element `Vec`. Streaming ops (PLAN /
 /// REASON) return one frame per emitted body, with `is_final = true`
 /// on the last frame only.
-pub(crate) async fn run_op_dispatch(
-    op: OpDispatch,
-    shards: Arc<Vec<ShardHandle>>,
-) -> Vec<Frame> {
+pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>>) -> Vec<Frame> {
     let stream_id = op.stream_id;
     let shard = match shards.get(op.target_shard as usize) {
         Some(s) => s,
@@ -492,7 +492,10 @@ pub(crate) async fn run_op_dispatch(
             )];
         }
     };
-    match shard.dispatch_op(op.req, op.scope.to_caller(op.session_id)).await {
+    match shard
+        .dispatch_op(op.req, op.scope.to_caller(op.session_id))
+        .await
+    {
         Ok(outcome) => match outcome {
             brain_ops::DispatchOutcome::Single(body) => {
                 vec![build_response_frame(stream_id, true, body)]

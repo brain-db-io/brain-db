@@ -2,8 +2,8 @@
 //!
 //! Physical reclamation lives in [`crate::extractor::sweep`].
 
-use brain_core::TombstoneReason;
 use brain_core::StatementId;
+use brain_core::TombstoneReason;
 use redb::{ReadableTable, WriteTransaction};
 
 use crate::tables::statement::{

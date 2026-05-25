@@ -546,7 +546,7 @@ fn lookup_predecessor(
 ) -> PredecessorOutcome {
     use brain_metadata::tables::memory::flags as memory_flags;
 
-    let db = ctx.ops.executor.metadata.lock();
+    let db = ctx.ops.executor.metadata.as_ref();
     let rtxn = match db.read_txn() {
         Ok(t) => t,
         Err(_) => return PredecessorOutcome::Skip(TemporalSkipReason::NoPrev),

@@ -61,10 +61,10 @@ use std::sync::Arc;
 use std::sync::OnceLock;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::{EvidenceRef, Statement, StatementObject};
 use brain_core::{
     AgentId, EdgeKind, EdgeKindRef, EntityId, MemoryId, NodeRef, PredicateId, StatementId,
 };
+use brain_core::{EvidenceRef, Statement, StatementObject};
 use brain_metadata::schema::predicate::predicate_lookup_by_qname;
 use brain_metadata::statement::{
     evidence_overflow_load, statement_get, statement_list, StatementListFilter, StatementOpError,
@@ -200,12 +200,11 @@ impl CausalEdgeWorker {
 /// tested directly against a `MetadataDb` without spinning a worker
 /// context.
 pub fn resolve_whitelist(
-    db: &parking_lot::Mutex<brain_metadata::MetadataDb>,
+    db: &brain_metadata::MetadataDb,
     qnames: &[(String, String)],
 ) -> Result<HashSet<PredicateId>, WorkerError> {
     let mut out = HashSet::new();
-    let guard = db.lock();
-    let rtxn = guard
+    let rtxn = db
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("causal_edge read_txn: {e:?}")))?;
     for (ns, name) in qnames {
@@ -385,8 +384,7 @@ fn collect_pairs_for_statement(
     pairs: &mut Vec<(MemoryId, MemoryId, f32)>,
 ) -> Result<Option<CausalSkipReason>, WorkerError> {
     let metadata = ctx.ops.executor.metadata.clone();
-    let guard = metadata.lock();
-    let rtxn = guard
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("causal_edge read_txn: {e:?}")))?;
 
@@ -584,10 +582,10 @@ mod tests {
     use brain_metadata::MetadataDb;
     use tempfile::TempDir;
 
-    fn open_db() -> (TempDir, parking_lot::Mutex<MetadataDb>) {
+    fn open_db() -> (TempDir, MetadataDb) {
         let dir = TempDir::new().unwrap();
         let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
-        (dir, parking_lot::Mutex::new(db))
+        (dir, db)
     }
 
     #[test]
@@ -610,8 +608,7 @@ mod tests {
         let (_dir, db) = open_db();
         // Declare exactly one of the whitelist predicates.
         let declared_id = {
-            let mut guard = db.lock();
-            let wtxn = guard.write_txn().unwrap();
+            let wtxn = db.write_txn().unwrap();
             let id =
                 predicate_intern_or_get(&wtxn, "brain", "caused_by", 1, 1_700_000_000_000).unwrap();
             wtxn.commit().unwrap();
@@ -637,8 +634,7 @@ mod tests {
         // The validator rejects empty names; we mix it with a valid
         // one and assert the valid one still resolves.
         let _good_id = {
-            let mut guard = db.lock();
-            let wtxn = guard.write_txn().unwrap();
+            let wtxn = db.write_txn().unwrap();
             let id =
                 predicate_intern_or_get(&wtxn, "brain", "led_to", 1, 1_700_000_000_000).unwrap();
             wtxn.commit().unwrap();

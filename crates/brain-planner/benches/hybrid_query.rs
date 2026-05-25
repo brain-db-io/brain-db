@@ -37,7 +37,6 @@ use brain_planner::hybrid::executor::{execute, HybridExecutorContext};
 use brain_planner::hybrid::planner::{plan, QueryPlan};
 use brain_planner::hybrid::router::{QueryRequest as PlannerQueryRequest, RetrieverSelection};
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use parking_lot::Mutex;
 use tempfile::TempDir;
 
 const TOP_N: usize = 100;
@@ -118,7 +117,7 @@ fn build_fixture(
 ) -> Fixture {
     let dir = TempDir::new().expect("tempdir");
     let metadata = MetadataDb::open(dir.path().join("md.redb")).expect("open metadata");
-    let metadata = Arc::new(Mutex::new(metadata));
+    let metadata = Arc::new(metadata);
 
     // The executor context now requires all three retrievers — a
     // None slot defaults to a canned-empty retriever so the bench

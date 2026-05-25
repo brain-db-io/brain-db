@@ -92,7 +92,6 @@ use brain_workers::{
 use self::adapters::{ArenaRebuildSource, ShardSnapshotSource, WalDirRetentionSource};
 use flume::{Receiver, Sender};
 use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
-use parking_lot::Mutex;
 use tracing::{info, warn};
 
 // ---------------------------------------------------------------------------
@@ -1212,7 +1211,7 @@ pub fn spawn_shard(
         next_lsn_after_recovery = 1;
         SlotAllocator::rebuild_from_arena(&arena)
     };
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(metadata_db));
+    let metadata: SharedMetadataDb = Arc::new(metadata_db);
 
     // ---- 4b. Tantivy open + recovery (must succeed at spawn) -------------
     //
@@ -1224,8 +1223,7 @@ pub fn spawn_shard(
     let tantivy_shard: Arc<brain_index::TantivyShard> = {
         let startup = brain_index::TantivyShard::open(&dir)
             .map_err(|source| ShardError::TantivyInitFailed { source })?;
-        let db_guard = metadata.lock();
-        crate::shard::tantivy_recovery::recover_tantivy_on_open(&dir, &db_guard, startup)
+        crate::shard::tantivy_recovery::recover_tantivy_on_open(&dir, metadata.as_ref(), startup)
             .map_err(|source| ShardError::TantivyRecoveryFailed { source })?
     };
     // Build the lexical retriever from the same `TantivyShard` the
@@ -1596,8 +1594,7 @@ pub fn spawn_shard(
                 };
 
             let extractor_registry = {
-                let db_guard = metadata.lock();
-                let rtxn = db_guard
+                let rtxn = metadata
                     .read_txn()
                     .expect("read_txn after MetadataDb::open");
                 let defs =
@@ -1612,7 +1609,6 @@ pub fn spawn_shard(
                         .expect("entity-type snapshot at shard startup"),
                 );
                 drop(rtxn);
-                drop(db_guard);
 
                 let materialize_deps = llm_deps
                     .into_materialize_deps(classifier_model, entity_type_qnames);
@@ -2424,8 +2420,7 @@ fn run_extract_backfill(
     let metadata = shard.ops.executor.metadata.clone();
     let writer = shard.ops.executor.writer.clone();
 
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| format!("extract_backfill read_txn: {e}"))?;
     let memories = rtxn

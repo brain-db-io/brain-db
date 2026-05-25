@@ -117,8 +117,7 @@ async fn do_boost_cycle(
     let mut stopped_early = false;
 
     {
-        let mut db = metadata.lock();
-        let wtxn = db
+        let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Ops(format!("boost write_txn: {e:?}")))?;
         {

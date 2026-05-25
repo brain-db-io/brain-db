@@ -41,6 +41,8 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::StatementKind;
 use brain_core::{EntityId, MemoryId, RelationId, StatementId};
+use brain_protocol::codec::opcode::Opcode;
+use brain_protocol::envelope::request::WireUuid;
 use brain_protocol::error::ProtocolError;
 use brain_protocol::{
     FusionConfigWire, ItemIdWire, QueryExplainRequest as WireExplainReq,
@@ -50,8 +52,6 @@ use brain_protocol::{
     RetrieverOutcomeWire as WireRetrieverOutcome, RetrieverSelectionWire, RetrieverWire,
     TimeRangeWire,
 };
-use brain_protocol::codec::opcode::Opcode;
-use brain_protocol::envelope::request::WireUuid;
 use brain_protocol::{RequestBody, ResponseBody};
 
 use crate::client::Client;

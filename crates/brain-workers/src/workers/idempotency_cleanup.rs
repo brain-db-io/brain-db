@@ -105,8 +105,7 @@ async fn do_cleanup_cycle(
         }
 
         let (deleted, scanned_to_end) = {
-            let mut db = metadata.lock();
-            let wtxn = db
+            let wtxn = metadata
                 .write_txn()
                 .map_err(|e| WorkerError::Ops(format!("cleanup write_txn: {e:?}")))?;
             let result = {

@@ -192,8 +192,7 @@ fn lookup_fingerprint(
     content_hash: [u8; 32],
     context_id: ContextId,
 ) -> Result<Option<MemoryId>, OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     // `TableDoesNotExist` on a fresh shard means no prior encode opted
@@ -227,8 +226,7 @@ fn compute_edge_outcomes(
     if req.edges.is_empty() {
         return Ok(Vec::new());
     }
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     // Fresh shard with no memories yet → every edge target is missing
@@ -333,8 +331,7 @@ fn reconstruct_encode_response(
     // are rare; the extra read is cheaper than carrying created_at on
     // every PhaseAck for this one case.
     let created_at = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let t = rtxn
@@ -497,8 +494,7 @@ async fn handle_encode_in_txn(
     //    The metadata read uses a fresh redb read txn; pending
     //    memories are checked against the buffer.
     let edge_outcomes: Vec<EdgeOutcome> = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let mems_table = rtxn

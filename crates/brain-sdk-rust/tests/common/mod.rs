@@ -15,10 +15,10 @@
 use std::future::Future;
 use std::net::SocketAddr;
 
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AgentPermissions, AuthMethod, AuthOkPayload, HelloCapabilities, ServerFeatures, WelcomePayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};

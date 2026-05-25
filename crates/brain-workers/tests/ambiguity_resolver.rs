@@ -11,8 +11,8 @@ use std::sync::atomic::AtomicBool;
 use std::sync::{Arc, Mutex as StdMutex};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use brain_core::{Entity, EntityType, MergeId};
 use brain_core::EntityId;
+use brain_core::{Entity, EntityType, MergeId};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::entity_hnsw::{EntityHnswIndex, EntityHnswParams};
 use brain_index::{IndexParams, SharedHnsw};
@@ -20,11 +20,11 @@ use brain_metadata::entity::ops::{entity_get, entity_put, normalize_name};
 use brain_metadata::entity::review::{enqueue_merge_proposal, proposal_get};
 use brain_metadata::tables::merge_review_queue::{proposal_status, proposal_tier};
 use brain_metadata::MetadataDb;
-use brain_ops::{AmbiguityResolverMetrics, OpsContext, RealWriterHandle};
+use brain_ops::{AmbiguityResolverMetrics, RealWriterHandle};
 use brain_planner::{ExecutorContext, WriterHandle};
 use brain_workers::ambiguity_resolver::{AmbiguityResolverConfig, AmbiguityResolverWorker};
 use brain_workers::{Worker, WorkerContext, WorkerKind};
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 
 fn real_now() -> u64 {
     SystemTime::now()
@@ -90,7 +90,7 @@ fn unit_vec(peak: usize, co: usize, peak_w: f32, co_w: f32) -> [f32; VECTOR_DIM]
 }
 
 struct Fixture {
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
     hnsw: Arc<RwLock<EntityHnswIndex>>,
     embedder: Arc<ScriptedEmbedder>,
     worker_ctx: WorkerContext,
@@ -99,9 +99,7 @@ struct Fixture {
 
 fn fixture() -> Fixture {
     let dir = tempfile::tempdir().unwrap();
-    let metadata = Arc::new(Mutex::new(
-        MetadataDb::open(dir.path().join("metadata.redb")).unwrap(),
-    ));
+    let metadata = Arc::new(MetadataDb::open(dir.path().join("metadata.redb")).unwrap());
     let hnsw = Arc::new(RwLock::new(
         EntityHnswIndex::new(EntityHnswParams::default_v1()).unwrap(),
     ));
@@ -140,8 +138,7 @@ fn seed_entity(fx: &Fixture, canonical: &str, vec_: [f32; VECTOR_DIM]) -> Entity
         real_now(),
     );
     {
-        let mut db = fx.metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = fx.metadata.write_txn().unwrap();
         entity_put(&wtxn, &ent).unwrap();
         wtxn.commit().unwrap();
     }
@@ -157,8 +154,7 @@ fn enqueue(
     proposed_at: u64,
 ) -> MergeId {
     let pid = MergeId::new();
-    let mut db = fx.metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = fx.metadata.write_txn().unwrap();
     enqueue_merge_proposal(
         &wtxn,
         pid,
@@ -198,7 +194,7 @@ fn end_to_end_promote_path() {
     assert_eq!(processed, 1);
 
     // Assert: proposal AutoApplied + merge committed.
-    let rtxn = fx.metadata.lock().read_txn().unwrap();
+    let rtxn = fx.metadata.read_txn().unwrap();
     let p = proposal_get(&rtxn, pid).unwrap().unwrap();
     assert_eq!(p.status, proposal_status::AUTO_APPLIED);
 
@@ -232,7 +228,7 @@ fn end_to_end_reject_path() {
         fx.embedder.clone() as Arc<dyn Dispatcher>,
     );
     futures_lite::future::block_on(worker.tick(&fx.worker_ctx)).unwrap();
-    let rtxn = fx.metadata.lock().read_txn().unwrap();
+    let rtxn = fx.metadata.read_txn().unwrap();
     let p = proposal_get(&rtxn, pid).unwrap().unwrap();
     assert_eq!(p.status, proposal_status::REJECTED);
 
@@ -259,7 +255,7 @@ fn end_to_end_expire_path() {
     .with_metrics(metrics.clone());
 
     futures_lite::future::block_on(worker.tick(&fx.worker_ctx)).unwrap();
-    let rtxn = fx.metadata.lock().read_txn().unwrap();
+    let rtxn = fx.metadata.read_txn().unwrap();
     let p = proposal_get(&rtxn, pid).unwrap().unwrap();
     assert_eq!(p.status, proposal_status::EXPIRED);
     assert_eq!(metrics.snapshot().proposals_expired_total, 1);

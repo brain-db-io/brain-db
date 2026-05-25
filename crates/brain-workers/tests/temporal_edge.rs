@@ -19,7 +19,6 @@ use brain_storage::wal::kinds::WalRecordKind;
 use brain_workers::{
     TemporalEdgeKnobs, TemporalEdgeWorker, Worker, WorkerConfig, WorkerContext, WorkerKind,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
 
@@ -50,7 +49,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let bus = Arc::new(EventBus::default());
     let sink = Arc::new(RecordingWalSink::new());
@@ -66,7 +65,10 @@ fn build_fixture() -> Fixture {
         metadata.clone(),
         writer.clone() as Arc<dyn WriterHandle>,
     );
-    let ctx = Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor).with_event_bus(bus.clone()));
+    let ctx = Arc::new(
+        brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)
+            .with_event_bus(bus.clone()),
+    );
     Fixture {
         ctx,
         writer,
@@ -217,8 +219,7 @@ fn cycle_writes_followed_by_link_through_unified_path() {
 
         // 3. redb has exactly one auto-derived FollowedBy row (asymmetric,
         //    no mirror).
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let t = rtxn.open_table(EDGES_TABLE).unwrap();
         let mut found = 0;
         for entry in t.iter().unwrap() {
@@ -302,8 +303,7 @@ fn temporal_edge_drops_candidate_below_topical_threshold() {
         );
 
         // redb has zero auto-derived rows for the same reason.
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let t = rtxn.open_table(EDGES_TABLE).unwrap();
         let mut found = 0;
         for entry in t.iter().unwrap() {

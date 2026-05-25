@@ -3,10 +3,10 @@
 use std::fs;
 use std::path::Path;
 
+use brain_core::{Entity, EntityId, EntityTypeId, ExtractorId, PredicateId, StatementId};
 use brain_core::{
     EvidenceRef, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
 };
-use brain_core::{Entity, EntityId, EntityTypeId, ExtractorId, PredicateId, StatementId};
 use brain_index::{IndexStatus, LexicalScope, TantivyShard};
 use brain_metadata::entity::ops::entity_put;
 use brain_metadata::entity::types::entity_type_intern;
@@ -184,13 +184,8 @@ fn rebuild_statements_skips_tombstoned() {
     // Tombstone the dead one.
     {
         let wtxn = metadata.write_txn().expect("wtxn");
-        statement_tombstone(
-            &wtxn,
-            dead,
-            brain_core::TombstoneReason::UserRequest,
-            0,
-        )
-        .expect("tombstone");
+        statement_tombstone(&wtxn, dead, brain_core::TombstoneReason::UserRequest, 0)
+            .expect("tombstone");
         wtxn.commit().expect("commit");
     }
     let _ = live;

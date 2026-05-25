@@ -25,7 +25,7 @@ use brain_index::{
 };
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::MetadataDb;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 use redb::TableError;
 
 /// Production `SemanticRetriever` impl.
@@ -36,7 +36,7 @@ pub struct BrainSemanticRetriever {
     embedder: Arc<dyn Dispatcher>,
     memory_index: SharedHnsw,
     statement_index: Option<Arc<RwLock<StatementHnswIndex>>>,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
 }
 
 impl BrainSemanticRetriever {
@@ -45,7 +45,7 @@ impl BrainSemanticRetriever {
         embedder: Arc<dyn Dispatcher>,
         memory_index: SharedHnsw,
         statement_index: Option<Arc<RwLock<StatementHnswIndex>>>,
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
     ) -> Self {
         Self {
             embedder,
@@ -75,9 +75,8 @@ impl BrainSemanticRetriever {
         config: &SemanticRetrieverConfig,
         filters: &SemanticFilters,
     ) -> Result<Vec<RankedItem>, SemanticError> {
-        let metadata = self.metadata.clone();
-        let db_guard = metadata.lock();
-        let rtxn = db_guard
+        let rtxn = self
+            .metadata
             .read_txn()
             .map_err(|e| SemanticError::Internal(format!("read_txn: {e}")))?;
         // MEMORIES_TABLE is created lazily on first ENCODE. A query
@@ -123,7 +122,6 @@ impl BrainSemanticRetriever {
             .memory_index
             .search(vector, config.top_k, Some(config.ef_search), filter);
         drop(rtxn);
-        drop(db_guard);
 
         Ok(project_memory_hits(hits, config.similarity_threshold))
     }

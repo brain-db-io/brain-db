@@ -23,7 +23,7 @@ fn open_db() -> (TempDir, MetadataDb) {
 }
 
 fn create_and_fetch(sf: &str, qname: &str) -> (EntityId, String) {
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create(&wtxn, sf, qname, 0.9, NOW).unwrap();
     wtxn.commit().unwrap();
@@ -56,7 +56,7 @@ fn mixed_script_round_trips() {
 
 #[test]
 fn unicode_case_folding_still_dedupes() {
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let r1 = resolve_or_create(&wtxn, "Straße", "brain:Person", 0.9, NOW).unwrap();
     let r2 = resolve_or_create(&wtxn, "STRASSE", "brain:Person", 0.9, NOW + 1).unwrap();
@@ -77,7 +77,7 @@ fn unicode_case_folding_still_dedupes() {
 #[test]
 fn very_long_surface_form_does_not_panic_or_truncate() {
     let long: String = "a".repeat(10_000);
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create(&wtxn, &long, "brain:Person", 0.9, NOW).unwrap();
     wtxn.commit().unwrap();
@@ -95,7 +95,7 @@ fn very_long_surface_form_does_not_panic_or_truncate() {
 fn one_character_surface_forms_create_independently() {
     // A 1-char string has zero trigrams; the fuzzy tier returns no
     // candidate, so each distinct char gets its own entity.
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let a = resolve_or_create(&wtxn, "a", "brain:Person", 0.9, NOW).unwrap();
     let b = resolve_or_create(&wtxn, "b", "brain:Person", 0.9, NOW + 1).unwrap();
@@ -109,7 +109,7 @@ fn one_character_surface_forms_create_independently() {
 
 #[test]
 fn unrelated_names_do_not_dedup_via_fuzzy() {
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let a = resolve_or_create(&wtxn, "Alice", "brain:Person", 0.9, NOW).unwrap();
     let b = resolve_or_create(&wtxn, "Zelda", "brain:Person", 0.9, NOW + 1).unwrap();
@@ -123,7 +123,7 @@ fn unrelated_names_do_not_dedup_via_fuzzy() {
 fn type_qname_isolates_namespaces() {
     // Same surface form under two different entity types → two distinct
     // entities (the canonical-name index is keyed on type).
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let wtxn = db.write_txn().unwrap();
     let p = resolve_or_create(&wtxn, "Acme", "brain:Person", 0.9, NOW).unwrap();
     let o = resolve_or_create(&wtxn, "Acme", "brain:Organization", 0.9, NOW + 1).unwrap();

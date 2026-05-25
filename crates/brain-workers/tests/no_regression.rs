@@ -18,7 +18,9 @@ use brain_metadata::MetadataDb;
 use brain_ops::test_support::single_body;
 use brain_ops::{dispatch, OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
-use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, RequestBody};
+use brain_protocol::envelope::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, RequestBody,
+};
 use brain_protocol::envelope::response::ResponseBody;
 use brain_workers::{
     AccessBoostWorker, CacheEvictionWorker, ConsolidationWorker, CounterReconcileWorker,
@@ -27,7 +29,6 @@ use brain_workers::{
     IdempotencyCleanupWorker, SlotReclamationWorker, SnapshotWorker, StatisticsUpdateWorker,
     WalRetentionWorker, WorkerConfig, WorkerScheduler,
 };
-use parking_lot::Mutex;
 
 // ---------------------------------------------------------------------------
 // Mock dispatcher.
@@ -58,7 +59,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(

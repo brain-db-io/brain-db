@@ -27,13 +27,13 @@ pub mod tombstone;
 pub use crud::{
     allocate_evidence_overflow, evidence_overflow_load, statement_create, statement_get,
 };
-pub use evidence::{
-    pack_evidence_entries, pack_evidence_ids, read_evidence_entries_w, read_evidence_ids,
-    read_evidence_ids_w, reclaim_evidence_overflow,
-};
 pub use embed_queue::{
     statement_embed_queue_len, statement_embed_queue_peek, statement_embed_queue_remove,
     statement_embed_queue_remove_many,
+};
+pub use evidence::{
+    pack_evidence_entries, pack_evidence_ids, read_evidence_entries_w, read_evidence_ids,
+    read_evidence_ids_w, reclaim_evidence_overflow,
 };
 pub use list::{
     statement_history, statement_list, statements_citing_memory, statements_contradicting,

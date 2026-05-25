@@ -11,7 +11,6 @@ use brain_index::{
 };
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::MetadataDb;
-use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use super::BrainSemanticRetriever;
@@ -81,13 +80,12 @@ fn write_memory_row(
 }
 
 fn build_retriever(metadata: MetadataDb) -> BrainSemanticRetriever {
-    let (reader, _writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw::new");
+    let (reader, _writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw::new");
     let embedder: Arc<dyn Dispatcher> = Arc::new(FixedDispatcher {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)))
+    BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata))
 }
 
 // ---------------------------------------------------------------------------
@@ -172,8 +170,7 @@ fn empty_memory_corpus_returns_no_hits() {
 #[test]
 fn memory_scope_returns_ranked_hits() {
     let (_dir, mut metadata) = fresh_metadata();
-    let (reader, mut writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
     let agent = AgentId::new();
     let id1 = MemoryId::pack(0, 1, 0);
     let id2 = MemoryId::pack(0, 2, 0);
@@ -188,8 +185,7 @@ fn memory_scope_returns_ranked_hits() {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    let retriever =
-        BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)));
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
 
     let result = retriever
         .retrieve(
@@ -211,8 +207,7 @@ fn memory_scope_returns_ranked_hits() {
 #[test]
 fn agent_id_filter_narrows() {
     let (_dir, mut metadata) = fresh_metadata();
-    let (reader, mut writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
     let agent_a = AgentId::new();
     let agent_b = AgentId::new();
     let id1 = MemoryId::pack(0, 1, 0);
@@ -228,8 +223,7 @@ fn agent_id_filter_narrows() {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    let retriever =
-        BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)));
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
@@ -259,8 +253,7 @@ fn agent_id_filter_narrows() {
 #[test]
 fn created_at_range_filter_narrows() {
     let (_dir, mut metadata) = fresh_metadata();
-    let (reader, mut writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
     let agent = AgentId::new();
     let id1 = MemoryId::pack(0, 1, 0);
     let id2 = MemoryId::pack(0, 2, 0);
@@ -278,8 +271,7 @@ fn created_at_range_filter_narrows() {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    let retriever =
-        BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)));
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
@@ -304,8 +296,7 @@ fn created_at_range_filter_narrows() {
 #[test]
 fn text_query_path_routes_through_embedder() {
     let (_dir, mut metadata) = fresh_metadata();
-    let (reader, mut writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
     let agent = AgentId::new();
     let id = MemoryId::pack(0, 1, 0);
 
@@ -319,8 +310,7 @@ fn text_query_path_routes_through_embedder() {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    let retriever =
-        BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)));
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
 
     let result = retriever
         .retrieve(
@@ -336,8 +326,7 @@ fn text_query_path_routes_through_embedder() {
 #[test]
 fn similarity_threshold_drops_low_scores() {
     let (_dir, mut metadata) = fresh_metadata();
-    let (reader, mut writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
     let agent = AgentId::new();
     let id1 = MemoryId::pack(0, 1, 0);
     let id2 = MemoryId::pack(0, 2, 0);
@@ -352,8 +341,7 @@ fn similarity_threshold_drops_low_scores() {
         vector: one_hot(0),
         fingerprint: [0u8; 16],
     });
-    let retriever =
-        BrainSemanticRetriever::new(embedder, reader, None, Arc::new(Mutex::new(metadata)));
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
 
     // Threshold so high only the exact match survives.
     let cfg = SemanticRetrieverConfig {

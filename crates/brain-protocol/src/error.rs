@@ -310,9 +310,9 @@ impl ErrorCode {
             | Self::QueryTimeout => ErrorCategory::Unavailable,
 
             // Typed-graph validation codes.
-            Self::SchemaInvalid
-            | Self::EntityTypeMismatch
-            | Self::StatementObjectTypeMismatch => ErrorCategory::Validation,
+            Self::SchemaInvalid | Self::EntityTypeMismatch | Self::StatementObjectTypeMismatch => {
+                ErrorCategory::Validation
+            }
 
             // Typed-graph not-found codes.
             Self::EntityNotFound | Self::StatementNotFound => ErrorCategory::NotFound,
@@ -574,12 +574,18 @@ mod tests {
         );
 
         // §3.10 Typed-graph codes.
-        assert_eq!(ErrorCode::SchemaInvalid.category(), ErrorCategory::Validation);
+        assert_eq!(
+            ErrorCode::SchemaInvalid.category(),
+            ErrorCategory::Validation
+        );
         assert_eq!(
             ErrorCode::SchemaMigrationRequired.category(),
             ErrorCategory::Conflict
         );
-        assert_eq!(ErrorCode::EntityNotFound.category(), ErrorCategory::NotFound);
+        assert_eq!(
+            ErrorCode::EntityNotFound.category(),
+            ErrorCategory::NotFound
+        );
         assert_eq!(
             ErrorCode::EntityTypeMismatch.category(),
             ErrorCategory::Validation

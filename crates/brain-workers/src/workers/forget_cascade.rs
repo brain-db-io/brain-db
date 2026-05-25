@@ -148,7 +148,7 @@ impl ForgetCascadeWorker {
             // FORGET stuck in a backlog would silently age every
             // surviving evidence entry by the queue dwell time.
             let now_ns = job.forgot_at_unix_nanos.max(1);
-            let mut metadata = ctx.ops.executor.metadata.lock();
+            let metadata = ctx.ops.executor.metadata.as_ref();
             let wtxn = metadata
                 .write_txn()
                 .map_err(|e| WorkerError::Internal(format!("cascade write_txn: {e}")))?;
@@ -227,11 +227,11 @@ impl Worker for ForgetCascadeWorker {
 mod tests {
     use super::*;
     use brain_core::{
-        Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
-        StatementKind, StatementObject, StatementValue, SubjectRef,
+        AgentId, ContextId, EntityId, ExtractorId as CoreExtractorId, MemoryId, MemoryKind,
     };
     use brain_core::{
-        AgentId, ContextId, EntityId, ExtractorId as CoreExtractorId, MemoryId, MemoryKind,
+        Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
+        StatementKind, StatementObject, StatementValue, SubjectRef,
     };
     use brain_metadata::entity::ops::{entity_put, normalize_name};
     use brain_metadata::schema::predicate::predicate_intern;

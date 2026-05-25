@@ -29,7 +29,6 @@ use std::sync::Arc;
 
 use brain_core::MemoryId;
 use brain_embed::VECTOR_DIM;
-use brain_index::HnswIndex;
 use thiserror::Error;
 use tracing::trace;
 
@@ -249,9 +248,8 @@ async fn do_maintenance_cycle(
                                     continue;
                                 }
                                 if arena_ids.contains(&entry.memory_id) {
-                                    if let Some(slot) = combined
-                                        .iter_mut()
-                                        .find(|(id, _)| *id == entry.memory_id)
+                                    if let Some(slot) =
+                                        combined.iter_mut().find(|(id, _)| *id == entry.memory_id)
                                     {
                                         slot.1 = entry.vector;
                                     }

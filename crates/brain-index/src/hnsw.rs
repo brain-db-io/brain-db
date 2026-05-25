@@ -241,12 +241,12 @@ impl<const M: usize> HnswIndexImpl<M> {
     /// implicitly. Returns [`HnswError::MemoryIdNotFound`] if the id
     /// was never inserted.
     pub fn mark_tombstoned(&mut self, memory_id: MemoryId) -> Result<(), HnswError> {
-        let internal_id = self
-            .id_map
-            .lookup_forward(memory_id)
-            .ok_or(HnswError::MemoryIdNotFound {
-                memory_id_bytes: memory_id.to_be_bytes(),
-            })?;
+        let internal_id =
+            self.id_map
+                .lookup_forward(memory_id)
+                .ok_or(HnswError::MemoryIdNotFound {
+                    memory_id_bytes: memory_id.to_be_bytes(),
+                })?;
         self.tombstones.set(internal_id);
         Ok(())
     }
@@ -348,7 +348,8 @@ mod tests {
 
     #[test]
     fn insert_then_search_returns_inserted_id() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         let v = vec_with_targets([10, 10, 10, 10, 10, 10, 10, 10]);
         idx.insert(mid(1), &v).unwrap();
         let results = idx.search_all(&v, 1, None);
@@ -358,7 +359,8 @@ mod tests {
 
     #[test]
     fn duplicate_insert_rejected() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         let v = vec_with_targets([5, 5, 5, 5, 5, 5, 5, 5]);
         idx.insert(mid(2), &v).unwrap();
         let result = idx.insert(mid(2), &v);
@@ -367,7 +369,8 @@ mod tests {
 
     #[test]
     fn nan_vector_rejected_at_insert() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         let mut v = vec_with_targets([1, 1, 1, 1, 1, 1, 1, 1]);
         v[100] = f32::NAN;
         let result = idx.insert(mid(3), &v);
@@ -379,9 +382,11 @@ mod tests {
 
     #[test]
     fn search_excludes_tombstoned() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         for i in 0..5 {
-            idx.insert(mid(i), &vec_with_targets([i, i, i, i, i, i, i, i])).unwrap();
+            idx.insert(mid(i), &vec_with_targets([i, i, i, i, i, i, i, i]))
+                .unwrap();
         }
         idx.mark_tombstoned(mid(2)).unwrap();
 
@@ -394,7 +399,8 @@ mod tests {
 
     #[test]
     fn search_ranks_closer_first() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         // Insert vectors that encode to per-subspace targets 0..16.
         for t in 0..16 {
             idx.insert(mid(t as u8), &vec_with_targets([t; 8])).unwrap();
@@ -422,7 +428,8 @@ mod tests {
 
     #[test]
     fn search_zero_k_returns_empty() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         idx.insert(mid(1), &vec_with_targets([1; 8])).unwrap();
         let results = idx.search_all(&vec_with_targets([1; 8]), 0, None);
         assert!(results.is_empty());
@@ -430,17 +437,13 @@ mod tests {
 
     #[test]
     fn filter_excludes_unwanted_ids() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         for t in 0..5u8 {
             idx.insert(mid(t), &vec_with_targets([t; 8])).unwrap();
         }
         let blocked = mid(3);
-        let results = idx.search(
-            &vec_with_targets([3; 8]),
-            5,
-            None,
-            |id| id != blocked,
-        );
+        let results = idx.search(&vec_with_targets([3; 8]), 5, None, |id| id != blocked);
         assert!(
             results.iter().all(|(id, _)| *id != blocked),
             "filtered id leaked: {results:?}"
@@ -449,7 +452,8 @@ mod tests {
 
     #[test]
     fn contains_and_len_track_inserts() {
-        let mut idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let mut idx =
+            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
         assert_eq!(idx.len(), 0);
         assert!(idx.is_empty());
         assert!(!idx.contains(mid(1)));

@@ -80,7 +80,6 @@ pub struct SchemaReplaceRequest {
 // Response payloads
 // ============================================================
 
-
 /// `SCHEMA_UPLOAD_RESP` (`0x01A0`).
 ///
 /// `schema_version == 0` indicates the upload was rejected

@@ -269,7 +269,7 @@ fn tier_create_populates_hnsw_for_next_paraphrase() {
     embedder.set("Brand New Co", canonical_v);
     embedder.set("Brand New Company", paraphrase_v);
 
-    let (_dir, mut db) = fresh_db();
+    let (_dir, db) = fresh_db();
     let hnsw = fresh_hnsw();
 
     let deps = deps_for(embedder, hnsw.clone());

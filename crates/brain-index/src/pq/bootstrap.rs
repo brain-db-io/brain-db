@@ -153,10 +153,7 @@ mod tests {
         for v in sample.iter().take(10) {
             let sum_sq: f32 = v.iter().map(|x| x * x).sum();
             let norm = sum_sq.sqrt();
-            assert!(
-                (norm - 1.0).abs() < 1e-5,
-                "expected unit norm, got {norm}",
-            );
+            assert!((norm - 1.0).abs() < 1e-5, "expected unit norm, got {norm}",);
         }
     }
 

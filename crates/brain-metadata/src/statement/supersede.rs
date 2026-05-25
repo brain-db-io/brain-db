@@ -16,8 +16,8 @@
 use std::future::Future;
 use std::pin::Pin;
 
-use brain_core::{Statement, SubjectRef};
 use brain_core::{EntityId, PredicateId, StatementId, StatementKind};
+use brain_core::{Statement, SubjectRef};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
 use crate::tables::statement::{StatementMetadata, STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE};
@@ -534,8 +534,8 @@ mod tests {
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::schema::predicate::predicate_intern;
     use crate::statement::crud::statement_create;
-    use brain_core::{Entity, EntityType, EvidenceRef, StatementObject, StatementValue};
     use brain_core::ExtractorId;
+    use brain_core::{Entity, EntityType, EvidenceRef, StatementObject, StatementValue};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
 

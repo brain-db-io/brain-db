@@ -289,8 +289,7 @@ fn lookup_fingerprint(
     content_hash: [u8; 32],
     context_id: ContextId,
 ) -> Result<Option<MemoryId>, OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     let t = match rtxn.open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE) {
@@ -317,8 +316,7 @@ fn compute_edge_outcomes(
     if req.edges.is_empty() {
         return Ok(Vec::new());
     }
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     let mems_table = match rtxn.open_table(brain_metadata::tables::memory::MEMORIES_TABLE) {
@@ -423,8 +421,7 @@ fn reconstruct_response(
         .count() as u32;
 
     let created_at = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let t = rtxn

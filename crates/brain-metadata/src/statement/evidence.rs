@@ -319,8 +319,8 @@ mod tests {
     fn reclaim_drops_overflow_row() {
         let (_dir, db) = fresh_db();
         let wtxn = db.begin_write().unwrap();
-        let r = pack_evidence_ids(&wtxn, ids(20), 0.9, 1_700_000_000, ExtractorId::from(0))
-            .unwrap();
+        let r =
+            pack_evidence_ids(&wtxn, ids(20), 0.9, 1_700_000_000, ExtractorId::from(0)).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.begin_write().unwrap();
@@ -348,8 +348,8 @@ mod tests {
     fn reclaim_already_gone_is_idempotent() {
         let (_dir, db) = fresh_db();
         let wtxn = db.begin_write().unwrap();
-        let r = pack_evidence_ids(&wtxn, ids(20), 0.9, 1_700_000_000, ExtractorId::from(0))
-            .unwrap();
+        let r =
+            pack_evidence_ids(&wtxn, ids(20), 0.9, 1_700_000_000, ExtractorId::from(0)).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.begin_write().unwrap();

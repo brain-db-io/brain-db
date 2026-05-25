@@ -15,18 +15,17 @@ use brain_core::{ContextId, EdgeKind, MemoryId, MemoryKind};
 use brain_embed::{Dispatcher, VECTOR_DIM};
 use brain_index::SharedHnsw;
 use brain_metadata::MetadataDb;
-use parking_lot::Mutex;
 
 use super::writer::WriterHandle;
 
-/// Shared handle to the per-shard `MetadataDb`. The `Mutex` enforces
-/// the single-writer-per-shard discipline at runtime
-/// (brain-metadata's `write_txn(&mut self)` does it at compile time;
-/// the lock lets multiple threads share one DB handle without
-/// fracturing into separate redb files). Reads acquire the lock
-/// briefly; redb's MVCC means read txns don't block subsequent
-/// writes once the lock is released.
-pub type SharedMetadataDb = Arc<Mutex<MetadataDb>>;
+/// Shared handle to the per-shard `MetadataDb`. Both reads and writes
+/// flow through `&self` — redb's MVCC lets unbounded readers share
+/// the handle without locking, and redb itself serialises writes per
+/// database. The single-writer-per-shard invariant lives in the
+/// shard's writer task discipline, not in a mutex; wrapping the DB
+/// in `Arc<Mutex<...>>` previously serialised readers against
+/// readers for no real safety win.
+pub type SharedMetadataDb = Arc<MetadataDb>;
 
 /// Read-your-writes snapshot of an in-flight transaction. Spec
 /// §09/08 §5: RECALL/PLAN/REASON within a txn must see the buffer's

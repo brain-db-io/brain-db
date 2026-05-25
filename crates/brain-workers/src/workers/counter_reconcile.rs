@@ -92,8 +92,7 @@ async fn do_reconcile_cycle(
     // ── Phase B: wtxn fixes the rows. ────────────────────────────
     let mut fixed = 0usize;
     if !snapshot.mismatches.is_empty() {
-        let mut db = metadata.lock();
-        let wtxn = db
+        let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Ops(format!("reconcile wtxn: {e:?}")))?;
         {
@@ -164,8 +163,7 @@ fn collect_mismatches(
     cfg: &WorkerConfig,
     started: &Instant,
 ) -> Result<ReconcileSnapshot, WorkerError> {
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("reconcile rtxn: {e:?}")))?;
     let memories = rtxn

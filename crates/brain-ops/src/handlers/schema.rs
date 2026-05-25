@@ -22,6 +22,8 @@ use brain_metadata::relation::types::relation_type_lookup_by_qname;
 use brain_metadata::schema::predicate::predicate_lookup_by_qname;
 use brain_metadata::schema::store::{schema_active, schema_get, schema_list, SchemaStoreError};
 use brain_planner::WriterError;
+use brain_protocol::envelope::response::EventType;
+use brain_protocol::schema::{parse_schema, validate, ParseError, ValidationError};
 use brain_protocol::schema::{
     CardinalityAst, ExtractorKindAst, ObjectTypeDecl, SchemaItem, StatementKindAst, ValidatedSchema,
 };
@@ -30,8 +32,6 @@ use brain_protocol::{
     SchemaListRequest, SchemaListResponseFrame, SchemaUpdatedEvent, SchemaUploadRequest,
     SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, SchemaValidationErrorWire,
 };
-use brain_protocol::envelope::response::EventType;
-use brain_protocol::schema::{parse_schema, validate, ParseError, ValidationError};
 
 use crate::context::OpsContext;
 use crate::error::OpError;
@@ -94,10 +94,7 @@ pub async fn handle_schema_upload(
     //    bumping (re-upload of an unchanged schema is a no-op so
     //    operators can safely re-apply the same DSL).
     let merge_summary = classify_schema_merge(ctx, &validated)?;
-    if let (true, Some(version)) = (
-        merge_summary.all_idempotent,
-        merge_summary.current_version,
-    ) {
+    if let (true, Some(version)) = (merge_summary.all_idempotent, merge_summary.current_version) {
         return Ok(SchemaUploadResponse {
             namespace,
             schema_version: version,
@@ -179,8 +176,9 @@ pub async fn handle_schema_get(
             "schema_get: namespace must be non-empty".into(),
         ));
     }
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -226,8 +224,9 @@ pub async fn handle_schema_list(
         ));
     }
     let rows = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         schema_list(&rtxn, &req.namespace).map_err(map_schema_store_error)?
@@ -348,8 +347,9 @@ fn map_writer_err(err: WriterError) -> OpError {
 }
 
 fn current_active(ctx: &OpsContext, namespace: &str) -> Result<Option<u32>, OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
     schema_active(&rtxn, namespace).map_err(map_schema_store_error)
@@ -436,8 +436,9 @@ fn classify_schema_merge(
     let schema = validated.as_schema();
     let namespace = schema.namespace.as_str();
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -447,10 +448,8 @@ fn classify_schema_merge(
     for item in &schema.items {
         match item {
             SchemaItem::EntityType(e) => {
-                let existing =
-                    entity_type_lookup_by_name_rtxn(&rtxn, &e.name).map_err(|err| {
-                        OpError::Internal(format!("entity_type lookup: {err}"))
-                    })?;
+                let existing = entity_type_lookup_by_name_rtxn(&rtxn, &e.name)
+                    .map_err(|err| OpError::Internal(format!("entity_type lookup: {err}")))?;
                 match existing {
                     None => all_idempotent = false,
                     Some(row) => {
@@ -518,9 +517,7 @@ fn classify_schema_merge(
             }
             SchemaItem::RelationType(r) => {
                 let existing = relation_type_lookup_by_qname(&rtxn, namespace, &r.name)
-                    .map_err(|err| {
-                        OpError::Internal(format!("relation_type lookup: {err}"))
-                    })?;
+                    .map_err(|err| OpError::Internal(format!("relation_type lookup: {err}")))?;
                 match existing {
                     None => all_idempotent = false,
                     Some(row) => {
@@ -575,10 +572,7 @@ fn classify_schema_merge(
                                 kind: "extractor",
                                 name: e.name.clone(),
                                 namespace: namespace.to_string(),
-                                conflict: format!(
-                                    "kind: stored={} new={}",
-                                    row.kind, new_kind
-                                ),
+                                conflict: format!("kind: stored={} new={}", row.kind, new_kind),
                             });
                         }
                         // Blob comparison (the encoded `ExtractorDef`)

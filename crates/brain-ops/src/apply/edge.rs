@@ -218,7 +218,7 @@ mod tests {
 
     #[test]
     fn link_writes_a_row_then_unlink_removes_it() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let phase_link = Phase::Link {
             from: NodeRef::Memory(MemoryId::pack(0, 1, 0)),
             to: NodeRef::Memory(MemoryId::pack(0, 2, 0)),
@@ -284,7 +284,7 @@ mod tests {
 
     #[test]
     fn link_rejects_mis_shape() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let wtxn = db.write_txn().unwrap();
         let phase = Phase::Unlink {
             from: NodeRef::Memory(MemoryId::pack(0, 1, 0)),

@@ -82,8 +82,9 @@ pub async fn handle_get_capabilities(
     // schemas" rather than killing the handler — capability discovery
     // shouldn't poison a session when redb is briefly busy.
     let schema_namespaces: Vec<String> = {
-        let db = ctx.executor.metadata.lock();
-        let rtxn = db
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("metadata read_txn: {e}")))?;
         match schema_namespaces(&rtxn) {

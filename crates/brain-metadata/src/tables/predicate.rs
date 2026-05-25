@@ -11,8 +11,8 @@
 //! `SCHEMA_UPLOAD` time; phase 17.3 owns the built-ins.
 
 use crate::impl_redb_rkyv_value;
-use brain_core::{Predicate, StatementKind};
 use brain_core::PredicateId;
+use brain_core::{Predicate, StatementKind};
 use redb::TableDefinition;
 
 /// `predicates` table. Key is `PredicateId.raw()` (u32); value is

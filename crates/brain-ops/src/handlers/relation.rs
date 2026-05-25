@@ -97,8 +97,9 @@ pub async fn handle_relation_create(
     // cardinality axis, the helper internally supersedes it with the
     // pre-minted id rather than erroring.
     let (resolved_ty, resolved_is_symmetric, intern_hint) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let active_version = schema_active(&rtxn, namespace)
@@ -220,8 +221,9 @@ pub async fn handle_relation_get(
 ) -> Result<RelationGetResponse, OpError> {
     let id = RelationId::from(req.relation_id);
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -277,8 +279,9 @@ pub async fn handle_relation_supersede(
     // commits the intern; the supersede itself then submits via the
     // unified writer.
     let rt = {
-        let mut db_guard = ctx.executor.metadata.lock();
-        let wtxn = db_guard
+        let wtxn = ctx
+            .executor
+            .metadata
             .write_txn()
             .map_err(|e| OpError::Internal(format!("write_txn: {e}")))?;
         let active_version = schema_active_in_wtxn_rel(&wtxn, namespace)?;
@@ -350,8 +353,9 @@ pub async fn handle_relation_supersede(
     // the version stamped inside the wtxn; reading post-commit avoids
     // duplicating the supersession bookkeeping in the handler.
     let version = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let new = relation_get(&rtxn, new_id)
@@ -508,8 +512,9 @@ fn run_list(
         ));
     }
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -591,8 +596,9 @@ pub async fn handle_relation_traverse(
         }
     };
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -893,8 +899,9 @@ fn rt_active_for_schema_rtxn(
 /// wire-level NotFound shape instead of collapsing into Internal via
 /// WriterError.
 fn peek_relation_exists(ctx: &OpsContext, id: RelationId) -> Result<(), OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
     if relation_get(&rtxn, id)

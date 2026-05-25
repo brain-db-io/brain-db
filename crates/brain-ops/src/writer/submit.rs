@@ -139,8 +139,7 @@ impl WriteIdempotencyCache {
 
         // Cold path: open a read txn against the durable table.
         let (decoded, stored_hash, created_at) = {
-            let db = metadata.lock();
-            let Ok(rtxn) = db.read_txn() else {
+            let Ok(rtxn) = metadata.read_txn() else {
                 return CacheLookup::Miss;
             };
             let table = match rtxn.open_table(IDEMPOTENCY_TABLE) {
@@ -316,8 +315,7 @@ impl RealWriterHandle {
         // same struct just before we Arc-wrap and return.
         let committed_at = (cache.now_unix_nanos)();
         let mut durable_ack: WriteAck = {
-            let mut db = self.metadata().lock();
-            let wtxn = match db.write_txn() {
+            let wtxn = match self.metadata().write_txn() {
                 Ok(w) => w,
                 Err(e) => {
                     record_phase_outcomes(&metrics, &write, SubmitOutcome::Err, start.elapsed());
@@ -760,8 +758,7 @@ fn read_memory_context_and_kind(
     writer: &RealWriterHandle,
     id: brain_core::MemoryId,
 ) -> Option<(ContextId, MemoryKind)> {
-    let db = writer.metadata().lock();
-    let rtxn = db.read_txn().ok()?;
+    let rtxn = writer.metadata().read_txn().ok()?;
     let t = rtxn
         .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
         .ok()?;
@@ -960,7 +957,7 @@ mod tests {
     use brain_metadata::tables::edge::zero_disambiguator;
     use brain_metadata::MetadataDb;
     use brain_planner::SharedMetadataDb;
-    use parking_lot::Mutex;
+
     use std::sync::Arc;
     use tempfile::TempDir;
 
@@ -975,9 +972,8 @@ mod tests {
     fn build_writer_with_shared() -> (TempDir, RealWriterHandle, SharedHnsw) {
         let dir = TempDir::new().unwrap();
         let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
-        let (shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(db);
+        let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let writer = RealWriterHandle::new(metadata, hnsw_writer);
         (dir, writer, shared)
     }
@@ -1244,16 +1240,14 @@ mod tests {
     fn writer_construction_bootstraps_fingerprint_table_for_reads() {
         let dir = TempDir::new().unwrap();
         let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
-        let (_shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(db);
+        let (_shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let _writer = RealWriterHandle::new(metadata.clone(), hnsw_writer);
 
         // After construction, every table that op handlers read from
         // pre-submit must be openable in a fresh read txn — proving
         // the bootstrap covers them.
-        let db_guard = metadata.lock();
-        let rtxn = db_guard.read_txn().expect("read_txn");
+        let rtxn = metadata.read_txn().expect("read_txn");
         for table_label in [
             "MEMORIES",
             "MEMORIES_BY_AGENT_TIMELINE",
@@ -1650,9 +1644,8 @@ mod tests {
 
     fn build_writer_for_path(path: std::path::PathBuf) -> RealWriterHandle {
         let db = MetadataDb::open(path).unwrap();
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
-        let (_shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(db);
+        let (_shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         RealWriterHandle::new(metadata, hnsw_writer)
     }
 
@@ -1661,9 +1654,8 @@ mod tests {
         clock: std::sync::Arc<std::sync::atomic::AtomicU64>,
     ) -> RealWriterHandle {
         let db = MetadataDb::open(path).unwrap();
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(db));
-        let (_shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(db);
+        let (_shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let writer = RealWriterHandle::new(metadata, hnsw_writer);
         // Swap the default clock for the test-driven one.
         let c = clock.clone();

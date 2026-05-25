@@ -41,6 +41,8 @@
 //! - `MemoryMetadata.edges_out_count` / `edges_in_count` aren't
 //!   maintained on Link/Unlink. Phase 8 worker reconciles.
 
+use std::sync::atomic::Ordering;
+
 use brain_core::EdgeKind;
 use brain_storage::recovery::{MetadataSink, MetadataSinkError};
 use brain_storage::wal::payload::{EdgePayload, WalPayload};
@@ -62,7 +64,7 @@ pub mod relation;
 
 impl MetadataSink for MetadataDb {
     fn durable_lsn(&self) -> u64 {
-        self.durable_lsn
+        self.durable_lsn.load(Ordering::Acquire)
     }
 
     fn apply(
@@ -85,6 +87,7 @@ impl MetadataSink for MetadataDb {
             WalPayload::CheckpointBegin(p) => {
                 // In-memory state only; no persistent write.
                 self.pending_checkpoints
+                    .lock()
                     .insert(p.checkpoint_id, p.started_at_unix_nanos);
                 self.bump_next_lsn(lsn)
             }
@@ -137,7 +140,7 @@ impl MetadataDb {
     /// Bump `next_lsn` in its own transaction. Used by variants whose
     /// apply has no other table writes (TxnBegin/Commit/Abort,
     /// CheckpointBegin).
-    pub(super) fn bump_next_lsn(&mut self, lsn: u64) -> Result<(), MetadataSinkError> {
+    pub(super) fn bump_next_lsn(&self, lsn: u64) -> Result<(), MetadataSinkError> {
         let wtxn = self.db.begin_write().map_err(transient)?;
         self.bump_next_lsn_in_txn(&wtxn, lsn)?;
         wtxn.commit().map_err(transient)?;

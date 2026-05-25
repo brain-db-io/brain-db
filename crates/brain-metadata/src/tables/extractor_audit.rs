@@ -256,7 +256,7 @@ mod tests {
     #[test]
     fn record_then_has_extracted_returns_true() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let id = MemoryId::pack(0, 42, 1);
         let entry = make_entry(id);
         {
@@ -273,7 +273,7 @@ mod tests {
     #[test]
     fn record_overwrites_prior_entry() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let id = MemoryId::pack(0, 7, 1);
         let mut first = make_entry(id);
         first.item_counts.entities = 1;
@@ -298,7 +298,7 @@ mod tests {
     #[test]
     fn audit_count_grows_with_records() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         {
             let rtxn = d.read_txn().unwrap();
             assert_eq!(audit_count(&rtxn).unwrap(), 0);
@@ -316,7 +316,7 @@ mod tests {
     #[test]
     fn entry_round_trips_through_rkyv() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let id = MemoryId::pack(2, 99, 5);
         let entry = ExtractorPipelineAuditEntry::new(
             id,

@@ -49,7 +49,6 @@ use brain_metadata::tables::statement::{
 };
 use brain_metadata::MetadataDb;
 use brain_ops::ConfidenceSweepMetrics;
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use tracing::{debug, trace, warn};
 
@@ -133,14 +132,14 @@ pub struct ConfidenceSweepWorker {
     config: WorkerConfig,
     knobs: ConfidenceSweepKnobs,
     confidence_config: ConfidenceConfig,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
     metrics: Option<Arc<ConfidenceSweepMetrics>>,
 }
 
 impl ConfidenceSweepWorker {
     /// Construct with the spec-default cadence + knobs.
     #[must_use]
-    pub fn new(metadata: Arc<Mutex<MetadataDb>>) -> Self {
+    pub fn new(metadata: Arc<MetadataDb>) -> Self {
         let mut config = WorkerConfig::defaults_for(WorkerKind::ConfidenceSweep);
         config.interval = resolved_interval();
         // Cap the per-cycle scan at batch_size so the read txn doesn't
@@ -307,8 +306,8 @@ impl ConfidenceSweepWorker {
         let min_age_ns = self.knobs.min_age_seconds.saturating_mul(1_000_000_000);
         let cutoff_ns = now_ns.saturating_sub(min_age_ns);
 
-        let db = self.metadata.lock();
-        let rtxn = db
+        let rtxn = self
+            .metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("confidence sweep rtxn: {e}")))?;
         let table = match rtxn.open_table(STATEMENTS_TABLE) {
@@ -377,8 +376,8 @@ impl ConfidenceSweepWorker {
     /// Write-phase: open one wtxn, write each row, fix up the
     /// `STATEMENTS_BY_PREDICATE` bucket when it moved.
     fn apply_updates(&self, updates: &[PendingUpdate]) -> Result<(), WorkerError> {
-        let mut db = self.metadata.lock();
-        let wtxn = db
+        let wtxn = self
+            .metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("confidence sweep wtxn: {e}")))?;
         {
@@ -551,11 +550,9 @@ struct PendingUpdate {
 mod tests {
     use super::*;
     use brain_core::{
-        Entity, EntityType, EvidenceRef, Statement, StatementObject, SubjectRef,
-    };
-    use brain_core::{
         ContextId, EntityId, EvidenceOverflowId, ExtractorId, MemoryId, PredicateId, StatementId,
     };
+    use brain_core::{Entity, EntityType, EvidenceRef, Statement, StatementObject, SubjectRef};
     use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
     use brain_index::statement_hnsw::{StatementHnswIndex, StatementHnswParams};
     use brain_index::{IndexParams, SharedHnsw};
@@ -563,7 +560,7 @@ mod tests {
     use brain_metadata::schema::predicate::predicate_intern_or_get;
     use brain_metadata::statement::{allocate_evidence_overflow, statement_create, statement_get};
     use brain_metadata::MetadataDb;
-    use brain_ops::{OpsContext, RealWriterHandle};
+    use brain_ops::RealWriterHandle;
     use brain_planner::{ExecutorContext, WriterHandle};
     use parking_lot::RwLock;
     use std::sync::atomic::AtomicBool;
@@ -687,14 +684,14 @@ mod tests {
 
     struct Fixture {
         _dir: tempfile::TempDir,
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         ctx: WorkerContext,
     }
 
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let metadata = MetadataDb::open(dir.path().join("test.redb")).expect("open metadata");
-        let metadata = Arc::new(Mutex::new(metadata));
+        let metadata = Arc::new(metadata);
         let dispatcher: Arc<dyn Dispatcher> = Arc::new(NoopDispatcher);
         let (shared, hnsw_writer) =
             SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw::new");
@@ -720,15 +717,14 @@ mod tests {
     /// single evidence row at the same timestamp + confidence. Returns
     /// the StatementId.
     fn seed_statement_with_age(
-        metadata: &Arc<Mutex<MetadataDb>>,
+        metadata: &Arc<MetadataDb>,
         n: u8,
         extracted_at: u64,
         evidence_confidence: f32,
         evidence_age_offset_ns: u64,
         kind: StatementKind,
     ) -> StatementId {
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = metadata.write_txn().unwrap();
 
         let subj = EntityId::new();
         let obj = EntityId::new();
@@ -789,9 +785,8 @@ mod tests {
         id
     }
 
-    fn read_confidence(metadata: &Arc<Mutex<MetadataDb>>, id: StatementId) -> f32 {
-        let db = metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+    fn read_confidence(metadata: &Arc<MetadataDb>, id: StatementId) -> f32 {
+        let rtxn = metadata.read_txn().unwrap();
         let s = statement_get(&rtxn, id).unwrap().unwrap();
         s.confidence
     }
@@ -949,7 +944,7 @@ mod tests {
     fn worker_kind_name() {
         let dir = tempfile::tempdir().unwrap();
         let metadata = MetadataDb::open(dir.path().join("test.redb")).unwrap();
-        let metadata = Arc::new(Mutex::new(metadata));
+        let metadata = Arc::new(metadata);
         let w = ConfidenceSweepWorker::new(metadata);
         assert_eq!(w.name(), "confidence_sweep");
         assert_eq!(w.kind(), WorkerKind::ConfidenceSweep);
@@ -988,8 +983,7 @@ mod tests {
         let extracted_at = now.saturating_sub(age_ns);
 
         let stmt_id = {
-            let mut db = fx.metadata.lock();
-            let wtxn = db.write_txn().unwrap();
+            let wtxn = fx.metadata.write_txn().unwrap();
             let subj = EntityId::new();
             let obj = EntityId::new();
             entity_put(

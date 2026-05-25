@@ -2,10 +2,10 @@
 
 use std::fs;
 
+use brain_core::{Entity, EntityId, EntityTypeId};
 use brain_core::{
     EvidenceRef, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
 };
-use brain_core::{Entity, EntityId, EntityTypeId};
 use brain_core::{ExtractorId, PredicateId, StatementId};
 use brain_index::{IndexStatus, TantivyShard};
 use brain_metadata::entity::ops::entity_put;
@@ -99,7 +99,7 @@ fn recover_with_version_mismatch_rebuilds() {
 
 #[test]
 fn recover_rebuilds_statements_with_join() {
-    let (dir, mut metadata) = fresh();
+    let (dir, metadata) = fresh();
 
     // Set up entity + predicate + statement.
     let type_id: EntityTypeId = {

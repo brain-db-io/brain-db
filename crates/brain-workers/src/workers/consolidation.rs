@@ -430,8 +430,7 @@ fn collect_candidates_by_context(
     recency_floor_nanos: u64,
 ) -> Result<BTreeMap<ContextId, Vec<WindowCandidate>>, WorkerError> {
     let metadata = ctx.ops.executor.metadata.clone();
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("consolidation read_txn: {e:?}")))?;
     let table = rtxn
@@ -474,8 +473,7 @@ fn any_already_consolidated(
     cluster: &[MemoryId],
 ) -> Result<bool, WorkerError> {
     let metadata = ctx.ops.executor.metadata.clone();
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("any-consol read_txn: {e:?}")))?;
     let table = rtxn
@@ -505,8 +503,7 @@ fn fetch_texts(
     cluster: &[MemoryId],
 ) -> Result<Option<Vec<String>>, WorkerError> {
     let metadata = ctx.ops.executor.metadata.clone();
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("fetch_texts read_txn: {e:?}")))?;
     let table = rtxn
@@ -539,8 +536,7 @@ fn stamp_sources(
     now_unix_nanos: u64,
 ) -> Result<(), WorkerError> {
     let metadata = ctx.ops.executor.metadata.clone();
-    let mut db = metadata.lock();
-    let wtxn = db
+    let wtxn = metadata
         .write_txn()
         .map_err(|e| WorkerError::Ops(format!("stamp write_txn: {e:?}")))?;
     {

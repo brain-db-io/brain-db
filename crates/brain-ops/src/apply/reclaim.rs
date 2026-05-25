@@ -96,7 +96,7 @@ mod tests {
 
     #[test]
     fn reclaim_empty_table_is_a_noop() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let phase = Phase::ReclaimSlots {
             slots: vec![1, 2, 3],
         };

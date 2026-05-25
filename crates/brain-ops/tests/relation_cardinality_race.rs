@@ -29,8 +29,8 @@
 use std::sync::Arc;
 use std::thread;
 
-use brain_core::{Entity, Relation, RelationType};
 use brain_core::{Cardinality, EntityId, EntityTypeId, ExtractorId, RelationId, RelationTypeId};
+use brain_core::{Entity, Relation, RelationType};
 use brain_metadata::entity::ops::entity_put;
 use brain_metadata::entity::types::entity_type_intern;
 use brain_metadata::relation::ops::{

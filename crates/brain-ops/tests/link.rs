@@ -24,8 +24,9 @@ use brain_protocol::envelope::request::{
     EdgeKindWire, EdgeRequest, EncodeRequest, LinkRequest, MemoryKindWire, RequestBody,
     UnlinkRequest,
 };
-use brain_protocol::envelope::response::{EncodeResponse, LinkResponse, ResponseBody, UnlinkResponse};
-use parking_lot::Mutex;
+use brain_protocol::envelope::response::{
+    EncodeResponse, LinkResponse, ResponseBody, UnlinkResponse,
+};
 
 // ---------------------------------------------------------------------------
 // Fixture.
@@ -58,7 +59,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
 
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
@@ -150,8 +151,7 @@ fn unwrap_unlink(outcome: DispatchOutcome) -> UnlinkResponse {
 }
 
 fn edge_exists(fix: &Fixture, source: u128, kind: CoreEdgeKind, target: u128) -> bool {
-    let db = fix.metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = fix.metadata.read_txn().unwrap();
     edge_get(
         &rtxn,
         brain_core::NodeRef::Memory(MemoryId::from(source)),
@@ -164,8 +164,7 @@ fn edge_exists(fix: &Fixture, source: u128, kind: CoreEdgeKind, target: u128) ->
 }
 
 fn edge_counts(fix: &Fixture, memory_id: u128) -> (u32, u32) {
-    let db = fix.metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = fix.metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     let access = table
         .get(MemoryId::from(memory_id).to_be_bytes())

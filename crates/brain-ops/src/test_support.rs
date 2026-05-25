@@ -20,7 +20,6 @@ use brain_index::{
 };
 use brain_metadata::MetadataDb;
 use brain_protocol::envelope::response::ResponseBody;
-use parking_lot::Mutex;
 
 use crate::DispatchOutcome;
 
@@ -62,19 +61,21 @@ pub fn tantivy_for_tests(dir: &Path) -> Arc<dyn LexicalRetriever> {
 pub fn semantic_for_tests(
     embedder: Arc<dyn Dispatcher>,
     memory_index: SharedHnsw,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
 ) -> Arc<dyn SemanticRetriever> {
-    Arc::new(crate::index::semantic_retriever::BrainSemanticRetriever::new(
-        embedder,
-        memory_index,
-        None,
-        metadata,
-    ))
+    Arc::new(
+        crate::index::semantic_retriever::BrainSemanticRetriever::new(
+            embedder,
+            memory_index,
+            None,
+            metadata,
+        ),
+    )
 }
 
 /// Build a real `GraphRetriever` over the redb metadata store.
 #[must_use]
-pub fn graph_for_tests(metadata: Arc<Mutex<MetadataDb>>) -> Arc<dyn GraphRetriever> {
+pub fn graph_for_tests(metadata: Arc<MetadataDb>) -> Arc<dyn GraphRetriever> {
     Arc::new(crate::index::graph_retriever::BrainGraphRetriever::new(
         metadata,
     ))
@@ -87,7 +88,7 @@ pub fn retrievers_for_tests(
     dir: &Path,
     embedder: Arc<dyn Dispatcher>,
     memory_index: SharedHnsw,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
 ) -> (
     Arc<dyn LexicalRetriever>,
     Arc<dyn SemanticRetriever>,
@@ -112,8 +113,7 @@ pub fn ops_context_for_tests(
     let embedder = executor.embedder.clone();
     let memory_index = executor.index.clone();
     let metadata = executor.metadata.clone();
-    let (lexical, semantic, graph) =
-        retrievers_for_tests(dir, embedder, memory_index, metadata);
+    let (lexical, semantic, graph) = retrievers_for_tests(dir, embedder, memory_index, metadata);
     crate::OpsContext::new(executor, lexical, semantic, graph)
 }
 

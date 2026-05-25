@@ -114,13 +114,12 @@ pub async fn fetch_extractor_context(
     let started = Instant::now();
     let retriever = &ctx.semantic_retriever;
 
-    // Step 1 + 5 prep: open one read txn against metadata. Borrows
-    // the same Arc the writer uses; the per-shard Mutex makes the
-    // lock contention nil (single shard drains one queue).
+    // Step 1 + 5 prep: open one read txn against metadata. The shared
+    // `Arc<MetadataDb>` lets every reader path open its own redb read
+    // txn without serialising on a wrapping mutex.
     let metadata = ctx.executor.metadata.clone();
     let memory_context_id: u64 = {
-        let db_guard = metadata.lock();
-        let rtxn = db_guard
+        let rtxn = metadata
             .read_txn()
             .map_err(|e| ExtractorContextError::Metadata(format!("read_txn: {e}")))?;
         let table = match rtxn.open_table(MEMORIES_TABLE) {
@@ -166,8 +165,7 @@ pub async fn fetch_extractor_context(
     // Step 3-6: materialise neighbor entries inside a fresh read txn so
     // step-1's txn doesn't outlive the await above (Glommio shards
     // are single-threaded but we still keep txns short for redb's GC).
-    let db_guard = metadata.lock();
-    let rtxn = db_guard
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| ExtractorContextError::Metadata(format!("read_txn (neighbors): {e}")))?;
     let memories_t = match rtxn.open_table(MEMORIES_TABLE) {
@@ -233,7 +231,6 @@ pub async fn fetch_extractor_context(
         });
     }
     drop(rtxn);
-    drop(db_guard);
 
     tracing::debug!(
         target: "brain_ops::apply::encode_helpers",
@@ -324,9 +321,7 @@ mod tests {
     fn fresh_ctx() -> (tempfile::TempDir, OpsContext) {
         let dir = tempfile::tempdir().unwrap();
         let db_path = dir.path().join("metadata.redb");
-        let metadata = Arc::new(parking_lot::Mutex::new(
-            brain_metadata::MetadataDb::open(&db_path).unwrap(),
-        ));
+        let metadata = Arc::new(brain_metadata::MetadataDb::open(&db_path).unwrap());
         let (shared, _writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let executor = ExecutorContext::new(
             Arc::new(NopDispatcher) as Arc<dyn Dispatcher>,
@@ -345,8 +340,7 @@ mod tests {
         text: &str,
         created_at_unix_nanos: u64,
     ) {
-        let mut db = ctx.executor.metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = ctx.executor.metadata.write_txn().unwrap();
         {
             let mut memories = wtxn.open_table(MEMORIES_TABLE).unwrap();
             let row = MemoryMetadata::new_active(

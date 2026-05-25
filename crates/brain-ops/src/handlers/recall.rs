@@ -181,11 +181,7 @@ fn overlay_txn_buffer(
     Ok(merged)
 }
 
-fn pending_to_memory_result(
-    p: &BufferedEncode,
-    req: &RecallRequest,
-    score: f32,
-) -> MemoryResult {
+fn pending_to_memory_result(p: &BufferedEncode, req: &RecallRequest, score: f32) -> MemoryResult {
     MemoryResult {
         memory_id: p.memory_id.raw(),
         text: if req.include_text {
@@ -207,7 +203,11 @@ fn pending_to_memory_result(
         // Edges and graph enrichment from buffered writes aren't
         // visible until commit — the typed-graph tables they'd
         // resolve against don't have the buffered rows yet.
-        edges: if req.include_edges { Some(Vec::new()) } else { None },
+        edges: if req.include_edges {
+            Some(Vec::new())
+        } else {
+            None
+        },
         graph: None,
         contributing_retrievers: Vec::new(),
         fused_score: score,
@@ -253,8 +253,8 @@ fn fetch_enrichment_for(
     memory_ids: &[MemoryId],
     rtxn: &redb::ReadTransaction,
 ) -> Result<Vec<Option<brain_protocol::envelope::response::GraphEnrichment>>, OpError> {
-    use brain_core::{EntityId, StatementId, SubjectRef};
     use brain_core::{EdgeKindRef, NodeRef};
+    use brain_core::{EntityId, StatementId, SubjectRef};
     use brain_metadata::entity::ops::entity_get;
     use brain_metadata::relation::types::relation_type_get;
     use brain_metadata::schema::predicate::predicate_get;
@@ -507,8 +507,9 @@ fn project_memory_results(
         .as_ref()
         .map(|v| v.iter().copied().collect());
 
-    let metadata_guard = ctx.executor.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("hybrid recall read_txn: {e}")))?;
     let table = rtxn
@@ -533,8 +534,8 @@ fn project_memory_results(
     };
 
     // Pre-fetch knowledge-layer enrichment in one pass if requested.
-    // The hybrid path holds metadata_guard for the whole loop, so the
-    // helper takes the existing rtxn (no double-lock).
+    // The hybrid path already holds a read txn open for the row hydration
+    // below; the helper reuses it so we don't open a second redb snapshot.
     let graph_per_memory: Option<
         std::collections::HashMap<MemoryId, brain_protocol::envelope::response::GraphEnrichment>,
     > = if req.include_graph {

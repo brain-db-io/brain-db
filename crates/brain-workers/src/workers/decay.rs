@@ -148,8 +148,7 @@ async fn do_decay_cycle(worker: &DecayWorker, ctx: &WorkerContext) -> Result<usi
     let mut scanned = 0usize;
     let mut scanned_to_end = true;
     {
-        let db = metadata.lock();
-        let rtxn = db
+        let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Ops(format!("decay read_txn: {e:?}")))?;
         let table = rtxn
@@ -207,8 +206,7 @@ async fn do_decay_cycle(worker: &DecayWorker, ctx: &WorkerContext) -> Result<usi
     // ── Write phase: apply updates atomically in one wtxn. ───────
     let n_updates = updates.len();
     if !updates.is_empty() {
-        let mut db = metadata.lock();
-        let wtxn = db
+        let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Ops(format!("decay write_txn: {e:?}")))?;
         {

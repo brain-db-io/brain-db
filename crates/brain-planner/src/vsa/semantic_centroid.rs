@@ -98,7 +98,10 @@ mod tests {
         let x = unit_x();
         let neg = neg_unit_x();
         let err = semantic_centroid::<4>(&[&x, &neg]).unwrap_err();
-        assert!(matches!(err, VsaError::DegenerateNorm { .. }), "got {err:?}");
+        assert!(
+            matches!(err, VsaError::DegenerateNorm { .. }),
+            "got {err:?}"
+        );
     }
 
     #[test]
@@ -128,10 +131,7 @@ mod tests {
         let c = semantic_centroid::<4>(&refs).unwrap();
         for v in &inputs {
             let cos = cosine_to_centroid(v, &c);
-            assert!(
-                (-1.0..=1.0).contains(&cos),
-                "cos out of range: {cos}",
-            );
+            assert!((-1.0..=1.0).contains(&cos), "cos out of range: {cos}",);
         }
         // Opposite of the centroid should yield cosine ≈ -1.
         let mut antipode = c;

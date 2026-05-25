@@ -30,8 +30,6 @@ pub struct TxnAbortRequest {
 // Response payloads
 // ============================================================
 
-
-
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]
 #[archive_attr(derive(Debug))]

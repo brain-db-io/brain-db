@@ -7,8 +7,8 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::ops::statement::EvidenceRefWire;
 use crate::envelope::request::WireUuid;
+use crate::ops::statement::EvidenceRefWire;
 
 // ---------------------------------------------------------------------------
 // Request structs.
@@ -129,9 +129,9 @@ pub struct RelationTraverseRequest {
 // Response payloads
 // ============================================================
 
-
-use brain_core::{EntityId, ExtractorId, MemoryId, Relation, RelationId, RelationType, RelationTypeId};
-
+use brain_core::{
+    EntityId, ExtractorId, MemoryId, Relation, RelationId, RelationType, RelationTypeId,
+};
 
 // ---------------------------------------------------------------------------
 // RelationView — read-side projection.

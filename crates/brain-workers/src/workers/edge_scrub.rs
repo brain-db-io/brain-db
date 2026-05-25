@@ -108,8 +108,7 @@ async fn do_scrub_cycle(
     // ── Phase B: delete EDGES_OUT orphans + their mirrors. ───────
     let mut total_removed = 0usize;
     if !out_orphans.victims.is_empty() {
-        let mut db = metadata.lock();
-        let wtxn = db
+        let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Ops(format!("scrub out wtxn: {e:?}")))?;
         {
@@ -157,8 +156,7 @@ async fn do_scrub_cycle(
     if !ctx.is_shutdown() && started.elapsed() < cfg.max_runtime {
         let in_orphans = collect_orphans_in(&metadata, cfg.batch_size, &started, cfg.max_runtime)?;
         if !in_orphans.victims.is_empty() {
-            let mut db = metadata.lock();
-            let wtxn = db
+            let wtxn = metadata
                 .write_txn()
                 .map_err(|e| WorkerError::Ops(format!("scrub in wtxn: {e:?}")))?;
             {
@@ -224,8 +222,7 @@ fn collect_orphans_out(
     started: &Instant,
     max_runtime: std::time::Duration,
 ) -> Result<OutOrphans, WorkerError> {
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("scrub out rtxn: {e:?}")))?;
     let out = rtxn
@@ -290,8 +287,7 @@ fn collect_orphans_in(
     started: &Instant,
     max_runtime: std::time::Duration,
 ) -> Result<InOrphans, WorkerError> {
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("scrub in rtxn: {e:?}")))?;
     let in_t = rtxn

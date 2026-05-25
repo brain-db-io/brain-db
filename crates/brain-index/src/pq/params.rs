@@ -98,7 +98,9 @@ impl PqParams {
             return Err(PqParamsError::BitsUnsupported(self.bits));
         }
         if !(MIN_TRAINING_SAMPLE..=MAX_TRAINING_SAMPLE).contains(&self.training_sample) {
-            return Err(PqParamsError::TrainingSampleOutOfRange(self.training_sample));
+            return Err(PqParamsError::TrainingSampleOutOfRange(
+                self.training_sample,
+            ));
         }
         if !(5..=100).contains(&self.kmeans_iters) {
             return Err(PqParamsError::KmeansItersOutOfRange(self.kmeans_iters));
@@ -173,7 +175,10 @@ mod tests {
         p.m = 7; // 384 / 7 = 54.857...
         assert!(matches!(
             p.validate(),
-            Err(PqParamsError::MDoesNotDivideDim { m: 7, d: VECTOR_DIM })
+            Err(PqParamsError::MDoesNotDivideDim {
+                m: 7,
+                d: VECTOR_DIM
+            })
         ));
     }
 

@@ -14,7 +14,6 @@ use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::{
     StatisticsUpdateWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -44,7 +43,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let index = shared.clone();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
@@ -77,8 +76,7 @@ fn make_id(slot: u64) -> MemoryId {
 
 fn seed_memory(metadata: &SharedMetadataDb, slot: u64, created_at: u64) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let meta = MemoryMetadata::new_active(

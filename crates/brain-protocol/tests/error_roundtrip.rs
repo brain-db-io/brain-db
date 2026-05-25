@@ -9,10 +9,10 @@
 //! in either rkyv shim or the `ErrorCodeWire ↔ ErrorCode` table
 //! surfaces here.
 
-use brain_protocol::error::{ErrorCategory, ErrorCode, ProtocolError};
+use brain_protocol::envelope::error::{ErrorDetails, ErrorResponse};
 use brain_protocol::envelope::request::RequestBody;
 use brain_protocol::envelope::response::ResponseBody;
-use brain_protocol::envelope::error::{ErrorDetails, ErrorResponse};
+use brain_protocol::error::{ErrorCategory, ErrorCode, ProtocolError};
 use brain_protocol::shared::enums::{ErrorCategoryWire, ErrorCodeWire};
 use brain_protocol::Opcode;
 

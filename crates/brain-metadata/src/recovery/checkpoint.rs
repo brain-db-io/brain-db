@@ -11,6 +11,8 @@
 //! brain_storage::recovery::MetadataSink::durable_lsn) calls see the
 //! new watermark without re-reading the table.
 
+use std::sync::atomic::Ordering;
+
 use brain_storage::recovery::MetadataSinkError;
 use brain_storage::wal::payload::CheckpointEndPayload;
 
@@ -22,7 +24,7 @@ use super::transient;
 
 impl MetadataDb {
     pub(super) fn apply_checkpoint_end(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &CheckpointEndPayload,
@@ -34,6 +36,7 @@ impl MetadataDb {
         // is authoritative.
         let started_at = self
             .pending_checkpoints
+            .lock()
             .remove(&p.checkpoint_id)
             .unwrap_or(0);
 
@@ -56,7 +59,10 @@ impl MetadataDb {
         wtxn.commit().map_err(transient)?;
 
         // Advance cached durable_lsn (also returned by durable_lsn()).
-        self.durable_lsn = self.durable_lsn.max(p.durable_lsn);
+        // fetch_max guarantees monotonicity even if another apply
+        // path races us (the writer task is single-threaded today,
+        // but the atomic stays correct under future evolution).
+        self.durable_lsn.fetch_max(p.durable_lsn, Ordering::AcqRel);
         Ok(())
     }
 }

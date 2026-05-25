@@ -32,8 +32,9 @@ pub async fn handle_extractor_list(
     ctx: &OpsContext,
 ) -> Result<ExtractorListResponseFrame, OpError> {
     let rows = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         extractor_list(&rtxn).map_err(map_extractor_op_error)?
@@ -141,8 +142,9 @@ async fn submit_set_enabled(
     // before submit even queues a Write. apply_set_extractor_enabled
     // doesn't surface the prior byte on its PhaseAck.
     let previous = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let row = extractor_get(&rtxn, id)

@@ -152,7 +152,9 @@ impl ExtractorRegistry {
         let gate = self.tier_gate;
         self.by_id
             .iter()
-            .filter(move |(id, ext)| self.enabled.contains(id) && gate.state(ext.kind()).is_enabled())
+            .filter(move |(id, ext)| {
+                self.enabled.contains(id) && gate.state(ext.kind()).is_enabled()
+            })
             .map(|(_, ext)| ext)
     }
 

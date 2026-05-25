@@ -123,8 +123,7 @@ fn hex_short(bytes: &[u8; 16]) -> String {
 /// when the row is present but inactive, `Tombstoned` for the
 /// "actually do the work" case.
 fn peek_forget_outcome(ctx: &OpsContext, id: MemoryId) -> Result<ForgetOutcome, OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     let t = rtxn
@@ -215,8 +214,7 @@ async fn handle_forget_in_txn(
     let outcome = {
         // Committed?
         let committed = {
-            let db_guard = ctx.executor.metadata.lock();
-            let rtxn = db_guard.read_txn().map_err(|e| {
+            let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
                 OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
             })?;
             let table = rtxn

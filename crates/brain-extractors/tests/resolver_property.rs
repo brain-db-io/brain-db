@@ -39,7 +39,7 @@ fn open_db() -> (TempDir, MetadataDb) {
 /// mapping (after dedup) is the read model under test for replay
 /// determinism.
 fn replay(seq: &[(String, &str)]) -> Vec<(String, EntityId)> {
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let mut out = Vec::with_capacity(seq.len());
     let wtxn = db.write_txn().unwrap();
     for (i, (sf, qname)) in seq.iter().enumerate() {
@@ -103,7 +103,7 @@ proptest! {
         sf in "[a-zA-Z]{3,10}( [a-zA-Z]{3,10})?",
         qname in prop::sample::select(vec!["brain:Person", "brain:Organization"])
     ) {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let wtxn = db.write_txn().unwrap();
         let r1 = resolve_or_create(&wtxn, &sf, qname, 0.9, NOW).unwrap();
         let r2 = resolve_or_create(&wtxn, &sf, qname, 0.9, NOW + 1).unwrap();
@@ -127,7 +127,7 @@ proptest! {
         leading_pad in 0usize..4,
         trailing_pad in 0usize..4,
     ) {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let base = format!("{first} {second}");
         let mut variants = vec![
             base.clone(),
@@ -223,7 +223,7 @@ fn higher_threshold_never_increases_dedup_count() {
 
 #[test]
 fn alias_lookup_normalises_case() {
-    let (_dir, mut db) = open_db();
+    let (_dir, db) = open_db();
     let mut e = Entity::new_active(
         EntityId::new(),
         EntityType::PERSON_ID,
@@ -257,7 +257,7 @@ proptest! {
 
     #[test]
     fn whitespace_only_surface_forms_are_rejected(ws in "[ \\t\\n]{1,16}") {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let wtxn = db.write_txn().unwrap();
         let res = resolve_or_create(&wtxn, &ws, "brain:Person", 0.5, NOW);
         prop_assert!(res.is_err(), "whitespace-only surface form must error, not panic");

@@ -19,7 +19,6 @@ use brain_workers::{
     DisabledSummarizer, Summarizer, SummarizerError, Worker, WorkerConfig, WorkerContext,
     WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
 
@@ -53,7 +52,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -94,8 +93,7 @@ fn seed_memory(
     tombstoned_at_unix_nanos: Option<u64>,
 ) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let mut meta = MemoryMetadata::new_active(
@@ -119,8 +117,7 @@ fn seed_memory(
 }
 
 fn read_meta(metadata: &SharedMetadataDb, id: MemoryId) -> Option<MemoryMetadata> {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     table.get(id.to_be_bytes()).unwrap().map(|a| a.value())
 }
@@ -341,8 +338,7 @@ fn cluster_of_five_episodics_produces_one_consolidated() {
         assert_eq!(processed, 1, "one Consolidated memory must be created");
 
         // Walk MEMORIES_TABLE to find the Consolidated one.
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
         let consolidated: Vec<_> = table
             .iter()
@@ -384,8 +380,7 @@ fn consolidated_has_derived_from_edges_to_each_source() {
 
         // Find the Consolidated id.
         let consolidated_id = {
-            let db = fix.metadata.lock();
-            let rtxn = db.read_txn().unwrap();
+            let rtxn = fix.metadata.read_txn().unwrap();
             let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
             let mut id = None;
             for entry in table.iter().unwrap() {
@@ -400,8 +395,7 @@ fn consolidated_has_derived_from_edges_to_each_source() {
         };
 
         // Walk outgoing DerivedFrom edges anchored at the consolidated id.
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let rows =
             list_memory_edges_from(&rtxn, consolidated_id, Some(EdgeKind::DerivedFrom)).unwrap();
         let found_targets: std::collections::HashSet<MemoryId> =
@@ -671,8 +665,7 @@ fn disabled_worker_via_config_does_not_run() {
         glommio::timer::sleep(Duration::from_millis(200)).await;
         sched.shutdown().await.unwrap();
 
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
         let any_consolidated = table.iter().unwrap().any(|e| {
             let (_, v) = e.unwrap();

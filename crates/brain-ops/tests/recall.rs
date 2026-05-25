@@ -26,7 +26,6 @@ use brain_protocol::envelope::request::{
     EncodeRequest, MemoryKindWire, RecallRequest, RequestBody,
 };
 use brain_protocol::envelope::response::{EncodeResponse, RecallResponseFrame, ResponseBody};
-use parking_lot::Mutex;
 
 // ---------------------------------------------------------------------------
 // Mock dispatcher: text-driven deterministic vectors.
@@ -68,7 +67,7 @@ fn build_fixture() -> Fixture {
 fn build_fixture_with_embedder(embedder: Arc<dyn Dispatcher>) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
 
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));

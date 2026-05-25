@@ -239,7 +239,7 @@ mod tests {
     #[test]
     fn index_then_lookup_round_trips() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let id = EntityId::new();
         let trigrams: HashSet<[u8; 3]> = [*b"pri", *b"riy", *b"iya"].into_iter().collect();
 
@@ -257,7 +257,7 @@ mod tests {
     #[test]
     fn remove_clears_index_rows() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let id = EntityId::new();
         let trigrams: HashSet<[u8; 3]> = [*b"pri", *b"riy"].into_iter().collect();
 
@@ -282,7 +282,7 @@ mod tests {
     #[test]
     fn candidates_for_query_unions_across_trigrams() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let alpha = EntityId::new();
         let beta = EntityId::new();
 
@@ -315,7 +315,7 @@ mod tests {
     #[test]
     fn lookup_filters_by_type_id() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
 
         // Seed a second entity type so the filter is meaningful.
         {

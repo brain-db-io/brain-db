@@ -216,9 +216,9 @@ impl OpError {
     #[must_use]
     pub fn error_code(&self) -> ErrorCode {
         match self {
-            Self::InvalidRequest(_)
-            | Self::TooManyMemories
-            | Self::SchemaConflict { .. } => ErrorCode::InvalidRequest,
+            Self::InvalidRequest(_) | Self::TooManyMemories | Self::SchemaConflict { .. } => {
+                ErrorCode::InvalidRequest
+            }
             Self::NotFound { .. } => ErrorCode::NotFound,
             Self::Conflict(_) => ErrorCode::Conflict,
             Self::TxnExpired => ErrorCode::TxnExpired,

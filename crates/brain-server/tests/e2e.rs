@@ -35,10 +35,10 @@
 use std::net::SocketAddr;
 use std::time::Duration;
 
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::{
     ByeRequest, EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RecallRequest,
     RequestBody,

@@ -35,7 +35,6 @@ use brain_protocol::envelope::request::{
 };
 use brain_protocol::envelope::response::{EventType, ResponseBody, SubscriptionEvent};
 use futures_lite::FutureExt;
-use parking_lot::Mutex;
 use tokio::sync::broadcast;
 
 // ---------------------------------------------------------------------------
@@ -83,7 +82,7 @@ fn build_fixture_with(bus: EventBus) -> Fixture {
     let bus = Arc::new(bus);
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer =
         Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer).with_event_bus(bus.clone()));

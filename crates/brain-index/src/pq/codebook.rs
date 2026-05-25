@@ -229,7 +229,10 @@ mod tests {
         params.m = 16;
         assert!(matches!(
             cb.matches_params(&params),
-            Err(CodebookError::ConfigMismatch { params_m: 16, codebook_m: 8 })
+            Err(CodebookError::ConfigMismatch {
+                params_m: 16,
+                codebook_m: 8
+            })
         ));
     }
 }

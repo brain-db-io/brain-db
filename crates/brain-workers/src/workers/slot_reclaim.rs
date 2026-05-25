@@ -115,8 +115,7 @@ async fn do_reclaim_cycle(
     //    batch_size + max_runtime. Reads run inside one read txn
     //    with the mutex held; no .await crosses the lock. ─────────
     let candidates: Vec<MemoryId> = {
-        let db = metadata.lock();
-        let rtxn = db
+        let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Ops(format!("reclaim read_txn: {e:?}")))?;
         let table = rtxn
@@ -180,8 +179,7 @@ fn reclaim_one(
     id: MemoryId,
     cutoff_nanos: u64,
 ) -> Result<bool, WorkerError> {
-    let mut db = metadata.lock();
-    let wtxn = db
+    let wtxn = metadata
         .write_txn()
         .map_err(|e| WorkerError::Ops(format!("reclaim_one write_txn: {e:?}")))?;
     let did_remove = {

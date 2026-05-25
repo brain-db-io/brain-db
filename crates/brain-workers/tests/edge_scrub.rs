@@ -18,7 +18,6 @@ use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::{
     EdgeScrubWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
 
@@ -48,7 +47,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -79,8 +78,7 @@ fn make_id(slot: u64) -> MemoryId {
 
 fn seed_memory(metadata: &SharedMetadataDb, slot: u64) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let meta = MemoryMetadata::new_active(
@@ -104,8 +102,7 @@ fn seed_memory(metadata: &SharedMetadataDb, slot: u64) -> MemoryId {
 /// Insert an edge directly into both tables — bypasses the writer's
 /// alive-endpoint validation so we can craft orphans.
 fn seed_edge_raw(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt: MemoryId) {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut out = wtxn.open_table(EDGES_TABLE).unwrap();
         let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).unwrap();
@@ -125,15 +122,13 @@ fn seed_edge_raw(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt
 }
 
 fn count_edges_out(metadata: &SharedMetadataDb) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let t = rtxn.open_table(EDGES_TABLE).unwrap();
     t.iter().unwrap().count()
 }
 
 fn count_edges_in(metadata: &SharedMetadataDb) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let t = rtxn.open_table(EDGES_REVERSE_TABLE).unwrap();
     t.iter().unwrap().count()
 }
@@ -217,8 +212,7 @@ fn edge_from_dead_source_removed_from_in() {
         // Simulate post-reclamation: remove dead_src's MEMORIES row plus
         // the EDGES_OUT[dead_src,*,*] entry.
         {
-            let mut db = fix.metadata.lock();
-            let wtxn = db.write_txn().unwrap();
+            let wtxn = fix.metadata.write_txn().unwrap();
             {
                 let mut out = wtxn.open_table(EDGES_TABLE).unwrap();
                 let key = brain_metadata::tables::edge::EdgeKey {

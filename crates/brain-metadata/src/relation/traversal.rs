@@ -274,8 +274,8 @@ mod tests {
     use crate::entity::ops::{entity_put, normalize_name};
     use crate::relation::ops::relation_create;
     use crate::relation::types::relation_type_intern;
-    use brain_core::{Entity, EntityType, Relation};
     use brain_core::{Cardinality, ExtractorId};
+    use brain_core::{Entity, EntityType, Relation};
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();

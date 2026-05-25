@@ -24,10 +24,10 @@
 
 use std::time::{Duration, Instant};
 
-use brain_core::{Entity, EntityType, Relation};
 use brain_core::{
     EdgeKind, EdgeKindRef, EntityId, ExtractorId, MemoryId, NodeRef, RelationId, RelationTypeId,
 };
+use brain_core::{Entity, EntityType, Relation};
 use brain_metadata::entity::ops::{entity_put, normalize_name};
 use brain_metadata::relation::ops::relation_create;
 use brain_metadata::relation::traversal::{traverse, TraversalConfig, TraversalDirection};
@@ -65,7 +65,7 @@ struct EntityFixture {
 
 fn build_entity_fixture() -> EntityFixture {
     let dir = TempDir::new().expect("tempdir");
-    let mut db = MetadataDb::open(dir.path().join("md.redb")).expect("open db");
+    let db = MetadataDb::open(dir.path().join("md.redb")).expect("open db");
 
     // Use the seeded `brain:related_to` plus two ad-hoc types.
     let related_to: RelationTypeId = {
@@ -162,7 +162,7 @@ struct MemoryFixture {
 
 fn build_memory_fixture() -> MemoryFixture {
     let dir = TempDir::new().expect("tempdir");
-    let mut db = MetadataDb::open(dir.path().join("md.redb")).expect("open db");
+    let db = MetadataDb::open(dir.path().join("md.redb")).expect("open db");
 
     let memories: Vec<MemoryId> = (0..N_MEMORIES as u64)
         .map(|slot| MemoryId::pack(1, slot, 1))

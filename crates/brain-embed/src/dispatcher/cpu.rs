@@ -25,8 +25,8 @@
 use std::sync::Arc;
 
 use crate::error::EmbedError;
-use crate::model::{embed_batch, embed_text, VECTOR_DIM};
 use crate::model::ModelHandle;
+use crate::model::{embed_batch, embed_text, VECTOR_DIM};
 
 /// Sync, thread-safe text-to-vector dispatch.
 ///

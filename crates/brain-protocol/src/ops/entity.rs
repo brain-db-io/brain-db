@@ -131,7 +131,7 @@ pub struct EntityTombstoneRequest {
 #[cfg(test)]
 mod tests {
     use super::*;
-        use crate::codec::opcode::Opcode;
+    use crate::codec::opcode::Opcode;
     use crate::envelope::request::RequestBody;
     use crate::envelope::response::ResponseBody;
 
@@ -367,7 +367,7 @@ mod tests {
 
     #[test]
     fn entity_list_response_roundtrip_intermediate_and_final() {
-                // Intermediate frame: items present, not final.
+        // Intermediate frame: items present, not final.
         let intermediate = EntityListResponseFrame {
             items: vec![EntityListItem {
                 entity: sample_view(),
@@ -403,8 +403,6 @@ mod tests {
 // ============================================================
 // Response payloads
 // ============================================================
-
-
 
 /// Read-side view of an entity. Mirrors `brain_core::Entity` but uses
 /// wire-domain primitives (`[u8; 16]` for the entity id, `u32` for the

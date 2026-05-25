@@ -57,19 +57,18 @@ use brain_metadata::tables::entity::ENTITIES_TABLE;
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::tables::relation::RELATION_METADATA_TABLE;
 use brain_metadata::MetadataDb;
-use parking_lot::Mutex;
 use redb::ReadTransaction;
 
 /// Production `GraphRetriever` impl. Cheap to clone — single
-/// `Arc<Mutex<...>>` field.
+/// `Arc<MetadataDb>` field; redb MVCC handles read concurrency.
 #[derive(Clone)]
 pub struct BrainGraphRetriever {
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
 }
 
 impl BrainGraphRetriever {
     #[must_use]
-    pub fn new(metadata: Arc<Mutex<MetadataDb>>) -> Self {
+    pub fn new(metadata: Arc<MetadataDb>) -> Self {
         Self { metadata }
     }
 }
@@ -82,8 +81,8 @@ impl GraphRetriever for BrainGraphRetriever {
     ) -> Result<Vec<RankedItem>, GraphError> {
         validate_graph_depth(query, config)?;
 
-        let db_guard = self.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = self
+            .metadata
             .read_txn()
             .map_err(|e| GraphError::IndexUnavailable(format!("read_txn: {e}")))?;
 

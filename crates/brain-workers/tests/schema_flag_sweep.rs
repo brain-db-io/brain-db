@@ -15,11 +15,11 @@
 use std::sync::atomic::AtomicBool;
 use std::sync::Arc;
 
+use brain_core::{AgentId, ContextId, EntityId, ExtractorId, MemoryId};
 use brain_core::{
     Entity, EntityType, EvidenceEntry, EvidenceRef, Statement, StatementId, StatementKind,
     StatementObject, StatementValue, SubjectRef,
 };
-use brain_core::{AgentId, ContextId, EntityId, ExtractorId, MemoryId};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::entity::ops::{entity_put, normalize_name};
@@ -28,12 +28,11 @@ use brain_metadata::statement::statement_create;
 use brain_metadata::tables::statement::{statement_flags, STATEMENTS_TABLE};
 use brain_metadata::MetadataDb;
 use brain_ops::{
-    OpsContext, Phase, RealWriterHandle, SchemaFlagSweepJob, SchemaMigrationMetrics, Write, WriteId,
+    Phase, RealWriterHandle, SchemaFlagSweepJob, SchemaMigrationMetrics, Write, WriteId,
 };
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::workers::schema_migration::SchemaMigrationWorker;
 use brain_workers::WorkerContext;
-use parking_lot::Mutex;
 use tempfile::TempDir;
 
 const NOW: u64 = 1_700_000_000_000_000_000;
@@ -62,7 +61,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let mut writer_raw = RealWriterHandle::new(metadata.clone(), hnsw_writer);
 
@@ -96,8 +95,7 @@ fn build_fixture() -> Fixture {
 
 fn put_subject(metadata: &SharedMetadataDb) -> EntityId {
     let id = EntityId::new();
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     entity_put(
         &wtxn,
         &Entity::new_active(
@@ -119,8 +117,7 @@ fn write_statement(
     namespace: &str,
     predicate_name: &str,
 ) -> StatementId {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     let pid = predicate_intern_or_get(&wtxn, namespace, predicate_name, 0, NOW).unwrap();
     let evidence_entry = EvidenceEntry::from_parts(
         MemoryId::pack(1, ContextId::DEFAULT.into(), 0),
@@ -147,8 +144,7 @@ fn write_statement(
 }
 
 fn statement_has_outside_flag(metadata: &SharedMetadataDb, sid: StatementId) -> bool {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let t = rtxn.open_table(STATEMENTS_TABLE).unwrap();
     let row = t.get(&sid.to_bytes()).unwrap().unwrap().value();
     row.has_flag(statement_flags::OUTSIDE_ACTIVE_SCHEMA)

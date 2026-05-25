@@ -25,6 +25,10 @@ smallvec.workspace = true
 # Phase 8.dedup: BLAKE3 over canonical UTF-8 text for the
 # `fingerprints` opt-in content-dedup index.
 blake3.workspace = true
+# Interior mutability for `MetadataDb::pending_checkpoints` — shared
+# `Arc<MetadataDb>` callers can still drive `MetadataSink::apply`
+# without an outer mutex.
+parking_lot.workspace = true
 
 [dev-dependencies]
 criterion.workspace = true

@@ -42,7 +42,6 @@ use brain_index::{
 use brain_metadata::MetadataDb;
 use brain_rerank::CrossEncoder;
 use futures_lite::future::poll_fn;
-use parking_lot::Mutex;
 
 use super::filters::{apply_filter_chain, FilterChainStats, FilterError};
 use super::fusion::{fuse_rrf, FusedItem};
@@ -63,7 +62,7 @@ pub struct HybridExecutorContext {
     pub semantic: Arc<dyn SemanticRetriever>,
     pub lexical: Arc<dyn LexicalRetriever>,
     pub graph: Arc<dyn GraphRetriever>,
-    pub metadata: Arc<Mutex<MetadataDb>>,
+    pub metadata: Arc<MetadataDb>,
     /// Optional cross-encoder for the W2.2 rerank pass. When
     /// `Some` and the plan opted in (`QueryPlan.rerank == true`),
     /// the executor reranks the top fused candidates. When `None`
@@ -306,15 +305,12 @@ pub async fn execute(
         (fused, None)
     };
 
-    let (items, filter_stats) = {
-        let metadata_guard = ctx.metadata.lock();
-        apply_filter_chain(
-            fused_after_rerank,
-            &plan.post_filters,
-            &metadata_guard,
-            plan.limit,
-        )?
-    };
+    let (items, filter_stats) = apply_filter_chain(
+        fused_after_rerank,
+        &plan.post_filters,
+        ctx.metadata.as_ref(),
+        plan.limit,
+    )?;
 
     let total_latency_ms = total_started.elapsed().as_secs_f64() * 1000.0;
     Ok(QueryResult {
@@ -407,8 +403,8 @@ fn fetch_texts(
 ) -> Result<Vec<RerankCandidate>, String> {
     use brain_metadata::tables::text::TEXTS_TABLE;
 
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .metadata
         .read_txn()
         .map_err(|e| format!("rerank read_txn: {e}"))?;
     let table = match rtxn.open_table(TEXTS_TABLE) {

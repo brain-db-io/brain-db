@@ -22,7 +22,7 @@ use super::transient;
 
 impl MetadataDb {
     pub(super) fn apply_reclaim(
-        &mut self,
+        &self,
         lsn: u64,
         p: &ReclaimPayload,
     ) -> Result<(), MetadataSinkError> {
@@ -54,7 +54,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_consolidate(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &ConsolidatePayload,

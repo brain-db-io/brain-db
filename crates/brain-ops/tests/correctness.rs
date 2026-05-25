@@ -32,7 +32,6 @@ use brain_protocol::envelope::response::{
     EncodeResponse, ForgetResponse, LinkResponse, PlanResponseFrame, PlanStatus,
     ReasonResponseFrame, RecallResponseFrame, ResponseBody, UnlinkResponse,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 // ===========================================================================
@@ -69,9 +68,8 @@ mod common {
     pub(super) fn build_fixture() -> Fixture {
         let tempdir = tempfile::tempdir().unwrap();
         let db_path = tempdir.path().join("metadata.redb");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
-        let (shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
+        let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
         let executor = ExecutorContext::new(
             Arc::new(MockDispatcher) as Arc<dyn Dispatcher>,
@@ -373,8 +371,7 @@ mod common {
         slot_id: u64,
         created_at: u64,
     ) {
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = metadata.write_txn().unwrap();
         {
             let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
             let meta = MemoryMetadata::new_active(
@@ -401,8 +398,7 @@ mod common {
     }
 
     pub(super) fn edges_out_count(metadata: &SharedMetadataDb, src: MemoryId) -> usize {
-        let db = metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = metadata.read_txn().unwrap();
         list_memory_edges_from(&rtxn, src, None)
             .map(|v| v.len())
             .unwrap_or(0)

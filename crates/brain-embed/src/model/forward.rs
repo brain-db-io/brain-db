@@ -23,8 +23,8 @@
 use candle_core::Tensor;
 
 use crate::error::EmbedError;
-use crate::model::ModelHandle;
 use crate::model::tokenize::{encode_batch, encode_single, Tokenized};
+use crate::model::ModelHandle;
 
 /// Output dimensionality. Pinned at 384 for v1 (BGE-small).
 pub const VECTOR_DIM: usize = 384;

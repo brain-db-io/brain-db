@@ -1,12 +1,12 @@
 //! Unit tests for the post-fusion filter chain (phase 23.5).
 
 use brain_core::{
-    EvidenceRef, Relation, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
-    TombstoneReason,
-};
-use brain_core::{
     AgentId, Cardinality, ContextId, Entity, EntityId, EntityTypeId, ExtractorId, MemoryId,
     MemoryKind, PredicateId, RelationId, StatementId,
+};
+use brain_core::{
+    EvidenceRef, Relation, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
+    TombstoneReason,
 };
 use brain_index::RankedItemId;
 use brain_metadata::entity::ops::entity_put;

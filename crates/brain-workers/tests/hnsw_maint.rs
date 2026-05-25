@@ -15,7 +15,6 @@ use brain_workers::{
     RebuildSourceError, RebuildThresholds, Worker, WorkerConfig, WorkerContext, WorkerKind,
     WorkerScheduler,
 };
-use parking_lot::Mutex;
 
 // ---------------------------------------------------------------------------
 // Fixture: real OpsContext + helpers to drive insert / forget on the
@@ -49,7 +48,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let index = shared.clone();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
@@ -190,8 +189,7 @@ fn cycle_reports_tombstone_after_forget_and_attempts_rebuild() {
         // FullRebuild. With DisabledRebuildSource, the rebuild is a
         // logged no-op (processed=0); the tombstones remain.
         let fix = build_fixture();
-        let (_other, mut writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let (_other, mut writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let _ = (_other, &mut writer); // sink unused
                                        // We need to mutate the live index. The fixture's `index` is a
                                        // reader; the writer side is owned by RealWriterHandle. Reach
@@ -218,8 +216,11 @@ fn cycle_reports_tombstone_after_forget_and_attempts_rebuild() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) =
-            { let cb = brain_index::bootstrap_codebook(); brain_index::rebuild::rebuild_impl::<8, _>(params, cb, source) }.unwrap();
+        let (mut new_idx, _r) = {
+            let cb = brain_index::bootstrap_codebook();
+            brain_index::rebuild::rebuild_impl::<8, _>(params, cb, source)
+        }
+        .unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -276,8 +277,11 @@ fn failed_source_propagates_error_as_worker_error() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) =
-            { let cb = brain_index::bootstrap_codebook(); brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source) }.unwrap();
+        let (mut new_idx, _r) = {
+            let cb = brain_index::bootstrap_codebook();
+            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
+        }
+        .unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -312,8 +316,11 @@ fn full_rebuild_via_stub_source_swaps_index_and_returns_one() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) =
-            { let cb = brain_index::bootstrap_codebook(); brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source) }.unwrap();
+        let (mut new_idx, _r) = {
+            let cb = brain_index::bootstrap_codebook();
+            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
+        }
+        .unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -343,8 +350,11 @@ fn disabled_source_with_rebuild_needed_returns_zero_no_swap() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) =
-            { let cb = brain_index::bootstrap_codebook(); brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source) }.unwrap();
+        let (mut new_idx, _r) = {
+            let cb = brain_index::bootstrap_codebook();
+            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
+        }
+        .unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);

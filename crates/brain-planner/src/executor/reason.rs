@@ -259,8 +259,8 @@ fn walk_outward(
         return Ok(Vec::new());
     }
 
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .metadata
         .read_txn()
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
     let mut visited: HashMap<MemoryId, Crumb> = HashMap::new();
@@ -438,8 +438,7 @@ fn build_base_centroid(
         return None;
     }
 
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = match metadata_guard.read_txn() {
+    let rtxn = match ctx.metadata.read_txn() {
         Ok(t) => t,
         Err(e) => {
             tracing::debug!(error = %e, "REASON base-centroid: read txn failed; skipping");

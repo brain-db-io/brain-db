@@ -43,10 +43,7 @@ pub fn train<const M: usize>(
             required: MIN_TRAINING_SAMPLE,
         });
     }
-    if sample
-        .iter()
-        .any(|v| v.iter().any(|&x| !x.is_finite()))
-    {
+    if sample.iter().any(|v| v.iter().any(|&x| !x.is_finite())) {
         return Err(KmeansError::NonFiniteInput);
     }
 
@@ -61,7 +58,8 @@ pub fn train<const M: usize>(
     let mut centroids = vec![0.0_f32; M * k * sub_dim];
 
     for s in 0..M {
-        let mut rng = SplitMix64::new(seed.wrapping_add((s as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)));
+        let mut rng =
+            SplitMix64::new(seed.wrapping_add((s as u64).wrapping_mul(0x9E37_79B9_7F4A_7C15)));
         train_subspace(
             sample,
             s,
@@ -109,9 +107,7 @@ fn train_subspace(
     debug_assert_eq!(out.len(), k * sub_dim);
 
     // Helper closures over the subspace slice.
-    let chunk_of = |i: usize| -> &[f32] {
-        &sample[i][s * sub_dim..(s + 1) * sub_dim]
-    };
+    let chunk_of = |i: usize| -> &[f32] { &sample[i][s * sub_dim..(s + 1) * sub_dim] };
 
     // ----- k-means++ seeding ----------------------------------------
     // First centroid: uniformly random sample point.
@@ -349,7 +345,7 @@ mod tests {
     #[test]
     fn determinism_same_seed_byte_identical() {
         let sample = synthetic_sample(16, 300, 0xDEAD_BEEF); // 4800 vectors
-        // Bump to MIN_TRAINING_SAMPLE by padding with noise.
+                                                             // Bump to MIN_TRAINING_SAMPLE by padding with noise.
         let pad_count = MIN_TRAINING_SAMPLE.saturating_sub(sample.len());
         let pad: Vec<[f32; VECTOR_DIM]> = (0..pad_count)
             .map(|i| {

@@ -23,9 +23,9 @@ use arc_swap::ArcSwap;
 use brain_core::MemoryId;
 use parking_lot::RwLock;
 
+use crate::hnsw::{HnswError, HnswIndexImpl};
 use crate::params::{IndexParams, VECTOR_DIM};
 use crate::pq::{rerank, BOOTSTRAP_M};
-use crate::hnsw::{HnswError, HnswIndexImpl};
 
 /// Public alias: the production shared HNSW handle, fixed at the
 /// bootstrap PQ shape. Callers reach for [`SharedHnsw`] without
@@ -50,7 +50,10 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
     pub fn new(params: IndexParams) -> Result<(Self, Writer), HnswError> {
         let codebook = crate::pq::bootstrap_codebook();
         let idx = crate::hnsw::HnswIndex::new(params, (*codebook).clone())?;
-        Ok(Self::from_index(idx, crate::arena_reader::null_arena_reader()))
+        Ok(Self::from_index(
+            idx,
+            crate::arena_reader::null_arena_reader(),
+        ))
     }
 
     /// Return a clone of this handle with `arena` swapped in as the
@@ -423,7 +426,11 @@ impl<const M: usize> WriterImpl<M> {
         let mut pending = self.pending.write();
         // Re-insert after tombstone resurrects the entry.
         pending.tombstoned.remove(&memory_id);
-        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
+        if let Some(slot) = pending
+            .entries
+            .iter_mut()
+            .find(|e| e.memory_id == memory_id)
+        {
             slot.vector = *vector;
             slot.tombstoned = false;
         } else {
@@ -441,7 +448,11 @@ impl<const M: usize> WriterImpl<M> {
     pub fn mark_tombstoned(&mut self, memory_id: MemoryId) -> Result<(), HnswError> {
         let mut pending = self.pending.write();
         pending.tombstoned.insert(memory_id);
-        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
+        if let Some(slot) = pending
+            .entries
+            .iter_mut()
+            .find(|e| e.memory_id == memory_id)
+        {
             slot.tombstoned = true;
         }
         Ok(())

@@ -6,10 +6,10 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use std::time::Duration;
 
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload, ServerCapabilities,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::{
     CancelStreamRequest, CancellationReason, EncodeRequest, MemoryKindWire, RequestBody,
     SubscribeRequest, SubscriptionFilter, UnsubscribeRequest,

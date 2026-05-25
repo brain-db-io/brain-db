@@ -18,12 +18,12 @@
 
 mod common;
 
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{
     ItemIdWire, QueryExplainResponse as WireExplainResp, QueryResponse,
     QueryResultItem as WireQueryResultItem, QueryTraceResponse as WireTraceResp,
     RetrieverContributionWire, RetrieverOutcomeWire, RetrieverWire,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{RequestBody, ResponseBody};
 use brain_sdk_rust::{
     Client, ItemKind, MemoryId, QueryBuilderError, Retriever, RetrieverOutcomeStatus,

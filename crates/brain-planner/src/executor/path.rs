@@ -254,8 +254,8 @@ fn run_bidirectional_bfs(
 
     // Open one read txn for the whole BFS — repeated `read_txn()` calls
     // are cheap but not free, and the BFS may do hundreds of lookups.
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .metadata
         .read_txn()
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
     // No edge tables to open: the convenience helpers take the read
@@ -473,8 +473,8 @@ fn hydrate_paths(
     raw: Vec<(Vec<MemoryId>, Vec<EdgeKind>, Vec<f32>)>,
     ctx: &ExecutorContext,
 ) -> Result<Vec<Path>, ExecError> {
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .metadata
         .read_txn()
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
     let table = rtxn
@@ -662,8 +662,8 @@ fn collect_endpoint_text_vectors(
     endpoints: &HashSet<MemoryId>,
     ctx: &ExecutorContext,
 ) -> Result<Vec<[f32; VECTOR_DIM]>, ExecError> {
-    let metadata_guard = ctx.metadata.lock();
-    let rtxn = metadata_guard
+    let rtxn = ctx
+        .metadata
         .read_txn()
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
     let table = match rtxn.open_table(TEXTS_TABLE) {

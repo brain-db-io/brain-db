@@ -18,11 +18,6 @@
 //! Builders for programmatic upload land alongside `upload_text` —
 //! see [`SchemaBuilder`] and [`SchemaClient::upload`].
 
-use brain_protocol::{
-    SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
-    SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
-    SchemaValidateResponse, SchemaValidationErrorWire,
-};
 use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::WireUuid;
 use brain_protocol::schema::{
@@ -32,6 +27,11 @@ use brain_protocol::schema::{
     Schema, SchemaItem, StatementKindAst, TriggerExpr,
 };
 use brain_protocol::{RequestBody, ResponseBody};
+use brain_protocol::{
+    SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
+    SchemaListResponseFrame, SchemaUploadRequest, SchemaUploadResponse, SchemaValidateRequest,
+    SchemaValidateResponse, SchemaValidationErrorWire,
+};
 
 use crate::client::Client;
 use crate::error::ClientError;

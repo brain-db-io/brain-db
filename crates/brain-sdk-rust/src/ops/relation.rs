@@ -23,13 +23,13 @@
 //! [`RelationHandle`].
 
 use brain_core::{EntityId, MemoryId, RelationId, RelationTypeId};
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::EvidenceRefWire;
 use brain_protocol::{
     RelationCreateRequest, RelationGetRequest, RelationListFromRequest, RelationListToRequest,
     RelationSupersedeRequest, RelationTombstoneRequest, RelationTraverseRequest, RelationView,
     RelationWireError,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{RequestBody, ResponseBody};
 
 use crate::client::Client;

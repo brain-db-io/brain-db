@@ -366,10 +366,10 @@ mod tests {
         use crate::schema::predicate::{predicate_intern_or_get, predicates_active_for_schema};
         use crate::statement::crud::statement_create;
         use crate::tables::statement::{statement_flags, STATEMENTS_TABLE};
+        use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, StatementId, StatementKind};
         use brain_core::{
             EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
         };
-        use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, StatementId, StatementKind};
 
         let dir = tempfile::tempdir().unwrap();
         // Use the seeded wrapper so EntityTypeId(1) (Person) exists.

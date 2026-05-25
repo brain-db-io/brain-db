@@ -58,7 +58,7 @@ impl SupersessionSweeper {
             .duration_since(SystemTime::UNIX_EPOCH)
             .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
             .unwrap_or(0);
-        let mut metadata = ctx.ops.executor.metadata.lock();
+        let metadata = ctx.ops.executor.metadata.as_ref();
         let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("supersession sweeper wtxn: {e}")))?;

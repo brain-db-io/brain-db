@@ -36,7 +36,6 @@ pub struct ExtractorEnableRequest {
 // Response payloads
 // ============================================================
 
-
 /// One row in [`ExtractorListResponseFrame`].
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq, Eq)]
 #[archive(check_bytes)]

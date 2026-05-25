@@ -21,11 +21,11 @@
 
 use crate::impl_redb_rkyv_value;
 use brain_core::{
-    EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
-    INLINE_EVIDENCE_CAP,
+    EntityId, EvidenceOverflowId, ExtractorId, MemoryId, PredicateId, StatementId, StatementKind,
 };
 use brain_core::{
-    EntityId, EvidenceOverflowId, ExtractorId, MemoryId, PredicateId, StatementId, StatementKind,
+    EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
+    INLINE_EVIDENCE_CAP,
 };
 use redb::TableDefinition;
 use smallvec::SmallVec;
@@ -605,9 +605,7 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
     let subject = if m.subject_is_pending == 0 {
         SubjectRef::Entity(EntityId::from_bytes(m.subject_entity_bytes))
     } else {
-        SubjectRef::Pending(brain_core::AuditId::from_bytes(
-            m.subject_entity_bytes,
-        ))
+        SubjectRef::Pending(brain_core::AuditId::from_bytes(m.subject_entity_bytes))
     };
 
     let evidence = if let Some(bytes) = m.evidence_overflow_id_bytes {

@@ -33,7 +33,7 @@ use super::{edge_payload_to_data, transient};
 
 impl MetadataDb {
     pub(super) fn apply_encode(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &EncodePayload,
@@ -159,7 +159,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_forget(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &ForgetPayload,
@@ -223,7 +223,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_update_salience(
-        &mut self,
+        &self,
         lsn: u64,
         p: &UpdateSaliencePayload,
     ) -> Result<(), MetadataSinkError> {
@@ -241,7 +241,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_update_kind(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &UpdateKindPayload,
@@ -266,7 +266,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_update_context(
-        &mut self,
+        &self,
         lsn: u64,
         timestamp_ns: u64,
         p: &UpdateContextPayload,
@@ -290,7 +290,7 @@ impl MetadataDb {
     }
 
     pub(super) fn apply_migrate_embedding(
-        &mut self,
+        &self,
         lsn: u64,
         p: &MigrateEmbeddingPayload,
     ) -> Result<(), MetadataSinkError> {

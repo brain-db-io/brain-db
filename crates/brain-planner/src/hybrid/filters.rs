@@ -28,8 +28,8 @@
 //!
 //! Limit applied after all six.
 
-use brain_core::{Statement, StatementKind};
 use brain_core::{MemoryKind, PredicateId};
+use brain_core::{Statement, StatementKind};
 use brain_index::RankedItemId;
 use brain_metadata::statement::statement_get;
 use brain_metadata::tables::memory::{flags as memory_flags, MEMORIES_TABLE};

@@ -542,10 +542,8 @@ fn render_human(
             // relation extractor case: without the hint, "0 statements,
             // 0 relations" reads like a worker failure rather than
             // a deployment-config or content-coverage outcome.
-            let summary_with_hint = augment_extractor_summary(
-                res,
-                rendered.response.has_active_schema,
-            );
+            let summary_with_hint =
+                augment_extractor_summary(res, rendered.response.has_active_schema);
             let summary_painted = theme.paint(Token::Value, &summary_with_hint, policy);
             writeln!(
                 w,
@@ -584,10 +582,7 @@ fn render_human(
 ///
 /// The hint is appended after the existing `· <status>` suffix so
 /// scripts that parse the leading count fields stay unaffected.
-fn augment_extractor_summary(
-    res: &StageResult,
-    has_active_schema: bool,
-) -> String {
+fn augment_extractor_summary(res: &StageResult, has_active_schema: bool) -> String {
     if res.kind != StageKindLabel::Extractor {
         return res.summary.clone();
     }

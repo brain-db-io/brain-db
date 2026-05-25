@@ -44,10 +44,10 @@ pub use error::PlanError;
 pub use executor::{
     execute_path, execute_path_stream, execute_reason, execute_reason_stream, execute_recall,
     EdgeOutcome, EncodeOp, EncodeOpEdge, EncodeResult, EvidenceItem, ExecError, ExecutorContext,
-    ForgetOp, ForgetOutcome, ForgetResult, InferenceStep, InferenceStream,
-    InferenceStreamTerminal, LinkOp, Path, PathFrame, PathResult, PathStream, PathStreamTerminal,
-    PendingMemorySnapshot, PlanStatus, ReasonResult, ReasonStatus, RecallHit, RecallResult,
-    SharedMetadataDb, TxnSnapshot, UnlinkOp, WriterError, WriterHandle,
+    ForgetOp, ForgetOutcome, ForgetResult, InferenceStep, InferenceStream, InferenceStreamTerminal,
+    LinkOp, Path, PathFrame, PathResult, PathStream, PathStreamTerminal, PendingMemorySnapshot,
+    PlanStatus, ReasonResult, ReasonStatus, RecallHit, RecallResult, SharedMetadataDb, TxnSnapshot,
+    UnlinkOp, WriterError, WriterHandle,
 };
 pub use explain::explain;
 pub use plan::{
@@ -106,10 +106,7 @@ mod tests {
         assert_eq!(c.default_ef_search, 64, "");
         assert_eq!(c.max_ef_search, 500, "");
         assert_eq!(c.max_candidates_per_search, 1000, "");
-        assert!(
-            (c.cost_budget_ms - 1000.0).abs() < f32::EPSILON,
-            ""
-        );
+        assert!((c.cost_budget_ms - 1000.0).abs() < f32::EPSILON, "");
         assert_eq!(c.max_k, 1000, "");
         assert_eq!(c.max_edges_per_encode, 64, "");
     }

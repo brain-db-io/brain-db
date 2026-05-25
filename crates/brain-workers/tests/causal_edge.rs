@@ -9,11 +9,11 @@
 use std::sync::Arc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, StatementId};
 use brain_core::{
     EntityId, EntityTypeId, EvidenceEntry, EvidenceRef, ExtractorId, Statement, StatementKind,
     StatementObject, SubjectRef,
 };
-use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, StatementId};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
 use brain_metadata::entity::ops::entity_put;
@@ -29,7 +29,6 @@ use brain_storage::wal::kinds::WalRecordKind;
 use brain_workers::{
     CausalEdgeKnobs, CausalEdgeWorker, Worker, WorkerConfig, WorkerContext, WorkerKind,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use smallvec::SmallVec;
 use uuid::Uuid;
@@ -61,7 +60,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let bus = Arc::new(EventBus::default());
     let sink = Arc::new(RecordingWalSink::new());
@@ -77,7 +76,10 @@ fn build_fixture() -> Fixture {
         metadata.clone(),
         writer.clone() as Arc<dyn WriterHandle>,
     );
-    let ctx = Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor).with_event_bus(bus.clone()));
+    let ctx = Arc::new(
+        brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)
+            .with_event_bus(bus.clone()),
+    );
     Fixture {
         ctx,
         writer,
@@ -148,8 +150,7 @@ fn seed_causal_statement(
     cause_mem: MemoryId,
     confidence: f32,
 ) -> StatementId {
-    let mut db = fixture.metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = fixture.metadata.write_txn().unwrap();
     let now = now_unix_nanos();
     // 1. Entity type for the subject (any type works; the resolver only
     //    requires existence).
@@ -268,8 +269,7 @@ fn cycle_writes_caused_link_through_unified_path() {
 
         // 3. redb has the derived Caused row(s). Causal is asymmetric
         //    (no mirror); expect exactly one auto-derived row.
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let t = rtxn.open_table(EDGES_TABLE).unwrap();
         let mut found = 0;
         for entry in t.iter().unwrap() {

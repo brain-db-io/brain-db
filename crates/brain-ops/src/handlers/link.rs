@@ -119,8 +119,7 @@ fn peek_link_state(
     target: MemoryId,
     kind: EdgeKind,
 ) -> Result<(bool, bool, bool), OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     let mem_t = rtxn
@@ -251,8 +250,7 @@ fn peek_edge_exists(
     target: MemoryId,
     kind: EdgeKind,
 ) -> Result<bool, OpError> {
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard.read_txn().map_err(|e| {
+    let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
     let edges_t = rtxn
@@ -330,8 +328,7 @@ async fn handle_link_in_txn(
 
     // Validate both endpoints (committed or pending in-buffer).
     let (src_committed, tgt_committed) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let table = rtxn
@@ -363,8 +360,7 @@ async fn handle_link_in_txn(
 
     // Detect already_existed against committed edges + earlier-in-txn links.
     let already_existed = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let table = rtxn
@@ -504,8 +500,7 @@ async fn handle_unlink_in_txn(
     // already queued for unlink.
     let key_triple = (source, kind, target);
     let committed_has = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard.read_txn().map_err(|e| {
+        let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
             OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
         })?;
         let table = rtxn

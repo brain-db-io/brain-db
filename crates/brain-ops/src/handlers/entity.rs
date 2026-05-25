@@ -26,6 +26,7 @@ use brain_metadata::entity::trigram::{
     candidates_for_query, extract_trigrams, jaccard, trigrams_of_components,
 };
 use brain_planner::WriterError;
+use brain_protocol::envelope::response::EventType;
 use brain_protocol::{
     EntityCreateRequest, EntityCreateResponse, EntityCreatedEvent, EntityGetRequest,
     EntityGetResponse, EntityListItem, EntityListRequest, EntityListResponseFrame,
@@ -35,7 +36,6 @@ use brain_protocol::{
     EntityUnmergeResponse, EntityUnmergedEvent, EntityUpdateRequest, EntityUpdateResponse,
     EntityUpdatedEvent, EntityView, KnowledgeEventPayload, ResolutionOutcomeWire,
 };
-use brain_protocol::envelope::response::EventType;
 
 use crate::context::OpsContext;
 use crate::error::OpError;
@@ -122,8 +122,9 @@ pub async fn handle_entity_get(
 ) -> Result<EntityGetResponse, OpError> {
     let id = EntityId::from(req.entity_id);
     let entity = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         entity_get(&rtxn, id).map_err(map_entity_op_error)?
@@ -405,8 +406,9 @@ pub async fn handle_entity_tombstone(
     // before the writer accepts a phase whose apply would surface the
     // same error from inside the wtxn.
     {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         if entity_get(&rtxn, id)
@@ -599,8 +601,9 @@ pub async fn handle_entity_list(
         ))
     };
     let entities = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         entity_list_by_type(&rtxn, type_id).map_err(map_entity_op_error)?
@@ -678,8 +681,9 @@ pub async fn handle_entity_resolve(
     let type_id = EntityTypeId(req.entity_type_hint);
     let candidate_norm = brain_metadata::entity::ops::normalize_name(&req.candidate_name);
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -730,7 +734,6 @@ pub async fn handle_entity_resolve(
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
 
     drop(rtxn);
-    drop(db_guard);
 
     if scored.len() == 1 {
         let (id, conf) = scored[0];

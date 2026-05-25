@@ -16,7 +16,9 @@ use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{EdgeKind, MemoryId};
 use brain_metadata::tables::memory::MemoryMetadata;
-use brain_protocol::envelope::request::{ForgetMode, TxnAbortRequest, TxnBeginRequest, TxnCommitRequest};
+use brain_protocol::envelope::request::{
+    ForgetMode, TxnAbortRequest, TxnBeginRequest, TxnCommitRequest,
+};
 use brain_protocol::envelope::response::{TxnAbortResponse, TxnBeginResponse, TxnCommitResponse};
 use parking_lot::Mutex;
 

@@ -393,7 +393,7 @@ mod tests {
 
     #[test]
     fn upsert_memory_writes_row_and_timeline() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = MemoryId::pack(0, 1, 0);
         let agent = AgentId::new();
         let phase = fixture_phase(id);
@@ -429,7 +429,7 @@ mod tests {
 
     #[test]
     fn tombstone_memory_clears_active_flag_and_timeline() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = MemoryId::pack(0, 1, 0);
         let agent = AgentId::new();
         let write = fresh_write_for(agent);
@@ -477,7 +477,7 @@ mod tests {
 
     #[test]
     fn update_salience_persists() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = MemoryId::pack(0, 1, 0);
         let agent = AgentId::new();
         let write = fresh_write_for(agent);
@@ -503,7 +503,7 @@ mod tests {
 
     #[test]
     fn update_kind_persists() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = MemoryId::pack(0, 1, 0);
         let agent = AgentId::new();
         let write = fresh_write_for(agent);
@@ -529,7 +529,7 @@ mod tests {
 
     #[test]
     fn tombstone_missing_memory_returns_not_found() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let phase = Phase::Tombstone {
             target: TombstoneTarget::Memory {
                 id: MemoryId::pack(0, 999, 0),

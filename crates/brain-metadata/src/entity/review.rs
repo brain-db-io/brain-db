@@ -227,7 +227,7 @@ mod tests {
     #[test]
     fn enqueue_and_list() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let source = EntityId::new();
         let candidate = EntityId::new();
         let pid = MergeId::new();
@@ -260,7 +260,7 @@ mod tests {
     #[test]
     fn update_promotes_status_and_flips_index() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let pid = MergeId::new();
         {
             let wtxn = d.write_txn().unwrap();
@@ -302,7 +302,7 @@ mod tests {
     #[test]
     fn update_recheck_keeps_index() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let pid = MergeId::new();
         {
             let wtxn = d.write_txn().unwrap();
@@ -335,7 +335,7 @@ mod tests {
     #[test]
     fn update_unknown_proposal_errors() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
         let err =
             update_proposal_status(&wtxn, MergeId::new(), proposal_status::APPROVED, 0.5, NOW)

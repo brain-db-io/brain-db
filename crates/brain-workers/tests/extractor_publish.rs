@@ -32,7 +32,6 @@ use brain_protocol::shared::enums::{
     EventType, StageAuditStatus, StageKind, StageOutcome, StagePayload,
 };
 use brain_workers::{ExtractorWorker, Worker, WorkerContext};
-use parking_lot::Mutex;
 use std::sync::atomic::AtomicBool;
 use std::time::{SystemTime, UNIX_EPOCH};
 use uuid::Uuid;
@@ -66,7 +65,7 @@ struct Fixture {
 fn build_fixture_with_registry(registry: ExtractorRegistry) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -75,7 +74,8 @@ fn build_fixture_with_registry(registry: ExtractorRegistry) -> Fixture {
         metadata.clone(),
         writer as Arc<dyn WriterHandle>,
     );
-    let ops = brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor).with_extractor_registry(registry);
+    let ops = brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)
+        .with_extractor_registry(registry);
     let ops = Arc::new(ops);
 
     let (tx, rx) = flume::bounded::<brain_ops::ExtractorEnqueue>(64);
@@ -319,8 +319,7 @@ async fn drain_already_extracted_publishes_one_empty_event() {
     // Pre-seed the audit table so the gate probe finds the row and
     // the cycle takes the AlreadyExtracted branch.
     {
-        let mut db = fixture.metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = fixture.metadata.write_txn().unwrap();
         let entry = ExtractorPipelineAuditEntry::new(
             memory_id,
             now_unix_nanos(),

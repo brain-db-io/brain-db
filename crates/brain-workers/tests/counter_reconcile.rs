@@ -17,7 +17,6 @@ use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::{
     CounterReconcileWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -46,7 +45,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -83,8 +82,7 @@ fn seed_memory_with_counts(
     stored_in: u32,
 ) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let mut meta = MemoryMetadata::new_active(
@@ -110,8 +108,7 @@ fn seed_memory_with_counts(
 /// Insert an edge directly without bumping any counters — lets us
 /// build drift scenarios where stored counts don't match reality.
 fn seed_edge_raw(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt: MemoryId) {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut out = wtxn.open_table(EDGES_TABLE).unwrap();
         let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).unwrap();
@@ -131,8 +128,7 @@ fn seed_edge_raw(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt
 }
 
 fn read_counts(metadata: &SharedMetadataDb, id: MemoryId) -> (u32, u32) {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let t = rtxn.open_table(MEMORIES_TABLE).unwrap();
     let access = t.get(id.to_be_bytes()).unwrap().unwrap();
     let v = access.value();

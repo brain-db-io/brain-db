@@ -373,7 +373,7 @@ mod tests {
 
     #[test]
     fn upsert_entity_writes_row() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = EntityId::new();
         let phase = Phase::UpsertEntity {
             id,
@@ -397,7 +397,7 @@ mod tests {
 
     #[test]
     fn tombstone_entity_marks_merged_or_inactive() {
-        let (_dir, mut db) = open_db();
+        let (_dir, db) = open_db();
         let id = EntityId::new();
         // Seed.
         {

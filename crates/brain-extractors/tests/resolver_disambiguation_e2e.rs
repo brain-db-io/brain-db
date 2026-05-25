@@ -244,8 +244,7 @@ fn confirmed_verdict_aliases_onto_existing_entity() {
     let closer_id = ambiguous_band_scenario(&mut db, &hnsw, &embedder);
 
     let backend = FakeDisambiguator::confirming();
-    let disambiguator =
-        Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
+    let disambiguator = Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
     let embed_deps = embed_deps_for(embedder, hnsw);
 
     let wtxn = db.write_txn().unwrap();
@@ -296,8 +295,7 @@ fn rejected_verdict_creates_fresh_entity_without_merge_proposal() {
     let closer_id = ambiguous_band_scenario(&mut db, &hnsw, &embedder);
 
     let backend = FakeDisambiguator::rejecting();
-    let disambiguator =
-        Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
+    let disambiguator = Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
     let embed_deps = embed_deps_for(embedder, hnsw);
 
     let wtxn = db.write_txn().unwrap();
@@ -313,7 +311,11 @@ fn rejected_verdict_creates_fresh_entity_without_merge_proposal() {
     .unwrap();
     wtxn.commit().unwrap();
 
-    assert_eq!(res.tier, ResolutionTier::Created, "rejected -> fresh entity");
+    assert_eq!(
+        res.tier,
+        ResolutionTier::Created,
+        "rejected -> fresh entity"
+    );
     assert_ne!(res.entity_id, closer_id, "must not reuse the rejected seed");
     assert_eq!(backend.call_count(), 1, "disambiguator must fire once");
 
@@ -341,8 +343,7 @@ fn uncertain_verdict_falls_through_to_create_plus_merge_proposal() {
     let closer_id = ambiguous_band_scenario(&mut db, &hnsw, &embedder);
 
     let backend = FakeDisambiguator::uncertain();
-    let disambiguator =
-        Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
+    let disambiguator = Arc::new(EntityDisambiguator::new(backend.clone(), "fake-model"));
     let embed_deps = embed_deps_for(embedder, hnsw);
 
     let wtxn = db.write_txn().unwrap();

@@ -13,10 +13,10 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::error::ProtocolError;
 use crate::codec::header::VERSION;
-use crate::envelope::request::WireUuid;
 use crate::codec::rkyv::{from_rkyv_bytes, to_rkyv_bytes};
+use crate::envelope::request::WireUuid;
+use crate::error::ProtocolError;
 
 // ---------------------------------------------------------------------------
 // Shared helper types.

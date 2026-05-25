@@ -1,7 +1,7 @@
 //! Unit tests for the rule-based query router (phase 23.3).
 
-use brain_core::StatementKind;
 use brain_core::EntityId;
+use brain_core::StatementKind;
 
 use super::{
     classify_query, route, GraphAnchorMode, OverrideKind, QueryClass, QueryRequest,

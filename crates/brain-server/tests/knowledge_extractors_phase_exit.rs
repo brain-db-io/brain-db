@@ -17,14 +17,14 @@
 use brain_metadata::audit::ops::audit_by_memory;
 use brain_metadata::tables::audit::extraction_status;
 use brain_metadata::MetadataDb;
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::{ExtractorDisableRequest, ExtractorListRequest};
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RequestBody};
 use brain_protocol::envelope::response::ResponseBody;
 use brain_protocol::Frame;
+use brain_protocol::{ExtractorDisableRequest, ExtractorListRequest};
 use brain_storage::ShardPaths;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;

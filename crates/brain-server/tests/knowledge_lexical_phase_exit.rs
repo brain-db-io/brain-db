@@ -17,10 +17,10 @@ use brain_index::{
     IndexStatus, LexicalQuery, LexicalRetriever, LexicalRetrieverConfig, LexicalScope,
     RankedItemId, TantivyLexicalRetriever, TantivyShard,
 };
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::{
     EncodeRequest, ForgetMode, ForgetRequest, MemoryKindWire, RequestBody,
 };

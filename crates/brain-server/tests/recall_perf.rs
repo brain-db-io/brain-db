@@ -40,8 +40,9 @@ use brain_metadata::MetadataDb;
 use brain_ops::test_support::{run_in_glommio, single_body};
 use brain_ops::{OpsContext, RealWriterHandle};
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
-use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
-use parking_lot::Mutex;
+use brain_protocol::envelope::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest,
+};
 
 const ITERATIONS: usize = 100;
 const WARMUP_ITERATIONS: usize = 10;
@@ -136,12 +137,9 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().expect("tempdir");
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(
-        MetadataDb::open(&db_path).expect("open metadata"),
-    ));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).expect("open metadata"));
 
-    let (shared, hnsw_writer) =
-        SharedHnsw::new(IndexParams::default_v1()).expect("hnsw");
+    let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).expect("hnsw");
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
 
     let executor = ExecutorContext::new(

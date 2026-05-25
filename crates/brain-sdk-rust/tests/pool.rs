@@ -10,10 +10,10 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use brain_core::AgentId;
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AgentPermissions, AuthMethod, AuthOkPayload, HelloCapabilities, ServerFeatures, WelcomePayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 use brain_sdk_rust::{Client, ClientConfig, ClientError, Pool, PoolConfig};
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -494,8 +494,8 @@ async fn pool_guard_without_mark_failed_still_recycles() {
 #[tokio::test]
 async fn sdk_auto_responds_to_server_ping() {
     use brain_protocol::envelope::request::ClientPongRequest;
-    use brain_protocol::ServerPingResponse;
     use brain_protocol::ResponseBody;
+    use brain_protocol::ServerPingResponse;
     use tokio::sync::oneshot;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");
@@ -572,8 +572,8 @@ async fn idle_connection_survives_a_burst_of_server_pings() {
     // Multiple SERVER_PINGs in flight while the connection sits Idle
     // in the pool — bg task must pong each one and then hand the
     // stream back cleanly when the test acquires for a BYE.
-    use brain_protocol::ServerPingResponse;
     use brain_protocol::ResponseBody;
+    use brain_protocol::ServerPingResponse;
     use std::sync::atomic::AtomicUsize;
 
     let listener = TcpListener::bind("127.0.0.1:0").await.expect("bind");

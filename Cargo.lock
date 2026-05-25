@@ -551,6 +551,7 @@ dependencies = [
  "criterion",
  "futures-lite 2.6.1",
  "glommio",
+ "parking_lot",
  "proptest",
  "redb",
  "rkyv",

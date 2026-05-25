@@ -284,8 +284,7 @@ impl RealWriterHandle {
         // must be listed here, otherwise the first read on a fresh
         // shard explodes.
         {
-            let mut db = metadata.lock();
-            if let Ok(wtxn) = db.write_txn() {
+            if let Ok(wtxn) = metadata.write_txn() {
                 let _ = wtxn.open_table(MEMORIES_TABLE);
                 let _ = wtxn.open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE);
                 let _ = wtxn.open_table(IDEMPOTENCY_TABLE);
@@ -618,8 +617,8 @@ impl WriterHandle for RealWriterHandle {
             // the post-reclaim bumped version. Stale references to the
             // prior occupant then mismatch on every read path.
             let version: u32 = {
-                let db = self.metadata.lock();
-                let rtxn = db
+                let rtxn = self
+                    .metadata
                     .read_txn()
                     .map_err(|e| WriterError::Internal(format!("reserve slot ver read: {e:?}")))?;
                 match rtxn.open_table(brain_metadata::tables::slot_version::SLOT_VERSIONS_TABLE) {

@@ -16,7 +16,7 @@ use std::sync::Arc;
 
 use brain_core::{AgentId, ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef};
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
-use brain_index::{IndexParams, SharedHnsw};
+use brain_index::IndexParams;
 use brain_metadata::tables::edge::{link, EdgeData, EDGES_REVERSE_TABLE, EDGES_TABLE};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
 use brain_metadata::tables::text::TEXTS_TABLE;
@@ -28,7 +28,6 @@ use brain_planner::{
     SharedMetadataDb, WriterHandle,
 };
 use brain_protocol::envelope::request::{ObservationInput, PlanBudget, PlanState, PlanStrategy};
-use parking_lot::Mutex;
 use uuid::Uuid;
 
 // ---------------------------------------------------------------------------
@@ -53,11 +52,7 @@ impl TableDispatcher {
 
 impl Dispatcher for TableDispatcher {
     fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
-        Ok(self
-            .table
-            .get(text)
-            .copied()
-            .unwrap_or([0.0; VECTOR_DIM]))
+        Ok(self.table.get(text).copied().unwrap_or([0.0; VECTOR_DIM]))
     }
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
         texts.iter().map(|t| self.embed(t)).collect()
@@ -120,7 +115,7 @@ fn build_fixture(
 ) -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let mut metadata = MetadataDb::open(&db_path).unwrap();
+    let metadata = MetadataDb::open(&db_path).unwrap();
 
     let agent = AgentId(Uuid::nil());
     let mut ids = Vec::with_capacity(n_memories);
@@ -178,14 +173,11 @@ fn build_fixture(
 
     let (shared, _hnsw_writer) = {
         let codebook = brain_index::bootstrap_codebook();
-        let idx = brain_index::HnswIndex::new(
-            IndexParams::default_v1(),
-            (*codebook).clone(),
-        )
-        .unwrap();
+        let idx =
+            brain_index::HnswIndex::new(IndexParams::default_v1(), (*codebook).clone()).unwrap();
         brain_index::SharedHnsw::from_index(idx, brain_index::null_arena_reader())
     };
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(metadata));
+    let metadata: SharedMetadataDb = Arc::new(metadata);
     let writer = Arc::new(NopWriter) as Arc<dyn WriterHandle>;
     let ctx = ExecutorContext::new(
         Arc::new(dispatcher) as Arc<dyn Dispatcher>,
@@ -384,10 +376,7 @@ async fn reason_singleton_base_does_not_damp_either_evidence_candidate() {
         (1, "aligned evidence"),
         (2, "orthogonal evidence"),
     ];
-    let edges = vec![
-        (0, EdgeKind::Supports, 1),
-        (0, EdgeKind::Supports, 2),
-    ];
+    let edges = vec![(0, EdgeKind::Supports, 1), (0, EdgeKind::Supports, 2)];
 
     let fix = build_fixture(3, &texts, &edges, dispatcher);
     let plan = reason_plan(fix.ids[0], 8);

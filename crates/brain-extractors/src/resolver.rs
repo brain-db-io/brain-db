@@ -585,8 +585,13 @@ pub fn resolve_or_create_with_deps(
     // rejection lets us skip the (now-unnecessary) merge proposal;
     // uncertainty falls through to the existing Create + enqueue path.
     if let (Some(disambiguator), Some((candidate, _score))) = (disambiguator, partial_match) {
-        match confirm_partial_match(disambiguator, candidate, surface_form, wtxn, entity_type_qname)
-        {
+        match confirm_partial_match(
+            disambiguator,
+            candidate,
+            surface_form,
+            wtxn,
+            entity_type_qname,
+        ) {
             MatchVerdict::Confirmed { entity, confidence } => {
                 entity_add_alias(wtxn, entity, surface_form.to_string(), now_unix_nanos)?;
                 tracing::info!(
@@ -964,7 +969,7 @@ mod tests {
     #[test]
     fn tier_exact_returns_existing_entity_by_canonical_name() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let existing = Entity::new_active(
             EntityId::new(),
             EntityType::PERSON_ID,
@@ -988,7 +993,7 @@ mod tests {
     #[test]
     fn tier_alias_returns_existing_entity_via_alias() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let mut existing = Entity::new_active(
             EntityId::new(),
             EntityType::PERSON_ID,
@@ -1013,7 +1018,7 @@ mod tests {
     #[test]
     fn tier_fuzzy_matches_close_surface_form_and_adds_alias() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         // Two entities to make the candidate set non-trivial.
         let target = Entity::new_active(
             EntityId::new(),
@@ -1066,7 +1071,7 @@ mod tests {
     #[test]
     fn tier_create_mints_new_entity_when_no_match() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create(&wtxn, "Brand New Name", "brain:Person", 0.5, NOW).unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
@@ -1088,7 +1093,7 @@ mod tests {
     #[test]
     fn empty_surface_form_is_rejected() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
         let err = resolve_or_create(&wtxn, "   ", "brain:Person", 0.5, NOW).expect_err("empty");
         assert!(matches!(err, ResolverError::EmptyNormalizedName));
@@ -1097,13 +1102,13 @@ mod tests {
     #[test]
     fn unknown_entity_type_qname_is_interned_on_demand() {
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create(&wtxn, "Acme Corp", "brain:Organization", 0.7, NOW).unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
         // The new type lives in the registry now.
-        let mut d = d;
+        let d = d;
         let wtxn = d.write_txn().unwrap();
         let def = entity_type_lookup_by_name(&wtxn, "Organization").unwrap();
         assert!(def.is_some());
@@ -1391,7 +1396,7 @@ mod tests {
         embedder.set("Brand New Company", paraphrase_v);
 
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let hnsw = fresh_hnsw();
 
         let deps = deps(embedder, hnsw.clone());
@@ -1505,7 +1510,7 @@ mod tests {
         // because the worker can momentarily run without deps wired
         // (test fixtures, substrate-only deployments).
         let dir = TempDir::new().unwrap();
-        let mut d = db(&dir);
+        let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
         let res =
             resolve_or_create_with_hnsw(&wtxn, "Solo", "brain:Person", 0.9, NOW, None).unwrap();

@@ -775,7 +775,7 @@ fn fact_pair(subj: brain_core::EntityId, pred: brain_core::PredicateId) -> (Stat
 }
 
 fn open_md(tmp: &tempfile::TempDir) -> brain_metadata::MetadataDb {
-    let mut db = brain_metadata::MetadataDb::open(tmp.path().join("md.redb")).unwrap();
+    let db = brain_metadata::MetadataDb::open(tmp.path().join("md.redb")).unwrap();
     // Touch the tables the judge's renderer reads so a read txn
     // on a fresh DB doesn't error with "Table does not exist".
     let wtxn = db.write_txn().unwrap();

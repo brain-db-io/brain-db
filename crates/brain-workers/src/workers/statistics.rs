@@ -155,8 +155,7 @@ async fn do_stats_cycle(
 fn scan_memories(
     metadata: &brain_planner::SharedMetadataDb,
 ) -> Result<(u64, Option<u64>, Option<u64>), WorkerError> {
-    let db = metadata.lock();
-    let rtxn = db
+    let rtxn = metadata
         .read_txn()
         .map_err(|e| WorkerError::Ops(format!("stats rtxn: {e:?}")))?;
     let table = rtxn

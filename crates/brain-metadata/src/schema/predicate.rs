@@ -13,8 +13,8 @@
 
 use std::collections::HashSet;
 
-use brain_core::{Predicate, StatementKind};
 use brain_core::PredicateId;
+use brain_core::{Predicate, StatementKind};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
 use crate::tables::predicate::{

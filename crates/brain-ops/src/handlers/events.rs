@@ -27,8 +27,8 @@
 //! future S-11.
 
 use brain_core::MemoryId;
-use brain_protocol::KnowledgeEventPayload;
 use brain_protocol::envelope::response::EventType;
+use brain_protocol::KnowledgeEventPayload;
 
 use crate::context::OpsContext;
 use crate::subscribe::EventEnvelope;

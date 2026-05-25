@@ -34,7 +34,6 @@ use std::rc::Rc;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{MemoryId, ShardId};
-use brain_embed::VECTOR_DIM;
 use brain_index::SharedHnsw;
 use brain_planner::SharedMetadataDb;
 use brain_storage::arena::ArenaFile;
@@ -158,7 +157,7 @@ impl WalRetentionSource for WalDirRetentionSource {
         Box::pin(async move {
             // brain_metadata::MetadataDb caches durable_lsn in memory
             // (sink.rs §616-§622); the lookup is a single u64 read.
-            let lsn = brain_storage::recovery::MetadataSink::durable_lsn(&*metadata.lock());
+            let lsn = brain_storage::recovery::MetadataSink::durable_lsn(metadata.as_ref());
             Ok(CheckpointDesc { durable_lsn: lsn })
         })
     }
@@ -381,8 +380,8 @@ impl SnapshotSource for ShardSnapshotSource {
             //    is alive* gives a consistent point-in-time image.)
             let metadata_dst = dir.join("metadata.redb");
             {
-                let md = self.metadata.lock();
-                let _rtxn = md
+                let _rtxn = self
+                    .metadata
                     .read_txn()
                     .map_err(|e| SnapshotSourceError::Failed(format!("metadata read_txn: {e}")))?;
                 std::fs::copy(&self.metadata_path, &metadata_dst).map_err(|e| {
@@ -399,14 +398,14 @@ impl SnapshotSource for ShardSnapshotSource {
             //    the wrapper carries shard_uuid + durable_lsn + the
             //    BLAKE3 footer.
             let durable_lsn_for_hnsw =
-                brain_storage::recovery::MetadataSink::durable_lsn(&*self.metadata.lock());
+                brain_storage::recovery::MetadataSink::durable_lsn(self.metadata.as_ref());
             self.hnsw
                 .save_snapshot(&dir, "hnsw", durable_lsn_for_hnsw, self.shard_uuid)
                 .map_err(|e| SnapshotSourceError::Failed(format!("hnsw save_snapshot: {e}")))?;
 
             // 8. Manifest.
             let durable_lsn =
-                brain_storage::recovery::MetadataSink::durable_lsn(&*self.metadata.lock());
+                brain_storage::recovery::MetadataSink::durable_lsn(self.metadata.as_ref());
             let manifest = format!(
                 "shard_uuid_hex = \"{}\"\n\
                  checkpoint_id = {}\n\
@@ -531,7 +530,6 @@ mod tests {
     use brain_storage::arena::ArenaFile;
     use brain_storage::wal::{Wal, WalConfig};
     use glommio::LocalExecutorBuilder;
-    use parking_lot::Mutex;
     use tempfile::TempDir;
 
     fn fresh_arena(dir: &std::path::Path, capacity_slots: u64) -> (ArenaFile, [u8; 16], PathBuf) {
@@ -620,12 +618,11 @@ mod tests {
         let uuid: [u8; 16] = *uuid::Uuid::now_v7().as_bytes();
         let md_path = tmp.path().join("metadata.redb");
         let md = MetadataDb::open(&md_path).expect("MetadataDb::open");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(md));
+        let metadata: SharedMetadataDb = Arc::new(md);
 
-        // The source is `!Send` because of the `Arc<Mutex<MetadataDb>>`
-        // → `parking_lot::Mutex` is `Send + Sync` but the source's
-        // future returns are `!Send` (their trait dropped + Send in
-        // 9.8). Construct inside the executor closure.
+        // The source's future returns are `!Send` (their trait dropped
+        // Send in 9.8), so construct it inside the executor closure
+        // rather than across the spawn boundary.
         let cp = glommio_run(move || async move {
             let src = WalDirRetentionSource::new(wal_dir, uuid, metadata);
             src.current_checkpoint().await
@@ -642,7 +639,7 @@ mod tests {
         let uuid: [u8; 16] = *uuid::Uuid::now_v7().as_bytes();
         let md_path = tmp.path().join("metadata.redb");
         let md = MetadataDb::open(&md_path).expect("MetadataDb::open");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(md));
+        let metadata: SharedMetadataDb = Arc::new(md);
 
         glommio_run(move || async move {
             let src = WalDirRetentionSource::new(wal_dir, uuid, metadata);
@@ -659,7 +656,7 @@ mod tests {
         let uuid: [u8; 16] = *uuid::Uuid::now_v7().as_bytes();
         let md_path = tmp.path().join("metadata.redb");
         let md = MetadataDb::open(&md_path).expect("MetadataDb::open");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(md));
+        let metadata: SharedMetadataDb = Arc::new(md);
 
         let segs = glommio_run(move || async move {
             std::fs::create_dir_all(&wal_dir).unwrap();
@@ -696,7 +693,7 @@ mod tests {
         // opened inside the executor (Wal::create is async; ArenaFile
         // is Send but we keep all `Rc<RefCell<…>>` construction local).
         let md = brain_metadata::MetadataDb::open(&md_path).expect("MetadataDb::open");
-        let metadata: SharedMetadataDb = std::sync::Arc::new(Mutex::new(md));
+        let metadata: SharedMetadataDb = std::sync::Arc::new(md);
 
         let arena_path_cloned = arena_path.clone();
         let md_path_cloned = md_path.clone();
@@ -714,10 +711,9 @@ mod tests {
                     .expect("Wal::create_with_config");
                 let wal_cell = Rc::new(RefCell::new(Some(wal)));
 
-                let (hnsw_shared, _hnsw_writer) = brain_index::SharedHnsw::new(
-                    brain_index::IndexParams::default_v1(),
-                )
-                .expect("SharedHnsw::new");
+                let (hnsw_shared, _hnsw_writer) =
+                    brain_index::SharedHnsw::new(brain_index::IndexParams::default_v1())
+                        .expect("SharedHnsw::new");
 
                 let src = ShardSnapshotSource::new(
                     uuid,

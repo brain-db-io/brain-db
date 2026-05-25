@@ -16,11 +16,11 @@
 //!
 //! Run: `cargo bench -p brain-metadata --bench statement_ops`.
 
-use brain_core::{StatementObject, SubjectRef};
 use brain_core::{
     Entity, EntityId, EntityType, EntityTypeId, ExtractorId, PredicateId, StatementId,
     StatementKind,
 };
+use brain_core::{StatementObject, SubjectRef};
 use brain_metadata::entity::ops::{entity_put, normalize_name};
 use brain_metadata::statement::{
     statement_create, statement_get, statement_list, statement_supersede, StatementListFilter,

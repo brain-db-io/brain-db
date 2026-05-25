@@ -2,8 +2,8 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::shared::primitives::MemoryKindWire;
 use crate::envelope::request::{WireContextId, WireMemoryId, WireUuid};
+use crate::shared::primitives::MemoryKindWire;
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
@@ -49,7 +49,6 @@ pub struct UnsubscribeRequest {
 // ============================================================
 // Response payloads
 // ============================================================
-
 
 use crate::shared::enums::{EventType, StageKind, StageOutcome, StagePayload};
 

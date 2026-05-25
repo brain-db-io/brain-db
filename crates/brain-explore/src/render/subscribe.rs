@@ -7,10 +7,10 @@
 
 use std::io::{self, Write};
 
+use brain_protocol::envelope::response::SubscriptionEvent;
 use brain_protocol::shared::enums::{
     EventType, StageAuditStatus, StageExtractorPayload, StageKind, StagePayload,
 };
-use brain_protocol::envelope::response::SubscriptionEvent;
 use comfy_table::Cell;
 use serde_json::{json, Value};
 

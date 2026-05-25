@@ -43,8 +43,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Instant;
 
-use brain_core::{Statement, StatementObject, StatementValue, SubjectRef};
 use brain_core::StatementId;
+use brain_core::{Statement, StatementObject, StatementValue, SubjectRef};
 use brain_embed::Dispatcher;
 use brain_index::statement_hnsw::StatementHnswIndex;
 use brain_metadata::entity::ops::entity_get;
@@ -54,7 +54,7 @@ use brain_metadata::statement::{
 };
 use brain_metadata::MetadataDb;
 use brain_ops::StatementEmbedMetrics;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 
 use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;
@@ -94,7 +94,7 @@ impl Default for StatementEmbedKnobs {
 pub struct StatementEmbedWorker {
     config: WorkerConfig,
     knobs: StatementEmbedKnobs,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
     statement_hnsw: Arc<RwLock<StatementHnswIndex>>,
     embedder: Arc<dyn Dispatcher>,
     metrics: Option<Arc<StatementEmbedMetrics>>,
@@ -106,7 +106,7 @@ impl StatementEmbedWorker {
     /// `SemanticRetriever` and the extractor worker.
     #[must_use]
     pub fn new(
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         statement_hnsw: Arc<RwLock<StatementHnswIndex>>,
         embedder: Arc<dyn Dispatcher>,
     ) -> Self {
@@ -148,8 +148,8 @@ impl StatementEmbedWorker {
 
         // 1. Snapshot the queue head.
         let pending: Vec<StatementId> = {
-            let db = self.metadata.lock();
-            let rtxn = db
+            let rtxn = self
+                .metadata
                 .read_txn()
                 .map_err(|e| WorkerError::Internal(format!("read_txn: {e}")))?;
             statement_embed_queue_peek(&rtxn, self.knobs.max_per_tick)
@@ -174,8 +174,8 @@ impl StatementEmbedWorker {
         let mut already_in_hnsw: Vec<StatementId> = Vec::new();
         let mut to_drop: Vec<StatementId> = Vec::new();
         {
-            let db = self.metadata.lock();
-            let rtxn = db
+            let rtxn = self
+                .metadata
                 .read_txn()
                 .map_err(|e| WorkerError::Internal(format!("read_txn: {e}")))?;
             let hnsw = self.statement_hnsw.read();
@@ -288,8 +288,8 @@ impl StatementEmbedWorker {
             removable.extend_from_slice(&embedded);
             removable.extend_from_slice(&already_in_hnsw);
             removable.extend_from_slice(&to_drop);
-            let mut db = self.metadata.lock();
-            let wtxn = db
+            let wtxn = self
+                .metadata
                 .write_txn()
                 .map_err(|e| WorkerError::Internal(format!("write_txn: {e}")))?;
             statement_embed_queue_remove_many(&wtxn, &removable)
@@ -428,8 +428,8 @@ fn uuid_hex(bytes: &[u8; 16]) -> String {
 #[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
 mod tests {
     use super::*;
-    use brain_core::{Entity, EntityType, EvidenceEntry, EvidenceRef};
     use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementKind};
+    use brain_core::{Entity, EntityType, EvidenceEntry, EvidenceRef};
     use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
     use brain_index::statement_hnsw::StatementHnswParams;
     use brain_index::{IndexParams, SharedHnsw};
@@ -438,7 +438,7 @@ mod tests {
     use brain_metadata::statement::{statement_create, statement_tombstone};
     use brain_metadata::tables::statement::STATEMENT_EMBED_QUEUE_TABLE;
     use brain_metadata::MetadataDb;
-    use brain_ops::{OpsContext, RealWriterHandle};
+    use brain_ops::RealWriterHandle;
     use brain_planner::{ExecutorContext, WriterHandle};
     use redb::ReadableTableMetadata;
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
@@ -499,14 +499,14 @@ mod tests {
 
     struct Fixture {
         _dir: tempfile::TempDir,
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         hnsw: Arc<RwLock<StatementHnswIndex>>,
         dispatcher: Arc<HashDispatcher>,
         worker_ctx: WorkerContext,
     }
 
     fn build_worker_ctx(
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         dispatcher: Arc<dyn Dispatcher>,
     ) -> WorkerContext {
         // The StatementEmbedWorker only reads `ctx.is_shutdown()`; the
@@ -529,7 +529,7 @@ mod tests {
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let metadata = MetadataDb::open(dir.path().join("test.redb")).expect("open metadata");
-        let metadata = Arc::new(Mutex::new(metadata));
+        let metadata = Arc::new(metadata);
         let hnsw = Arc::new(RwLock::new(
             StatementHnswIndex::new(StatementHnswParams::default_v1()).unwrap(),
         ));
@@ -550,9 +550,8 @@ mod tests {
 
     /// Seed a single Fact statement with a Person subject + object and
     /// an `is_stateful = false` predicate. Returns the StatementId.
-    fn seed_statement(metadata: &Arc<Mutex<MetadataDb>>, n: u8) -> StatementId {
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+    fn seed_statement(metadata: &Arc<MetadataDb>, n: u8) -> StatementId {
+        let wtxn = metadata.write_txn().unwrap();
 
         let subj_id = EntityId::new();
         let obj_id = EntityId::new();
@@ -610,9 +609,8 @@ mod tests {
         id
     }
 
-    fn queue_len(metadata: &Arc<Mutex<MetadataDb>>) -> u64 {
-        let db = metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+    fn queue_len(metadata: &Arc<MetadataDb>) -> u64 {
+        let rtxn = metadata.read_txn().unwrap();
         let t = match rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE) {
             Ok(t) => t,
             Err(redb::TableError::TableDoesNotExist(_)) => return 0,
@@ -694,15 +692,9 @@ mod tests {
         let active = seed_statement(&fx.metadata, 0);
         let dead = seed_statement(&fx.metadata, 1);
         {
-            let mut db = fx.metadata.lock();
-            let wtxn = db.write_txn().unwrap();
-            statement_tombstone(
-                &wtxn,
-                dead,
-                brain_core::TombstoneReason::UserRequest,
-                now(),
-            )
-            .unwrap();
+            let wtxn = fx.metadata.write_txn().unwrap();
+            statement_tombstone(&wtxn, dead, brain_core::TombstoneReason::UserRequest, now())
+                .unwrap();
             wtxn.commit().unwrap();
         }
         // statement_tombstone removed the queue row already; only the

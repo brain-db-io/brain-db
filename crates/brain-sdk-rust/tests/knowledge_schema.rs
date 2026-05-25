@@ -17,15 +17,15 @@
 
 mod common;
 
-use brain_protocol::{
-    SchemaGetResponse, SchemaListItemWire, SchemaListResponseFrame, SchemaUploadResponse,
-    SchemaValidateResponse, SchemaValidationErrorWire,
-};
 use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::schema::{
     AttrType, AttributeDecl, EntityTypeDef, ObjectTypeDecl, PredicateDef, StatementKindAst,
 };
 use brain_protocol::{RequestBody, ResponseBody};
+use brain_protocol::{
+    SchemaGetResponse, SchemaListItemWire, SchemaListResponseFrame, SchemaUploadResponse,
+    SchemaValidateResponse, SchemaValidationErrorWire,
+};
 use brain_sdk_rust::ops::SchemaBuilder;
 use brain_sdk_rust::Client;
 

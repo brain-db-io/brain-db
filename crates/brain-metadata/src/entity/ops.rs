@@ -566,7 +566,7 @@ mod tests {
     #[test]
     fn entity_put_then_get_round_trips() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e = person_entity("Priya Patel");
         let id = e.id;
 
@@ -582,7 +582,7 @@ mod tests {
     #[test]
     fn entity_put_writes_alias_index() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases.push("priya".into());
         e.aliases.push("P. Patel".into()); // mixed case -> normalize
@@ -603,7 +603,7 @@ mod tests {
     #[test]
     fn entity_put_validates_entity_type_exists() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("X");
         e.entity_type = EntityTypeId(99);
 
@@ -619,7 +619,7 @@ mod tests {
     #[test]
     fn entity_put_rejects_duplicate_canonical_name() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let a = person_entity("Priya Patel");
         let b_id = EntityId::new();
         let mut b = person_entity("Priya  Patel"); // normalizes to same
@@ -648,7 +648,7 @@ mod tests {
     #[test]
     fn lookup_by_canonical_name_finds_inserted() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e = person_entity("Priya Patel");
         let id = e.id;
         {
@@ -671,7 +671,7 @@ mod tests {
     #[test]
     fn lookup_by_alias_returns_multiple_ids_for_shared_alias() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         // Two entities with distinct canonical names share an alias.
         let mut a = person_entity("Priya Patel");
         a.aliases.push("Priya".into());
@@ -697,7 +697,7 @@ mod tests {
     #[test]
     fn rename_moves_old_canonical_name_to_aliases() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e = person_entity("Priya Patel");
         let id = e.id;
         let original_embedding_version = e.embedding_version;
@@ -738,7 +738,7 @@ mod tests {
     #[test]
     fn update_alias_delta_applied() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases = vec!["A".into(), "B".into()];
         let id = e.id;
@@ -775,7 +775,7 @@ mod tests {
     #[test]
     fn add_alias_dedupes_on_normalized_form() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases.push("Priya".into());
         let id = e.id;
@@ -798,7 +798,7 @@ mod tests {
     #[test]
     fn remove_alias_removes_index_row() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases = vec!["X".into(), "Y".into()];
         let id = e.id;
@@ -825,7 +825,7 @@ mod tests {
     #[test]
     fn tombstone_removes_from_indexes_but_preserves_primary_row() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases = vec!["priya".into()];
         let id = e.id;
@@ -860,7 +860,7 @@ mod tests {
     #[test]
     fn tombstone_then_recreate_with_same_name_succeeds() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e1 = person_entity("Priya Patel");
         let id1 = e1.id;
         {
@@ -894,7 +894,7 @@ mod tests {
     #[test]
     fn list_by_type_returns_only_matching() {
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
 
         // Seed a second type so the filter is meaningful.
         {
@@ -936,7 +936,7 @@ mod tests {
     fn entity_put_writes_trigrams() {
         use crate::entity::trigram::{extract_trigrams, lookup_candidates_by_trigram};
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e = person_entity("Priya Patel");
         let id = e.id;
 
@@ -960,7 +960,7 @@ mod tests {
     fn entity_put_aliases_contribute_trigrams() {
         use crate::entity::trigram::lookup_candidates_by_trigram;
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("X"); // canonical "X" — short trigrams only
         e.aliases.push("Priya Patel".into()); // adds rich trigrams
         let id = e.id;
@@ -979,7 +979,7 @@ mod tests {
     fn entity_rename_updates_trigrams() {
         use crate::entity::trigram::lookup_candidates_by_trigram;
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let e = person_entity("Alpha");
         let id = e.id;
         {
@@ -1015,7 +1015,7 @@ mod tests {
     fn entity_tombstone_removes_trigrams() {
         use crate::entity::trigram::lookup_candidates_by_trigram;
         let dir = TempDir::new().unwrap();
-        let mut db = fresh_db(&dir);
+        let db = fresh_db(&dir);
         let mut e = person_entity("Priya Patel");
         e.aliases.push("Priya".into());
         let id = e.id;

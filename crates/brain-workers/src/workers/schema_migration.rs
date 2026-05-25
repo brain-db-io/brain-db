@@ -165,7 +165,7 @@ impl SchemaMigrationWorker {
         ctx: &WorkerContext,
         job: &SchemaFlagSweepJob,
     ) -> Result<SweepStats, WorkerError> {
-        let mut metadata = ctx.ops.executor.metadata.lock();
+        let metadata = ctx.ops.executor.metadata.as_ref();
 
         // Read phase: snapshot the active vocabulary for the namespace
         // + version the upload just committed. The wtxn we'll open
@@ -303,12 +303,12 @@ impl Worker for SchemaMigrationWorker {
 mod tests {
     use super::*;
     use brain_core::{
-        Entity, EntityType, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue,
-        SubjectRef,
-    };
-    use brain_core::{
         AgentId, ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementId,
         StatementKind,
+    };
+    use brain_core::{
+        Entity, EntityType, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue,
+        SubjectRef,
     };
     use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
     use brain_index::{IndexParams, SharedHnsw};
@@ -318,10 +318,10 @@ mod tests {
     use brain_metadata::statement::statement_create;
     use brain_metadata::tables::statement::{statement_flags, STATEMENTS_TABLE};
     use brain_metadata::MetadataDb;
-    use brain_ops::{OpsContext, RealWriterHandle};
+    use brain_ops::RealWriterHandle;
     use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
     use brain_protocol::schema::{parse_schema, validate, ValidatedSchema};
-    use parking_lot::Mutex;
+
     use std::sync::atomic::AtomicBool;
     use tempfile::TempDir;
 
@@ -351,9 +351,8 @@ mod tests {
     fn build_fixture() -> Fixture {
         let tempdir = tempfile::tempdir().unwrap();
         let db_path = tempdir.path().join("metadata.redb");
-        let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
-        let (shared, hnsw_writer) =
-            SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
+        let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
 
         let (tx, rx) = flume::unbounded::<SchemaFlagSweepJob>();
@@ -402,8 +401,7 @@ mod tests {
     fn put_subject(metadata: &SharedMetadataDb, agent: AgentId) -> EntityId {
         let _ = agent;
         let id = EntityId::new();
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = metadata.write_txn().unwrap();
         entity_put(
             &wtxn,
             &Entity::new_active(
@@ -425,8 +423,7 @@ mod tests {
         namespace: &str,
         predicate_name: &str,
     ) -> (StatementId, PredicateId) {
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = metadata.write_txn().unwrap();
         let pid = predicate_intern_or_get(&wtxn, namespace, predicate_name, 0, NOW).unwrap();
         let evidence_entry = EvidenceEntry::from_parts(
             MemoryId::pack(1, ContextId::DEFAULT.into(), 0),
@@ -452,16 +449,14 @@ mod tests {
     }
 
     fn upload_schema(metadata: &SharedMetadataDb, schema: &ValidatedSchema) -> u32 {
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = metadata.write_txn().unwrap();
         let v = schema_upload(&wtxn, schema, NOW).unwrap();
         wtxn.commit().unwrap();
         v
     }
 
     fn statement_has_outside_flag(metadata: &SharedMetadataDb, sid: StatementId) -> bool {
-        let db = metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = metadata.read_txn().unwrap();
         let t = rtxn.open_table(STATEMENTS_TABLE).unwrap();
         let row = t.get(&sid.to_bytes()).unwrap().unwrap().value();
         row.has_flag(statement_flags::OUTSIDE_ACTIVE_SCHEMA)

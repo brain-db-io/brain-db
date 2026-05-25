@@ -2,9 +2,9 @@
 
 mod common;
 
-use brain_protocol::error::{ErrorCategory, ErrorCode};
 use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::response::{ErrorResponse, ResponseBody};
+use brain_protocol::error::{ErrorCategory, ErrorCode};
 use brain_protocol::RequestBody;
 use brain_sdk_rust::{Client, ClientConfig, ClientError, RetryConfig};
 
@@ -16,8 +16,12 @@ async fn error_frame_maps_to_client_error_server() {
         let _ = RequestBody::decode(Opcode::EncodeReq, &frame.payload).expect("decode");
 
         let err = ErrorResponse {
-            code: brain_protocol::envelope::response::ErrorCodeWire::from(ErrorCode::InvalidArgument),
-            category: brain_protocol::envelope::response::ErrorCategoryWire::from(ErrorCategory::Validation),
+            code: brain_protocol::envelope::response::ErrorCodeWire::from(
+                ErrorCode::InvalidArgument,
+            ),
+            category: brain_protocol::envelope::response::ErrorCategoryWire::from(
+                ErrorCategory::Validation,
+            ),
             message: "bad input".into(),
             details: None,
             retry_after_ms: None,

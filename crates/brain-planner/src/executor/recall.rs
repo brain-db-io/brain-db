@@ -51,8 +51,8 @@ pub async fn execute_recall(
     // 3. Metadata lookup for each candidate (single read txn).
     let mut enriched: Vec<(RecallHit, f32)> = Vec::with_capacity(raw_hits.len());
     {
-        let metadata_guard = ctx.metadata.lock();
-        let txn = metadata_guard
+        let txn = ctx
+            .metadata
             .read_txn()
             .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
         let table = txn
@@ -107,8 +107,8 @@ pub async fn execute_recall(
     let mut hits: Vec<RecallHit> = enriched.into_iter().map(|(h, _)| h).collect();
 
     if plan.text_fetch.is_some() && !hits.is_empty() {
-        let metadata_guard = ctx.metadata.lock();
-        let txn = metadata_guard
+        let txn = ctx
+            .metadata
             .read_txn()
             .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
         // A shard that hasn't received an encode yet won't have a

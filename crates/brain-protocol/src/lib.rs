@@ -53,13 +53,13 @@ pub use error::{ErrorCategory, ErrorCode, ProtocolError};
 
 // -- Connection layer --
 pub use connection::handshake::{
-    AgentPermissions, AuthCredentials, AuthMethod, AuthOkPayload, AuthPayload, HelloCapabilities,
-    HelloPayload, MtlsClaim, NegotiatedSession, ServerCapabilities, ServerFeatures, WelcomePayload,
-    negotiate,
+    negotiate, AgentPermissions, AuthCredentials, AuthMethod, AuthOkPayload, AuthPayload,
+    HelloCapabilities, HelloPayload, MtlsClaim, NegotiatedSession, ServerCapabilities,
+    ServerFeatures, WelcomePayload,
 };
 pub use connection::stream::{
-    ByeRequest, CancelStreamAck, CancelStreamRequest, ClientPongRequest, PingRequest,
-    PongResponse, ServerPingResponse,
+    ByeRequest, CancelStreamAck, CancelStreamRequest, ClientPongRequest, PingRequest, PongResponse,
+    ServerPingResponse,
 };
 
 // -- Shared wire primitives + enums --

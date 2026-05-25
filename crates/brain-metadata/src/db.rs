@@ -12,9 +12,11 @@
 //!   initialise a fresh DB at the current schema version or verify an
 //!   existing file's version is compatible.
 //! - [`MetadataDb::read_txn`] — `&self`; many can coexist (redb MVCC).
-//! - [`MetadataDb::write_txn`] — `&mut self`; the borrow checker
-//!   enforces single-writer-per-shard (CLAUDE.md §5 invariant 2)
-//!   at compile time.
+//! - [`MetadataDb::write_txn`] — `&self`; redb itself serialises writes
+//!   per database. The single-writer-per-shard discipline lives at the
+//!   shard's writer task, not in the borrow checker — Brain wraps
+//!   `MetadataDb` in `Arc` so readers and the writer task share one
+//!   handle without a mutex blocking reads against reads.
 //! - [`MetadataDb::schema_version`] — cached at open; cheap.
 //! - [`MetadataDb::path`], [`MetadataDb::db`] — diagnostics and an
 //!   escape hatch for operations the wrapper doesn't surface.
@@ -36,16 +38,26 @@
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
+use std::sync::atomic::AtomicU64;
 
+use parking_lot::Mutex;
 use redb::{Database, ReadTransaction, ReadableDatabase, TransactionError, WriteTransaction};
 
 use crate::storage_version::{open_or_init_schema, SchemaError};
 use crate::system_schema::{seed_system_schema, SystemSchemaError};
 use crate::tables::checkpoint::{latest as latest_checkpoint, CHECKPOINTS_TABLE};
 
-/// Public type wrapping the redb metadata file. Single ownership per
-/// shard; the borrow checker enforces single-writer via `&mut self` on
-/// [`MetadataDb::write_txn`].
+/// Public type wrapping the redb metadata file.
+///
+/// Designed to be shared via `Arc<MetadataDb>` across a shard's reader
+/// paths and its single writer task. Reads (`read_txn`) and writes
+/// (`write_txn`) both take `&self` because redb itself coordinates
+/// MVCC reads and per-database write serialisation; wrapping the
+/// handle in a mutex would only block readers against readers without
+/// adding any actual safety. The single-writer-per-shard invariant
+/// (CLAUDE.md §5 invariant 2) is enforced architecturally — one
+/// dedicated writer task per shard drives `write_txn` — not by the
+/// borrow checker.
 #[derive(Debug)]
 pub struct MetadataDb {
     pub(crate) db: Database,
@@ -55,13 +67,23 @@ pub struct MetadataDb {
     /// Cached recovery target. Loaded at [`MetadataDb::open`] from the
     /// `checkpoints` table's most-recent row; advanced by
     /// [`crate::sink::MetadataSink::apply`] on `CheckpointEnd`.
-    pub(crate) durable_lsn: u64,
+    ///
+    /// Stored atomically so reader callers (snapshot durability lookups,
+    /// retention workers) can observe the watermark through
+    /// `Arc<MetadataDb>` without taking a mutex.
+    pub(crate) durable_lsn: AtomicU64,
 
     /// In-flight checkpoints seen but not yet `CheckpointEnd`-paired.
     /// Maps `checkpoint_id → started_at_unix_nanos`. Transient: any
     /// entry surviving across a restart is implicitly discarded
     /// (incomplete checkpoint is ignored).
-    pub(crate) pending_checkpoints: HashMap<u64, u64>,
+    ///
+    /// Mutated only by the per-shard recovery / checkpoint apply path,
+    /// which runs single-threaded inside the writer task. The mutex is
+    /// here purely so the field is reachable through `&self` for the
+    /// trait-required `MetadataSink::apply(&mut self)` impl while
+    /// production code holds the DB through `Arc<MetadataDb>`.
+    pub(crate) pending_checkpoints: Mutex<HashMap<u64, u64>>,
 }
 
 /// Errors returned by [`MetadataDb::open`].
@@ -125,8 +147,8 @@ impl MetadataDb {
             db,
             schema_version,
             path,
-            durable_lsn,
-            pending_checkpoints: HashMap::new(),
+            durable_lsn: AtomicU64::new(durable_lsn),
+            pending_checkpoints: Mutex::new(HashMap::new()),
         })
     }
 
@@ -136,16 +158,17 @@ impl MetadataDb {
         self.db.begin_read()
     }
 
-    /// Begin a write transaction. `&mut self` enforces
-    /// single-writer-per-shard at compile time: a shard can't
-    /// accidentally host two writer tasks because both would need
-    /// `&mut MetadataDb`, which the borrow checker forbids.
+    /// Begin a write transaction. Takes `&self` so a shared
+    /// `Arc<MetadataDb>` can drive both readers and the writer task
+    /// without a wrapping mutex serialising readers against readers.
     ///
-    /// "The single-writer-per-shard discipline means
-    /// there's only one writer per shard, naturally serializing
-    /// redb's write transactions." We encode the discipline in the
-    /// type signature.
-    pub fn write_txn(&mut self) -> Result<WriteTransaction, TransactionError> {
+    /// redb itself enforces single-writer-per-database at the file
+    /// level. Brain layers the single-writer-per-shard discipline on
+    /// top: every shard owns one writer task, so the borrow checker's
+    /// `&mut self` belt-and-suspenders constraint stops earning its
+    /// keep once `MetadataDb` is reached through `Arc<...>`. Callers
+    /// outside the writer task must not invoke this.
+    pub fn write_txn(&self) -> Result<WriteTransaction, TransactionError> {
         self.db.begin_write()
     }
 
@@ -273,7 +296,7 @@ mod tests {
     #[test]
     fn write_then_read_round_trip() {
         let dir = tempfile::tempdir().unwrap();
-        let mut db = MetadataDb::open(db_path(&dir)).unwrap();
+        let db = MetadataDb::open(db_path(&dir)).unwrap();
         let (key, m) = sample_memory();
 
         // Write via the wrapper.
@@ -303,7 +326,7 @@ mod tests {
         // no lifetime tied to `db`), so calling `read_txn(&self)`
         // afterwards is legal.
         let dir = tempfile::tempdir().unwrap();
-        let mut db = MetadataDb::open(db_path(&dir)).unwrap();
+        let db = MetadataDb::open(db_path(&dir)).unwrap();
         let (key, m) = sample_memory();
 
         // Seed the table by writing+committing an unrelated row, so
@@ -340,7 +363,7 @@ mod tests {
     #[test]
     fn commit_makes_write_visible_to_new_read() {
         let dir = tempfile::tempdir().unwrap();
-        let mut db = MetadataDb::open(db_path(&dir)).unwrap();
+        let db = MetadataDb::open(db_path(&dir)).unwrap();
         let (key, m) = sample_memory();
 
         let wtxn = db.write_txn().unwrap();
@@ -360,7 +383,7 @@ mod tests {
         // read transactions don't block each other.
         // Two read txns from the same MetadataDb share a snapshot.
         let dir = tempfile::tempdir().unwrap();
-        let mut db = MetadataDb::open(db_path(&dir)).unwrap();
+        let db = MetadataDb::open(db_path(&dir)).unwrap();
         let (key, m) = sample_memory();
 
         // Seed one row so there's something to observe.

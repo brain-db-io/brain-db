@@ -20,7 +20,6 @@ use brain_storage::wal::kinds::WalRecordKind;
 use brain_workers::{
     AutoEdgeKnobs, AutoEdgeWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 
 // ---------------------------------------------------------------------------
@@ -54,7 +53,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let bus = Arc::new(EventBus::default());
     let sink = Arc::new(RecordingWalSink::new());
@@ -70,7 +69,10 @@ fn build_fixture() -> Fixture {
         metadata.clone(),
         writer.clone() as Arc<dyn WriterHandle>,
     );
-    let ctx = Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor).with_event_bus(bus.clone()));
+    let ctx = Arc::new(
+        brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)
+            .with_event_bus(bus.clone()),
+    );
     Fixture {
         ctx,
         writer,
@@ -199,8 +201,7 @@ fn cycle_writes_link_phase_through_unified_path() {
 
         // 3. redb edges table contains the derived edge (symmetric mirror
         //    means two physical rows for one logical SimilarTo pair).
-        let db = fix.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fix.metadata.read_txn().unwrap();
         let t = rtxn.open_table(EDGES_TABLE).unwrap();
         let mut found = 0;
         for entry in t.iter().unwrap() {
@@ -363,8 +364,7 @@ fn worker_drains_within_100ms_despite_5s_interval() {
 /// Count rows in `EDGES_TABLE` whose `origin == AUTO_DERIVED`. Used
 /// by the wake-on-enqueue test as a side-effect probe.
 fn count_auto_derived(fix: &Fixture) -> usize {
-    let db = fix.metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = fix.metadata.read_txn().unwrap();
     let t = rtxn.open_table(EDGES_TABLE).unwrap();
     let mut found = 0;
     for entry in t.iter().unwrap() {

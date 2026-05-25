@@ -6,10 +6,8 @@
 //! - `spec/02_data_model/05_evidence.md` — inline cap, overflow,
 //!   reverse-index population.
 
-use brain_core::{
-    EvidenceEntry, EvidenceRef, Predicate, Statement, StatementObject, SubjectRef,
-};
 use brain_core::{EntityId, EvidenceOverflowId, PredicateId, StatementId, StatementKind};
+use brain_core::{EvidenceEntry, EvidenceRef, Predicate, Statement, StatementObject, SubjectRef};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
 use crate::tables::statement::{
@@ -465,10 +463,8 @@ mod tests {
     use super::super::tombstone::statement_tombstone;
     use super::*;
     use crate::schema::predicate::predicate_intern;
-    use brain_core::{
-        Entity, EntityType, StatementValue, TombstoneReason, INLINE_EVIDENCE_CAP,
-    };
     use brain_core::{ContextId, MemoryId};
+    use brain_core::{Entity, EntityType, StatementValue, TombstoneReason, INLINE_EVIDENCE_CAP};
     use smallvec::SmallVec;
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {

@@ -362,7 +362,9 @@ const WAIT_STAGES_TIMEOUT_SECS: u64 = 10;
 /// with a zero-result delta so the caller still renders a stages
 /// section (making clear the flag was a no-op for this write).
 async fn wait_for_stages(
-    pre_stream: Option<brain_sdk_rust::FrameStream<brain_protocol::envelope::response::SubscriptionEvent>>,
+    pre_stream: Option<
+        brain_sdk_rust::FrameStream<brain_protocol::envelope::response::SubscriptionEvent>,
+    >,
     memory_id: MemoryId,
     pending_stages: &[brain_protocol::StageKind],
     _start_lsn: u64,

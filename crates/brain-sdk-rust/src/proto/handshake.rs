@@ -5,11 +5,11 @@
 //! negotiated capabilities + bound shard.
 
 use brain_core::AgentId;
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthOkPayload, AuthPayload, HelloCapabilities, HelloPayload,
     WelcomePayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 use tokio::io::{AsyncRead, AsyncWrite};
 

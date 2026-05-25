@@ -12,8 +12,8 @@
 //! it in a loop.
 
 use crate::codec::crc::payload_crc;
-use crate::error::ProtocolError;
 use crate::codec::header::Header;
+use crate::error::ProtocolError;
 use crate::{HEADER_SIZE, MAX_PAYLOAD_BYTES};
 
 /// One wire frame: a header plus its payload bytes.

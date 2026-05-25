@@ -102,18 +102,17 @@ pub use models::errors::{
 pub use observability::{MetricsSnapshot, OpMetrics};
 pub use ops::{
     AdminClient, BackfillBuilder, BackfillHandle, EncodeBuilder, EncodeResponseExt, EntityClient,
-    EntityCreateBuilder, EntityListBuilder,
-    EntityMergeBuilder, EntityResolveBuilder, EntityUpdateBuilder, EventBuilder, ExplainResult,
-    FactBuilder, ForgetBuilder, FrameStream, FusionConfig, ItemKind, ItemRef, LinkBuilder,
-    MaterializeProceduralBuilder, MergeOutcome, PlanBuilder, PlanOutcome, PreferenceBuilder,
-    QueryBuilder, QueryBuilderError, QueryHit, QueryResult, ReasonBuilder, RecallBuilder,
-    RelationBuilder, RelationHandle, RelationListFromBuilder, RelationListToBuilder,
-    RelationTraverseBuilder, RelationsClient, ResolutionOutcome, Retriever, RetrieverContribution,
-    RetrieverOutcome, RetrieverOutcomeStatus, RetrieverSelection, SchemaBuilder, SchemaClient,
-    SchemaListEntry, SchemaListView, SchemaUploadOutcome, SchemaValidateOutcome,
-    SchemaValidationIssue, SchemaView, StatementHandle, StatementListBuilder, StatementsClient,
-    SubscribeBuilder, TimeRange, TraceResult, TraversalPath, TraversalStep, TraverseDirection,
-    UnlinkBuilder,
+    EntityCreateBuilder, EntityListBuilder, EntityMergeBuilder, EntityResolveBuilder,
+    EntityUpdateBuilder, EventBuilder, ExplainResult, FactBuilder, ForgetBuilder, FrameStream,
+    FusionConfig, ItemKind, ItemRef, LinkBuilder, MaterializeProceduralBuilder, MergeOutcome,
+    PlanBuilder, PlanOutcome, PreferenceBuilder, QueryBuilder, QueryBuilderError, QueryHit,
+    QueryResult, ReasonBuilder, RecallBuilder, RelationBuilder, RelationHandle,
+    RelationListFromBuilder, RelationListToBuilder, RelationTraverseBuilder, RelationsClient,
+    ResolutionOutcome, Retriever, RetrieverContribution, RetrieverOutcome, RetrieverOutcomeStatus,
+    RetrieverSelection, SchemaBuilder, SchemaClient, SchemaListEntry, SchemaListView,
+    SchemaUploadOutcome, SchemaValidateOutcome, SchemaValidationIssue, SchemaView, StatementHandle,
+    StatementListBuilder, StatementsClient, SubscribeBuilder, TimeRange, TraceResult,
+    TraversalPath, TraversalStep, TraverseDirection, UnlinkBuilder,
 };
 pub use pool::{Connection, Pool, PoolConfig, PoolGuard};
 pub use proto::handshake::{ClientIdentity, NegotiatedSession};

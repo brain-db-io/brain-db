@@ -163,8 +163,9 @@ fn resolve_predicate_filter(
     if qnames.is_empty() {
         return Ok(PredicateResolution::Ok(Vec::new()));
     }
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
     let mut out = Vec::with_capacity(qnames.len());

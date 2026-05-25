@@ -56,8 +56,7 @@ impl<const M: usize> Lut<M> {
         for s in 0..M {
             let chunk = &query[s * sub_dim..(s + 1) * sub_dim];
             let subspace_centroids = codebook.subspace(s);
-            let row = &mut data[s * PQ_CENTROIDS_PER_SUBSPACE
-                ..(s + 1) * PQ_CENTROIDS_PER_SUBSPACE];
+            let row = &mut data[s * PQ_CENTROIDS_PER_SUBSPACE..(s + 1) * PQ_CENTROIDS_PER_SUBSPACE];
             for k in 0..PQ_CENTROIDS_PER_SUBSPACE {
                 let centroid = &subspace_centroids[k * sub_dim..(k + 1) * sub_dim];
                 row[k] = squared_distance(chunk, centroid);
@@ -414,7 +413,10 @@ mod tests {
         // SDC = sum over subspaces of (7-0)² = 49 × 8 = 392.
         // Pick codes whose SDC differs from ADC to verify the dispatch.
         let d = dist.eval(&[3u8; 8], &[5u8; 8]);
-        assert!((d - 32.0).abs() < 1e-3, "after guard drop, expected SDC=32, got {d}");
+        assert!(
+            (d - 32.0).abs() < 1e-3,
+            "after guard drop, expected SDC=32, got {d}"
+        );
     }
 
     /// Real-codebook smoke test: train against a synthetic sample,
@@ -423,8 +425,8 @@ mod tests {
     /// a point that lies on a centroid).
     #[test]
     fn adc_against_encoded_point_is_near_zero() {
-        use crate::pq::{kmeans, PqParams};
         use crate::pq::params::MIN_TRAINING_SAMPLE;
+        use crate::pq::{kmeans, PqParams};
 
         // 16 well-separated clusters in subspace 0; pad to minimum
         // sample size.

@@ -214,7 +214,7 @@ impl BackfillWorker {
             return Ok(None);
         }
 
-        let metadata = ctx.ops.executor.metadata.lock();
+        let metadata = ctx.ops.executor.metadata.as_ref();
         let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("backfill read_txn: {e}")))?;
@@ -294,7 +294,7 @@ impl BackfillWorker {
         dry_run: bool,
         now_ns: u64,
     ) -> Result<ItemOutcome, WorkerError> {
-        let mut metadata = ctx.ops.executor.metadata.lock();
+        let metadata = ctx.ops.executor.metadata.as_ref();
 
         // Resume / skip-check via rtxn.
         let rtxn = metadata

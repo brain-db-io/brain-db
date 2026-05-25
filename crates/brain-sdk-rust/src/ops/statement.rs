@@ -35,11 +35,12 @@
 //! v1 returns a uniform [`StatementHandle`] that callers branch on by
 //! [`StatementHandle::kind`].
 
+use brain_core::{EntityId, MemoryId, StatementId, StatementKind};
 use brain_core::{
     EvidenceEntry, EvidenceRef, Statement, StatementObject, SubjectRef, TombstoneReason,
     INLINE_EVIDENCE_CAP,
 };
-use brain_core::{EntityId, MemoryId, StatementId, StatementKind};
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{
     evidence_ref_from_wire, statement_object_from_wire, EvidenceRefWire, StatementCreateRequest,
     StatementGetRequest, StatementHistoryRequest, StatementKindWire, StatementListRequest,
@@ -47,7 +48,6 @@ use brain_protocol::{
     StatementSupersedeRequest, StatementTombstoneRequest, StatementValueWire, StatementView,
     WireToStatementError,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{RequestBody, ResponseBody};
 use smallvec::SmallVec;
 

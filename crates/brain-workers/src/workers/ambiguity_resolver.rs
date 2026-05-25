@@ -48,7 +48,7 @@ use brain_metadata::tables::entity::{EntityMetadata, ENTITIES_TABLE};
 use brain_metadata::tables::merge_review_queue::{proposal_status, MergeReviewProposal};
 use brain_metadata::MetadataDb;
 use brain_ops::AmbiguityResolverMetrics;
-use parking_lot::{Mutex, RwLock};
+use parking_lot::RwLock;
 
 use crate::config::{WorkerConfig, WorkerKind};
 use crate::context::WorkerContext;
@@ -148,7 +148,7 @@ fn resolved_interval() -> Duration {
 pub struct AmbiguityResolverWorker {
     config: WorkerConfig,
     knobs: AmbiguityResolverConfig,
-    metadata: Arc<Mutex<MetadataDb>>,
+    metadata: Arc<MetadataDb>,
     entity_hnsw: Arc<RwLock<EntityHnswIndex>>,
     embedder: Arc<dyn Dispatcher>,
     metrics: Option<Arc<AmbiguityResolverMetrics>>,
@@ -160,7 +160,7 @@ impl AmbiguityResolverWorker {
     /// extractor and statement-embed workers.
     #[must_use]
     pub fn new(
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         entity_hnsw: Arc<RwLock<EntityHnswIndex>>,
         embedder: Arc<dyn Dispatcher>,
     ) -> Self {
@@ -208,8 +208,8 @@ impl AmbiguityResolverWorker {
 
         // ── 1. Snapshot up to `max_per_tick` Pending proposals. ─────
         let pending: Vec<MergeReviewProposal> = {
-            let db = self.metadata.lock();
-            let rtxn = db
+            let rtxn = self
+                .metadata
                 .read_txn()
                 .map_err(|e| WorkerError::Internal(format!("read_txn: {e}")))?;
             list_proposals_by_status(&rtxn, proposal_status::PENDING, self.knobs.max_per_tick)
@@ -351,7 +351,7 @@ impl AmbiguityResolverWorker {
     fn recheck_score(&self, source: EntityId, candidate: EntityId) -> Result<f32, String> {
         // Load the source's canonical name to embed.
         let source_name = {
-            let db = self.metadata.lock();
+            let db = self.metadata.as_ref();
             let rtxn = db.read_txn().map_err(|e| format!("read_txn: {e}"))?;
             let t = rtxn
                 .open_table(ENTITIES_TABLE)
@@ -399,8 +399,8 @@ impl AmbiguityResolverWorker {
         recheck_score: f32,
         now_ns: u64,
     ) -> Result<(), WorkerError> {
-        let mut db = self.metadata.lock();
-        let wtxn = db
+        let wtxn = self
+            .metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("write_txn: {e}")))?;
         match merge_entity(
@@ -455,8 +455,8 @@ impl AmbiguityResolverWorker {
         recheck_score: f32,
         now_ns: u64,
     ) -> Result<(), WorkerError> {
-        let mut db = self.metadata.lock();
-        let wtxn = db
+        let wtxn = self
+            .metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("write_txn: {e}")))?;
         update_proposal_status(&wtxn, proposal_id, new_status, recheck_score, now_ns)
@@ -473,8 +473,8 @@ impl AmbiguityResolverWorker {
         recheck_score: f32,
         now_ns: u64,
     ) -> Result<(), WorkerError> {
-        let mut db = self.metadata.lock();
-        let wtxn = db
+        let wtxn = self
+            .metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("write_txn: {e}")))?;
         update_proposal_recheck(&wtxn, proposal_id, recheck_score, now_ns)
@@ -540,7 +540,7 @@ mod tests {
     use brain_metadata::entity::review::{enqueue_merge_proposal, proposal_get};
     use brain_metadata::tables::merge_review_queue::proposal_tier;
     use brain_metadata::MetadataDb;
-    use brain_ops::{OpsContext, RealWriterHandle};
+    use brain_ops::RealWriterHandle;
     use brain_planner::{ExecutorContext, WriterHandle};
     use std::collections::HashMap;
     use std::sync::atomic::AtomicBool;
@@ -622,16 +622,13 @@ mod tests {
 
     struct Fixture {
         _dir: tempfile::TempDir,
-        metadata: Arc<Mutex<MetadataDb>>,
+        metadata: Arc<MetadataDb>,
         hnsw: Arc<RwLock<EntityHnswIndex>>,
         embedder: Arc<ScriptedEmbedder>,
         worker_ctx: WorkerContext,
     }
 
-    fn build_worker_ctx(
-        metadata: Arc<Mutex<MetadataDb>>,
-        embedder: Arc<dyn Dispatcher>,
-    ) -> WorkerContext {
+    fn build_worker_ctx(metadata: Arc<MetadataDb>, embedder: Arc<dyn Dispatcher>) -> WorkerContext {
         let (shared, hnsw_writer) =
             SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw::new");
         let writer: Arc<dyn WriterHandle> =
@@ -647,7 +644,7 @@ mod tests {
     fn fixture() -> Fixture {
         let dir = tempfile::tempdir().unwrap();
         let metadata = MetadataDb::open(dir.path().join("test.redb")).expect("open metadata");
-        let metadata = Arc::new(Mutex::new(metadata));
+        let metadata = Arc::new(metadata);
         let hnsw = Arc::new(RwLock::new(
             EntityHnswIndex::new(EntityHnswParams::default_v1()).unwrap(),
         ));
@@ -666,7 +663,7 @@ mod tests {
     /// Seed one entity row in redb + insert into the entity HNSW with
     /// the chosen vector.
     fn seed_entity(
-        d: &Arc<Mutex<MetadataDb>>,
+        d: &Arc<MetadataDb>,
         hnsw: &Arc<RwLock<EntityHnswIndex>>,
         canonical: &str,
         vector: [f32; VECTOR_DIM],
@@ -679,25 +676,22 @@ mod tests {
             normalize_name(canonical),
             NOW,
         );
-        let mut db = d.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = d.write_txn().unwrap();
         entity_put(&wtxn, &ent).unwrap();
         wtxn.commit().unwrap();
-        drop(db);
         hnsw.write().insert(id, &vector).unwrap();
         id
     }
 
     fn enqueue(
-        d: &Arc<Mutex<MetadataDb>>,
+        d: &Arc<MetadataDb>,
         source: EntityId,
         candidate: EntityId,
         confidence: f32,
         proposed_at_unix_nanos: u64,
     ) -> MergeId {
         let pid = MergeId::new();
-        let mut db = d.lock();
-        let wtxn = db.write_txn().unwrap();
+        let wtxn = d.write_txn().unwrap();
         enqueue_merge_proposal(
             &wtxn,
             pid,
@@ -772,7 +766,7 @@ mod tests {
         let processed = futures_lite::future::block_on(worker.tick(&fx.worker_ctx)).unwrap();
         assert_eq!(processed, 1, "exactly one proposal processed");
 
-        let rtxn = fx.metadata.lock().read_txn().unwrap();
+        let rtxn = fx.metadata.as_ref().read_txn().unwrap();
         let updated = proposal_get(&rtxn, pid).unwrap().unwrap();
         assert_eq!(
             updated.status,
@@ -827,7 +821,7 @@ mod tests {
         .with_metrics(metrics.clone());
 
         futures_lite::future::block_on(worker.tick(&fx.worker_ctx)).unwrap();
-        let rtxn = fx.metadata.lock().read_txn().unwrap();
+        let rtxn = fx.metadata.as_ref().read_txn().unwrap();
         let updated = proposal_get(&rtxn, pid).unwrap().unwrap();
         assert_eq!(updated.status, proposal_status::REJECTED);
         let m = metrics.snapshot();
@@ -863,7 +857,7 @@ mod tests {
         .with_metrics(metrics.clone());
 
         futures_lite::future::block_on(worker.tick(&fx.worker_ctx)).unwrap();
-        let rtxn = fx.metadata.lock().read_txn().unwrap();
+        let rtxn = fx.metadata.as_ref().read_txn().unwrap();
         let updated = proposal_get(&rtxn, pid).unwrap().unwrap();
         assert_eq!(updated.status, proposal_status::EXPIRED);
         let m = metrics.snapshot();

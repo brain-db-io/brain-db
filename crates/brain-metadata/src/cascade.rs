@@ -120,9 +120,7 @@ pub fn cascade_forget_to_statements(
                 .iter()
                 .any(|e| e.memory_id_bytes == memory_bytes);
 
-            let overflow_id = row
-                .evidence_overflow_id_bytes
-                .map(EvidenceOverflowId::from);
+            let overflow_id = row.evidence_overflow_id_bytes.map(EvidenceOverflowId::from);
 
             // The overflow row needs probing too — the inline list is
             // empty when the row owns evidence-overflow form, so a
@@ -240,7 +238,8 @@ pub fn cascade_forget_to_statements(
                 // the helper symmetric for future callers).
                 let oid = prior_overflow_id.unwrap_or_else(EvidenceOverflowId::new);
                 let entries_clone: Vec<EvidenceEntry> = entries.clone();
-                let overflow_row = EvidenceOverflow::from_entries(oid, &entries_clone, now_unix_nanos);
+                let overflow_row =
+                    EvidenceOverflow::from_entries(oid, &entries_clone, now_unix_nanos);
                 overflow_table.insert(&oid.to_bytes(), &overflow_row)?;
                 row.evidence_inline.clear();
                 row.evidence_overflow_id_bytes = Some(oid.to_bytes());
@@ -523,8 +522,8 @@ mod edge_cascade_tests {
         self, derived_by, origin, EdgeData, EDGES_REVERSE_TABLE, EDGES_TABLE,
     };
     use crate::MetadataDb;
-    use brain_core::{Entity, EntityType, Relation};
     use brain_core::{Cardinality, EntityId, ExtractorId, RelationId, RelationTypeId};
+    use brain_core::{Entity, EntityType, Relation};
 
     const NOW: u64 = 1_700_000_000_000_000_000;
 

@@ -41,6 +41,7 @@ use brain_protocol::{
     StatementSupersedeRequest, StatementSupersedeResponse, StatementSupersededEvent,
     StatementTombstoneRequest, StatementTombstoneResponse, StatementTombstonedEvent, StatementView,
 };
+use redb::ReadableTable;
 
 use crate::context::OpsContext;
 use crate::error::OpError;
@@ -91,8 +92,9 @@ pub async fn handle_statement_create(
     // collapsing what used to be three commits (intern, statement,
     // flag stamp) into one.
     let (predicate_id_opt, schemaless) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let active_version = schema_active(&rtxn, namespace)
@@ -180,8 +182,9 @@ pub async fn handle_statement_create(
     // or `None` (fresh row). `chain_root` is self-referential for a
     // fresh root; the supersede path inherits the prior chain's root.
     let (chain_root, auto_superseded) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let new = statement_get(&rtxn, created_id)
@@ -252,8 +255,9 @@ pub async fn handle_statement_get(
 ) -> Result<StatementGetResponse, OpError> {
     let id = StatementId::from(req.statement_id);
 
-    let db_guard = ctx.executor.metadata.lock();
-    let rtxn = db_guard
+    let rtxn = ctx
+        .executor
+        .metadata
         .read_txn()
         .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -306,8 +310,9 @@ pub async fn handle_statement_supersede(
 
     // Phase A — pre-submit predicate resolution mirror of CREATE.
     let (predicate_id_opt, schemaless) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let active_version = schema_active(&rtxn, namespace)
@@ -347,8 +352,9 @@ pub async fn handle_statement_supersede(
                     "predicate resolution inconsistency: strict-mode none after vocab check".into(),
                 ));
             }
-            let mut db_guard = ctx.executor.metadata.lock();
-            let wtxn = db_guard
+            let wtxn = ctx
+                .executor
+                .metadata
                 .write_txn()
                 .map_err(|e| OpError::Internal(format!("write_txn: {e}")))?;
             let pid = predicate_intern_or_get(&wtxn, namespace, name, 0, now)
@@ -391,8 +397,9 @@ pub async fn handle_statement_supersede(
     // Phase C — recover chain_root + version from storage. The
     // PhaseAck doesn't surface them; the wire ack needs both.
     let (chain_root, version) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let new = statement_get(&rtxn, new_id)
@@ -576,8 +583,9 @@ pub async fn handle_statement_history(
     let anchor = StatementId::from(req.anchor_id);
 
     let (items_storage, chain_root) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
         let chain = statement_history(&rtxn, anchor).map_err(map_statement_op_error)?;
@@ -641,8 +649,9 @@ pub async fn handle_statement_list(
     };
 
     let (items_storage, count) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 
@@ -1149,8 +1158,7 @@ async fn dispatch_upsert_for(
     dispatcher: &crate::index::text_indexer::StatementTextDispatcher,
 ) {
     let upsert_op = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = match db_guard.read_txn() {
+        let rtxn = match ctx.executor.metadata.read_txn() {
             Ok(r) => r,
             Err(err) => {
                 tracing::warn!(
@@ -1181,7 +1189,7 @@ async fn dispatch_upsert_for(
             }
         };
         drop(rtxn);
-        upsert_op_from_statement(&statement, &db_guard)
+        upsert_op_from_statement(&statement, ctx.executor.metadata.as_ref())
     };
 
     if let Some(op) = upsert_op {

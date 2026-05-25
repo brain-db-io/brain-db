@@ -25,7 +25,6 @@ use brain_protocol::envelope::response::{
     ReasonResponseFrame, RecallResponseFrame, ResponseBody, TxnAbortResponse, TxnBeginResponse,
     TxnCommitResponse, UnlinkResponse,
 };
-use parking_lot::Mutex;
 
 // ---------------------------------------------------------------------------
 // Mock dispatcher: deterministic per-text vector.
@@ -61,7 +60,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -1205,11 +1204,7 @@ fn rid(prefix: u8, i: u32) -> [u8; 16] {
 /// Buffer one ENCODE inside `txn`, returning the dispatch result so
 /// callers can assert on success/failure. Each call grows the buffer
 /// by exactly one (the encoder mints a fresh `MemoryId` per call).
-async fn buffer_encode(
-    fix: &Fixture,
-    txn: [u8; 16],
-    i: u32,
-) -> Result<EncodeResponse, OpError> {
+async fn buffer_encode(fix: &Fixture, txn: [u8; 16], i: u32) -> Result<EncodeResponse, OpError> {
     let text = format!("cap-fill-{i}");
     dispatch(
         RequestBody::Encode(encode_req(rid(0xE0, i), &text, Some(txn))),

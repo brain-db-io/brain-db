@@ -781,8 +781,7 @@ mod tests {
     #[test]
     fn schema_replace_request_round_trips() {
         round_trip(RequestBody::SchemaReplace(SchemaReplaceRequest {
-            schema_document: "namespace acme\ndefine entity_type Widget { attributes {} }\n"
-                .into(),
+            schema_document: "namespace acme\ndefine entity_type Widget { attributes {} }\n".into(),
             force_drop_existing: true,
             request_id: [0xAB; 16],
         }));

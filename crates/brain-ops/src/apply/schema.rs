@@ -87,7 +87,7 @@ mod tests {
     #[test]
     fn set_extractor_enabled_round_trips() {
         let dir = TempDir::new().unwrap();
-        let mut db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
+        let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
 
         // Seed an extractor row.
         let id;
@@ -134,7 +134,7 @@ mod tests {
     #[test]
     fn upsert_schema_round_trips_and_increments_version() {
         let dir = TempDir::new().unwrap();
-        let mut db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
+        let db = MetadataDb::open(dir.path().join("meta.redb")).unwrap();
 
         let source = r#"
 namespace acme

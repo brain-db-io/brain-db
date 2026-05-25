@@ -40,7 +40,7 @@ impl Dispatcher for NopDispatcher {
 fn make_ops_context() -> (Arc<OpsContext>, tempfile::TempDir) {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -49,7 +49,10 @@ fn make_ops_context() -> (Arc<OpsContext>, tempfile::TempDir) {
         metadata,
         writer as Arc<dyn WriterHandle>,
     );
-    (Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)), tempdir)
+    (
+        Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor)),
+        tempdir,
+    )
 }
 
 async fn run_one(

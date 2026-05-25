@@ -105,8 +105,9 @@ pub async fn handle_schema_replace(
     // 4. Atomic drop-then-replace inside one redb wtxn.
     let now = crate::txn::now_unix_nanos_pub();
     let (dropped_count, new_version) = {
-        let mut db_guard = ctx.executor.metadata.lock();
-        let wtxn = db_guard
+        let wtxn = ctx
+            .executor
+            .metadata
             .write_txn()
             .map_err(|e| OpError::Internal(format!("write_txn: {e}")))?;
 

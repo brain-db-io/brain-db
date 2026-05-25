@@ -1,7 +1,7 @@
 //! Unit tests for the EXPLAIN + TRACE renderers (phase 23.8).
 
-use brain_core::StatementKind;
 use brain_core::EntityId;
+use brain_core::StatementKind;
 
 use super::{render_plan, render_trace};
 use crate::hybrid::executor::{QueryMetadata, RetrieverOutcome, RetrieverStatus};

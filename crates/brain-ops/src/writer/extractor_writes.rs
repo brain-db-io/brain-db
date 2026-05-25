@@ -18,10 +18,10 @@
 //! desired side-effect. Calling the wire handler from the worker
 //! would re-enter the metadata lock and duplicate events.
 
-use brain_core::{Relation, Statement, StatementKind, StatementObject, SubjectRef};
 use brain_core::{
     EntityId, ExtractorId, MemoryId, PredicateId, RelationId, RelationTypeId, StatementId,
 };
+use brain_core::{Relation, Statement, StatementKind, StatementObject, SubjectRef};
 use brain_metadata::relation::ops::{relation_create, RelationOpError};
 use brain_metadata::statement::{pack_evidence_ids, statement_create, StatementOpError};
 use redb::WriteTransaction;
@@ -130,8 +130,8 @@ pub fn relation_create_internal(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use brain_core::SubjectRef;
     use brain_core::EntityType;
+    use brain_core::SubjectRef;
     use brain_metadata::entity::ops::entity_put;
     use brain_metadata::entity::types::entity_type_intern;
     use brain_metadata::relation::ops::relation_get;

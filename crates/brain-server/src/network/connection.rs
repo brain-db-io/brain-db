@@ -36,9 +36,11 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
-use brain_protocol::error::{ErrorCategory, ErrorCode};
 use brain_protocol::codec::opcode::Opcode;
-use brain_protocol::envelope::response::{ErrorCategoryWire, ErrorCodeWire, ErrorResponse, ResponseBody};
+use brain_protocol::envelope::response::{
+    ErrorCategoryWire, ErrorCodeWire, ErrorResponse, ResponseBody,
+};
+use brain_protocol::error::{ErrorCategory, ErrorCode};
 use brain_protocol::{Frame, HEADER_SIZE, MAX_PAYLOAD_BYTES};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{split, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};

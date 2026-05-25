@@ -104,13 +104,15 @@ impl SubscriptionMetrics {
 
 use brain_core::{MemoryId, ShardId};
 use brain_ops::{parse_filter, EventEnvelope, ParsedFilter};
-use brain_protocol::error::ErrorCode;
 use brain_protocol::codec::opcode::Opcode;
-use brain_protocol::envelope::request::{CancelStreamRequest, SubscribeRequest, UnsubscribeRequest};
+use brain_protocol::envelope::request::{
+    CancelStreamRequest, SubscribeRequest, UnsubscribeRequest,
+};
 use brain_protocol::envelope::response::{
     CancelStreamAck, ErrorCategoryWire, ErrorCodeWire, ErrorResponse, ResponseBody,
     SubscriptionEvent, UnsubscribeResponse,
 };
+use brain_protocol::error::ErrorCode;
 use brain_protocol::Frame;
 use parking_lot::Mutex;
 use tokio::sync::{broadcast, watch};

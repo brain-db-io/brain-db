@@ -46,7 +46,7 @@ impl StaleExtractionDetector {
     }
 
     async fn run_once(&self, ctx: &WorkerContext) -> Result<usize, WorkerError> {
-        let metadata = ctx.ops.executor.metadata.lock();
+        let metadata = ctx.ops.executor.metadata.as_ref();
         let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("stale detector rtxn: {e}")))?;

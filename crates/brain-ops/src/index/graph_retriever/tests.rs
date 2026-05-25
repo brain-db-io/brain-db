@@ -13,7 +13,6 @@ use brain_metadata::entity::types::entity_type_intern;
 use brain_metadata::relation::ops::relation_create;
 use brain_metadata::relation::types::relation_type_intern;
 use brain_metadata::MetadataDb;
-use parking_lot::Mutex;
 use tempfile::TempDir;
 
 use super::BrainGraphRetriever;
@@ -24,41 +23,35 @@ use super::BrainGraphRetriever;
 
 const PERSON_TYPE: &str = "brain:Person";
 
-fn ensure_person_type(metadata: &mut MetadataDb) -> EntityTypeId {
+fn ensure_person_type(metadata: &MetadataDb) -> EntityTypeId {
     let wtxn = metadata.write_txn().expect("wtxn");
     let id = entity_type_intern(&wtxn, PERSON_TYPE, Vec::new(), 0).expect("type intern");
     wtxn.commit().expect("commit");
     id
 }
 
-fn make_retriever_with_db(metadata: Arc<Mutex<MetadataDb>>) -> BrainGraphRetriever {
+fn make_retriever_with_db(metadata: Arc<MetadataDb>) -> BrainGraphRetriever {
     BrainGraphRetriever::new(metadata)
 }
 
-fn fresh_with_metadata() -> (TempDir, Arc<Mutex<MetadataDb>>) {
+fn fresh_with_metadata() -> (TempDir, Arc<MetadataDb>) {
     let dir = TempDir::new().expect("tempdir");
-    let mut metadata = MetadataDb::open(dir.path().join("metadata.redb")).expect("open");
-    ensure_person_type(&mut metadata);
-    (dir, Arc::new(Mutex::new(metadata)))
+    let metadata = MetadataDb::open(dir.path().join("metadata.redb")).expect("open");
+    ensure_person_type(&metadata);
+    (dir, Arc::new(metadata))
 }
 
-fn put_entity(metadata: &Arc<Mutex<MetadataDb>>, name: &str, type_id: EntityTypeId) -> EntityId {
+fn put_entity(metadata: &Arc<MetadataDb>, name: &str, type_id: EntityTypeId) -> EntityId {
     let id = EntityId::new();
     let entity = Entity::new_active(id, type_id, name.into(), name.to_lowercase(), 0);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().expect("wtxn");
+    let wtxn = metadata.write_txn().expect("wtxn");
     entity_put(&wtxn, &entity).expect("entity_put");
     wtxn.commit().expect("commit");
     id
 }
 
-fn intern_relation_type(
-    metadata: &Arc<Mutex<MetadataDb>>,
-    namespace: &str,
-    name: &str,
-) -> RelationTypeId {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().expect("wtxn");
+fn intern_relation_type(metadata: &Arc<MetadataDb>, namespace: &str, name: &str) -> RelationTypeId {
+    let wtxn = metadata.write_txn().expect("wtxn");
     let id = relation_type_intern(
         &wtxn,
         namespace,
@@ -77,7 +70,7 @@ fn intern_relation_type(
 }
 
 fn create_relation(
-    metadata: &Arc<Mutex<MetadataDb>>,
+    metadata: &Arc<MetadataDb>,
     relation_type: RelationTypeId,
     from: EntityId,
     to: EntityId,
@@ -94,18 +87,16 @@ fn create_relation(
         0,
         false,
     );
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().expect("wtxn");
+    let wtxn = metadata.write_txn().expect("wtxn");
     let created = relation_create(&wtxn, &r, 0).expect("relation_create");
     wtxn.commit().expect("commit");
     created
 }
 
-fn current_person_type(metadata: &Arc<Mutex<MetadataDb>>) -> EntityTypeId {
+fn current_person_type(metadata: &Arc<MetadataDb>) -> EntityTypeId {
     // Person type was already interned by fresh_with_metadata;
     // re-call intern to get its id back.
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().expect("wtxn");
+    let wtxn = metadata.write_txn().expect("wtxn");
     let id = entity_type_intern(&wtxn, PERSON_TYPE, Vec::new(), 0).expect("intern");
     wtxn.commit().expect("commit");
     id
@@ -495,7 +486,7 @@ mod memory_anchor {
     }
 
     /// Insert an active memory row for the anchor existence guard.
-    fn put_memory(metadata: &Arc<Mutex<MetadataDb>>, id: MemoryId) {
+    fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
             AgentId::from([0u8; 16]),
@@ -508,8 +499,7 @@ mod memory_anchor {
             0,
             1_700_000_000_000_000_000,
         );
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut t = wtxn.open_table(MEMORIES_TABLE).expect("open memories");
             t.insert(&id.to_be_bytes(), &row).expect("insert memory");
@@ -518,7 +508,7 @@ mod memory_anchor {
     }
 
     fn link_memories(
-        metadata: &Arc<Mutex<MetadataDb>>,
+        metadata: &Arc<MetadataDb>,
         from: MemoryId,
         kind: EdgeKind,
         to: MemoryId,
@@ -530,8 +520,7 @@ mod memory_anchor {
             derived_by::CLIENT,
             1_700_000_000_000_000_000,
         );
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut out = wtxn.open_table(EDGES_TABLE).expect("out");
             let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).expect("rev");
@@ -695,7 +684,7 @@ mod unified_walk {
         MemoryId::pack(1, slot, 1)
     }
 
-    fn put_memory(metadata: &Arc<Mutex<MetadataDb>>, id: MemoryId) {
+    fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
             AgentId::from([0u8; 16]),
@@ -708,8 +697,7 @@ mod unified_walk {
             0,
             1_700_000_000_000_000_000,
         );
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut t = wtxn.open_table(MEMORIES_TABLE).expect("open memories");
             t.insert(&id.to_be_bytes(), &row).expect("insert memory");
@@ -718,7 +706,7 @@ mod unified_walk {
     }
 
     fn link_memories(
-        metadata: &Arc<Mutex<MetadataDb>>,
+        metadata: &Arc<MetadataDb>,
         from: MemoryId,
         kind: EdgeKind,
         to: MemoryId,
@@ -730,8 +718,7 @@ mod unified_walk {
             derived_by::CLIENT,
             1_700_000_000_000_000_000,
         );
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut out = wtxn.open_table(EDGES_TABLE).expect("out");
             let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).expect("rev");
@@ -1152,9 +1139,7 @@ mod unified_walk {
 
     #[test]
     fn walk_with_statements_pivot_emits_statement_ids_for_entity_nodes() {
-        use brain_core::{
-            EvidenceRef, Statement, StatementKind, StatementObject, SubjectRef,
-        };
+        use brain_core::{EvidenceRef, Statement, StatementKind, StatementObject, SubjectRef};
         use brain_core::{ExtractorId, StatementId};
         use brain_metadata::schema::predicate::predicate_intern;
         use brain_metadata::statement::statement_create;
@@ -1168,8 +1153,7 @@ mod unified_walk {
         // pointing at Bob — keeps the object an Entity so we don't
         // depend on literal/value plumbing.
         let predicate_id = {
-            let mut db = metadata.lock();
-            let wtxn = db.write_txn().expect("wtxn");
+            let wtxn = metadata.write_txn().expect("wtxn");
             let id = predicate_intern(&wtxn, "brain", "knows_about", None, 0, 1, "", false, 0)
                 .expect("predicate");
             wtxn.commit().expect("commit");
@@ -1189,8 +1173,7 @@ mod unified_walk {
             1,
         );
         {
-            let mut db = metadata.lock();
-            let wtxn = db.write_txn().expect("wtxn");
+            let wtxn = metadata.write_txn().expect("wtxn");
             statement_create(&wtxn, &stmt, 1_700_000_000_000_000_000).expect("statement_create");
             wtxn.commit().expect("commit");
         }
@@ -1244,7 +1227,7 @@ mod property {
         MemoryId::pack(1, slot, 1)
     }
 
-    fn put_memory(metadata: &Arc<Mutex<MetadataDb>>, id: MemoryId) {
+    fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
             AgentId::from([0u8; 16]),
@@ -1257,8 +1240,7 @@ mod property {
             0,
             1_700_000_000_000_000_000,
         );
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut t = wtxn.open_table(MEMORIES_TABLE).expect("open memories");
             t.insert(&id.to_be_bytes(), &row).expect("insert memory");
@@ -1266,16 +1248,11 @@ mod property {
         wtxn.commit().expect("commit");
     }
 
-    fn link_unique(
-        metadata: &Arc<Mutex<MetadataDb>>,
-        edges: &[(usize, usize)],
-        nodes: &[MemoryId],
-    ) {
+    fn link_unique(metadata: &Arc<MetadataDb>, edges: &[(usize, usize)], nodes: &[MemoryId]) {
         // Dedup at construction so the link op never trips on a
         // duplicate key.
         let mut seen: HashSet<(usize, usize)> = HashSet::new();
-        let mut db = metadata.lock();
-        let wtxn = db.write_txn().expect("wtxn");
+        let wtxn = metadata.write_txn().expect("wtxn");
         {
             let mut out = wtxn.open_table(EDGES_TABLE).expect("out");
             let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).expect("rev");

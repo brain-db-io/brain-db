@@ -48,10 +48,10 @@ use std::pin::Pin;
 use std::sync::Arc;
 use std::time::{Instant, SystemTime, UNIX_EPOCH};
 
-use brain_core::{StatementKind, StatementObject, StatementValue};
 use brain_core::{
     AgentId, ContextId, EntityId, ExtractorId, Memory as CoreMemory, MemoryId, MemoryKind, Salience,
 };
+use brain_core::{StatementKind, StatementObject, StatementValue};
 use brain_extractors::{
     classify_statement_kind_pattern,
     resolver::{
@@ -530,7 +530,7 @@ async fn drain_batch(
     for (idx, (memory_id, text)) in items.iter().enumerate() {
         if worker.knobs.skip_already_extracted {
             let probe = {
-                let db_guard = ctx.ops.executor.metadata.lock();
+                let db_guard = ctx.ops.executor.metadata.as_ref();
                 match db_guard.read_txn() {
                     Ok(rtxn) => pipeline_has_extracted(&rtxn, *memory_id)
                         .map_err(|e| format!("pipeline_has_extracted: {e}")),
@@ -1017,7 +1017,7 @@ async fn apply_outcome(
     // rolled-back txn never produces phantom enqueues.
     let mut causal_enqueues: Vec<brain_core::StatementId> = Vec::new();
 
-    let mut db_guard = ctx.ops.executor.metadata.lock();
+    let db_guard = ctx.ops.executor.metadata.as_ref();
     let wtxn = db_guard
         .write_txn()
         .map_err(|e| ApplyError::Storage(format!("write_txn: {e:?}")))?;
@@ -1392,7 +1392,7 @@ fn audit_failure(
     memory_id: MemoryId,
     reason: String,
 ) -> Result<(), WorkerError> {
-    let mut db_guard = ctx.ops.executor.metadata.lock();
+    let db_guard = ctx.ops.executor.metadata.as_ref();
     let wtxn = db_guard
         .write_txn()
         .map_err(|e| WorkerError::Ops(format!("audit_failure write_txn: {e:?}")))?;

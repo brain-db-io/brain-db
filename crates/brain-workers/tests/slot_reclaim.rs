@@ -23,7 +23,6 @@ use brain_protocol::envelope::response::ResponseBody;
 use brain_workers::{
     SlotReclamationWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 use uuid::Uuid;
 
@@ -59,7 +58,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -94,8 +93,7 @@ fn seed_memory(
     tombstoned_at_unix_nanos: Option<u64>,
 ) -> MemoryId {
     let id = make_id(slot);
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let mut meta = MemoryMetadata::new_active(
@@ -118,8 +116,7 @@ fn seed_memory(
 }
 
 fn seed_edge(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt: MemoryId) {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut out = wtxn.open_table(EDGES_TABLE).unwrap();
         let mut rev = wtxn.open_table(EDGES_REVERSE_TABLE).unwrap();
@@ -139,37 +136,32 @@ fn seed_edge(metadata: &SharedMetadataDb, src: MemoryId, kind: EdgeKind, tgt: Me
 }
 
 fn count_memories(metadata: &SharedMetadataDb) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     table.iter().unwrap().count()
 }
 
 fn memory_exists(metadata: &SharedMetadataDb, id: MemoryId) -> bool {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     table.get(id.to_be_bytes()).unwrap().is_some()
 }
 
 fn read_meta(metadata: &SharedMetadataDb, id: MemoryId) -> Option<MemoryMetadata> {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let table = rtxn.open_table(MEMORIES_TABLE).unwrap();
     table.get(id.to_be_bytes()).unwrap().map(|a| a.value())
 }
 
 fn edges_out_count(metadata: &SharedMetadataDb, src: MemoryId) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     list_memory_edges_from(&rtxn, src, None)
         .map(|v| v.len())
         .unwrap_or(0)
 }
 
 fn edges_in_count(metadata: &SharedMetadataDb, tgt: MemoryId) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     list_memory_edges_to(&rtxn, tgt, None)
         .map(|v| v.len())
         .unwrap_or(0)

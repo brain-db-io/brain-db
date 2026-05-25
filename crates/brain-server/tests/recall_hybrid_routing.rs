@@ -15,15 +15,17 @@
 
 #![cfg(target_os = "linux")]
 
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::SchemaUploadRequest;
-use brain_protocol::codec::opcode::Opcode;
-use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest};
+use brain_protocol::envelope::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, TxnBeginRequest,
+};
 use brain_protocol::envelope::response::{RecallResponseFrame, ResponseBody};
 use brain_protocol::Frame;
 use brain_protocol::RequestBody;
+use brain_protocol::SchemaUploadRequest;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
 

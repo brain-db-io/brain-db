@@ -15,10 +15,10 @@
 use std::net::SocketAddr;
 
 use brain_core::AgentId;
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AgentPermissions, AuthMethod, AuthOkPayload, HelloCapabilities, ServerFeatures, WelcomePayload,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 use brain_sdk_rust::ClientError;
 use brain_sdk_rust::{Client, ClientConfig};

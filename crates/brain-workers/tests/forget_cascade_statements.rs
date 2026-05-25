@@ -9,11 +9,11 @@
 use std::sync::Arc;
 
 use brain_core::{
-    Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
-    StatementKind, StatementObject, StatementValue, SubjectRef,
+    AgentId, ContextId, EntityId, ExtractorId, MemoryId, MemoryKind, NodeRef, Salience,
 };
 use brain_core::{
-    AgentId, ContextId, EntityId, ExtractorId, MemoryId, MemoryKind, NodeRef, Salience,
+    Entity, EntityType, EvidenceEntry, EvidenceRef, PredicateId, Statement, StatementId,
+    StatementKind, StatementObject, StatementValue, SubjectRef,
 };
 use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
 use brain_index::{IndexParams, SharedHnsw};
@@ -24,13 +24,12 @@ use brain_metadata::tables::statement::STATEMENTS_TABLE;
 use brain_metadata::MetadataDb;
 use brain_ops::write::phase::TombstoneMode;
 use brain_ops::{
-    ForgetCascadeJob, ForgetCascadeMetrics, OpsContext, Phase, RealWriterHandle, TombstoneTarget,
-    Write, WriteId,
+    ForgetCascadeJob, ForgetCascadeMetrics, Phase, RealWriterHandle, TombstoneTarget, Write,
+    WriteId,
 };
 use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::workers::forget_cascade::ForgetCascadeWorker;
 use brain_workers::WorkerContext;
-use parking_lot::Mutex;
 use smallvec::SmallVec;
 use std::sync::atomic::AtomicBool;
 use tempfile::TempDir;
@@ -61,7 +60,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let mut writer_raw = RealWriterHandle::new(metadata.clone(), hnsw_writer);
 
@@ -102,16 +101,14 @@ fn make_entity(metadata: &SharedMetadataDb, name: &str) -> EntityId {
         normalize_name(name),
         NOW,
     );
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     entity_put(&wtxn, &e).unwrap();
     wtxn.commit().unwrap();
     id
 }
 
 fn intern_predicate(metadata: &SharedMetadataDb, name: &str) -> PredicateId {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     let id = predicate_intern(
         &wtxn,
         "test",
@@ -157,8 +154,7 @@ fn seed_statement(
         1,
     );
     s.confidence = stmt_conf;
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     statement_create(&wtxn, &s, NOW).unwrap();
     wtxn.commit().unwrap();
     id
@@ -244,8 +240,7 @@ fn hard_forget_cascade_tombstones_single_evidence_statement() {
 
     // Pre-FORGET: the dependent surfaces.
     {
-        let db = fx.metadata.lock();
-        let rtxn = db.read_txn().unwrap();
+        let rtxn = fx.metadata.read_txn().unwrap();
         let deps = statements_citing_memory(&rtxn, m).unwrap();
         assert_eq!(deps, vec![s], "pre-FORGET dependent must surface");
     }
@@ -264,7 +259,7 @@ fn hard_forget_cascade_tombstones_single_evidence_statement() {
     assert_eq!(processed, 1);
     assert_eq!(fx.worker.queue_depth(), 0);
 
-    let db = fx.metadata.lock();
+    let db = fx.metadata.as_ref();
     assert!(
         statement_is_tombstoned(&db, s),
         "single-evidence statement must be tombstoned post-cascade"
@@ -291,7 +286,7 @@ fn soft_forget_also_enqueues_cascade() {
     assert_eq!(fx.worker.queue_depth(), 1, "soft FORGET must enqueue");
     drive_worker_once(&fx.worker, &fx.ctx);
 
-    let db = fx.metadata.lock();
+    let db = fx.metadata.as_ref();
     assert!(statement_is_tombstoned(&db, s));
 }
 
@@ -309,7 +304,7 @@ fn cascade_rederives_confidence_when_other_evidence_remains() {
     tombstone_memory(&fx.writer, m1, TombstoneMode::Hard);
     drive_worker_once(&fx.worker, &fx.ctx);
 
-    let db = fx.metadata.lock();
+    let db = fx.metadata.as_ref();
     assert!(!statement_is_tombstoned(&db, s));
     let post = statement_confidence(&db, s).unwrap();
     // Noisy-OR over a single c=0.8 entry at age=0 → ~0.8.
@@ -340,7 +335,7 @@ fn cascade_drains_multiple_pending_jobs() {
 
     let processed = drive_worker_once(&fx.worker, &fx.ctx);
     assert!(processed >= 2);
-    let db = fx.metadata.lock();
+    let db = fx.metadata.as_ref();
     assert!(statement_is_tombstoned(&db, s1));
     assert!(statement_is_tombstoned(&db, s2));
 }

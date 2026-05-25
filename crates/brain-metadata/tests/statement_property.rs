@@ -10,10 +10,10 @@
 //! references resolve.
 
 use brain_core::{
-    Entity, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
+    ContextId, EntityId, EntityTypeId, ExtractorId, MemoryId, StatementId, StatementKind,
 };
 use brain_core::{
-    ContextId, EntityId, EntityTypeId, ExtractorId, MemoryId, StatementId, StatementKind,
+    Entity, EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
 };
 use brain_metadata::entity::ops::entity_put;
 use brain_metadata::schema::predicate::predicate_intern_or_get;

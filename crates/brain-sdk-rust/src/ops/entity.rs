@@ -32,12 +32,12 @@
 use std::marker::PhantomData;
 
 use brain_core::EntityId;
+use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{
     EntityCreateRequest, EntityGetRequest, EntityListRequest, EntityListResponseFrame,
     EntityMergeRequest, EntityRenameRequest, EntityResolveRequest, EntityTombstoneRequest,
     EntityUnmergeRequest, EntityUpdateRequest, ResolutionOutcomeWire,
 };
-use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::{Frame, RequestBody, ResponseBody};
 
 use crate::client::Client;

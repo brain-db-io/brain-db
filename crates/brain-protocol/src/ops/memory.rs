@@ -3,8 +3,10 @@
 
 use rkyv::{Archive, Deserialize, Serialize};
 
-use crate::shared::primitives::{EdgeKindWire, ForgetMode, MemoryKindWire, ObservationInput, PlanState, PlanStrategy};
 use crate::envelope::request::{WireContextId, WireMemoryId, WireUuid};
+use crate::shared::primitives::{
+    EdgeKindWire, ForgetMode, MemoryKindWire, ObservationInput, PlanState, PlanStrategy,
+};
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
 #[archive(check_bytes)]
@@ -157,8 +159,9 @@ pub struct ForgetRequest {
 // Response payloads (cognitive)
 // ============================================================
 
-
-use crate::shared::enums::{InferenceKind, PlanStatus, ReasonStatus, RetrieverNameWire, StageKind, TransitionKind};
+use crate::shared::enums::{
+    InferenceKind, PlanStatus, ReasonStatus, RetrieverNameWire, StageKind, TransitionKind,
+};
 
 /// `ENCODE_RESP`.
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -439,8 +442,6 @@ pub struct UnlinkRequest {
 // ============================================================
 // Response payloads (link)
 // ============================================================
-
-
 
 /// — `LINK_RESP` body.
 #[derive(Archive, Serialize, Deserialize, Clone, Copy, Debug, PartialEq)]

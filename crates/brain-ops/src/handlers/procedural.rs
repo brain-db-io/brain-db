@@ -11,8 +11,8 @@
 
 use std::collections::HashMap;
 
-use brain_core::{Statement, StatementObject, StatementValue};
 use brain_core::{ContextId, EntityId, PredicateId, StatementKind};
+use brain_core::{Statement, StatementObject, StatementValue};
 use brain_metadata::schema::predicate::{
     predicate_get, predicate_lookup_by_qname, PredicateOpError,
 };
@@ -136,8 +136,9 @@ pub async fn handle_materialize_procedural(
     };
 
     let (matched_rows, total_candidates) = {
-        let db_guard = ctx.executor.metadata.lock();
-        let rtxn = db_guard
+        let rtxn = ctx
+            .executor
+            .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
 

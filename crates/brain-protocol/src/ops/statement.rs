@@ -252,7 +252,7 @@ pub struct StatementListRequest {
 #[cfg(test)]
 mod tests_req {
     use super::*;
-        use crate::codec::opcode::Opcode;
+    use crate::codec::opcode::Opcode;
     use crate::envelope::request::RequestBody;
     use crate::envelope::response::ResponseBody;
 
@@ -504,10 +504,12 @@ mod tests_req {
 // Response payloads
 // ============================================================
 
-
-use brain_core::{EntityId, EvidenceEntry, EvidenceOverflowId, EvidenceRef, ExtractorId, INLINE_EVIDENCE_CAP, MemoryId, PredicateId, Statement, StatementId, StatementKind, StatementObject, StatementValue, SubjectRef, TombstoneReason};
+use brain_core::{
+    EntityId, EvidenceEntry, EvidenceOverflowId, EvidenceRef, ExtractorId, MemoryId, PredicateId,
+    Statement, StatementId, StatementKind, StatementObject, StatementValue, SubjectRef,
+    TombstoneReason, INLINE_EVIDENCE_CAP,
+};
 use smallvec::SmallVec;
-
 
 // ---------------------------------------------------------------------------
 // StatementView — read-side projection.
@@ -918,11 +920,11 @@ impl StatementListResponseFrame {
 #[cfg(test)]
 mod tests_resp {
     use super::*;
-    use brain_core::{INLINE_EVIDENCE_CAP, StatementValue};
     use brain_core::{
-        ContextId, EntityId, EvidenceEntry, EvidenceOverflowId, EvidenceRef, ExtractorId,
-        MemoryId, PredicateId, Statement, StatementId, StatementKind, StatementObject, SubjectRef,
+        ContextId, EntityId, EvidenceEntry, EvidenceOverflowId, EvidenceRef, ExtractorId, MemoryId,
+        PredicateId, Statement, StatementId, StatementKind, StatementObject, SubjectRef,
     };
+    use brain_core::{StatementValue, INLINE_EVIDENCE_CAP};
     use smallvec::SmallVec;
 
     fn mem(byte: u16) -> MemoryId {

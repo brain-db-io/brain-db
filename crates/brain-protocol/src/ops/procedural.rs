@@ -44,8 +44,8 @@ pub struct MaterializeProceduralRequest {
 mod tests_req {
     use super::*;
     use crate::codec::opcode::Opcode;
-    use crate::envelope::request::RequestBody;
     use crate::codec::rkyv::{from_rkyv_bytes, to_rkyv_bytes};
+    use crate::envelope::request::RequestBody;
 
     fn sample_uuid(seed: u8) -> WireUuid {
         let mut u = [0u8; 16];

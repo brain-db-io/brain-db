@@ -14,7 +14,6 @@ use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
 use brain_workers::{
     IdempotencyCleanupWorker, Worker, WorkerConfig, WorkerContext, WorkerKind, WorkerScheduler,
 };
-use parking_lot::Mutex;
 use redb::ReadableTable;
 
 const HOUR_NS: u64 = 60 * 60 * 1_000_000_000;
@@ -45,7 +44,7 @@ struct Fixture {
 fn build_fixture() -> Fixture {
     let tempdir = tempfile::tempdir().unwrap();
     let db_path = tempdir.path().join("metadata.redb");
-    let metadata: SharedMetadataDb = Arc::new(Mutex::new(MetadataDb::open(&db_path).unwrap()));
+    let metadata: SharedMetadataDb = Arc::new(MetadataDb::open(&db_path).unwrap());
     let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
     let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
     let executor = ExecutorContext::new(
@@ -75,8 +74,7 @@ fn rid(i: u8) -> [u8; 16] {
 }
 
 fn seed_entry(metadata: &SharedMetadataDb, byte: u8, created_at_unix_nanos: u64) {
-    let mut db = metadata.lock();
-    let wtxn = db.write_txn().unwrap();
+    let wtxn = metadata.write_txn().unwrap();
     {
         let mut t = wtxn.open_table(IDEMPOTENCY_TABLE).unwrap();
         let entry = IdempotencyEntry::new(
@@ -93,8 +91,7 @@ fn seed_entry(metadata: &SharedMetadataDb, byte: u8, created_at_unix_nanos: u64)
 }
 
 fn count_entries(metadata: &SharedMetadataDb) -> usize {
-    let db = metadata.lock();
-    let rtxn = db.read_txn().unwrap();
+    let rtxn = metadata.read_txn().unwrap();
     let t = rtxn.open_table(IDEMPOTENCY_TABLE).unwrap();
     t.iter().unwrap().count()
 }

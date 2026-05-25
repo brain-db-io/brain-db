@@ -238,9 +238,8 @@ mod tests {
 
         let tempdir = tempfile::tempdir().unwrap();
         let db_path = tempdir.path().join("metadata.redb");
-        let metadata: SharedMetadataDb = Arc::new(parking_lot::Mutex::new(
-            brain_metadata::MetadataDb::open(&db_path).unwrap(),
-        ));
+        let metadata: SharedMetadataDb =
+            Arc::new(brain_metadata::MetadataDb::open(&db_path).unwrap());
         let (shared, _writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
         let executor = ExecutorContext::new(
             Arc::new(NopDispatcher) as Arc<dyn Dispatcher>,
