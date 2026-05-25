@@ -955,6 +955,34 @@ async fn run_tier_into(
                 ExtractorKind::Classifier => slot.classifier = outcome_byte,
                 ExtractorKind::Llm => slot.llm = outcome_byte,
             }
+            // Per-tier visibility: log exactly what THIS tier's extractor
+            // produced for THIS memory, before the items are merged into
+            // the cumulative slot. Lets an operator see the pattern →
+            // classifier → LLM contribution split for any encode.
+            match &result.status {
+                ExtractionStatus::Success => tracing::info!(
+                    target: "brain_debug::extractor",
+                    tier = ?tier_kind,
+                    memory_id = ?mems[i].id,
+                    extracted = result.items.len(),
+                    items = %summarize_extracted_items(&result.items),
+                    "extractor tier output",
+                ),
+                ExtractionStatus::SkippedDisabled => tracing::debug!(
+                    target: "brain_debug::extractor",
+                    tier = ?tier_kind,
+                    memory_id = ?mems[i].id,
+                    "extractor tier skipped (disabled)",
+                ),
+                other => tracing::info!(
+                    target: "brain_debug::extractor",
+                    tier = ?tier_kind,
+                    memory_id = ?mems[i].id,
+                    status = ?other,
+                    reason = %result.status_reason,
+                    "extractor tier produced nothing (non-success)",
+                ),
+            }
             if matches!(result.status, ExtractionStatus::Success) {
                 slot.items.extend(result.items);
             } else if slot.failure_reason.is_none()
@@ -964,6 +992,66 @@ async fn run_tier_into(
                     Some(format!("{:?}: {}", result.status, result.status_reason));
             }
         }
+    }
+}
+
+/// Compact one-line summary of what a tier extracted, for the
+/// per-tier debug log. Capped so a large micro-batch can't flood the
+/// log; the elided count is still reported.
+fn summarize_extracted_items(items: &[ExtractedItem]) -> String {
+    const MAX: usize = 16;
+    let mut parts: Vec<String> = Vec::with_capacity(items.len().min(MAX));
+    for item in items.iter().take(MAX) {
+        let part = match item {
+            ExtractedItem::EntityMention(m) => {
+                let ty = if m.entity_type_qname.is_empty() {
+                    "?"
+                } else {
+                    m.entity_type_qname.as_str()
+                };
+                format!("entity[{ty}] {:?}@{:.2}", m.text, m.confidence)
+            }
+            ExtractedItem::StatementMention(m) => format!(
+                "stmt[{}] {:?}->{:?}@{:.2}",
+                m.predicate_qname,
+                m.subject_text.as_deref().unwrap_or(""),
+                m.object_text.as_deref().unwrap_or(""),
+                m.confidence,
+            ),
+            ExtractedItem::RelationMention(m) => format!(
+                "rel[{}] {:?}->{:?}@{:.2}",
+                m.relation_type_qname, m.subject_text, m.object_text, m.confidence,
+            ),
+        };
+        parts.push(part);
+    }
+    if items.len() > MAX {
+        parts.push(format!("… +{} more", items.len() - MAX));
+    }
+    parts.join(", ")
+}
+
+/// Normalize an entity surface form for in-cycle de-duplication
+/// (trim + lowercase). Two mentions that normalize equal are treated
+/// as the same entity for this memory's extraction pass, so the
+/// pattern tier's untyped guess and the classifier's typed span don't
+/// each mint a separate entity.
+fn normalize_surface(text: &str) -> String {
+    text.trim().to_lowercase()
+}
+
+/// True if `candidate` is the better mention to keep for a surface
+/// than `current`: a typed mention (non-empty `entity_type_qname`)
+/// always beats an untyped one; among equally-typed mentions, higher
+/// confidence wins. This makes the classifier's typed span supersede
+/// the pattern tier's untyped capitalized-phrase guess.
+fn mention_is_better(candidate: &EntityMention, current: &EntityMention) -> bool {
+    let cand_typed = !candidate.entity_type_qname.is_empty();
+    let cur_typed = !current.entity_type_qname.is_empty();
+    match (cand_typed, cur_typed) {
+        (true, false) => true,
+        (false, true) => false,
+        _ => candidate.confidence > current.confidence,
     }
 }
 
@@ -1027,34 +1115,55 @@ async fn apply_outcome(
     // surface forms against.
     let embed_deps = worker.embed_deps.as_ref();
     let entity_disambiguator = worker.entity_disambiguator.as_deref();
+    // De-duplicate entity mentions by normalized surface BEFORE
+    // resolving. Multiple tiers routinely emit the same surface — the
+    // pattern tier's untyped capitalized-phrase guess and the
+    // classifier's typed span both yield "Priya Sharma" — and
+    // resolving each independently mints a second entity for the same
+    // real-world thing (and double-counts it). Keep the single best
+    // mention per surface: a typed mention beats an untyped one, and
+    // higher confidence breaks ties, so the classifier's typed span
+    // wins over the pattern guess. The resulting `counts.entities`
+    // reflects distinct entities, not raw mentions.
+    let mut best_by_surface: HashMap<String, &EntityMention> = HashMap::new();
+    let mut surface_order: Vec<String> = Vec::new();
     for item in &outcome.items {
         if let ExtractedItem::EntityMention(em) = item {
-            let (entity_id, tier) =
-                resolve_entity_mention(&wtxn, em, now, embed_deps, entity_disambiguator)?;
-            worker
-                .metrics
-                .inc_resolver_outcome(resolution_tier_to_metric(tier));
-            entity_map.insert(em.text.clone(), entity_id);
-            write_mention_edge(&wtxn, memory_id, entity_id, em, now)?;
-            // Bump the audit + metric counters for every successful
-            // resolve (Exact / Alias / Fuzzy / Create). Splitting this
-            // into "resolved (all)" vs "created (tier-4 only)" lives
-            // behind brook plan §2.4 — it needs an
-            // ExtractorItemCounts schema bump (the type is rkyv-archived
-            // so adding fields is a stored-format change). Tracked as a
-            // follow-up; today the single counter mirrors the rest of
-            // the items_written metric path.
-            counts.entities = counts.entities.saturating_add(1);
-            if matches!(tier, ResolutionTier::Created) {
-                worker
-                    .metrics
-                    .add_items_written(ExtractorItemKind::Entity, 1);
+            let key = normalize_surface(&em.text);
+            match best_by_surface.get(key.as_str()) {
+                None => {
+                    best_by_surface.insert(key.clone(), em);
+                    surface_order.push(key);
+                }
+                Some(existing) if mention_is_better(em, existing) => {
+                    best_by_surface.insert(key, em);
+                }
+                Some(_) => {}
             }
-            counts.mention_edges = counts.mention_edges.saturating_add(1);
+        }
+    }
+    for key in &surface_order {
+        let em = best_by_surface[key];
+        let (entity_id, tier) =
+            resolve_entity_mention(&wtxn, em, now, embed_deps, entity_disambiguator)?;
+        worker
+            .metrics
+            .inc_resolver_outcome(resolution_tier_to_metric(tier));
+        entity_map.insert(em.text.clone(), entity_id);
+        write_mention_edge(&wtxn, memory_id, entity_id, em, now)?;
+        // One entity + one mention edge per distinct surface. A
+        // `Created` tier means a genuinely new entity row landed; the
+        // other tiers matched an existing entity.
+        counts.entities = counts.entities.saturating_add(1);
+        if matches!(tier, ResolutionTier::Created) {
             worker
                 .metrics
-                .add_items_written(ExtractorItemKind::Mention, 1);
+                .add_items_written(ExtractorItemKind::Entity, 1);
         }
+        counts.mention_edges = counts.mention_edges.saturating_add(1);
+        worker
+            .metrics
+            .add_items_written(ExtractorItemKind::Mention, 1);
     }
 
     // Pass 2 — statements + relations. These reference entities by
