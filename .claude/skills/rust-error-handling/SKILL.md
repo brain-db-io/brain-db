@@ -23,7 +23,7 @@ Designing or reviewing how a Rust function reports failure. Brain has a strict p
 - **Libraries** (`brain-core`, `brain-protocol`, `brain-storage`, `brain-metadata`, `brain-index`, `brain-embed`, `brain-planner`, `brain-ops`, `brain-workers`, `brain-sdk-rust`): **`thiserror`**, no `anyhow`.
 - **Binaries** (`brain-server`, `brain-cli`): **`anyhow`** for ergonomic top-level handling.
 - **No `.unwrap()` outside tests.** Use `expect("invariant: <reason>")` only when reaching that line is genuinely impossible.
-- The wire-protocol error taxonomy is fixed — see `brain_protocol::error::{ProtocolError, ErrorCode, ErrorCategory}` and spec §03/10.
+- The wire-protocol error taxonomy is fixed — see `brain_protocol::error::{ProtocolError, ErrorCode, ErrorCategory}` and spec §04/07.
 
 ## Core question
 
@@ -111,5 +111,5 @@ Use ? → Need context?
   - Renamed `m06-error-handling` → `rust-error-handling`.
   - Specialized the library/application table to Brain's crate split.
   - Pinned the `expect("invariant: ...")` convention from CLAUDE.md §7.
-  - Linked spec §03/10 for the wire-protocol error taxonomy.
+  - Linked spec §04/07 for the wire-protocol error taxonomy.
   - Removed upstream m-* cross-references.

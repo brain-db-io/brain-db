@@ -1,6 +1,6 @@
 ---
 name: brain-wal-audit
-description: Audit WAL discipline (WAL-before-ack, O_DIRECT, pwritev2 RWF_DSYNC group commit, recovery idempotency). Fires on diffs in crates/brain-storage/wal/. Spec §05/03 + §05/08.
+description: Audit WAL discipline (WAL-before-ack, O_DIRECT, pwritev2 RWF_DSYNC group commit, recovery idempotency). Fires on diffs in crates/brain-storage/wal/. Spec §08/02 + §08/04.
 when-to-use: |
   Triggers:
     - Diff in crates/brain-storage/wal/**/*.rs or near WAL append / fsync paths
@@ -10,11 +10,9 @@ when-to-use: |
 trigger-files:
   - crates/brain-storage/**/*.rs
 spec-refs:
-  - spec/08_storage/04_wal_overview.md
-  - spec/08_storage/05_wal_records.md
-  - spec/08_storage/06_wal_durability.md
-  - spec/08_storage/08_recovery.md
-  - spec/20_benchmarks/06_durability_criteria.md
+  - spec/08_storage/02_wal.md
+  - spec/08_storage/04_recovery.md
+  - spec/19_benchmarks/01_correctness_and_durability.md
 ---
 
 # WAL Audit
@@ -31,14 +29,14 @@ Any change to write-ahead-log code: append, fsync, group-commit, checkpoint, rec
 - **#3 CRC everywhere.** Every WAL record has a CRC32C; reads verify; mismatches halt.
 - **#7 No silent corruption.** CRC mismatch on replay → halt + alert. Never patch over.
 
-### From spec §05/03 (the WAL format)
+### From spec §08/02 (the WAL format)
 
 - Records have a fixed header + payload + CRC32C trailer.
 - Records are appended to **segments** (rotating files); each segment carries an LSN range.
 - Writes use **O_DIRECT** to bypass the page cache (alignment-sensitive — buffers must be page-aligned).
 - Multiple records are batched into a single **`pwritev2(RWF_DSYNC)`** call ("group commit") so N concurrent writers fsync once.
 
-### From spec §05/08 (recovery)
+### From spec §08/04 (recovery)
 
 - Recovery replays from the last checkpoint LSN forward. Records past the in-progress write boundary may be torn; CRC catches and stops at the last good record.
 - Replay is **idempotent**: replaying a committed record twice produces the same outcome (the record's effect is keyed by its LSN + RequestId).
@@ -55,7 +53,7 @@ Any change to write-ahead-log code: append, fsync, group-commit, checkpoint, rec
 
 5. **Group commit batching.** If you see a fsync per record, that's wrong — collect pending records, issue one `pwritev2(RWF_DSYNC)` per shard tick.
 
-6. **Recovery idempotency.** Replaying a committed encode must NOT create a duplicate memory. Verify the recovery path consults the idempotency table (RequestId-keyed) before applying. If the record's RequestId is already in the dedupe table, skip. Tested by chaos test in spec §16/06.
+6. **Recovery idempotency.** Replaying a committed encode must NOT create a duplicate memory. Verify the recovery path consults the idempotency table (RequestId-keyed) before applying. If the record's RequestId is already in the dedupe table, skip. Tested by chaos test in spec §19/01.
 
 7. **Segment rotation.** Segments rotate at a configured size. Verify the new segment is opened *before* the rotate decision, with a fresh CRC chain — not append-then-rotate.
 
@@ -84,8 +82,8 @@ Any change to write-ahead-log code: append, fsync, group-commit, checkpoint, rec
 - `brain-invariants` — invariants #1, #3, #7.
 - `brain-arena-audit` — companion for the arena side.
 - `brain-chaos-test` — kill-during-operation tests.
-- spec §05/03, §05/08, §16/06.
+- spec §08/02, §08/04, §19/01.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §05.
+Project-local. Operationalizes spec §08.

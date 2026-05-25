@@ -1,6 +1,6 @@
 ---
 name: brain-redb-schema
-description: Audit redb metadata-store schema changes — table layout matches spec §07/02, migrations require version bump, idempotency table consulted on writes.
+description: Audit redb metadata-store schema changes — table layout matches spec §10/02, migrations require version bump, idempotency table consulted on writes.
 when-to-use: |
   Triggers:
     - Diff in crates/brain-metadata/**/*.rs
@@ -12,8 +12,7 @@ trigger-files:
   - crates/brain-metadata/**/*.rs
 spec-refs:
   - spec/10_metadata/02_table_layout.md
-  - spec/10_metadata/06_idempotency.md
-  - spec/10_metadata/08_transactions.md
+  - spec/10_metadata/04_transactions.md
 ---
 
 # redb Schema Audit
@@ -26,15 +25,15 @@ Any change to the redb metadata store: tables, keys/values, indexes, transaction
 
 ### Spec contracts
 
-- **Table layout per §07/02.** Every table named in the spec exists; types match the documented key/value pairs.
-- **Idempotency table per §07/06.** Every write op consults a `RequestId → response` table before doing work; same params → cached response; different params with same id → `Conflict`.
-- **Transactions per §07/08.** Multi-table writes go through a single redb write transaction; commits are atomic.
+- **Table layout per §10/02.** Every table named in the spec exists; types match the documented key/value pairs.
+- **Idempotency table per §10/02.** Every write op consults a `RequestId → response` table before doing work; same params → cached response; different params with same id → `Conflict`.
+- **Transactions per §10/04.** Multi-table writes go through a single redb write transaction; commits are atomic.
 - **Schema versioning.** Adding a table or changing a key/value type is a schema-version bump. Migration code must handle the prior version (or document "no support for old data").
 
 ## Workflow
 
 1. **Identify the diff shape.** New table? Renamed table? Key/value type change? Migration code? Each has a different audit path.
-2. **Cross-check against spec §07/02 (table layout).** Every spec'd table is present. Every present table is spec'd. Drift either direction → STOP and surface.
+2. **Cross-check against spec §10/02 (table layout).** Every spec'd table is present. Every present table is spec'd. Drift either direction → STOP and surface.
 3. **Idempotency.** New write op? Confirm the handler:
    - Hashes the canonical request payload (deterministic).
    - Reads `idempotency_table[request_id]`.
@@ -51,7 +50,7 @@ Any change to the redb metadata store: tables, keys/values, indexes, transaction
 
 | Pattern | Why bad | Fix |
 |---|---|---|
-| New table without spec entry | Drift | STOP and surface; spec §07/02 must update first |
+| New table without spec entry | Drift | STOP and surface; spec §10/02 must update first |
 | Idempotency table not consulted on write | Duplicate effects on retry | Read first, write last |
 | Multiple `write_txn().commit()` for one op | Partial-commit risk | Single transaction, single commit |
 | Schema version unchanged on type change | Migration bug | Bump version + add migration |
@@ -69,8 +68,8 @@ Any change to the redb metadata store: tables, keys/values, indexes, transaction
 
 - `brain-invariants` — invariant #5 (idempotency by RequestId).
 - `brain-chaos-test` — for the kill-during-transaction tests.
-- spec §07.
+- spec §10.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §07.
+Project-local. Operationalizes spec §10.

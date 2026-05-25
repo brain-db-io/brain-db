@@ -15,7 +15,7 @@ trigger-files:
   - crates/brain-ops/**/*.rs
   - crates/brain-protocol/src/{frame,request,response}.rs
 spec-refs:
-  - spec/20_benchmarks/02_latency_targets.md
+  - spec/19_benchmarks/02_performance_targets.md
   - spec/01_architecture/05_hardware_and_targets.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/m10-performance
@@ -27,14 +27,14 @@ source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594
 
 Hot-path or budget-bound work. Don't apply this skill to setup code, tests, CLI parsing, or anywhere `cargo bench` doesn't run.
 
-Brain has spec'd latency targets (spec §16/02): single-shard ENCODE p99 ≤ 1 ms, RECALL p99 ≤ 5 ms (top-k=10). Optimization is judged against those numbers — not against feelings.
+Brain has spec'd latency targets (spec §19/02): single-shard ENCODE p99 ≤ 1 ms, RECALL p99 ≤ 5 ms (top-k=10). Optimization is judged against those numbers — not against feelings.
 
 ## Core question
 
 **What's the bottleneck, and is optimization worth it?** Before touching the hot path:
 
 1. **Have you measured?** Profile (`flamegraph`, `perf`, `dhat`) and benchmark (`criterion`). Don't guess.
-2. **What's the SLA?** Spec §16/02 has the targets. If we're already inside, stop.
+2. **What's the SLA?** Spec §19/02 has the targets. If we're already inside, stop.
 3. **What's the trade-off?** Complexity vs. speed; memory vs. CPU; latency vs. throughput.
 
 ## Optimization priority (typical wins)
@@ -56,7 +56,7 @@ Always start at the top. A `Vec` instead of a `LinkedList` beats hand-rolled SIM
 - **Don't add Tokio inside a shard.** Glommio + thread-per-core; `tokio::*` belongs only at the connection layer.
 - **Don't hold a lock across `.await`.**
 - **Don't add `Send + Sync`** to per-shard types.
-- **Use rkyv + bytemuck for zero copy** on the read path (spec §03/04).
+- **Use rkyv + bytemuck for zero copy** on the read path (spec §04/02).
 
 ## Workflow
 
@@ -64,7 +64,7 @@ Always start at the top. A `Vec` instead of a `LinkedList` beats hand-rolled SIM
 2. **Identify the actual hot spot.** Not the function you suspect — the one the profile shows.
 3. **Apply the highest-priority fix that addresses it** (see priority table). Often this is a data-structure change, not a micro-opt.
 4. **Re-measure.** If the win is marginal (<5%), revert. Complexity has to pay for itself.
-5. **Pin the win.** Add the benchmark as a regression test (spec §16's acceptance criteria).
+5. **Pin the win.** Add the benchmark as a regression test (spec §19's acceptance criteria).
 
 ## Tooling reference
 
@@ -118,6 +118,6 @@ Always start at the top. A `Vec` instead of a `LinkedList` beats hand-rolled SIM
 - **Adaptations:**
   - Renamed `m10-performance` → `rust-perf`.
   - Layered Brain hot-path rules (CLAUDE.md §9) on top of the generic technique list.
-  - Linked the spec's latency targets (`16/02`) so optimization is bounded by spec, not vibes.
+  - Linked the spec's latency targets (`19/02`) so optimization is bounded by spec, not vibes.
   - Removed the upstream "Trace Up / Trace Down" graph references.
   - Added the "Re-measure; revert if marginal" step to the workflow.

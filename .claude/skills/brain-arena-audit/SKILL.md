@@ -1,6 +1,6 @@
 ---
 name: brain-arena-audit
-description: Audit arena discipline — 1600-byte slots, slot-version stamping, per-slot CRC, mmap safety. Fires on diffs in crates/brain-storage/arena/. Spec §05/02.
+description: Audit arena discipline — 1600-byte slots, slot-version stamping, per-slot CRC, mmap safety. Fires on diffs in crates/brain-storage/arena/. Spec §08/01.
 when-to-use: |
   Triggers:
     - Diff in crates/brain-storage/arena/**/*.rs or near slot read/write paths
@@ -10,7 +10,7 @@ when-to-use: |
 trigger-files:
   - crates/brain-storage/**/*.rs
 spec-refs:
-  - spec/08_storage/02_arena_layout.md
+  - spec/08_storage/01_arena.md
   - spec/02_data_model/02_memory.md
 ---
 
@@ -34,14 +34,14 @@ Any change to the arena (memory-mapped slot store): slot layout, slot read/write
 - **#4 Slot version on `MemoryId`.** Encoded in the ID. Stale references → `NotFound`.
 - **#7 No silent corruption.** Mismatch → halt + alert.
 
-### From spec §05/02 (arena layout)
+### From spec §08/01 (arena layout)
 
-- Slot size: **1600 bytes** (verify in spec §05/02 before assuming).
+- Slot size: **1600 bytes** (verify in spec §08/01 before assuming).
 - Slot header carries: slot version, kind, salience, timestamps, CRC of the rest of the slot.
 - Vector portion: **1536 bytes** at the end of the slot (384 × f32 little-endian).
 - Slots are allocated from a free-list per shard; reclaimed slots increment the slot version.
 
-### From spec §02/03 (identifiers)
+### From spec §02/02 (identifiers)
 
 - `MemoryId` is `u128` packed: `[0..56]` slot index, `[56..72]` slot version, `[72..80]` shard, `[80..128]` reserved.
 - A `MemoryId` resolves to a (shard, slot, version) triple. Stale slot version → `NotFound`.
@@ -52,7 +52,7 @@ Any change to the arena (memory-mapped slot store): slot layout, slot read/write
 
 2. **Slot size.** Confirm `SLOT_BYTES == 1600`. If the diff changes it, this is a wire/format change requiring a spec change first.
 
-3. **Vector layout.** The vector portion is **little-endian f32** (spec §03/04 §4.2). The header is the first 64 bytes; the vector is the trailing 1536. `bytemuck::cast_slice<u8, f32>` over the trailing slice must yield 384 elements.
+3. **Vector layout.** The vector portion is **little-endian f32** (spec §04/02 §4.2). The header is the first 64 bytes; the vector is the trailing 1536. `bytemuck::cast_slice<u8, f32>` over the trailing slice must yield 384 elements.
 
 4. **Slot CRC.** Computed over header (excluding the CRC field) + vector bytes. On read: verify. On mismatch: halt the shard with `tracing::error!`. Never overwrite the stored CRC with a recomputed one (invariant #7).
 
@@ -72,7 +72,7 @@ Any change to the arena (memory-mapped slot store): slot layout, slot read/write
 | Pattern | Why bad | Fix |
 |---|---|---|
 | `MemoryId::pack(shard, slot, 0)` | Slot version always 0 → stale-detection broken | Use the slot's current version |
-| Vector stored big-endian | Spec §03/04 §4.2 says LE | `to_le_bytes` / `from_le_bytes` |
+| Vector stored big-endian | Spec §04/02 §4.2 says LE | `to_le_bytes` / `from_le_bytes` |
 | CRC over slot data only (excluding header) | Doesn't catch header corruption | CRC over header (minus CRC field) + vector |
 | Reclaim doesn't bump version | Stale `MemoryId` reads new data | `slot.header.version += 1; ...` |
 | `unsafe { *ptr.add(idx) }` without bounds check | OOB read | Check `idx < self.capacity()` first |
@@ -92,8 +92,8 @@ Any change to the arena (memory-mapped slot store): slot layout, slot read/write
 - `brain-invariants` — invariants #3, #4, #7.
 - `brain-wal-audit` — companion for WAL durability.
 - `rust-unsafe-checker` — for the `unsafe` blocks in mmap code.
-- spec §05/02, §02/03.
+- spec §08/01, §02/02.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §05/02.
+Project-local. Operationalizes spec §08/01.

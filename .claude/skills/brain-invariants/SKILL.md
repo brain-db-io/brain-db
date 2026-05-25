@@ -14,8 +14,8 @@ trigger-files:
   - crates/brain-workers/**/*.rs
   - crates/brain-server/**/*.rs
 spec-refs:
-  - spec/20_benchmarks/06_durability_criteria.md
-  - spec/08_storage/08_recovery.md
+  - spec/19_benchmarks/01_correctness_and_durability.md
+  - spec/08_storage/04_recovery.md
 ---
 
 # Brain Invariants — Audit

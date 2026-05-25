@@ -77,7 +77,7 @@ cargo +nightly fuzz run <name> -- -max_total_time=60
 ## Cross-references
 
 - `brain-loom-design` — for concurrency-bug exploration (different tool).
-- spec §03/11 — frame validation rules.
+- spec §04/02 — frame validation rules.
 
 ## Source / Adaptations
 

@@ -1,6 +1,6 @@
 ---
 name: brain-chaos-test
-description: Design kill-during-operation tests for recovery code. Verify WAL replay idempotency, partial-write resilience, snapshot/restore correctness. Spec §16/06 + §05/08.
+description: Design kill-during-operation tests for recovery code. Verify WAL replay idempotency, partial-write resilience, snapshot/restore correctness. Spec §19/01 + §08/04.
 when-to-use: |
   Triggers:
     - Diff in WAL recovery, snapshot, restore, or any recovery code
@@ -8,9 +8,9 @@ when-to-use: |
     - Phase exit checklist for brain-storage
     - Investigating a durability incident
 spec-refs:
-  - spec/08_storage/08_recovery.md
-  - spec/20_benchmarks/06_durability_criteria.md
-  - spec/08_storage/11_failure_modes.md
+  - spec/08_storage/04_recovery.md
+  - spec/19_benchmarks/01_correctness_and_durability.md
+  - spec/08_storage/07_failure_modes.md
 ---
 
 # Chaos Test Design
@@ -21,7 +21,7 @@ Recovery code (WAL replay, segment rotation, checkpoint, snapshot, restore) need
 
 ## What this enforces
 
-Per spec §16/06 (durability criteria):
+Per spec §19/01 (durability criteria):
 
 - **Atomic ack:** an op that returned `Ok` MUST be visible after recovery; one that didn't return MUST be invisible OR cleanly rolled back.
 - **No half-states:** no torn records, no partial writes, no slot with old header + new vector.
@@ -92,8 +92,8 @@ fn kill_between_wal_append_and_fsync_loses_op_cleanly() {
 - `brain-wal-audit` — WAL discipline contracts.
 - `brain-arena-audit` — slot CRC + version invariants.
 - `brain-invariants` — the seven invariants (especially #1, #3, #5, #7).
-- spec §05/08, §05/11, §16/06.
+- spec §08/04, §08/07, §19/01.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §16/06.
+Project-local. Operationalizes spec §19/01.

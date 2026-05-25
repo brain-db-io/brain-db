@@ -1,6 +1,6 @@
 ---
 name: brain-obs-trace
-description: Verify tracing spans, OpenTelemetry attributes, structured logs at the right layer per spec §14. Fires on diffs that add public ops, error paths, or background workers.
+description: Verify tracing spans, OpenTelemetry attributes, structured logs at the right layer per spec §17. Fires on diffs that add public ops, error paths, or background workers.
 when-to-use: |
   Triggers:
     - New public op or handler — needs a tracing span
@@ -8,9 +8,7 @@ when-to-use: |
     - New background worker — needs span + metrics
     - User says "add tracing" / "observability"
 spec-refs:
-  - spec/18_observability/01_metrics.md
-  - spec/18_observability/02_logs.md
-  - spec/18_observability/03_tracing.md
+  - spec/17_observability/01_signals.md
 ---
 
 # Observability Trace
@@ -21,14 +19,14 @@ Any new public op, handler, error path, or background worker. Brain emits OpenTe
 
 ## What this enforces
 
-### Per spec §14/03 (tracing)
+### Per spec §17/01 (tracing)
 
 - Every public op has a `#[tracing::instrument]` span at `info` or `debug` level.
 - Span names follow `<crate>.<op>` convention (e.g., `brain_ops.encode`).
 - Span fields are **structured**, not formatted strings: `tracing::info!(memory_id = %id, salience = salience.raw())`, not `info!("encode {id} {salience}")`.
 - Long-running ops (recall streaming, plan, reason) emit `tracing::Span::current().record(...)` at progress points so traces show partial state.
 
-### Per spec §14/02 (logs)
+### Per spec §17/01 (logs)
 
 | Category | Level | Reason |
 |---|---|---|
@@ -44,12 +42,12 @@ Any new public op, handler, error path, or background worker. Brain emits OpenTe
 
 Map the `ErrorCategory` (from `brain_protocol::error`) to the logging level in the error-emit path.
 
-### Per spec §14/01 (metrics)
+### Per spec §17/01 (metrics)
 
 - Every public op emits a latency histogram (`<crate>_<op>_latency_seconds`).
 - Every error path increments a counter (`<crate>_<op>_errors_total{category=...}`).
 - Background workers emit "work done" counters.
-- No PII, no sensitive data — see spec §14/02 §5.
+- No PII, no sensitive data — see spec §17/01 §5.
 
 ## Workflow
 
@@ -121,8 +119,8 @@ tracing::info!(token_present = !req.credentials.is_empty(), "auth attempt");
 
 - `production-checklist` — gates observability before merge.
 - `brain-perf-target` — latency histograms feed into the perf-target check.
-- spec §14, spec §03/10 §12.
+- spec §17, spec §04/07 §12.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §14.
+Project-local. Operationalizes spec §17.

@@ -43,7 +43,7 @@ Run each as a quick pass on the diff (or the branch since it diverged from `dev`
 ### Observability
 
 - [ ] **`tracing` spans on every public op.** New op → new span at info or debug. Use structured fields, not formatted strings.
-- [ ] **Errors logged at the right level.** Spec §03/10 §12 maps category → level (Validation/NotFound/Conflict = INFO; Auth = WARN; Protocol = WARN; ResourceExhausted = WARN; Internal/Unavailable = ERROR).
+- [ ] **Errors logged at the right level.** Spec §04/07 §12 maps category → level (Validation/NotFound/Conflict = INFO; Auth = WARN; Protocol = WARN; ResourceExhausted = WARN; Internal/Unavailable = ERROR).
 - [ ] **No PII in logs or error messages.** Don't log token contents or raw query data.
 - [ ] **Metrics emitted** for new code paths (latency histograms, error counters). Phase 11 wires this fully; for now confirm hooks exist.
 
@@ -70,7 +70,7 @@ Run each as a quick pass on the diff (or the branch since it diverged from `dev`
 - [ ] **No new thread pool** (sharding is the parallelism — CLAUDE.md §9).
 - [ ] **No `Send + Sync` on per-shard types.**
 - [ ] **No `tokio::*` inside a Glommio shard.**
-- [ ] **Benchmarks** still pass against spec §16/02 latency targets (Phase 11 enforces; for now spot-check via `just bench`).
+- [ ] **Benchmarks** still pass against spec §19/02 latency targets (Phase 11 enforces; for now spot-check via `just bench`).
 
 ### Workflow
 

@@ -1,6 +1,6 @@
 ---
 name: brain-perf-target
-description: Compare bench results against spec §16/02 latency targets; flag regressions. Use after running `just bench <crate>` or before tagging a phase complete.
+description: Compare bench results against spec §19/02 latency targets; flag regressions. Use after running `just bench <crate>` or before tagging a phase complete.
 when-to-use: |
   Triggers:
     - Just ran `just bench <crate>` and want to interpret the result
@@ -8,9 +8,8 @@ when-to-use: |
     - User says "did this regress?" / "are we within target?"
     - Pre-merge perf gate for hot-path changes
 spec-refs:
-  - spec/20_benchmarks/02_latency_targets.md
-  - spec/20_benchmarks/03_throughput_targets.md
-  - spec/20_benchmarks/07_benchmark_methodology.md
+  - spec/19_benchmarks/02_performance_targets.md
+  - spec/19_benchmarks/04_benchmark_methodology.md
 ---
 
 # Perf Target Audit
@@ -19,7 +18,7 @@ spec-refs:
 
 After running benchmarks (`just bench <crate>`) or as part of a phase exit. Brain has spec'd latency and throughput targets; this skill compares the measured numbers and reports inside-target / regressed.
 
-## Spec targets (§16/02 — verify before assuming)
+## Spec targets (§19/02 — verify before assuming)
 
 | Op | Metric | Target |
 |---|---|---|
@@ -33,7 +32,7 @@ After running benchmarks (`just bench <crate>`) or as part of a phase exit. Brai
 
 (Verify in the spec — these are illustrative; the spec is authoritative.)
 
-## Hard rules (per spec §16/07)
+## Hard rules (per spec §19/04)
 
 - Bench in `--release` mode. Debug numbers are meaningless.
 - Bench on the **target hardware tier** (see spec §01/05). Numbers from a laptop are not numbers from a tier-1 server.
@@ -44,7 +43,7 @@ After running benchmarks (`just bench <crate>`) or as part of a phase exit. Brai
 ## Workflow
 
 1. **Run the bench.** `just bench <crate>` (or `cargo bench -p <crate>`).
-2. **Locate the targets.** Per op, find the spec'd value in §16/02.
+2. **Locate the targets.** Per op, find the spec'd value in §19/02.
 3. **Compare:** measured ≤ target → green; measured > target → red.
 4. **For red results:**
    - Profile (`cargo flamegraph -p <crate> --bench <bench>`).
@@ -81,8 +80,8 @@ Action items:
 
 - `rust-perf` — broader hot-path discipline.
 - `bench` (built-in) — runs the bench.
-- spec §16/02, §16/03, §16/07.
+- spec §19/02, §19/04.
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §16/02.
+Project-local. Operationalizes spec §19/02.

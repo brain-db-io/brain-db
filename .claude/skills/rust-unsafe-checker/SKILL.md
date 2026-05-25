@@ -11,7 +11,7 @@ when-to-use: |
 trigger-files:
   - crates/brain-storage/**/*.rs
 spec-refs:
-  - spec/08_storage/02_arena_layout.md
+  - spec/08_storage/01_arena.md
 license: MIT
 source: https://github.com/actionbook/rust-skills/tree/1f4becdcb88d1cbccc1880594479f28891102843/skills/unsafe-checker
 ---

@@ -1,6 +1,6 @@
 ---
 name: brain-zero-copy-review
-description: Verify rkyv/bytemuck usage achieves zero copy on hot read paths — cast_slice not Vec::from, check_archived_root then deref, no intermediate to_vec calls. Spec §03/04 + §05/02.
+description: Verify rkyv/bytemuck usage achieves zero copy on hot read paths — cast_slice not Vec::from, check_archived_root then deref, no intermediate to_vec calls. Spec §04/02 + §08/01.
 when-to-use: |
   Triggers:
     - Diff in crates/brain-protocol/src/{request,response}.rs (rkyv codecs)
@@ -16,14 +16,14 @@ trigger-files:
   - crates/brain-index/**/*.rs
 spec-refs:
   - spec/04_wire_protocol/02_wire_format.md
-  - spec/08_storage/02_arena_layout.md
+  - spec/08_storage/01_arena.md
 ---
 
 # Zero-Copy Review
 
 ## When to use
 
-Hot-path read code that touches rkyv-encoded structured data or raw vector blobs. Brain's design (spec §03/04) is built around two zero-copy mechanisms:
+Hot-path read code that touches rkyv-encoded structured data or raw vector blobs. Brain's design (spec §04/02) is built around two zero-copy mechanisms:
 
 - **rkyv** for structured payloads — `check_archived_root::<T>(&bytes)` returns `&Archived<T>` directly into the buffer; field access is a pointer deref, no decode loop.
 - **bytemuck** for raw vectors — `bytemuck::cast_slice::<u8, f32>(&bytes)` reinterprets the byte slice as `&[f32]`; no allocation, no element-by-element decode.
@@ -81,7 +81,7 @@ Write paths are allowed to allocate; you're producing the bytes. The rule there 
 - `rust-perf` — broader hot-path discipline.
 - `brain-arena-audit` — slot byte layout and bytemuck casts.
 - `brain-protocol-version-bump` — wire-format changes.
-- spec §03/04 §3 (rkyv), §4 (bytemuck), §5 (full payload format).
+- spec §04/02 §3 (rkyv), §4 (bytemuck), §5 (full payload format).
 
 ## Examples
 
@@ -114,4 +114,4 @@ Three allocations per result. Recall returning 100 results allocates 300 times. 
 
 ## Source / Adaptations
 
-Project-local. Operationalizes spec §03/04.
+Project-local. Operationalizes spec §04/02.

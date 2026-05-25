@@ -25,11 +25,11 @@ spec-refs:
 
 ## When to use
 
-Any change to `brain-protocol`'s wire surface (frame header, opcode table, request/response payloads, error codes). The wire version (`VERSION = 1`) is bound by spec §03/03 §3.2; bumping it is a coordinated event across SDKs and the server.
+Any change to `brain-protocol`'s wire surface (frame header, opcode table, request/response payloads, error codes). The wire version (`VERSION = 1`) is bound by spec §04/02 §3.2; bumping it is a coordinated event across SDKs and the server.
 
 ## Core rule
 
-**The wire format is contractual.** Per spec §03/05 §7 ("Opcode evolution"), and §03/12 (versioning):
+**The wire format is contractual.** Per spec §04/03 §7 ("Opcode evolution"), and §04/01 (versioning):
 
 > Adding new opcodes is a wire-protocol-version bump.
 > Existing opcodes are stable; their semantics don't change within a version.
@@ -53,8 +53,8 @@ Same applies to:
 | **Remove field from existing rkyv struct** | New archives can't be read by old clients | Spec change + `VERSION` bump |
 | **Change `MAGIC` bytes** | Catastrophic — first-frame magic check fails | NEVER do this |
 | **Change `VERSION` value** | The bump itself | Always paired with spec change |
-| **Add new `ErrorCode` variant** | Old clients see `UnknownCode` | Spec change to §10 (`ErrorCode` is `#[non_exhaustive]` so source-compat survives) |
-| **Add new `ErrorCategory` variant** | Same as above | Spec change to §10 §2 |
+| **Add new `ErrorCode` variant** | Old clients see `UnknownCode` | Spec change to §04/07 (`ErrorCode` is `#[non_exhaustive]` so source-compat survives) |
+| **Add new `ErrorCategory` variant** | Same as above | Spec change to §04/07 §2 |
 | **Add a new opcode to `RequestBody` / `ResponseBody`** | New variants OK on the same `VERSION` only if the opcode existed already | Verify Opcode exists |
 | **`Header` field reorder / type change** | Catastrophic — every frame mis-decodes | Spec change + `VERSION` bump |
 | **Constant change (`HEADER_SIZE`, `MAX_PAYLOAD_BYTES`)** | Misframing | Spec change + `VERSION` bump |
@@ -84,11 +84,11 @@ User adds `Opcode::AdminCompactReq = 0x6A` and `AdminCompactResp = 0xEA`.
 
 Workflow:
 - Opcode table is appended (not reordered) — wire-bump territory.
-- Confirm spec §03/05 §1.6 includes the new entries. If yes: this *is* a wire bump; the spec said so; the new `VERSION = 2` change must accompany.
+- Confirm spec §04/03 §1.6 includes the new entries. If yes: this *is* a wire bump; the spec said so; the new `VERSION = 2` change must accompany.
 - Round-trip tests pass; pinned CRC vector unaffected (header layout unchanged).
 - `RequestBody::AdminCompact(...)` and `ResponseBody::AdminCompact(...)` variants added; tests added.
 
-Report: wire bump required (per spec §03/05 §1.6 v2). All checks pass.
+Report: wire bump required (per spec §04/03 §1.6 v2). All checks pass.
 
 ### Counter — silent renumbering
 
@@ -97,7 +97,7 @@ Report: wire bump required (per spec §03/05 §1.6 v2). All checks pass.
 +    EncodeReq = 0x21,         // ← NO. Catastrophic interop break.
 ```
 
-This is forbidden by spec §03/05 §1. STOP and surface; do not commit.
+This is forbidden by spec §04/03 §1. STOP and surface; do not commit.
 
 ### Counter — silent field reorder
 
@@ -109,12 +109,12 @@ This is forbidden by spec §03/05 §1. STOP and surface; do not commit.
  }
 ```
 
-rkyv archives are positional. Reorder breaks every existing serialized payload. Wire bump required, AND the spec §07/1 has to be updated, AND we need to confirm existing on-disk records (Phase 2+) aren't affected.
+rkyv archives are positional. Reorder breaks every existing serialized payload. Wire bump required, AND the spec §04/05 has to be updated, AND we need to confirm existing on-disk records (Phase 2+) aren't affected.
 
 ## Cross-references
 
 - `brain-invariants` — for the seven CLAUDE.md §5 invariants.
-- `brain-spec-invariant` — for verifying a specific MUST in §03.
+- `brain-spec-invariant` — for verifying a specific MUST in §04.
 - `audit-spec` (built-in) — whole-crate audit.
 
 ## Source / Adaptations

@@ -174,11 +174,11 @@ Claude (using this skill):
 
 1. Captures intent: "Audit WAL-before-ack discipline."
 2. Confirms trigger: diff in `crates/brain-storage/wal/`.
-3. Identifies spec: §05/03 (WAL semantics) + §05/08 (recovery).
+3. Identifies spec: §08/02 (WAL semantics) + §08/04 (recovery).
 4. Drafts `.claude/skills/brain-wal-audit/SKILL.md` per CONVENTIONS, with:
    - Description naming WAL-before-ack and group-commit explicitly.
    - `trigger-files: crates/brain-storage/wal/**/*.rs`.
-   - `spec-refs:` linking the two §05 sections.
+   - `spec-refs:` linking the two §08 sections.
    - Workflow: (1) grep for `pwritev2` / `fsync`; (2) verify ack happens after; (3) check group-commit batching; (4) check recovery idempotency.
    - Examples: golden = "WAL record written, fsync called, ack returned"; counter = "ack before fsync".
 5. Runs `just check-skills` — green.
