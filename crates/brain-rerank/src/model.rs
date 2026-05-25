@@ -1,28 +1,27 @@
 //! `CrossEncoder` — load `BAAI/bge-reranker-base` and score
 //! `(query, candidate)` pairs.
 //!
-//! Architecture: `BertForSequenceClassification` with
-//! `num_labels = 1`. The reranker concatenates a query and a
-//! candidate as `[CLS] query [SEP] candidate [SEP]`, encodes,
-//! pools the `[CLS]` hidden state, applies a pooler (`Linear +
-//! Tanh`), then projects with a `Linear(hidden → 1)` classifier
-//! head. The raw logit *is* the relevance score — higher means
-//! more relevant.
+//! Architecture: `XLMRobertaForSequenceClassification` with
+//! `num_labels = 1`. bge-reranker-base is XLM-RoBERTa, not BERT:
+//! the weights are prefixed `roberta.` and the relevance head is a
+//! two-layer `RobertaClassificationHead` (`classifier.dense` →
+//! activation → `classifier.out_proj`) applied to the `<s>` token,
+//! with no BERT-style pooler. The reranker concatenates a query and
+//! a candidate as `<s> query </s></s> candidate </s>`, encodes, then
+//! the head projects the `<s>` hidden state to a single logit. That
+//! raw logit *is* the relevance score — higher means more relevant.
 //!
-//! The original Hugging Face `BertForSequenceClassification` does
-//! NOT apply the pooler before the classifier; instead it feeds
-//! `last_hidden_state[:, 0]` straight through a `Linear`. The
-//! `transformers` source goes through `BertPooler` first only when
-//! `num_labels > 1` *and* `add_pooling_layer=True`. For BGE
-//! reranker (binary relevance, `num_labels=1`), the Hugging Face
-//! reference path is: pooler (Linear → Tanh on `[CLS]`) → dropout
-//! → classifier. We reproduce that path here.
+//! We delegate the whole forward to candle's
+//! [`XLMRobertaForSequenceClassification`], which owns the backbone
+//! and the classification head; loading and scoring stay thin.
 
 use std::path::Path;
 
 use candle_core::{DType, Device, Tensor};
-use candle_nn::{Linear, Module, VarBuilder};
-use candle_transformers::models::bert::{BertModel, Config as BertConfig};
+use candle_nn::VarBuilder;
+use candle_transformers::models::xlm_roberta::{
+    Config as XlmRobertaConfig, XLMRobertaForSequenceClassification,
+};
 use thiserror::Error;
 use tokenizers::{PaddingParams, Tokenizer, TruncationParams};
 
@@ -73,13 +72,11 @@ pub enum RerankError {
     BadShape(String),
 }
 
-/// Loaded cross-encoder. Owns the BERT backbone, the
-/// `pooler + classifier` head, the tokenizer, and the target
+/// Loaded cross-encoder. Owns the XLM-RoBERTa sequence-classifier
+/// (backbone + relevance head), the tokenizer, and the target
 /// device.
 pub struct CrossEncoder {
-    backbone: BertModel,
-    pooler: Linear,
-    classifier: Linear,
+    model: XLMRobertaForSequenceClassification,
     tokenizer: Tokenizer,
     device: Device,
     max_len: usize,
@@ -99,7 +96,7 @@ impl CrossEncoder {
                 dir: dir.to_path_buf(),
                 source,
             })?;
-        let bert_config: BertConfig = serde_json::from_slice(&config_bytes)
+        let model_config: XlmRobertaConfig = serde_json::from_slice(&config_bytes)
             .map_err(|e| RerankError::ConfigParse(e.to_string()))?;
 
         let tokenizer_path = dir.join(TOKENIZER_FILE);
@@ -107,11 +104,12 @@ impl CrossEncoder {
             .map_err(|e| RerankError::TokenizerParse(e.to_string()))?;
 
         // Pad to the longest item in a batch; truncate to model max.
-        // bge-reranker-base ships with `max_position_embeddings=512`
-        // (vanilla BERT); pin the cap to the smaller of that and
-        // [`DEFAULT_MAX_TOKEN_LEN`] so position_ids never go OOB
-        // even on a checkpoint with an unusual config.
-        let max_len = std::cmp::min(bert_config.max_position_embeddings, DEFAULT_MAX_TOKEN_LEN);
+        // XLM-RoBERTa reserves two position slots for the padding
+        // offset (`max_position_embeddings=514`), so cap token length
+        // at the smaller of that and [`DEFAULT_MAX_TOKEN_LEN`] (512) —
+        // the offset is applied inside the embeddings, so 512 real
+        // tokens stay in-bounds.
+        let max_len = std::cmp::min(model_config.max_position_embeddings, DEFAULT_MAX_TOKEN_LEN);
         let (pad_id, pad_token) = tokenizer
             .get_padding()
             .map(|p| (p.pad_id, p.pad_token.clone()))
@@ -146,23 +144,12 @@ impl CrossEncoder {
         })?;
         let vb = VarBuilder::from_tensors(tensors, dtype, &device);
 
-        // `BertModel::load` already searches both `embeddings.*` and
-        // `<model_type>.embeddings.*` paths. For bge-reranker the
-        // top-level prefix is `bert`, so pass `vb.pp("bert")`.
-        let backbone = BertModel::load(vb.pp("bert"), &bert_config)
-            .map_err(|e| RerankError::WeightsLoad(format!("BertModel::load: {e}")))?;
-
-        // Pooler: bert.pooler.dense (Linear hidden_size → hidden_size).
-        // The pooler is followed by a Tanh activation; we apply that
-        // manually in `score_pairs` (candle has no `Tanh` wrapper).
-        let pooler_vb = vb.pp("bert").pp("pooler").pp("dense");
-        let pooler = candle_nn::linear(bert_config.hidden_size, bert_config.hidden_size, pooler_vb)
-            .map_err(|e| RerankError::WeightsLoad(format!("pooler load: {e}")))?;
-
-        // Classifier head: classifier (Linear hidden_size → 1).
-        let classifier_vb = vb.pp("classifier");
-        let classifier = candle_nn::linear(bert_config.hidden_size, 1, classifier_vb)
-            .map_err(|e| RerankError::WeightsLoad(format!("classifier load: {e}")))?;
+        // The classifier wraps the backbone (`roberta.*`) and the
+        // relevance head (`classifier.dense` / `classifier.out_proj`)
+        // from the root `vb`; `num_labels = 1` for binary relevance.
+        let model = XLMRobertaForSequenceClassification::new(1, &model_config, vb).map_err(|e| {
+            RerankError::WeightsLoad(format!("XLMRobertaForSequenceClassification::new: {e}"))
+        })?;
 
         tracing::info!(
             target: "brain_rerank",
@@ -170,9 +157,7 @@ impl CrossEncoder {
             "loaded cross-encoder",
         );
         Ok(Self {
-            backbone,
-            pooler,
-            classifier,
+            model,
             tokenizer,
             device,
             max_len,
@@ -192,9 +177,9 @@ impl CrossEncoder {
         }
 
         // Build `(query, candidate)` pairs. bge-reranker's tokenizer
-        // injects `[CLS] query [SEP] candidate [SEP]` + correct
-        // `token_type_ids` (0 for query, 1 for candidate) when given
-        // the pair form.
+        // injects `<s> query </s></s> candidate </s>`; XLM-RoBERTa
+        // uses a single token-type (`type_vocab_size = 1`), so the
+        // type ids are all zero.
         let pairs: Vec<(String, String)> = candidates
             .iter()
             .map(|c| (query.to_string(), (*c).to_string()))
@@ -228,29 +213,19 @@ impl CrossEncoder {
         let attn_mask = Tensor::from_vec(attn_mask, (batch_size, seq_len), &self.device)
             .map_err(|e| RerankError::ForwardFailed(format!("attn_mask tensor: {e}")))?;
 
-        let hidden = self
-            .backbone
-            .forward(&input_ids, &type_ids, Some(&attn_mask))
-            .map_err(|e| RerankError::ForwardFailed(format!("BertModel::forward: {e}")))?;
-
-        // [CLS] = first token in each row.
-        let cls = hidden
-            .narrow(1, 0, 1)
-            .and_then(|t| t.squeeze(1))
-            .map_err(|e| RerankError::BadShape(format!("CLS pooling: {e}")))?;
-
-        // Pooler: Linear + Tanh.
-        let pooled = self
-            .pooler
-            .forward(&cls)
-            .and_then(|t| t.tanh())
-            .map_err(|e| RerankError::ForwardFailed(format!("pooler forward: {e}")))?;
-
-        // Classifier: Linear(hidden → 1).
+        // candle's classifier takes (input_ids, attention_mask,
+        // token_type_ids) — note the arg order differs from BERT — and
+        // returns the head logits directly: it pools the `<s>` token,
+        // runs `dense → activation → out_proj`, so no manual pooling
+        // happens here.
         let logits = self
-            .classifier
-            .forward(&pooled)
-            .map_err(|e| RerankError::ForwardFailed(format!("classifier forward: {e}")))?;
+            .model
+            .forward(&input_ids, &attn_mask, &type_ids)
+            .map_err(|e| {
+                RerankError::ForwardFailed(format!(
+                    "XLMRobertaForSequenceClassification::forward: {e}"
+                ))
+            })?;
 
         // logits shape: (batch, 1). Squeeze the last dim and pull to host.
         let scores: Vec<f32> = logits
