@@ -169,7 +169,6 @@ impl ForgetCascadeWorker {
                 .map_err(|e| WorkerError::Internal(format!("cascade edges: {e}")))?;
             wtxn.commit()
                 .map_err(|e| WorkerError::Internal(format!("cascade commit: {e}")))?;
-            drop(metadata);
 
             self.metrics.add_job_processed();
             self.metrics

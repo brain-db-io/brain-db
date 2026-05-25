@@ -202,15 +202,13 @@ pub async fn execute(
     // eagerly) the corresponding future returns the cached
     // result with the eager-run latency attribution intact —
     // no second HNSW search.
-    let mut futures: Vec<
-        Pin<
-            Box<
-                dyn Future<
-                        Output = (usize, f64, Result<Vec<RankedItem>, RetrieverInvocationError>),
-                    > + '_,
-            >,
+    type FanoutFut<'a> = Pin<
+        Box<
+            dyn Future<Output = (usize, f64, Result<Vec<RankedItem>, RetrieverInvocationError>)>
+                + 'a,
         >,
-    > = Vec::with_capacity(plan.retrievers.len());
+    >;
+    let mut futures: Vec<FanoutFut<'_>> = Vec::with_capacity(plan.retrievers.len());
     for (idx, planned) in plan.retrievers.iter().enumerate() {
         if planned.retriever == Retriever::Semantic && pre_semantic_invocation.is_some() {
             let invocation = pre_semantic_invocation

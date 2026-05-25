@@ -41,8 +41,6 @@ use brain_protocol::{
     StatementSupersedeRequest, StatementSupersedeResponse, StatementSupersededEvent,
     StatementTombstoneRequest, StatementTombstoneResponse, StatementTombstonedEvent, StatementView,
 };
-use redb::ReadableTable;
-
 use crate::context::OpsContext;
 use crate::error::OpError;
 use crate::handlers::entity::emit_knowledge_event;

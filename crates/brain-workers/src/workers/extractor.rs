@@ -1250,7 +1250,6 @@ async fn apply_outcome(
 
     wtxn.commit()
         .map_err(|e| ApplyError::Storage(format!("commit: {e:?}")))?;
-    drop(db_guard);
 
     // Fan out to the CausalEdgeWorker only after the commit succeeds —
     // a rolled-back txn never produces phantom enqueues. The channel

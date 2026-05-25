@@ -261,7 +261,7 @@ fn hard_forget_cascade_tombstones_single_evidence_statement() {
 
     let db = fx.metadata.as_ref();
     assert!(
-        statement_is_tombstoned(&db, s),
+        statement_is_tombstoned(db, s),
         "single-evidence statement must be tombstoned post-cascade"
     );
     let metrics = fx.worker.metrics().snapshot();
@@ -287,7 +287,7 @@ fn soft_forget_also_enqueues_cascade() {
     drive_worker_once(&fx.worker, &fx.ctx);
 
     let db = fx.metadata.as_ref();
-    assert!(statement_is_tombstoned(&db, s));
+    assert!(statement_is_tombstoned(db, s));
 }
 
 #[test]
@@ -305,8 +305,8 @@ fn cascade_rederives_confidence_when_other_evidence_remains() {
     drive_worker_once(&fx.worker, &fx.ctx);
 
     let db = fx.metadata.as_ref();
-    assert!(!statement_is_tombstoned(&db, s));
-    let post = statement_confidence(&db, s).unwrap();
+    assert!(!statement_is_tombstoned(db, s));
+    let post = statement_confidence(db, s).unwrap();
     // Noisy-OR over a single c=0.8 entry at age=0 → ~0.8.
     assert!(
         (post - 0.8).abs() < 1e-3,
@@ -336,6 +336,6 @@ fn cascade_drains_multiple_pending_jobs() {
     let processed = drive_worker_once(&fx.worker, &fx.ctx);
     assert!(processed >= 2);
     let db = fx.metadata.as_ref();
-    assert!(statement_is_tombstoned(&db, s1));
-    assert!(statement_is_tombstoned(&db, s2));
+    assert!(statement_is_tombstoned(db, s1));
+    assert!(statement_is_tombstoned(db, s2));
 }
