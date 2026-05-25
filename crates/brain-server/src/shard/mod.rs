@@ -301,6 +301,24 @@ pub struct ShardSpawnConfig {
     /// registry. `Enabled` lets the materialiser run; init-time
     /// errors there propagate as [`ShardError::ExtractorInitFailed`].
     pub extractors: ExtractorTierSpawnConfig,
+    /// Provider credentials / model overrides for the LLM extractor
+    /// tier, ferried from `Config.llm`. Resolved env-first /
+    /// config-fallback at shard spawn (`llm_setup::build_llm_deps`).
+    pub llm: LlmSpawnConfig,
+}
+
+/// Knobs ferried from `Config.llm` into the spawn path: provider
+/// credentials + model overrides for the LLM extractor tier. Local to
+/// the shard module (mirrors the other `*SpawnConfig` types) so the
+/// `#[path]`-mounted integration tests don't pull in `crate::config`.
+/// Empty / `None` fields fall back to the environment at resolution
+/// time.
+#[derive(Clone, Debug, Default)]
+pub struct LlmSpawnConfig {
+    pub openai_api_key: Option<String>,
+    pub anthropic_api_key: Option<String>,
+    pub openai_model: Option<String>,
+    pub anthropic_model: Option<String>,
 }
 
 /// Knobs ferried from `Config.rerank` into the spawn path.
@@ -484,6 +502,7 @@ impl ShardSpawnConfig {
             dispatcher,
             rerank: RerankSpawnConfig::default(),
             extractors: ExtractorTierSpawnConfig::default(),
+            llm: LlmSpawnConfig::default(),
         }
     }
 }
@@ -1313,6 +1332,14 @@ pub fn spawn_shard(
         llm: brain_extractors::TierState::from_enabled(cfg.extractors.llm_enabled),
     };
     let tier_gate_for_closure = tier_gate;
+    // Whether the LLM extractor tier is enabled in config. Captured for
+    // the executor closure so it can warn (after `build_llm_deps`) when
+    // the tier is on but no provider key is in the environment — that
+    // combination silently yields zero statements/relations otherwise.
+    let llm_tier_enabled_for_closure = cfg.extractors.llm_enabled;
+    // Provider credentials / model overrides for the LLM extractor
+    // tier, resolved env-first / config-fallback inside the closure.
+    let llm_config_for_closure = cfg.llm.clone();
     // Construct the Phase B / Phase E metric handles up-front so we
     // can both stash them on `ShardHandle` (for /metrics exposition)
     // and inject them into the writer + worker (so both sides bump
@@ -1521,11 +1548,30 @@ pub fn spawn_shard(
             // MetadataDb::open) into a runtime ExtractorRegistry.
             //
             // Phase 21.5 lights up the LLM-tier deps the materializer
-            // needs: `ModelRouter` from env (ANTHROPIC_API_KEY /
-            // OPENAI_API_KEY) and the per-shard `llm_cache.redb`.
-            // Both slots default to `None` so shards started without
-            // an LLM cache or API keys configured stay unchanged.
-            let llm_deps = llm_setup::build_llm_deps(&shard_dir_for_executor);
+            // needs: a `ModelRouter` built from provider keys (env
+            // ANTHROPIC_API_KEY / OPENAI_API_KEY first, then the `[llm]`
+            // config section) and the per-shard `llm_cache.redb`. Both
+            // slots default to `None` so shards started without an LLM
+            // cache or any key configured stay unchanged.
+            let llm_deps =
+                llm_setup::build_llm_deps(&shard_dir_for_executor, &llm_config_for_closure);
+            // The LLM tier is on (all tiers default to enabled) but no
+            // provider client could be built — no OPENAI_API_KEY /
+            // ANTHROPIC_API_KEY in the env and no `[llm]` key in config.
+            // This is the expected out-of-box state, not a
+            // misconfiguration: pattern + classifier still extract
+            // entities; only statements/relations (LLM-only) are
+            // skipped. So it's INFO, not WARN — the server boots clean.
+            // The note stays discoverable for anyone wondering why a
+            // memory has entities but no knowledge.
+            if llm_tier_enabled_for_closure && llm_deps.router.is_none() {
+                tracing::info!(
+                    target: "brain_server::shard",
+                    "LLM extractor tier has no provider key (set OPENAI_API_KEY / \
+                     ANTHROPIC_API_KEY or `[llm] openai_api_key` in config); entities \
+                     still extract, statements/relations are skipped until a key is set",
+                );
+            }
             let llm_cache_for_ops = llm_deps.cache.clone();
             // Snapshot the disambiguator before `llm_deps` is consumed
             // by `into_materialize_deps` below — the extractor worker

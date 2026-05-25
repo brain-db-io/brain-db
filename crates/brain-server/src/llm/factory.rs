@@ -36,15 +36,10 @@ pub(crate) enum BuildSummarizerError {
     )]
     OllamaFeatureMissing,
     #[error(
-        "summarizer.backend = \"openai\" requires summarizer.openai_api_key_env to \
-         name an environment variable holding the API key"
+        "summarizer.backend = \"openai\" requires an OpenAI key: set \
+         summarizer.openai_api_key in config or the OPENAI_API_KEY environment variable"
     )]
-    OpenAiKeyEnvUnset,
-    #[error(
-        "summarizer.openai_api_key_env = {env_var:?}, but that environment variable \
-         is not set or is empty"
-    )]
-    OpenAiKeyMissing { env_var: String },
+    OpenAiKeyMissing,
     #[error("summarizer bridge runtime initialisation failed: {0}")]
     BridgeInit(#[from] std::io::Error),
 }
@@ -63,17 +58,19 @@ pub(crate) fn build_summarizer(cfg: &Config) -> Result<Arc<dyn Summarizer>, Buil
 
 #[cfg(feature = "summarizer-openai")]
 fn build_openai(cfg: &Config) -> Result<Arc<dyn Summarizer>, BuildSummarizerError> {
-    let env_var = cfg
-        .summarizer
-        .openai_api_key_env
-        .as_deref()
-        .ok_or(BuildSummarizerError::OpenAiKeyEnvUnset)?;
-    let api_key = std::env::var(env_var)
+    // Same resolution as the LLM extractor tier: env-first
+    // (`OPENAI_API_KEY`), config-fallback (`summarizer.openai_api_key`).
+    // Empty strings count as unset on both sides.
+    let api_key = std::env::var("OPENAI_API_KEY")
         .ok()
         .filter(|v| !v.is_empty())
-        .ok_or_else(|| BuildSummarizerError::OpenAiKeyMissing {
-            env_var: env_var.to_owned(),
-        })?;
+        .or_else(|| {
+            cfg.summarizer
+                .openai_api_key
+                .clone()
+                .filter(|v| !v.is_empty())
+        })
+        .ok_or(BuildSummarizerError::OpenAiKeyMissing)?;
     let bridge = crate::llm::bridge::SummarizerBridge::new(Duration::from_secs(u64::from(
         cfg.summarizer.request_timeout_sec,
     )))?;

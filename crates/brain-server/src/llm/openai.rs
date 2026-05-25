@@ -1,9 +1,10 @@
 //! OpenAI Chat Completions Summarizer adapter (sub-task 9.15).
 //!
 //! Posts to `<api_base>/chat/completions` with the
-//! prompt. API key read once from the env var named in
-//! `cfg.summarizer.openai_api_key_env`; the key never lives in TOML
-//! and is never logged.
+//! prompt. API key resolved env-first (`OPENAI_API_KEY`),
+//! config-fallback (`cfg.summarizer.openai_api_key`) — the same
+//! convention as the LLM extractor tier. The resolved key is never
+//! logged.
 //!
 //! Errors:
 //! - HTTP 4xx → `SummarizerError::Failed(format!("openai {status}: …"))`.

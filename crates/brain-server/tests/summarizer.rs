@@ -110,13 +110,14 @@ mod openai_tests {
     }
 
     fn openai_cfg(api_base: String) -> Config {
-        std::env::set_var("BRAIN_TEST_OPENAI_KEY", "test-key");
+        // Key supplied via config (the standardized `openai_api_key`
+        // field); the mock server accepts any non-empty key.
         super::cfg_with_summarizer(SummarizerConfig {
             backend: SummarizerBackend::Openai,
             request_timeout_sec: 5,
             max_summary_chars: 256,
             openai_api_base: api_base,
-            openai_api_key_env: Some("BRAIN_TEST_OPENAI_KEY".to_owned()),
+            openai_api_key: Some("test-key".to_owned()),
             openai_model: "gpt-test".to_owned(),
             openai_temperature: 0.0,
             ..SummarizerConfig::default()
@@ -187,24 +188,27 @@ mod openai_tests {
     }
 
     #[test]
-    fn openai_missing_env_var_fails_construction() {
-        std::env::remove_var("BRAIN_TEST_OPENAI_MISSING");
+    fn openai_missing_key_fails_construction() {
+        // No key in config and none in the environment → construction
+        // fails. Guard `OPENAI_API_KEY` so an ambient key doesn't mask
+        // the missing-key path (restored after the assertion).
+        let prior = std::env::var("OPENAI_API_KEY").ok();
+        std::env::remove_var("OPENAI_API_KEY");
         let cfg = super::cfg_with_summarizer(SummarizerConfig {
             backend: SummarizerBackend::Openai,
-            openai_api_key_env: Some("BRAIN_TEST_OPENAI_MISSING".to_owned()),
+            openai_api_key: None,
             ..SummarizerConfig::default()
         });
         // `Result<Arc<dyn Summarizer>, _>` isn't `Debug`, so we can't
         // use `expect_err`. Pattern-match directly.
-        match llm::factory::build_summarizer(&cfg) {
-            Ok(_) => panic!("build should fail"),
-            Err(e) => assert!(
-                format!("{e}")
-                    .to_lowercase()
-                    .contains("environment variable"),
-                "unexpected error: {e}"
-            ),
+        let failed = matches!(
+            llm::factory::build_summarizer(&cfg),
+            Err(llm::factory::BuildSummarizerError::OpenAiKeyMissing)
+        );
+        if let Some(p) = prior {
+            std::env::set_var("OPENAI_API_KEY", p);
         }
+        assert!(failed, "expected OpenAiKeyMissing with no key in env or config");
     }
 }
 

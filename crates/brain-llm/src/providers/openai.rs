@@ -94,6 +94,18 @@ impl OpenAIClient {
         Some(Self::new(model, key, DEFAULT_BASE_URL))
     }
 
+    /// Construct with an explicit API key against the default
+    /// endpoint. For config-provided keys (`[llm] openai_api_key`);
+    /// `from_env` remains the environment path. Returns `None` for an
+    /// empty key so callers can fall back uniformly.
+    pub fn with_key(model: impl Into<String>, api_key: impl Into<String>) -> Option<Self> {
+        let key = api_key.into();
+        if key.is_empty() {
+            return None;
+        }
+        Some(Self::new(model, key, DEFAULT_BASE_URL))
+    }
+
     /// Construct with an explicit endpoint (mock-server tests).
     pub fn with_endpoint(
         model: impl Into<String>,

@@ -48,6 +48,37 @@ pub struct Config {
     /// is wired).
     #[serde(default)]
     pub summarizer: SummarizerConfig,
+    /// Provider credentials + model overrides for the extractor's LLM
+    /// tier (tier 3 — statements/relations). Section may be omitted;
+    /// the environment (`OPENAI_API_KEY` / `ANTHROPIC_API_KEY`) takes
+    /// precedence when set, so a committed config never overrides a
+    /// deployment's env-provided secret.
+    #[serde(default)]
+    pub llm: LlmConfig,
+}
+
+/// `[llm]` TOML section. Credentials + model overrides for the
+/// extractor's LLM tier. Every field is optional. Keys may be set here
+/// as a convenience (chiefly local/dev); the matching environment
+/// variable wins when present. Prefer the environment for production
+/// secrets — values committed to TOML leak into version control.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
+#[serde(deny_unknown_fields)]
+pub struct LlmConfig {
+    /// OpenAI API key. Falls back to `$OPENAI_API_KEY` when unset.
+    #[serde(default)]
+    pub openai_api_key: Option<String>,
+    /// Anthropic API key. Falls back to `$ANTHROPIC_API_KEY` when unset.
+    #[serde(default)]
+    pub anthropic_api_key: Option<String>,
+    /// OpenAI model id. Falls back to `$BRAIN_OPENAI_MODEL`, then the
+    /// built-in default.
+    #[serde(default)]
+    pub openai_model: Option<String>,
+    /// Anthropic model id. Falls back to `$BRAIN_ANTHROPIC_MODEL`, then
+    /// the built-in default.
+    #[serde(default)]
+    pub anthropic_model: Option<String>,
 }
 
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
@@ -694,10 +725,12 @@ pub struct SummarizerConfig {
     // OpenAI-specific knobs. Read only when `backend == Openai`.
     #[serde(default = "default_openai_api_base")]
     pub openai_api_base: String,
-    /// Name of the env var holding the API key. We never store the
-    /// key itself in TOML — operators set the env var.
+    /// OpenAI API key. Same convention as `[llm] openai_api_key`:
+    /// falls back to `$OPENAI_API_KEY` when unset. Prefer the
+    /// environment for production secrets — values committed to TOML
+    /// leak into version control.
     #[serde(default)]
-    pub openai_api_key_env: Option<String>,
+    pub openai_api_key: Option<String>,
     #[serde(default = "default_openai_model")]
     pub openai_model: String,
     #[serde(default = "default_temperature")]
@@ -717,7 +750,7 @@ impl Default for SummarizerConfig {
             request_timeout_sec: default_request_timeout_sec(),
             max_summary_chars: default_max_summary_chars(),
             openai_api_base: default_openai_api_base(),
-            openai_api_key_env: None,
+            openai_api_key: None,
             openai_model: default_openai_model(),
             openai_temperature: default_temperature(),
             ollama_base: default_ollama_base(),
@@ -976,6 +1009,7 @@ impl Config {
             tracing: TracingConfig::default(),
             auth: AuthConfig::default(),
             summarizer: SummarizerConfig::default(),
+            llm: LlmConfig::default(),
         }
     }
 

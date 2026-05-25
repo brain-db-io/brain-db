@@ -445,6 +445,15 @@ mod linux_main {
             let mut spawn_cfg =
                 ShardSpawnConfig::new(cfg.storage.data_dir.clone(), dispatcher.clone());
             spawn_cfg.summarizer = summarizer.clone();
+            // Ferry the operator's `[llm]` provider keys / model
+            // overrides so the LLM extractor tier can resolve a client
+            // from config when no env var is set.
+            spawn_cfg.llm = crate::shard::LlmSpawnConfig {
+                openai_api_key: cfg.llm.openai_api_key.clone(),
+                anthropic_api_key: cfg.llm.anthropic_api_key.clone(),
+                openai_model: cfg.llm.openai_model.clone(),
+                anthropic_model: cfg.llm.anthropic_model.clone(),
+            };
             // Phase B: ferry the operator's `[workers.auto_edge]`
             // overrides into the per-shard spawn config so the
             // AutoEdgeWorker registers with the configured knobs

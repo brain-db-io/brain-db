@@ -30,15 +30,91 @@
 //! - OpenAI    → `gpt-4o-mini`
 
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, OnceLock};
 
 use brain_extractors::{ClassifierModel, EntityDisambiguator, MaterializeDeps};
-use brain_llm::{AnthropicClient, LlmClient, ModelRouter, OpenAIClient};
+use brain_llm::client::LlmFuture;
+use brain_llm::{AnthropicClient, LlmClient, LlmError, LlmRequest, ModelRouter, OpenAIClient};
 use brain_metadata::LlmCacheDb;
 use parking_lot::Mutex;
 
+use super::LlmSpawnConfig;
+
 const DEFAULT_ANTHROPIC_MODEL: &str = "claude-haiku-4-5";
 const DEFAULT_OPENAI_MODEL: &str = "gpt-4o-mini";
+
+/// Shared Tokio runtime that backs every LLM-tier HTTP call.
+///
+/// The extractor tier runs on a per-shard **Glommio** executor, which
+/// has its own io_uring reactor and no Tokio runtime. The `brain_llm`
+/// clients use `reqwest` + `tokio::time`, which panic ("no reactor
+/// running") when polled on a Glommio task. We bridge: the actual
+/// request runs on this dedicated Tokio runtime (off the shard cores),
+/// and the result crosses back over a runtime-agnostic `flume` channel
+/// that the Glommio side awaits cleanly — the same pattern the
+/// summarizer bridge uses. One runtime for the whole process; LLM
+/// calls are I/O-bound, so a couple of worker threads serve many
+/// concurrent in-flight requests across all shards.
+fn bridge_runtime() -> &'static tokio::runtime::Runtime {
+    static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
+    RT.get_or_init(|| {
+        tokio::runtime::Builder::new_multi_thread()
+            .worker_threads(2)
+            .thread_name("brain-llm-extract")
+            .enable_all()
+            .build()
+            .expect("invariant: LLM bridge Tokio runtime builds with default settings")
+    })
+}
+
+/// Wraps a `brain_llm` client so its Tokio-based HTTP runs on the
+/// shared [`bridge_runtime`] instead of the caller's executor. Lets
+/// the Glommio-resident extractor tier and resolver call the client
+/// without a Tokio reactor on the shard core.
+struct BridgedLlmClient {
+    inner: Arc<dyn LlmClient>,
+}
+
+impl LlmClient for BridgedLlmClient {
+    fn complete<'a>(&'a self, request: LlmRequest) -> LlmFuture<'a> {
+        let inner = self.inner.clone();
+        Box::pin(async move {
+            let (tx, rx) = flume::bounded(1);
+            // The spawned task owns `inner` (an `Arc`) and `request`,
+            // so the inner future is `Send + 'static` — it runs on the
+            // Tokio runtime where reqwest/tokio::time are valid.
+            bridge_runtime().spawn(async move {
+                let result = inner.complete(request).await;
+                let _ = tx.send_async(result).await;
+            });
+            // `recv_async` is runtime-agnostic, so this awaits cleanly
+            // on the Glommio shard executor.
+            rx.recv_async().await.unwrap_or_else(|_| {
+                Err(LlmError::ProviderError {
+                    status: 0,
+                    message: "LLM bridge runtime unavailable (reply channel closed)".into(),
+                })
+            })
+        })
+    }
+
+    // Routing/cache-key metadata is pure data — delegate to the inner
+    // client; no runtime involved.
+    fn model(&self) -> &str {
+        self.inner.model()
+    }
+
+    fn model_id_hash(&self) -> u64 {
+        self.inner.model_id_hash()
+    }
+}
+
+/// Wrap a freshly-built provider client so its HTTP runs on the bridge
+/// runtime. Every client handed to the router or the disambiguator
+/// goes through this — both are invoked from Glommio tasks.
+fn bridge(client: Arc<dyn LlmClient>) -> Arc<dyn LlmClient> {
+    Arc::new(BridgedLlmClient { inner: client })
+}
 
 /// LLM-tier deps assembled at shard startup. Threaded into both
 /// `MaterializeDeps` (so LLM-kind rows decode into wired
@@ -81,32 +157,67 @@ impl LlmDeps {
     }
 }
 
-/// Build the LLM-tier deps from env + shard directory layout.
+/// Build the LLM-tier deps from config + env + shard directory layout.
 /// Always returns a value; missing keys / unopenable cache files
 /// produce `None` slots.
-pub fn build_llm_deps(shard_dir: &Path) -> LlmDeps {
-    let (primary_client, primary_model) = build_primary_client();
+///
+/// Credential resolution per provider is **env-first, config-fallback**:
+/// the `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` environment variable wins
+/// when set, otherwise the matching `[llm]` config value is used. This
+/// keeps the environment as the override path for production secrets
+/// while letting an operator drop a key into `config/dev.toml` for
+/// local development.
+pub fn build_llm_deps(shard_dir: &Path, llm_cfg: &LlmSpawnConfig) -> LlmDeps {
+    let (primary_client, primary_model) = build_primary_client(llm_cfg);
     let disambiguator =
         primary_client.map(|c| Arc::new(EntityDisambiguator::new(c, primary_model)));
     LlmDeps {
-        router: build_router(),
+        router: build_router(llm_cfg),
         cache: open_cache(shard_dir),
         disambiguator,
     }
 }
 
-fn anthropic_model() -> String {
+/// Resolve a credential env-first, config-fallback; empty strings are
+/// treated as unset on both sides.
+fn resolve_key(env_var: &str, config_value: &Option<String>) -> Option<String> {
+    std::env::var(env_var)
+        .ok()
+        .filter(|s| !s.is_empty())
+        .or_else(|| config_value.clone().filter(|s| !s.is_empty()))
+}
+
+fn anthropic_model(llm_cfg: &LlmSpawnConfig) -> String {
     std::env::var("BRAIN_ANTHROPIC_MODEL")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| llm_cfg.anthropic_model.clone().filter(|s| !s.is_empty()))
         .unwrap_or_else(|| DEFAULT_ANTHROPIC_MODEL.to_string())
 }
 
-fn openai_model() -> String {
+fn openai_model(llm_cfg: &LlmSpawnConfig) -> String {
     std::env::var("BRAIN_OPENAI_MODEL")
         .ok()
         .filter(|s| !s.is_empty())
+        .or_else(|| llm_cfg.openai_model.clone().filter(|s| !s.is_empty()))
         .unwrap_or_else(|| DEFAULT_OPENAI_MODEL.to_string())
+}
+
+/// Build an Anthropic client if a key is resolvable. Returns the
+/// `(client, model)` pair so the disambiguator can record the model.
+fn anthropic_client(llm_cfg: &LlmSpawnConfig) -> Option<(Arc<dyn LlmClient>, String)> {
+    let key = resolve_key("ANTHROPIC_API_KEY", &llm_cfg.anthropic_api_key)?;
+    let model = anthropic_model(llm_cfg);
+    let c = AnthropicClient::with_key(model.clone(), key)?;
+    Some((bridge(Arc::new(c)), model))
+}
+
+/// Build an OpenAI client if a key is resolvable.
+fn openai_client(llm_cfg: &LlmSpawnConfig) -> Option<(Arc<dyn LlmClient>, String)> {
+    let key = resolve_key("OPENAI_API_KEY", &llm_cfg.openai_api_key)?;
+    let model = openai_model(llm_cfg);
+    let c = OpenAIClient::with_key(model.clone(), key)?;
+    Some((bridge(Arc::new(c)), model))
 }
 
 /// Pick the primary client for single-call surfaces (today: the
@@ -114,32 +225,26 @@ fn openai_model() -> String {
 /// reference path Brain optimises prompt caching against.
 ///
 /// Returns `(None, String::new())` when no provider is configured.
-fn build_primary_client() -> (Option<Arc<dyn LlmClient>>, String) {
-    let model_a = anthropic_model();
-    if let Some(c) = AnthropicClient::from_env(model_a.clone()) {
-        let client: Arc<dyn LlmClient> = Arc::new(c);
-        return (Some(client), model_a);
+fn build_primary_client(llm_cfg: &LlmSpawnConfig) -> (Option<Arc<dyn LlmClient>>, String) {
+    if let Some((client, model)) = anthropic_client(llm_cfg) {
+        return (Some(client), model);
     }
-    let model_o = openai_model();
-    if let Some(c) = OpenAIClient::from_env(model_o.clone()) {
-        let client: Arc<dyn LlmClient> = Arc::new(c);
-        return (Some(client), model_o);
+    if let Some((client, model)) = openai_client(llm_cfg) {
+        return (Some(client), model);
     }
     (None, String::new())
 }
 
-fn build_router() -> Option<Arc<ModelRouter>> {
+fn build_router(llm_cfg: &LlmSpawnConfig) -> Option<Arc<ModelRouter>> {
     let mut r = ModelRouter::new();
     let mut any = false;
 
-    if let Some(c) = AnthropicClient::from_env(anthropic_model()) {
-        let client: Arc<dyn LlmClient> = Arc::new(c);
+    if let Some((client, _)) = anthropic_client(llm_cfg) {
         r = r.with_anthropic(client);
         any = true;
     }
 
-    if let Some(c) = OpenAIClient::from_env(openai_model()) {
-        let client: Arc<dyn LlmClient> = Arc::new(c);
+    if let Some((client, _)) = openai_client(llm_cfg) {
         r = r.with_openai(client);
         any = true;
     }
@@ -240,7 +345,7 @@ mod tests {
     fn build_router_returns_none_when_no_keys() {
         let _g = ENV_LOCK.lock().unwrap();
         let _e = EnvGuard::new(ALL_KEYS);
-        assert!(build_router().is_none());
+        assert!(build_router(&LlmSpawnConfig::default()).is_none());
     }
 
     #[test]
@@ -248,7 +353,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap();
         let env = EnvGuard::new(ALL_KEYS);
         env.set("ANTHROPIC_API_KEY", "test-key-anthropic");
-        let r = build_router().expect("router");
+        let r = build_router(&LlmSpawnConfig::default()).expect("router");
         assert!(r.resolve("claude-haiku-4-5").is_some());
         assert!(r.resolve("gpt-4o-mini").is_none());
     }
@@ -258,7 +363,7 @@ mod tests {
         let _g = ENV_LOCK.lock().unwrap();
         let env = EnvGuard::new(ALL_KEYS);
         env.set("OPENAI_API_KEY", "test-key-openai");
-        let r = build_router().expect("router");
+        let r = build_router(&LlmSpawnConfig::default()).expect("router");
         assert!(r.resolve("gpt-4o-mini").is_some());
         assert!(r.resolve("claude-haiku-4-5").is_none());
     }
@@ -269,7 +374,7 @@ mod tests {
         let env = EnvGuard::new(ALL_KEYS);
         env.set("ANTHROPIC_API_KEY", "test-key-a");
         env.set("OPENAI_API_KEY", "test-key-o");
-        let r = build_router().expect("router");
+        let r = build_router(&LlmSpawnConfig::default()).expect("router");
         assert!(r.resolve("claude-haiku-4-5").is_some());
         assert!(r.resolve("gpt-4o-mini").is_some());
     }
@@ -280,16 +385,69 @@ mod tests {
         let env = EnvGuard::new(ALL_KEYS);
         env.set("BRAIN_ANTHROPIC_MODEL", "claude-sonnet-4-6");
         env.set("BRAIN_OPENAI_MODEL", "gpt-4o");
-        assert_eq!(anthropic_model(), "claude-sonnet-4-6");
-        assert_eq!(openai_model(), "gpt-4o");
+        assert_eq!(anthropic_model(&LlmSpawnConfig::default()), "claude-sonnet-4-6");
+        assert_eq!(openai_model(&LlmSpawnConfig::default()), "gpt-4o");
     }
 
     #[test]
     fn model_defaults_match_pricing_table() {
         let _g = ENV_LOCK.lock().unwrap();
         let _e = EnvGuard::new(ALL_KEYS);
-        assert_eq!(anthropic_model(), "claude-haiku-4-5");
-        assert_eq!(openai_model(), "gpt-4o-mini");
+        assert_eq!(anthropic_model(&LlmSpawnConfig::default()), "claude-haiku-4-5");
+        assert_eq!(openai_model(&LlmSpawnConfig::default()), "gpt-4o-mini");
+    }
+
+    #[test]
+    fn config_key_builds_router_when_env_absent() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _e = EnvGuard::new(ALL_KEYS); // no env keys set
+        let cfg = LlmSpawnConfig {
+            openai_api_key: Some("config-openai-key".into()),
+            ..LlmSpawnConfig::default()
+        };
+        let r = build_router(&cfg).expect("router from config key");
+        assert!(r.resolve("gpt-4o-mini").is_some());
+        assert!(r.resolve("claude-haiku-4-5").is_none());
+    }
+
+    #[test]
+    fn env_key_takes_precedence_over_config() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let env = EnvGuard::new(ALL_KEYS);
+        env.set("OPENAI_API_KEY", "env-openai-key");
+        let cfg = LlmSpawnConfig {
+            openai_api_key: Some("config-openai-key".into()),
+            ..LlmSpawnConfig::default()
+        };
+        assert_eq!(
+            resolve_key("OPENAI_API_KEY", &cfg.openai_api_key).as_deref(),
+            Some("env-openai-key"),
+        );
+    }
+
+    #[test]
+    fn empty_config_key_falls_through_to_unset() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _e = EnvGuard::new(ALL_KEYS);
+        // An empty string in config is treated as unset, not a key.
+        let cfg = LlmSpawnConfig {
+            openai_api_key: Some(String::new()),
+            ..LlmSpawnConfig::default()
+        };
+        assert!(build_router(&cfg).is_none());
+    }
+
+    #[test]
+    fn config_model_override_applies() {
+        let _g = ENV_LOCK.lock().unwrap();
+        let _e = EnvGuard::new(ALL_KEYS); // no BRAIN_*_MODEL env
+        let cfg = LlmSpawnConfig {
+            openai_model: Some("gpt-4o".into()),
+            anthropic_model: Some("claude-sonnet-4-6".into()),
+            ..LlmSpawnConfig::default()
+        };
+        assert_eq!(openai_model(&cfg), "gpt-4o");
+        assert_eq!(anthropic_model(&cfg), "claude-sonnet-4-6");
     }
 
     #[test]
@@ -376,7 +534,7 @@ mod tests {
     #[test]
     fn shared_cache_handle_supports_many_materialize_deps() {
         let dir = tempfile::tempdir().unwrap();
-        let llm_deps = build_llm_deps(dir.path());
+        let llm_deps = build_llm_deps(dir.path(), &LlmSpawnConfig::default());
         assert!(llm_deps.cache.is_some(), "cache should open");
         let cache_arc = llm_deps.cache.clone().unwrap();
         // Drop the original LlmDeps so its embedded Arc clone goes away;
