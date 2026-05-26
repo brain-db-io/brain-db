@@ -154,7 +154,20 @@ impl ClassifierExtractor {
                 None => continue,
             }
             if let Some(item) = self.project(span) {
-                items.push(item);
+                match item {
+                    // GLiNER frequently tags conjoined names ("Alice and
+                    // Carol") as a single Person span, collapsing multiple
+                    // people into one entity and killing relations between
+                    // them. Split those into one mention per name. The split
+                    // is conservative (Person-only, ≥2 name-like parts), so
+                    // the common single-name case passes through unchanged.
+                    ExtractedItem::EntityMention(m) => {
+                        for split in split_person_conjunction(m) {
+                            items.push(ExtractedItem::EntityMention(split));
+                        }
+                    }
+                    other => items.push(other),
+                }
             }
         }
         items
@@ -182,6 +195,57 @@ impl ClassifierExtractor {
             _ => None,
         }
     }
+}
+
+/// Split a Person mention whose text is a conjunction of names
+/// ("Alice and Carol", "Alice, Bob, and Carol") into one mention per
+/// name. Conservative on purpose:
+///
+/// - Person entities only — conjoined Org/Concept names ("Research and
+///   Development") must stay whole, and GLiNER tags those as non-Person,
+///   so scoping to Person avoids the false splits.
+/// - Only splits when ≥2 non-empty, alphabetic parts result; otherwise
+///   the original mention is returned unchanged (the common single-name
+///   path allocates nothing extra beyond the one-element Vec).
+///
+/// Char offsets are best-effort: each part is located in the original
+/// span text and offset from the span start; a miss falls back to the
+/// whole span range.
+fn split_person_conjunction(m: EntityMention) -> Vec<EntityMention> {
+    if m.entity_type_qname.rsplit(':').next() != Some("Person") {
+        return vec![m];
+    }
+    let parts: Vec<&str> = m
+        .text
+        .split([',', '&'])
+        .flat_map(|p| p.split(" and "))
+        .map(str::trim)
+        .filter(|p| !p.is_empty() && p.chars().any(char::is_alphabetic))
+        .collect();
+    if parts.len() < 2 {
+        return vec![m];
+    }
+    parts
+        .into_iter()
+        .map(|name| {
+            let (start, end) = match m.text.find(name) {
+                Some(byte_off) => {
+                    let start = m.start + m.text[..byte_off].chars().count();
+                    (start, start + name.chars().count())
+                }
+                None => (m.start, m.end),
+            };
+            EntityMention {
+                entity_type_qname: m.entity_type_qname.clone(),
+                text: name.to_string(),
+                start,
+                end,
+                confidence: m.confidence,
+                extractor_id: m.extractor_id,
+                extractor_version: m.extractor_version,
+            }
+        })
+        .collect()
 }
 
 impl Extractor for ClassifierExtractor {
@@ -344,5 +408,60 @@ impl Extractor for ClassifierExtractor {
             }
             out
         })
+    }
+}
+
+#[cfg(test)]
+mod conjunction_tests {
+    use super::split_person_conjunction;
+    use crate::framework::item::EntityMention;
+
+    fn mention(qname: &str, text: &str) -> EntityMention {
+        EntityMention {
+            entity_type_qname: qname.to_string(),
+            text: text.to_string(),
+            start: 0,
+            end: text.chars().count(),
+            confidence: 0.9,
+            extractor_id: 2,
+            extractor_version: 1,
+        }
+    }
+
+    fn texts(ms: Vec<EntityMention>) -> Vec<String> {
+        ms.into_iter().map(|m| m.text).collect()
+    }
+
+    #[test]
+    fn splits_two_names() {
+        let out = split_person_conjunction(mention("brain:Person", "Alice and Carol"));
+        assert_eq!(texts(out), vec!["Alice", "Carol"]);
+    }
+
+    #[test]
+    fn splits_oxford_list() {
+        let out = split_person_conjunction(mention("brain:Person", "Alice, Bob, and Carol"));
+        assert_eq!(texts(out), vec!["Alice", "Bob", "Carol"]);
+    }
+
+    #[test]
+    fn keeps_single_multiword_name() {
+        let out = split_person_conjunction(mention("brain:Person", "Priya Sharma"));
+        assert_eq!(texts(out), vec!["Priya Sharma"]);
+    }
+
+    #[test]
+    fn does_not_split_non_person() {
+        // A conjoined Org/Concept name must stay whole — the split is
+        // Person-scoped precisely to avoid wrecking these.
+        let out = split_person_conjunction(mention("brain:Concept", "Research and Development"));
+        assert_eq!(texts(out), vec!["Research and Development"]);
+    }
+
+    #[test]
+    fn offsets_track_each_name() {
+        let out = split_person_conjunction(mention("brain:Person", "Alice and Carol"));
+        assert_eq!((out[0].start, out[0].end), (0, 5)); // "Alice"
+        assert_eq!((out[1].start, out[1].end), (10, 15)); // "Carol"
     }
 }
