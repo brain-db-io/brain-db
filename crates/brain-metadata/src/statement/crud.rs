@@ -1209,4 +1209,47 @@ mod tests {
             got.confidence
         );
     }
+
+    #[test]
+    fn embed_queue_seed_all_live_reenqueues_live_statements() {
+        let (_dir, mut db) = open_db();
+        let subj = make_entity(&mut db, "Priya");
+        let obj1 = make_entity(&mut db, "Stripe");
+        let obj2 = make_entity(&mut db, "Plaid");
+        let pred = intern_fact_entity_pred(&mut db, "works_at");
+        let f1 = fresh_fact(subj, pred, obj1);
+        let f2 = fresh_fact(subj, pred, obj2);
+
+        let (id1, id2) = {
+            let wtxn = db.write_txn().unwrap();
+            let a = statement_create(&wtxn, &f1, 0).unwrap();
+            let b = statement_create(&wtxn, &f2, 0).unwrap();
+            wtxn.commit().unwrap();
+            (a, b)
+        };
+
+        // `statement_create` auto-enqueues; simulate "embedded before a
+        // crash" by draining the queue, then assert it's empty.
+        {
+            let wtxn = db.write_txn().unwrap();
+            crate::statement::statement_embed_queue_remove_many(&wtxn, &[id1, id2]).unwrap();
+            wtxn.commit().unwrap();
+        }
+        {
+            let rtxn = db.read_txn().unwrap();
+            assert_eq!(crate::statement::statement_embed_queue_len(&rtxn).unwrap(), 0);
+        }
+
+        // Restart rebuild source: re-enqueue every live statement.
+        let seeded = {
+            let wtxn = db.write_txn().unwrap();
+            let n = crate::statement::statement_embed_queue_seed_all_live(&wtxn).unwrap();
+            wtxn.commit().unwrap();
+            n
+        };
+        assert_eq!(seeded, 2);
+
+        let rtxn = db.read_txn().unwrap();
+        assert_eq!(crate::statement::statement_embed_queue_len(&rtxn).unwrap(), 2);
+    }
 }

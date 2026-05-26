@@ -164,6 +164,31 @@ pub fn entity_list_by_type(
     Ok(out)
 }
 
+/// Scan every live (non-tombstoned) entity, returning
+/// `(EntityId, canonical_name)`.
+///
+/// The entity HNSW (resolver tier-3 embedding tie-break) is in-RAM only
+/// and not persisted, so on restart it must be rebuilt from the metadata
+/// store. This is that rebuild source: the resolver inserts
+/// `embed(canonical_name)` at entity-create, so re-embedding each
+/// returned name reproduces the stored vectors exactly. O(N) over the
+/// primary table, paid once per boot.
+pub fn entity_iter_all_live(
+    rtxn: &ReadTransaction,
+) -> Result<Vec<(EntityId, String)>, EntityOpError> {
+    let t = rtxn.open_table(ENTITIES_TABLE)?;
+    let mut out = Vec::new();
+    for entry in t.iter()? {
+        let (k, v) = entry?;
+        let m = v.value();
+        if m.flags & flags::TOMBSTONED != 0 {
+            continue;
+        }
+        out.push((EntityId::from(k.value()), m.canonical_name));
+    }
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Write paths.
 // ---------------------------------------------------------------------------
@@ -928,6 +953,33 @@ mod tests {
         let projects = entity_list_by_type(&rtxn, EntityTypeId(7)).unwrap();
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].canonical_name, "ProjectOne");
+    }
+
+    #[test]
+    fn iter_all_live_returns_live_skips_tombstoned() {
+        let dir = TempDir::new().unwrap();
+        let db = fresh_db(&dir);
+
+        let alice = person_entity("Alice");
+        let bob = person_entity("Bob");
+        let bob_id = bob.id;
+        {
+            let wtxn = db.write_txn().unwrap();
+            entity_put(&wtxn, &alice).unwrap();
+            entity_put(&wtxn, &bob).unwrap();
+            wtxn.commit().unwrap();
+        }
+        {
+            let wtxn = db.write_txn().unwrap();
+            entity_tombstone(&wtxn, bob_id, NOW).unwrap();
+            wtxn.commit().unwrap();
+        }
+
+        let rtxn = db.read_txn().unwrap();
+        let live = entity_iter_all_live(&rtxn).unwrap();
+        // Bob is tombstoned → only Alice survives the rebuild source.
+        assert_eq!(live.len(), 1);
+        assert_eq!(live[0].1, "Alice");
     }
 
     // ----- 16.4 trigram integration -------------------------------------

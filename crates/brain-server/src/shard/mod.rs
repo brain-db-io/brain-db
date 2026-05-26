@@ -92,7 +92,7 @@ use brain_workers::{
 use self::adapters::{ArenaRebuildSource, ShardSnapshotSource, WalDirRetentionSource};
 use flume::{Receiver, Sender};
 use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
-use tracing::{info, warn};
+use tracing::{error, info, warn};
 
 // ---------------------------------------------------------------------------
 // Request type — extended by 9.10 with `Frame { req, reply_tx }`.
@@ -1882,6 +1882,148 @@ pub fn spawn_shard(
             );
             // Keep a clone for the admin `rebuild-ann` route (10.10).
             let rebuild_source_for_shard = rebuild_source.clone();
+
+            // Recovery step 6 (spec 08.04 §2): rebuild the memory HNSW
+            // from the arena before the shard serves. WAL recovery above
+            // restored the arena + metadata + tantivy, but the memory
+            // HNSW lives only in RAM and is created empty each boot. The
+            // maintenance worker rebuilds solely on *degradation*
+            // thresholds (tombstone ratio / recall estimate), which an
+            // empty index never trips — so without this reseed every
+            // pre-restart memory is missing from semantic search until
+            // enough new writes accumulate, and recall silently falls
+            // back to lexical/RRF-only. Runs synchronously here, before
+            // the request loop starts, so the shard is never "ready" with
+            // a half-populated semantic index.
+            match rebuild_source.snapshot_vectors().await {
+                Ok(vectors) if !vectors.is_empty() => {
+                    let params = hnsw_shared.params();
+                    let reseeded = vectors.len();
+                    let outcome = hnsw_shared.flush_with_rebuild(move |pending_snapshot| {
+                        let mut combined = vectors;
+                        // Pending is empty pre-serving, but fold
+                        // defensively so a stray insert can't be lost:
+                        // arena vectors are authoritative; append any
+                        // pending id the arena didn't already cover.
+                        let arena_ids: std::collections::HashSet<brain_core::MemoryId> =
+                            combined.iter().map(|(id, _)| *id).collect();
+                        for entry in pending_snapshot {
+                            if !entry.tombstoned && !arena_ids.contains(&entry.memory_id) {
+                                combined.push((entry.memory_id, entry.vector));
+                            }
+                        }
+                        let codebook = brain_index::bootstrap_codebook();
+                        let (idx, _) =
+                            brain_index::rebuild::rebuild_impl::<8, _>(params, codebook, combined)?;
+                        Ok(idx)
+                    });
+                    match outcome {
+                        Ok(report) => info!(
+                            shard_id,
+                            reseeded,
+                            new_epoch = report.new_epoch,
+                            "memory HNSW reseeded from arena on startup"
+                        ),
+                        Err(e) => error!(
+                            shard_id,
+                            error = ?e,
+                            "memory HNSW startup reseed failed; semantic recall degraded until \
+                             the next maintenance rebuild"
+                        ),
+                    }
+                }
+                Ok(_) => {
+                    info!(shard_id, "no arena vectors to reseed; memory HNSW starts empty");
+                }
+                Err(e) => error!(
+                    shard_id,
+                    error = ?e,
+                    "memory HNSW startup reseed: arena snapshot failed; semantic recall degraded"
+                ),
+            }
+
+            // Recovery: rebuild the entity HNSW (resolver tier-3 embedding
+            // tie-break) from the metadata store. Like the memory HNSW it's
+            // in-RAM only and not persisted; without this the resolver loses
+            // its embedding tie-break after restart and over-creates
+            // duplicate entities until each surface is re-extracted. The
+            // resolver inserts embed(canonical_name) at entity-create, so
+            // re-embedding canonical names reproduces the stored vectors.
+            match metadata.read_txn() {
+                Ok(rtxn) => match brain_metadata::entity::ops::entity_iter_all_live(&rtxn) {
+                    Ok(entities) if !entities.is_empty() => {
+                        let count = entities.len();
+                        let mut pairs: Vec<(brain_core::EntityId, [f32; VECTOR_DIM])> =
+                            Vec::with_capacity(count);
+                        let mut embed_failures = 0usize;
+                        for (id, name) in entities {
+                            match dispatcher.embed(&name) {
+                                Ok(v) => pairs.push((id, v)),
+                                Err(_) => embed_failures += 1,
+                            }
+                        }
+                        match entity_hnsw_for_shard.write().rebuild(pairs) {
+                            Ok(_) => info!(
+                                shard_id,
+                                rebuilt = count,
+                                embed_failures,
+                                "entity HNSW rebuilt from metadata on startup"
+                            ),
+                            Err(e) => error!(
+                                shard_id,
+                                error = ?e,
+                                "entity HNSW startup rebuild failed; entity resolution degraded"
+                            ),
+                        }
+                    }
+                    Ok(_) => {}
+                    Err(e) => error!(
+                        shard_id,
+                        error = ?e,
+                        "entity HNSW startup rebuild: metadata scan failed"
+                    ),
+                },
+                Err(e) => error!(
+                    shard_id,
+                    error = ?e,
+                    "entity HNSW startup rebuild: read_txn failed"
+                ),
+            }
+
+            // Recovery: re-enqueue every live statement so the
+            // StatementEmbedWorker repopulates the (in-RAM, non-persisted)
+            // statement HNSW. Runs in the background off the embed queue, so
+            // it doesn't block the serve path; statement-scoped semantic
+            // search fills in as the worker drains.
+            match metadata.write_txn() {
+                Ok(wtxn) => {
+                    match brain_metadata::statement::statement_embed_queue_seed_all_live(&wtxn) {
+                        Ok(seeded) => match wtxn.commit() {
+                            Ok(()) => info!(
+                                shard_id,
+                                seeded,
+                                "statement embed queue seeded from live statements on startup"
+                            ),
+                            Err(e) => error!(
+                                shard_id,
+                                error = ?e,
+                                "statement embed queue seed commit failed"
+                            ),
+                        },
+                        Err(e) => error!(
+                            shard_id,
+                            error = ?e,
+                            "statement embed queue seed failed; statement semantic search degraded"
+                        ),
+                    }
+                }
+                Err(e) => error!(
+                    shard_id,
+                    error = ?e,
+                    "statement embed queue seed: write_txn failed"
+                ),
+            }
+
             let wal_retention_source: Arc<dyn WalRetentionSource> =
                 Arc::new(WalDirRetentionSource::new(
                     wal_dir_for_executor.clone(),

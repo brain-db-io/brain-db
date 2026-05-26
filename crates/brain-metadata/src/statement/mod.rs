@@ -29,7 +29,7 @@ pub use crud::{
 };
 pub use embed_queue::{
     statement_embed_queue_len, statement_embed_queue_peek, statement_embed_queue_remove,
-    statement_embed_queue_remove_many,
+    statement_embed_queue_remove_many, statement_embed_queue_seed_all_live,
 };
 pub use evidence::{
     pack_evidence_entries, pack_evidence_ids, read_evidence_entries_w, read_evidence_ids,
