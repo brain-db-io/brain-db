@@ -1,14 +1,13 @@
-//! LexicalRetriever criterion benches against §16/02 §2.9
-//! (phase 22.8).
+//! LexicalRetriever criterion benches.
 //!
 //! Three benches:
 //!
-//! 1. Memory scope, single-term query (`§2.9` target p50 10 ms).
-//! 2. Memory scope, multi-term + filter (`§2.9` target p50 15 ms).
-//! 3. Statement scope, single-term query (`§2.9` target p50 10 ms).
+//! 1. Memory scope, single-term query (target p50 10 ms).
+//! 2. Memory scope, multi-term + filter (target p50 15 ms).
+//! 3. Statement scope, single-term query (target p50 10 ms).
 //!
-//! Corpus scale: 10K docs (regression detector). Spec-stated
-//! 100K / 1M scales are validated by phase 14's acceptance suite;
+//! Corpus scale: 10K docs (regression detector). The full
+//! 100K / 1M scales are validated by the acceptance suite;
 //! this bench catches per-query regressions in CI.
 //!
 //! Run:

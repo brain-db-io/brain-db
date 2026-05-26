@@ -1,4 +1,4 @@
-//! Integration tests for `handle_recall` (sub-task 7.4).
+//! Integration tests for `handle_recall`.
 //!
 //! Drives the full pipeline:
 //!   dispatcher → handle_recall → plan_recall_inner → execute_recall

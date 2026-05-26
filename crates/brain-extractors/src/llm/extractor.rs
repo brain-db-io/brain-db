@@ -67,8 +67,7 @@ const NEIGHBOR_TEXT_CHAR_CAP_IN_PROMPT: usize = 200;
 const SUMMARY_CHAR_CAP: usize = 500;
 
 /// LLM-tier extractor. Constructed by the materializer
-/// (`materialize_llm_extractor`, phase 21.4) from an
-/// `ExtractorDefinition` row.
+/// (`materialize_llm_extractor`) from an `ExtractorDefinition` row.
 pub struct LlmExtractor {
     id: ExtractorId,
     name: String,
@@ -90,7 +89,7 @@ pub struct LlmExtractorInner {
     pub examples: Option<Value>,
     pub response_schema: Option<Value>,
     /// Compiled draft-7 validator. `None` when `response_schema`
-    /// is absent (free-form response mode per §22/09 §6).
+    /// is absent (free-form response mode).
     pub schema_compiled: Option<JSONSchema>,
     pub pricing: Pricing,
     pub max_tokens: u32,
@@ -233,8 +232,8 @@ impl LlmExtractor {
         // block (stable across every call) and the schema block (stable
         // per schema version). Both are eligible for Anthropic's
         // ephemeral prompt cache. The per-call body lives in the user
-        // message and is never cached — that's the surface area W2.3
-        // extends with bounded inferential context.
+        // message and is never cached — that's the surface area that
+        // carries the bounded inferential context.
         let request = LlmRequest {
             model: inner.client.model().to_string(),
             system_blocks: build_extractor_system_blocks(inner.examples.as_ref()),
@@ -567,7 +566,7 @@ pub struct BuildRequestStats {
 }
 
 /// Render the complete user-message body: the operator's template
-/// (with `{TEXT}` + `{PRIOR_ENTITIES}` substituted) plus the W2.3
+/// (with `{TEXT}` + `{PRIOR_ENTITIES}` substituted) plus the
 /// bounded-context sections (`Recent context`, optional
 /// `Rolling summary`). The context sections precede the memory text
 /// so a reader (and the LLM) sees the history first, then the
@@ -681,7 +680,7 @@ pub(super) fn truncate_chars(s: &str, max_chars: usize) -> String {
 }
 
 /// Render the operator-declared prompt template with bounded LLM
-/// context — the W2.3 surface. Builds the standard prompt body then
+/// context. Builds the standard prompt body then
 /// inserts `Recent context` + `Rolling summary` sections before the
 /// memory text. Enforces the per-call token budget: if the rendered
 /// request exceeds [`LLM_INPUT_TOKEN_BUDGET`] the function drops the
@@ -696,8 +695,8 @@ pub(super) fn render_prompt_with_context(
     memory_id: brain_core::MemoryId,
 ) -> (String, BuildRequestStats) {
     // No context wired (or empty) → fall back to the no-context render
-    // and skip budget enforcement (the no-context path is what the LLM
-    // saw before W2.3; it's already inside the budget).
+    // and skip budget enforcement (the no-context path is already
+    // inside the budget).
     let Some(ec) = extractor_context.filter(|c| !c.is_empty()) else {
         let body = render_prompt(template, memory_text, prior_entities, memory_id);
         let approx_input_tokens = approx_tokens_of(&body);
@@ -1100,7 +1099,7 @@ impl Extractor for LlmExtractor {
             // relation extraction, and feeding back the classifier's
             // guesses would just confuse it.
             let prior_entities = collect_prior_entities(ctx, mem.id);
-            // W2.3 added bounded inferential context to the per-call
+            // Bounded inferential context is added to the per-call
             // user message. The context map is keyed by memory id and
             // may be `None` (no neighbours computed) or absent for
             // this memory (no relevant neighbours found).

@@ -1,8 +1,7 @@
-//! Reciprocal Rank Fusion (phase 23.4).
+//! Reciprocal Rank Fusion.
 //!
-//! Implements §23/01 — combines multiple retrievers' ranked
-//! outputs into one ranked list using score-scale-invariant
-//! rank fusion:
+//! Combines multiple retrievers' ranked outputs into one ranked list
+//! using score-scale-invariant rank fusion:
 //!
 //! ```text
 //! RRF_score(d) = Σ_i  w_i / (k + rank_i(d))
@@ -18,11 +17,10 @@ use brain_index::{RankedItem, RankedItemId};
 
 use super::router::{PerRetrieverWeights, Retriever};
 
-/// RRF smoothing-constant default (§23/01 §"Choice of k" —
-/// from Cormack et al. 2009).
+/// RRF smoothing-constant default (from Cormack et al. 2009).
 pub const DEFAULT_K: u32 = 60;
 
-/// One fused result. Shape mirrors §24/00 §"Result shape".
+/// One fused result.
 #[derive(Debug, Clone)]
 pub struct FusedItem {
     pub id: RankedItemId,
@@ -36,8 +34,8 @@ pub struct FusedItem {
 }
 
 /// Per-retriever contribution to a fused item — surfaces in
-/// EXPLAIN/TRACE (23.8) so clients can see which retriever
-/// brought this item into the result.
+/// EXPLAIN/TRACE so clients can see which retriever brought this item
+/// into the result.
 #[derive(Debug, Clone, Copy)]
 pub struct RetrieverContribution {
     pub retriever: Retriever,
@@ -54,8 +52,7 @@ pub struct RetrieverContribution {
 ///
 /// `k`: smoothing constant. Use [`DEFAULT_K`] (60) for the
 /// canonical Cormack et al. default; smaller values
-/// emphasise top results, larger values flatten the curve
-/// (§23/01 §"Choice of k").
+/// emphasise top results, larger values flatten the curve.
 ///
 /// `weights`: per-retriever weights. Defaults are 1.0; the
 /// router or `FusionConfig` override.
@@ -113,7 +110,7 @@ fn weight_for(r: Retriever, w: &PerRetrieverWeights) -> f32 {
 /// Deterministic 17-byte sort key for `RankedItemId`. Tag
 /// byte distinguishes variants; the trailing 16 bytes are the
 /// inner id's big-endian representation. Matches the
-/// `BrainGraphRetriever`'s tie-break convention (§23.2).
+/// `BrainGraphRetriever`'s tie-break convention.
 fn id_sort_key(id: &RankedItemId) -> [u8; 17] {
     let mut key = [0u8; 17];
     match id {

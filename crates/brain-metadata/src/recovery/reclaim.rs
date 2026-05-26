@@ -29,8 +29,7 @@ impl MetadataDb {
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
             // O(1) delete: `ReclaimPayload.memory_id` carries the row's
-            // primary key directly (SD-3.11-3 supersedes the deferred
-            // SD-3.11-2 scan path).
+            // primary key directly, so no scan is needed.
             let key = p.memory_id.to_be_bytes();
             {
                 let mut mems = wtxn.open_table(MEMORIES_TABLE).map_err(transient)?;
@@ -66,12 +65,11 @@ impl MetadataDb {
             let slot_version = memory_id.version();
 
             // For Consolidated memories: the source-derived agent_id /
-            // context_id aren't in the payload describes
-            // consolidation as agent-scoped — every source shares an
-            // agent. v1 storage uses the brain-core NULL sentinels;
-            // wire layer (Phase 9) populates these via a richer
-            // payload. SD-3.11-3-style placeholder, but doesn't need a
-            // logged deviation since it's pure recovery-time fill.
+            // context_id aren't in the payload. Consolidation is
+            // agent-scoped — every source shares an agent. Storage uses
+            // the brain-core NULL sentinels here; the wire layer
+            // populates these via a richer payload. This is a pure
+            // recovery-time fill.
             let mem = MemoryMetadata {
                 memory_id_bytes: memory_id.to_be_bytes(),
                 agent_id_bytes: <[u8; 16]>::from(AgentId::default()),

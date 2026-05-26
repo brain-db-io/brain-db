@@ -1,4 +1,4 @@
-//! Phase 18 exit integration test (sub-task 18.9a).
+//! Relation lifecycle exit integration test.
 //!
 //! Full relation lifecycle end-to-end: create asymmetric chain,
 //! create symmetric, traverse, tombstone, re-traverse.

@@ -1,17 +1,9 @@
-//! Per-shard tantivy index handle (phase 22.1).
+//! Per-shard tantivy index handle.
 //!
-//! Owns the two tantivy indexes laid out in `spec/26_knowledge_storage/01_tantivy_layout.md`:
+//! Owns the two tantivy indexes:
 //!
-//! - `memory_text.tantivy/` — BM25 over raw memory text (§26/01 §2).
+//! - `memory_text.tantivy/` — BM25 over raw memory text.
 //! - `statements.tantivy/`  — BM25 over the statement text representation.
-//!
-//! Phase 22.1 lands the open / schema-version check / startup-status
-//! plumbing. Subsequent sub-tasks plug in:
-//!
-//! - 22.2 — tokenizer registration (URL + code-ID preservation, Porter stemmer).
-//! - 22.3 / 22.4 — `IndexWriter` allocation + commit cadence.
-//! - 22.5 — `LexicalRetriever` trait + impl reads through these handles.
-//! - 22.6 — rebuild worker acts on the `IndexStatus::NeedsRebuild` arm.
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -34,14 +26,13 @@ pub use tokenizer::{build_analyzer, BrainTokenizer, BRAIN_TOKENIZER_NAME};
 /// Brain-side schema version stamped on the tantivy `IndexMeta::payload`.
 ///
 /// Bumped whenever any field in the schemas defined by [`memory_text_schema`]
-/// or [`statements_schema`] changes shape. Mismatch on open → `NeedsRebuild`
-/// (§26/01 §2 + §6).
+/// or [`statements_schema`] changes shape. Mismatch on open → `NeedsRebuild`.
 pub const BRAIN_SCHEMA_VERSION: u32 = 1;
 
 const STATEMENTS_DIR: &str = "statements.tantivy";
 const MEMORY_TEXT_DIR: &str = "memory_text.tantivy";
 
-/// Scope tag carried alongside each [`IndexHandle`] so retrievers (§23/02 §4)
+/// Scope tag carried alongside each [`IndexHandle`] so retrievers
 /// can dispatch without an extra lookup.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LexicalScope {
@@ -66,8 +57,8 @@ impl LexicalScope {
 ///
 /// `tantivy::Index` is internally `Arc`-backed, so cloning is
 /// cheap and shares the same underlying tokenizer / directory
-/// references — required for the indexer worker (22.3 / 22.4)
-/// and the retriever (22.5) to hold independent handles.
+/// references — required for the indexer worker
+/// and the retriever to hold independent handles.
 #[derive(Clone)]
 pub struct IndexHandle {
     pub index: Index,
@@ -91,7 +82,7 @@ pub struct TantivyShard {
 }
 
 /// Result of [`TantivyShard::open`]. The status arms feed the rebuild
-/// scheduler in 22.6.
+/// scheduler.
 #[derive(Debug)]
 pub struct TantivyShardStartup {
     pub shard: Arc<TantivyShard>,
@@ -104,7 +95,7 @@ pub struct TantivyShardStartup {
 pub enum IndexStatus {
     /// Index opened cleanly; schema version matches.
     Ready,
-    /// Caller (22.6) must rebuild before reads are valid.
+    /// Caller must rebuild before reads are valid.
     NeedsRebuild { reason: RebuildReason },
 }
 
@@ -136,30 +127,30 @@ pub enum TantivyShardError {
     },
 }
 
-/// Schema for `memory_text.tantivy/`. Pinned by §26/01 §2.
+/// Schema for `memory_text.tantivy/`.
 #[must_use]
 pub fn memory_text_schema() -> Schema {
     let mut sb = Schema::builder();
-    // MemoryId is u128 (16 bytes big-endian, §02/03 packing);
-    // bytes field, INDEXED so the indexer worker (22.3) can
+    // MemoryId is u128 (16 bytes big-endian);
+    // bytes field, INDEXED so the indexer worker can
     // delete_term by id on FORGET / re-Upsert, STORED so the
     // retriever surfaces it in `RankedItem.id`.
     sb.add_bytes_field("memory_id", INDEXED | STORED);
     sb.add_text_field("text", TEXT);
     // 16-byte agent UUID — bytes field, indexed for exact-match
-    // filter (§23/02 §5) and stored so retrieval round-trips it.
+    // filter and stored so retrieval round-trips it.
     sb.add_bytes_field("agent_id", INDEXED | STORED);
     sb.add_u64_field("kind", INDEXED);
     sb.add_u64_field("created_at", INDEXED | FAST);
     sb.build()
 }
 
-/// Schema for `statements.tantivy/`. Pinned by §26/01 §2.
+/// Schema for `statements.tantivy/`.
 #[must_use]
 pub fn statements_schema() -> Schema {
     let mut sb = Schema::builder();
     // 16-byte u128 statement id; INDEXED so the indexer worker
-    // (22.4) can delete_term by id on tombstone / supersede,
+    // can delete_term by id on tombstone / supersede,
     // STORED so retrieval surfaces it in `RankedItem.id`.
     sb.add_bytes_field("statement_id", INDEXED | STORED);
     sb.add_text_field("subject_name", TEXT);
@@ -177,8 +168,7 @@ pub fn statements_schema() -> Schema {
 }
 
 /// JSON payload written into the tantivy `IndexMeta::payload` field
-/// by the indexer worker on first commit (22.3 / 22.4). 22.1 only
-/// reads it.
+/// by the indexer worker on first commit. The open path only reads it.
 #[derive(Debug, Serialize, Deserialize)]
 pub struct BrainSchemaPayload {
     pub brain_schema_version: u32,
@@ -189,8 +179,7 @@ impl TantivyShard {
     ///
     /// * If a directory is absent: create a fresh `Index` with the
     ///   bound schema. Payload stays empty until the first commit
-    ///   by the indexer worker (22.3 / 22.4) — status reports
-    ///   `Ready`.
+    ///   by the indexer worker — status reports `Ready`.
     /// * If a directory exists and opens cleanly: parse the
     ///   `meta.json` payload. Match → `Ready`. Mismatch / corrupt
     ///   → `NeedsRebuild`.
@@ -202,10 +191,9 @@ impl TantivyShard {
         let (statements_index, statements_status) =
             open_or_create(shard_dir, LexicalScope::StatementText, statements_schema())?;
 
-        // Phase 22.2: register the brain analyzer on both
-        // indexes. Override of tantivy's built-in `"default"`
-        // name so 22.1's TEXT fields pick it up without a
-        // schema-version bump.
+        // Register the brain analyzer on both indexes. Override
+        // of tantivy's built-in `"default"` name so the TEXT
+        // fields pick it up without a schema-version bump.
         memory_index
             .tokenizers()
             .register(BRAIN_TOKENIZER_NAME, build_analyzer());
@@ -233,8 +221,9 @@ impl TantivyShard {
 }
 
 /// Returns `(Index, IndexStatus)`. The `Index` value is always returned
-/// (created fresh on `OpenFailed` so 22.6 can rebuild into the live dir
-/// without re-creating it); the status drives whether reads are allowed.
+/// (created fresh on `OpenFailed` so the rebuild worker can rebuild into
+/// the live dir without re-creating it); the status drives whether reads
+/// are allowed.
 fn open_or_create(
     shard_dir: &Path,
     scope: LexicalScope,
@@ -247,7 +236,7 @@ fn open_or_create(
         source,
     })?;
 
-    // A bare mkdir (e.g. phase-15.3's `ShardPaths::ensure`) leaves
+    // A bare mkdir (e.g. `ShardPaths::ensure`) leaves
     // the directory empty. Treat empty as fresh-create — only a
     // dir with a `meta.json` is a previously-committed index.
     let needs_create = !dir.join("meta.json").exists();
@@ -268,8 +257,8 @@ fn open_or_create(
             // Return a RAM-backed placeholder index that satisfies
             // the type contract; reads against it short-circuit
             // because the rebuild status is `NeedsRebuild`. The
-            // 22.6 worker rebuilds into `<live>.rebuild/` and
-            // atomic-swaps over the corrupt directory (§26/01 §5).
+            // rebuild worker rebuilds into `<live>.rebuild/` and
+            // atomic-swaps over the corrupt directory.
             let placeholder = Index::create_in_ram(schema);
             Ok((
                 placeholder,
@@ -283,8 +272,8 @@ fn open_or_create(
 
 /// Inspect a freshly opened `Index`'s metadata payload for our schema
 /// version. Returns `Ready` if version matches OR if payload is empty
-/// (an index that's been created but never committed against — phase
-/// 22.1 sees this on fresh dirs, 22.3 will populate it on first commit).
+/// (an index that's been created but never committed against — the open
+/// path sees this on fresh dirs, the indexer populates it on first commit).
 fn inspect_payload(index: &Index) -> IndexStatus {
     let meta = match index.load_metas() {
         Ok(m) => m,
@@ -323,7 +312,7 @@ fn create_fresh(dir: &Path, schema: Schema) -> Result<Index, TantivyShardError> 
     })
 }
 
-/// Serialise the schema-version payload for writers (22.3 / 22.4) to
+/// Serialise the schema-version payload for writers to
 /// stamp on first commit. Exposed here so the writer side doesn't
 /// re-define the JSON shape.
 #[must_use]

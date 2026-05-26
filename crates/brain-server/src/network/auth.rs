@@ -111,7 +111,7 @@ impl RequestScope {
     /// The caller is stamped with the wire-level `session_id` minted
     /// at HELLO/WELCOME so the txn store can link buffered work back
     /// to the originating connection — disconnect-time cleanup
-    /// (§05/04) fans out on session_id, not on agent_id, because a
+    /// fans out on session_id, not on agent_id, because a
     /// single agent may hold many concurrent sessions.
     #[must_use]
     pub fn to_caller(&self, session_id: [u8; 16]) -> brain_ops::RequestCaller {

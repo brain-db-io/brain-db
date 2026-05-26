@@ -1,9 +1,9 @@
 //! Render `brain-cli agent list / stats / delete` responses.
 //!
-//! All three are deferred (phase-11 agent index); v1 surfaces them as
-//! structured 501s and `main` bails before reaching the renderer. This
-//! file provides the rendering shape so the moment the backend lands,
-//! the consumer side is ready.
+//! All three are deferred (the agent index isn't present yet); v1
+//! surfaces them as structured 501s and `main` bails before reaching
+//! the renderer. This file provides the rendering shape so the moment
+//! the backend lands, the consumer side is ready.
 //!
 //! agent_id is rendered as the first / featured column in both the list
 //! and the stats views — project memory "agent_id is first-class".

@@ -1,5 +1,5 @@
 //! End-to-end: drive the in-process brain-server harness via
-//! `brain_cli` library-level command functions. Sub-task 10.13.
+//! `brain_cli` library-level command functions.
 //!
 //! These tests don't go through argv parsing (that's covered by
 //! brain-cli's own `tests/cli.rs`). They invoke each command's
@@ -104,7 +104,7 @@ async fn cli_worker_list_includes_known_worker() {
     server.stop().await;
 }
 
-/// `debug-snapshot` returns the 10.12 partial schema.
+/// `debug-snapshot` returns the partial schema.
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn cli_debug_snapshot_partial_schema() {
     let server = start(1).await;

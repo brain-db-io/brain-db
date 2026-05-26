@@ -1,6 +1,5 @@
 //! Statement wire-op handlers — `STATEMENT_CREATE` / `_GET` /
-//! `_SUPERSEDE` / `_TOMBSTONE` / `_RETRACT` / `_HISTORY` / `_LIST`
-//! (phase 17.7).
+//! `_SUPERSEDE` / `_TOMBSTONE` / `_RETRACT` / `_HISTORY` / `_LIST`.
 //!
 //! Write handlers go through the unified writer's `submit(Write)` path:
 //! pre-submit reads validate inputs against the active schema (rtxn-
@@ -12,13 +11,12 @@
 //!
 //! Read handlers (GET / HISTORY / LIST) stay direct-rtxn.
 //!
-//! Subscription events (CREATE / SUPERSEDE / TOMBSTONE
-//! §3.2) and the statement text-indexer dispatch (§27/02 §3) remain
-//! on the handler path; a later slice unifies them with the writer's
-//! post-commit fan-out.
+//! Subscription events (CREATE / SUPERSEDE / TOMBSTONE) and the
+//! statement text-indexer dispatch remain on the handler path; a
+//! later slice unifies them with the writer's post-commit fan-out.
 //!
-//! Phase 17.7 handlers do **not** touch the statement HNSW (17.5);
-//! the embedding worker that populates it lives in phase 21.
+//! These handlers do **not** touch the statement HNSW; the embedding
+//! worker that populates it lives elsewhere.
 
 use brain_core::{EntityId, PredicateId, RequestId, StatementId, StatementKind};
 use brain_core::{EvidenceEntry, Statement, TombstoneReason};
@@ -221,9 +219,9 @@ pub async fn handle_statement_create(
         .await;
     }
 
-    // §27/02 §3: statement text indexer dispatch.
+    // Statement text indexer dispatch.
     // For auto-superseded Preferences we emit a Delete for the
-    // old id before the Upsert for the new one (mirroring §3's
+    // old id before the Upsert for the new one (mirroring the
     // supersede = Delete + Upsert pattern).
     if let Some(dispatcher) = ctx.statement_text_dispatcher.as_ref() {
         if let Some(old_id) = auto_superseded {
@@ -306,7 +304,7 @@ pub async fn handle_statement_supersede(
     let now = crate::txn::now_unix_nanos_pub();
     let (namespace, name) = split_qname(&req.new_statement.predicate)?;
 
-    // Phase A — pre-submit predicate resolution mirror of CREATE.
+    // Step A — pre-submit predicate resolution mirror of CREATE.
     let (predicate_id_opt, schemaless) = {
         let rtxn = ctx
             .executor
@@ -363,7 +361,7 @@ pub async fn handle_statement_supersede(
         }
     };
 
-    // Phase B — submit the Supersede phase. SupersedeReplacement
+    // Step B — submit the Supersede phase. SupersedeReplacement
     // carries the full new statement so apply_supersede_statement can
     // call statement_supersede inside one wtxn.
     let new_statement = build_statement_from_create(&req.new_statement, predicate_id, now, kind)?;
@@ -392,7 +390,7 @@ pub async fn handle_statement_supersede(
         }
     };
 
-    // Phase C — recover chain_root + version from storage. The
+    // Step C — recover chain_root + version from storage. The
     // PhaseAck doesn't surface them; the wire ack needs both.
     let (chain_root, version) = {
         let rtxn = ctx
@@ -418,7 +416,7 @@ pub async fn handle_statement_supersede(
     )
     .await;
 
-    // §27/02 §3: Delete old + Upsert new.
+    // Lexical index: Delete old + Upsert new.
     if let Some(dispatcher) = ctx.statement_text_dispatcher.as_ref() {
         dispatcher
             .dispatch(StatementTextOp::Delete { id: old_id })
@@ -545,7 +543,7 @@ pub async fn handle_statement_retract(
     };
 
     // Retract emits StatementTombstoned in v1 (no discrete retract
-    // event in v1.0; phase 22 may add one).
+    // event in v1.0; one may be added later).
     emit_knowledge_event(
         ctx,
         EventType::StatementTombstoned,
@@ -557,8 +555,8 @@ pub async fn handle_statement_retract(
     )
     .await;
 
-    // Retract drops the row from the lexical index (the §19/06
-    // grace period only affects when the metadata is zeroed; the
+    // Retract drops the row from the lexical index (the grace
+    // period only affects when the metadata is zeroed; the
     // statement is invisible to retrieval immediately).
     if let Some(dispatcher) = ctx.statement_text_dispatcher.as_ref() {
         dispatcher.dispatch(StatementTextOp::Delete { id }).await;
@@ -871,7 +869,7 @@ fn project_view(rtxn: &redb::ReadTransaction, s: &Statement) -> Result<Statement
     let qname = predicate.canonical();
 
     // If evidence is overflow, resolve to inline form so consumers
-    // don't need a second op to read the memory ids. Phase 22's
+    // don't need a second op to read the memory ids. A future
     // STATEMENT_ADD_EVIDENCE will let callers fetch the per-entry
     // metadata separately if needed.
     let mut s = s.clone();
@@ -1143,13 +1141,13 @@ fn map_statement_op_error(err: StatementOpError) -> OpError {
 }
 
 // ---------------------------------------------------------------------------
-// 22.4 — text-indexer dispatch helpers.
+// Text-indexer dispatch helpers.
 // ---------------------------------------------------------------------------
 
 /// Look up the just-committed statement by id, project it to a
 /// `StatementTextOp::Upsert`, and dispatch. Returns silently on
-/// any error — text-indexer drift is reported via shard metrics
-/// (§27/02 §8), not as a statement-op failure.
+/// any error — text-indexer drift is reported via shard metrics,
+/// not as a statement-op failure.
 async fn dispatch_upsert_for(
     ctx: &OpsContext,
     id: StatementId,

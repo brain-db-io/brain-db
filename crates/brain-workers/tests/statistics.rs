@@ -1,5 +1,5 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Statistics update worker tests (sub-task 8.11).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Statistics update worker tests.
 
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};

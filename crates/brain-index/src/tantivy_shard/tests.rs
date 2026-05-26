@@ -1,4 +1,4 @@
-//! Unit tests for the per-shard tantivy handle (phase 22.1).
+//! Unit tests for the per-shard tantivy handle.
 
 use std::fs;
 
@@ -11,7 +11,7 @@ use super::{
 };
 
 // ---------------------------------------------------------------------------
-// Schema round-trips. §26/01 §2 pins these field sets verbatim.
+// Schema round-trips. These field sets are pinned verbatim.
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -117,8 +117,8 @@ fn open_returns_needs_rebuild_on_version_mismatch() {
 
     // First open creates the index dir. Then stamp a stale
     // payload into meta.json directly — the same field
-    // `inspect_payload` reads (writers will use a Prepared-
-    // commit-with-payload flow in 22.3, but for this test the
+    // `inspect_payload` reads (writers use a Prepared-
+    // commit-with-payload flow, but for this test the
     // file-level edit is the smallest reproducer).
     let _ = TantivyShard::open(dir.path()).expect("first open");
 
@@ -170,7 +170,7 @@ fn open_returns_needs_rebuild_on_corrupt_meta() {
 }
 
 // ---------------------------------------------------------------------------
-// schema_payload_json round-trips. Writers (22.3 / 22.4) consume this.
+// schema_payload_json round-trips. Writers consume this.
 // ---------------------------------------------------------------------------
 
 #[test]

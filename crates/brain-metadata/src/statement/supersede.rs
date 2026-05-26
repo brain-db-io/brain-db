@@ -199,8 +199,8 @@ pub struct TieredThresholds {
     /// LLM judge (Tier 2 lower bound).
     pub judge_lower: f32,
     /// Upper bound of the judge band; must equal `auto_supersede` to
-    /// keep the ladder contiguous. Stored for symmetry with the
-    /// arc-labs spec so operator overrides read cleanly.
+    /// keep the ladder contiguous. Stored for symmetry so operator
+    /// overrides read cleanly.
     pub judge_upper: f32,
 }
 
@@ -439,8 +439,8 @@ impl<'a> TieredSupersedeDecider<'a> {
                     }
                 });
             // Translate transport/parse/budget into a soft Coexist
-            // rather than failing the parent encode — the spec moat
-            // is "never lose a write to a flaky judge".
+            // rather than failing the parent encode — never lose a
+            // write to a flaky judge.
             return Ok(match verdict {
                 Ok(JudgeVerdict::Supersedes) => SupersedeDecision::Supersede(top.statement_id),
                 Ok(JudgeVerdict::Contradicts) => SupersedeDecision::Contradicts(top.statement_id),
@@ -502,11 +502,11 @@ pub fn statement_create_with_decision(
         }
         SupersedeDecision::Contradicts(prior) => {
             // Structured trace so operators can hook it. A first-class
-            // contradiction audit table is a follow-up (W2.6 review
-            // queue); v1 of W2.1 stops short of allocating a new table
-            // because the trace is enough to feed dashboards + the
-            // pair is recoverable from STATEMENTS_BY_SUBJECT given
-            // both rows store with is_current=1.
+            // contradiction audit table is a follow-up; for now we stop
+            // short of allocating a new table because the trace is
+            // enough to feed dashboards and the pair is recoverable from
+            // STATEMENTS_BY_SUBJECT given both rows store with
+            // is_current=1.
             tracing::warn!(
                 target: "brain_metadata::supersede",
                 new_id = ?new_statement.id,
@@ -1150,7 +1150,7 @@ mod tests {
 
     /// Golden file: 200 hand-labeled `(scenario, verdict)` cases
     /// stratified across the four tiers. The decider must agree
-    /// with the labels on ≥ 0.93 of the fixture (plan W2.1 target).
+    /// with the labels on ≥ 0.93 of the fixture.
     /// Inline + deterministic so the test is hermetic.
     ///
     /// Bucket distribution mirrors the call-rate test:

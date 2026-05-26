@@ -10,7 +10,7 @@
 //!    by one hop, scanning `edges_out` (forward) or `edges_in`
 //!    (backward) filtered to the plan's `edge_kinds`. Stop on
 //!    intersection or budget exhaustion.
-//! 3. **Path scoring.** Per:
+//! 3. **Path scoring.**
 //!    `score = length × edge_weight × salience` (geometric mean for
 //!    edge-weight and salience).
 //! 4. **Truncate** to `scoring.top_n` and return.
@@ -141,12 +141,11 @@ fn resolve_endpoint(
     match state {
         PlanState::ByMemoryId(raw) => {
             let id = MemoryId::from(*raw);
-            // Sub-task 9.16: — tombstoned memories
-            // aren't visible unless explicitly requested. A
-            // tombstoned start / goal returns an empty endpoint
-            // set; `execute_path` short-circuits to `NoPathFound`.
-            // Matches `search_active`'s silent-filter behavior for
-            // ByText endpoints.
+            // Tombstoned memories aren't visible unless explicitly
+            // requested. A tombstoned start / goal returns an empty
+            // endpoint set; `execute_path` short-circuits to
+            // `NoPathFound`. Matches `search_active`'s silent-filter
+            // behavior for ByText endpoints.
             if ctx.index.is_tombstoned(id) {
                 return Ok(HashSet::new());
             }
@@ -156,7 +155,7 @@ fn resolve_endpoint(
         }
         PlanState::ByText(text) => {
             // Caller-supplied query text (PLAN endpoint resolution) —
-            // BGE asymmetric retrieval prefix applies (spec 07/02 §12a).
+            // BGE asymmetric retrieval prefix applies.
             let vector = ctx.embedder.embed_query(text)?;
             let hits =
                 ctx.index
@@ -311,10 +310,9 @@ fn run_bidirectional_bfs(
                     .collect()
             };
 
-            // Sub-task 9.16: drop committed tombstoned memories from
-            // PLAN traversals. Outside an active
-            // txn this is the only filter; inside one, the
-            // `snap.tombstoned` retain below layers in-flight
+            // Drop committed tombstoned memories from PLAN traversals.
+            // Outside an active txn this is the only filter; inside
+            // one, the `snap.tombstoned` retain below layers in-flight
             // tombstones on top.
             neighbours.retain(|(_, other, _)| !ctx.index.is_tombstoned(*other));
 
@@ -454,7 +452,7 @@ fn reconstruct(
     let mut weights = fwd_weights;
     weights.extend(bwd_weights);
 
-    // Self-loop guard (§16). Visited maps make this redundant on each
+    // Self-loop guard. Visited maps make this redundant on each
     // side, but the meet-point can theoretically appear twice if the
     // BFS finds the same node via both sides' seeds; assert.
     let mut seen = HashSet::with_capacity(nodes.len());
@@ -622,7 +620,7 @@ fn build_endpoint_centroid(
 
     // ByText: re-embed the cue directly. The dispatcher cache keeps
     // this sub-µs on repeats. Query side of BGE asymmetric retrieval
-    // (spec 07/02 §12a) — the prefix is applied automatically.
+    // — the prefix is applied automatically.
     if let PlanState::ByText(text) = state {
         return match ctx.embedder.embed_query(text) {
             Ok(v) => Some(v),

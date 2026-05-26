@@ -1,5 +1,4 @@
-//! Schema-management SDK surface "Schema management",
-//! phase 19.8.
+//! Schema-management SDK surface.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::{Client, ClientError};
@@ -137,7 +136,7 @@ impl<'c> SchemaClient<'c> {
         self.upload_text(text).await
     }
 
-    /// Upload raw DSL text per §21/01.
+    /// Upload raw DSL text.
     pub async fn upload_text(
         &self,
         source: impl Into<String>,
@@ -288,7 +287,7 @@ impl Client {
 // SchemaBuilder — typed fluent assembler over Schema.
 // ---------------------------------------------------------------------------
 
-/// Fluent assembler over the 19.2 AST. Round-trips through DSL text
+/// Fluent assembler over the schema AST. Round-trips through DSL text
 /// on `upload`.
 #[derive(Debug, Clone)]
 pub struct SchemaBuilder {
@@ -608,7 +607,7 @@ fn print_extractor_field(out: &mut String, f: &ExtractorField) -> Result<(), Cli
             out.push_str(&format!("    depends_on: [{}]\n", names.join(", ")));
         }
         ExtractorField::Resolver(_) => {
-            // Phase 22+ owns the resolver body shape; v1 emits an
+            // The resolver body shape is owned elsewhere; v1 emits an
             // empty block.
             out.push_str("    resolver { }\n");
         }

@@ -787,7 +787,7 @@ fn insert_into_entity_hnsw(
     // Persist the vector before inserting into the in-RAM HNSW. The
     // persist is the durability hook for restart: on next boot the
     // entity HNSW rebuilds from these stored vectors without
-    // re-embedding (`spec/09/06_persistence.md §6`). A failure here is
+    // re-embedding. A failure here is
     // non-fatal — log + fall through to the HNSW insert so the entity
     // is at least immediately resolvable in this process; on restart
     // the absent row drops back to the re-embed fallback.

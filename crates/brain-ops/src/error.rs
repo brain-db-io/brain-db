@@ -46,7 +46,7 @@ pub enum OpError {
     TooManyMemories,
 
     /// Transaction buffer would exceed the per-transaction op cap.
-    /// Spec §05/04 §10 fixes the cap at 1000 buffered ops (ENCODE +
+    /// The cap is fixed at 1000 buffered ops (ENCODE +
     /// FORGET + LINK + UNLINK). Surfaced at append-time so an agent
     /// learns immediately when the 1001st op is buffered, and again at
     /// commit-time as defense-in-depth. The client should split the
@@ -79,9 +79,8 @@ pub enum OpError {
     ///
     /// Maps to wire `InvalidRequest`: existing wire codes don't have
     /// a precise slot for "schema merge would conflict," and adding
-    /// new codes is out of scope for the phase-26 schema-associative
-    /// workflow. Clients distinguish this from a parse / validate
-    /// failure by inspecting the error message.
+    /// new codes is out of scope. Clients distinguish this from a
+    /// parse / validate failure by inspecting the error message.
     #[error("schema conflict: {kind} {name:?} in namespace {namespace:?}: {conflict}")]
     SchemaConflict {
         kind: &'static str,
@@ -129,9 +128,8 @@ pub enum OpError {
     #[error("transaction not found")]
     TxnNotFound,
 
-    /// Sub-task placeholder. 7.3–7.10 replace each stub handler;
-    /// while in flight, the dispatcher returns this for handlers
-    /// not yet implemented.
+    /// Placeholder for stub handlers: while a handler is in flight,
+    /// the dispatcher returns this for ops not yet implemented.
     #[error("not yet implemented: {0}")]
     NotYetImplemented(&'static str),
 
@@ -188,7 +186,7 @@ pub enum ErrorCode {
     /// Txn id never existed on this server.
     TxnNotFound,
     /// Buffered transaction would exceed the per-transaction op cap
-    /// (1000 ops per spec §05/04 §10). Distinct from `Conflict` so the
+    /// (1000 ops). Distinct from `Conflict` so the
     /// SDK can report a domain-specific recovery hint ("split into
     /// multiple transactions").
     TransactionTooLarge,

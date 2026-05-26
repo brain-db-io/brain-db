@@ -1,7 +1,5 @@
 //! OpenTelemetry tracing — OTLP exporter pipeline.
 //!
-//! Sub-task 12.3.
-//!
 //! Returns a `Layer` that `bootstrap::logging` composes into the
 //! global subscriber. The layer is wired to an OTLP/HTTP exporter
 //! sending to the collector at `tracing.endpoint`. If `enabled =
@@ -14,7 +12,7 @@
 //! The wire protocol does not currently carry a `traceparent`
 //! header (amendment required). v1 emits
 //! server-side spans only; client-supplied trace context is not
-//! consumed. Tracker: `phase-13/wire-traceparent`.
+//! consumed.
 //!
 //! ## Glommio note
 //!

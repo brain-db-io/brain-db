@@ -1,9 +1,6 @@
-//! Entity merge / unmerge mechanics. Sub-task 16.7.2.
+//! Entity merge / unmerge mechanics.
 //!
-//! Implements `merge_entity` per `spec/02_data_model/03_merge.md` §5
-//! (phase-scoped — §5 steps 8-9 statement/relation re-routing are
-//! deferred to phases 17/18) and `unmerge_entity` per
-//! `spec/02_data_model/04_unmerge.md` §4.
+//! Implements `merge_entity` and `unmerge_entity`.
 //!
 //! Free functions over `WriteTransaction`, matching the
 //! `entity_ops` precedent so callers can compose multi-table writes
@@ -45,9 +42,9 @@ use crate::tables::merge::{actor_kind, MergeRecord, MERGE_LOG_TABLE};
 
 /// Who initiated the merge.
 ///
-/// `System` is for the resolver / background workers (phase 21+ — LLM tier
+/// `System` is for the resolver / background workers (e.g. LLM-tier
 /// merge suggestions). `Agent` is an operator agent_id over the wire
-/// (`ENTITY_MERGE` opcode in phase 16.7).
+/// (the `ENTITY_MERGE` opcode).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MergeActor {
     System,
@@ -119,7 +116,6 @@ pub enum EntityMergeOpError {
 }
 
 /// Minimum confidence for a wire-initiated merge to apply.
-/// Per `spec/02_data_model/03_merge.md` §4.
 pub const MIN_MERGE_CONFIDENCE: f32 = 0.7;
 
 /// Default grace window for unmerge — 7 days. Configurable per-call
@@ -130,9 +126,7 @@ pub const DEFAULT_MERGE_GRACE_NANOS: u64 = 7 * 24 * 60 * 60 * 1_000_000_000;
 // merge_entity.
 // ---------------------------------------------------------------------------
 
-/// Merge `merged` into `survivor`. Phase-scoped per
-/// `spec/02_data_model/03_merge.md` §0 — statement / relation re-routing
-/// is deferred to phases 17/18.
+/// Merge `merged` into `survivor`.
 ///
 /// Returns the freshly allocated `MergeId` for the audit row.
 #[allow(clippy::too_many_arguments)]
@@ -146,7 +140,7 @@ pub fn merge_entity(
     grace_seconds: u64,
     now_unix_nanos: u64,
 ) -> Result<MergeId, EntityMergeOpError> {
-    // §18/03 §3 pre-conditions.
+    // Pre-conditions.
 
     if survivor == merged {
         return Err(EntityMergeOpError::SelfMerge);
@@ -177,8 +171,8 @@ pub fn merge_entity(
         });
     }
 
-    // §18/03 §5 mechanics (phase-scoped — skip steps 8/9 statement /
-    // relation re-routing; the lists / counts stay at zero).
+    // Merge mechanics — statement / relation re-routing is skipped;
+    // the lists / counts stay at zero.
 
     let type_id = EntityTypeId(survivor_row.entity_type_id);
 
@@ -228,9 +222,9 @@ pub fn merge_entity(
 
     let mention_count_added = merged_row.mention_count;
 
-    // Phase 16.7: attribute_conflicts is empty because attributes are
-    // opaque blobs. Phase 19's schema DSL will decode and produce real
-    // conflict records.
+    // attribute_conflicts is empty because attributes are opaque
+    // blobs; the schema DSL will decode and produce real conflict
+    // records.
     let attribute_conflicts = Vec::new();
 
     // 1. Tear down merged's secondary indexes (canonical_name + aliases).
@@ -273,7 +267,7 @@ pub fn merge_entity(
     index_entity_trigrams(wtxn, type_id, survivor, &trigrams_added_set)?;
 
     // 5. Mutate survivor row in memory: extend aliases, fold mention_count.
-    //    Attributes are opaque blobs in 16.7; survivor keeps its blob.
+    //    Attributes are opaque blobs; survivor keeps its blob.
     let mut survivor_next = survivor_row.clone();
     for a in &aliases_added {
         survivor_next.aliases.push(a.clone());
@@ -315,7 +309,7 @@ pub fn merge_entity(
     audit.trigrams_added = trigrams_added;
     audit.attribute_conflicts = attribute_conflicts;
     audit.mention_count_added = mention_count_added;
-    // statements_rerouted / relations_rerouted stay at 0 (phase 16.7).
+    // statements_rerouted / relations_rerouted stay at 0.
     {
         let mut t = wtxn.open_table(MERGE_LOG_TABLE)?;
         t.insert(&(now_unix_nanos, audit.merge_id_bytes), &audit)?;
@@ -328,9 +322,8 @@ pub fn merge_entity(
 // unmerge_entity.
 // ---------------------------------------------------------------------------
 
-/// Reverse a recent merge identified by the `merged` entity. Phase-
-/// scoped per `spec/02_data_model/04_unmerge.md` §4 — statement /
-/// relation re-route restoration is deferred to phases 17/18.
+/// Reverse a recent merge identified by the `merged` entity. Statement
+/// / relation re-route restoration is not performed here.
 ///
 /// Returns the survivor's `EntityId` for caller convenience.
 pub fn unmerge_entity(
@@ -363,7 +356,7 @@ pub fn unmerge_entity(
 
     let type_id = EntityTypeId(merged_row.entity_type_id);
 
-    // §18/04 §4 mechanics.
+    // Unmerge mechanics.
 
     // 1. Strip survivor of merged's contribution.
     let aliases_added_set: HashSet<String> = audit
@@ -379,7 +372,7 @@ pub fn unmerge_entity(
         .mention_count
         .saturating_sub(audit.mention_count_added);
     survivor_next.updated_at_unix_nanos = now_unix_nanos;
-    // attribute_conflicts revert is a no-op in 16.7 (always empty).
+    // attribute_conflicts revert is a no-op (always empty).
 
     // 2. Strip survivor's secondary indexes of merged's contribution.
     {

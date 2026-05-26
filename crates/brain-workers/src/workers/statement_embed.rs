@@ -425,7 +425,7 @@ fn uuid_hex(bytes: &[u8; 16]) -> String {
 // ---------------------------------------------------------------------------
 
 #[cfg(all(test, not(miri)))]
-#[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
+#[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 mod tests {
     use super::*;
     use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementKind};

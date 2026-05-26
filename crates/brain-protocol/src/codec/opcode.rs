@@ -1,4 +1,4 @@
-//! Wire-protocol opcodes (u16). Canonical spec: `spec/04_wire_protocol/03_opcodes.md`.
+//! Wire-protocol opcodes (u16).
 //!
 //! ## Namespaces (high byte)
 //!
@@ -24,8 +24,7 @@
 
 use crate::error::ProtocolError;
 
-/// Wire-protocol opcode. See `spec/04_wire_protocol/03_opcodes.md` for
-/// the full table.
+/// Wire-protocol opcode.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[repr(u16)]
 pub enum Opcode {
@@ -485,10 +484,10 @@ mod tests {
     use super::*;
     use proptest::prelude::*;
 
-    /// Every spec-assigned opcode. If a row is added/changed in
-    /// `spec/04_wire_protocol/03_opcodes.md`, this list is the single
-    /// update site. The `from_u16_covers_all` test prevents enum/decoder
-    /// drift; this `ALL` table prevents drift from the spec.
+    /// Every assigned opcode. If a row is added or changed, this list
+    /// is the single update site. The `from_u16_covers_all` test
+    /// prevents enum/decoder drift; this `ALL` table prevents drift
+    /// from the canonical opcode table.
     const ALL: &[(u16, Opcode)] = &[
         // Connection management
         (0x0001, Opcode::Hello),

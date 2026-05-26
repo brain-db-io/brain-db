@@ -4,19 +4,14 @@
 //! Wires together the planner, storage, metadata, embedder, and
 //! index. Idempotency lives at this layer.
 //!
-//! See `spec/05_operations/` for the authoritative design.
-//!
-//! ## Sub-task 7.1 surface
+//! ## Surface
 //!
 //! - [`OpsContext`] — handle bag (currently a thin wrapper over
-//!   `brain_planner::ExecutorContext`; later sub-tasks add fields).
+//!   `brain_planner::ExecutorContext`; later work adds fields).
 //! - [`OpError`] + [`ErrorCode`] error taxonomy
 //!   with `error_code()` + `retryable()` mappings.
 //! - [`dispatch()`] — top-level async entry; exhaustive `match` over
 //!   `RequestBody`.
-//!
-//! Handler bodies (sub-tasks 7.3–7.10) are stubs returning
-//! `OpError::NotYetImplemented`.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -272,7 +267,7 @@ mod tests {
     fn dispatch_encode_routes_to_handler() {
         use crate::test_support::run_in_glommio;
         run_in_glommio(|| async {
-            // 7.3 wired the real ENCODE handler. The unified path needs
+            // The real ENCODE handler runs here. The unified path needs
             // a `RealWriterHandle`; the `NopWriter` fixture fails the
             // downcast with `OpError::Internal`, which is sufficient to
             // prove the dispatcher reaches `handle_encode` rather than

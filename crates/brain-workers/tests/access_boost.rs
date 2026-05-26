@@ -1,5 +1,5 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Access-boost worker integration tests (sub-task 8.3).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Access-boost worker integration tests.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

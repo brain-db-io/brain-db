@@ -84,6 +84,6 @@ async fn subscribe_stream_yields_events_then_stops_when_dropped() {
     // Don't call bye() here — the connection may still have
     // pending event frames queued by the mock. The test's job
     // is verifying the stream surface, not pool-after-stream
-    // recovery (10.6's plan §5 risks document the limitation).
+    // recovery (a documented limitation).
     let _ = tokio::time::timeout(std::time::Duration::from_millis(200), client.bye()).await;
 }

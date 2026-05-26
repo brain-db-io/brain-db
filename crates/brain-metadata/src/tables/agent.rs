@@ -1,16 +1,11 @@
 //! `agents` table: per-agent metadata.
 //!
-//! See `spec/10_metadata/02_table_layout.md` §12 (table shape) and
-//! `spec/02_data_model/02_memory.md` §3 (AgentId definition).
+//! ## Minimal shape
 //!
-//! ## Minimal v1 shape
-//!
-//! lists five concept areas: AgentId, display name,
-//! created_at, stats (memory/context counts), and configuration
-//! overrides. v1 stores the load-bearing fields and defers
-//! "configuration overrides" — typical workloads don't use it, and
-//! adding an `Option<config>` later is the field-addition path covered
-//! by.
+//! The row stores the load-bearing fields — AgentId, display name,
+//! created_at, and stats (memory/context counts) — and defers
+//! "configuration overrides". Typical workloads don't use overrides,
+//! and an `Option<config>` can be added later without a migration.
 
 use brain_core::AgentId;
 use redb::TableDefinition;
@@ -28,7 +23,7 @@ pub struct AgentMetadata {
     pub display_name: Option<String>,
     pub created_at_unix_nanos: u64,
     pub last_active_at_unix_nanos: u64,
-    /// Denormalized; updated by the maintenance worker (Phase 8).
+    /// Denormalized; updated by the maintenance worker.
     pub memory_count: u64,
     /// Denormalized; same.
     pub context_count: u32,

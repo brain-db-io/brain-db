@@ -1,7 +1,6 @@
 //! FORGET op. Single-id mode.
 //!
-//! 10.5 ships single-id only; batch/filter modes
-//! land post-Phase-10.
+//! Ships single-id only for now; batch/filter modes land later.
 
 use brain_core::{MemoryId, RequestId};
 use brain_protocol::codec::opcode::Opcode;

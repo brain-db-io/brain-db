@@ -1,5 +1,5 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Idempotency cleanup worker integration tests (sub-task 8.6).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Idempotency cleanup worker integration tests.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

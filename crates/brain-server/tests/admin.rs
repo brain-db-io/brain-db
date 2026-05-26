@@ -1,4 +1,4 @@
-//! Integration tests for the sub-task 9.13 admin HTTP server.
+//! Integration tests for the admin HTTP server.
 //!
 //! Each test brings up an `AdminServer` (and where needed, a
 //! `ConnectionListener` + shards) on `127.0.0.1:0`, makes a single
@@ -267,7 +267,7 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("process_uptime_seconds"),
         "missing process_uptime_seconds"
     );
-    // 12.1c — config_info + process resource metrics.
+    // config_info + process resource metrics.
     assert!(
         body.contains("brain_config_info{"),
         "missing brain_config_info; body:\n{body}"
@@ -284,7 +284,7 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("process_memory_resident_bytes "),
         "missing process_memory_resident_bytes"
     );
-    // 12.7 — connection-extended family.
+    // Connection-extended family.
     assert!(
         body.contains("brain_connections_closed_total{reason=\"bye\"}"),
         "missing brain_connections_closed_total{{reason=\"bye\"}}"
@@ -297,7 +297,7 @@ async fn metrics_emits_build_info_and_up() {
         body.contains("brain_frame_recv_total"),
         "missing brain_frame_recv_total"
     );
-    // F-7: frame-size histogram lines should appear once exposition
+    // Frame-size histogram lines should appear once exposition
     // walks ConnectionMetrics. Empty histogram is fine — count=0
     // still emits the bucket + _sum + _count lines.
     assert!(
@@ -371,7 +371,7 @@ async fn metrics_emits_worker_counters() {
     let server = start_admin_with_shards(1).await;
     let (code, body) = http_get(server.admin_addr, "/metrics").await;
     assert_eq!(code, 200);
-    // brain-workers ships 12 Phase-8 workers per shard (sub-task 9.7b).
+    // brain-workers ships 12 background workers per shard.
     // We assert presence of at least the headline cycle counters for
     // a couple of well-known names; counts are 0 (workers sleep).
     for worker in ["decay", "consolidation", "hnsw_maintenance"] {
@@ -383,8 +383,8 @@ async fn metrics_emits_worker_counters() {
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn unknown_path_returns_404() {
-    // Wire-behaviour delta from Phase 11 M3: pre-M3 the hand-rolled
-    // admin server returned 400 for unknown paths; brain-http's
+    // An earlier hand-rolled admin server returned 400 for unknown
+    // paths; brain-http's
     // Router returns 404 (correct per RFC 9110 §15.5.5). External
     // scrapers and brain-cli are unaffected — they don't hit
     // unknown paths.

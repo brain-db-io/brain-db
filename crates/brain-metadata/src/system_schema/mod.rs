@@ -1,4 +1,4 @@
-//! System schema bootstrap (phase 19.7).
+//! System schema bootstrap.
 //!
 //! At `MetadataDb::open`, this module:
 //!
@@ -28,8 +28,7 @@ use crate::schema::store::{schema_active, schema_upload, SchemaStoreError};
 /// for the built-in `brain:*` types.
 pub const SYSTEM_SCHEMA_SOURCE: &str = include_str!("schema.brain");
 
-/// The namespace name the system schema declares. Reserved per
-/// §21/04.
+/// The namespace name the system schema declares. Reserved.
 pub const SYSTEM_SCHEMA_NAMESPACE: &str = "brain";
 
 #[derive(thiserror::Error, Debug)]

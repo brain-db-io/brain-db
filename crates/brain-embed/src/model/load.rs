@@ -1,27 +1,15 @@
 //! `ModelHandle` — loads BGE-small (or any BERT-shaped model) from
 //! disk, computes its fingerprint, runs a warm-up inference.
 //!
-//! See:
-//! - `spec/07_embedding/01_model_choice.md` — BGE-small properties.
-//! - `spec/07_embedding/03_inference.md` §9 — the load sequence.
-//! - `spec/07_embedding/03_inference.md` §11 — safetensors only
-//!   (we tighten to "refuse pickle outright" per SD-5.1-1).
-//! - `spec/07_embedding/07_fingerprinting.md` §3 — the fingerprint
-//!   algorithm, implemented byte-for-byte in [`crate::fingerprint`].
+//! Weights must be safetensors; pickle (`.bin`) is refused outright.
+//! The fingerprint algorithm is implemented byte-for-byte in
+//! [`crate::fingerprint`].
 //!
-//! ## What ships in sub-task 5.1
+//! Provides:
 //!
 //! - `ModelHandle::load(&EmbedderConfig)` — full load sequence.
 //! - `ModelHandle::fingerprint()` — the 16-byte BLAKE3-truncated id.
 //! - `ModelHandle::device()`, `ModelHandle::dtype()` — accessors.
-//!
-//! ## What's NOT here yet
-//!
-//! - Public `forward()` returning a pooled, L2-normalised vector —
-//!   sub-task 5.3.
-//! - `Tokenizer` accessor / wrapper — sub-task 5.2.
-//! - Cache — sub-task 5.5.
-//! - Batcher — sub-task 5.4.
 
 use std::path::Path;
 
@@ -93,7 +81,7 @@ impl ModelHandle {
         let tokenizer = Tokenizer::from_file(&tokenizer_path)
             .map_err(|e| EmbedError::TokenizerParse(e.to_string()))?;
 
-        // 5. Check for safetensors; refuse pickle outright (SD-5.1-1).
+        // 5. Check for safetensors; refuse pickle outright.
         let weights_path = dir.join(WEIGHTS_FILE);
         if !weights_path.is_file() {
             let pickle_present = dir.join(PICKLE_FILE).is_file();
@@ -123,7 +111,7 @@ impl ModelHandle {
         let model = BertModel::load(vb, &bert_config)
             .map_err(|e| EmbedError::WeightsLoad(format!("BertModel::load: {e}")))?;
 
-        // 9. Warm-up inferences (step 6).
+        // 9. Warm-up inferences.
         let handle = Self {
             model,
             tokenizer,
@@ -158,7 +146,7 @@ impl ModelHandle {
         self.dtype
     }
 
-    /// Tokenizer accessor for sub-task 5.2.
+    /// Tokenizer accessor.
     #[must_use]
     pub fn tokenizer(&self) -> &Tokenizer {
         &self.tokenizer

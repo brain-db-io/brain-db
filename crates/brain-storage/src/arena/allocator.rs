@@ -1,14 +1,13 @@
 //! Per-shard slot allocator.
 //!
-//! Owns the free list and the "next fresh slot" pointer per
-//! `spec/08_storage/07_write_path.md` §2. Together with
+//! Owns the free list and the "next fresh slot" pointer. Together with
 //! `ArenaFile`, it decides which slot the next ENCODE writes into and
 //! which slots become reusable after FORGET + reclaim.
 //!
 //! ## Version bump location
 //!
-//! says `slot_version_new = current_version + 1` — the
-//! version increment lives at *alloc* time, not at free time. Concretely:
+//! `slot_version_new = current_version + 1` — the version increment lives
+//! at *alloc* time, not at free time. Concretely:
 //!
 //! - `alloc(arena)` reads `arena.slot[idx].metadata.slot_version`, returns
 //!   `current + 1` as the new version. The encoder is responsible for
@@ -22,16 +21,12 @@
 //! returns the same `(idx, version)` pair, producing the same MemoryId —
 //! no silent version skip.
 //!
-//! The phase doc 2.5 sketch describes the opposite policy
-//! (free-bumps-version). Spec wins; phase doc was corrected in the same
-//! commit that introduced this module.
-//!
 //! ## PENDING_WRITE flag
 //!
-//! "The allocated slot is marked as 'pending-write'
-//! (flags bit 2) before any data is written." `alloc` sets this on disk
-//! so a crashed encode is detectable on the next startup (the recovery
-//! path in 2.10 treats slots with `PENDING_WRITE` as free).
+//! The allocated slot is marked as 'pending-write' (flags bit 2) before
+//! any data is written. `alloc` sets this on disk so a crashed encode is
+//! detectable on the next startup (recovery treats slots with
+//! `PENDING_WRITE` as free).
 
 use crate::arena::file::ArenaFile;
 use crate::arena::slot::flags;
@@ -198,10 +193,9 @@ impl SlotAllocator {
         Ok((idx, new_version))
     }
 
-    /// Free a previously-allocated slot. Clears flags on disk (per spec
-    /// §05/02 §3.2: "After reclaim, both bits become 0") and pushes the
-    /// slot onto the free list. Does *not* bump the version — alloc does
-    /// that.
+    /// Free a previously-allocated slot. Clears flags on disk (after
+    /// reclaim, both bits become 0) and pushes the slot onto the free
+    /// list. Does *not* bump the version — alloc does that.
     ///
     /// The vector bytes are *not* zeroed here. Hard-forget (which zeros
     /// the vector and sets the HARD_FORGOTTEN flag) is the caller's
@@ -250,8 +244,7 @@ impl SlotAllocator {
     }
 }
 
-// Tests open an `ArenaFile` (syscalls). Gated behind `not(miri)`; see
-// `.claude/plans/phase-02-miri.md`.
+// Tests open an `ArenaFile` (syscalls). Gated behind `not(miri)`.
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;

@@ -1,6 +1,5 @@
-//! Graph retriever trait + value types (phase 23.2).
+//! Graph retriever trait + value types.
 //!
-//! The trait surface matches `spec/13_retrievers/04_graph_retriever.md`.
 //! The production impl (`BrainGraphRetriever`) lives in
 //! `brain-ops::ops::graph_retriever` for the same reason as
 //! `SemanticRetriever`: it needs `brain-metadata` (which
@@ -15,7 +14,7 @@ pub const DEFAULT_TOP_K: usize = 64;
 /// Default per-hop depth.
 pub const DEFAULT_DEPTH: u8 = 3;
 
-/// Hard cap on traversal depth (§23/04 §4).
+/// Hard cap on traversal depth.
 pub const MAX_DEPTH_HARD_CAP: u8 = 5;
 
 /// Default per-node child cap.
@@ -62,7 +61,7 @@ impl From<GraphAnchor> for NodeRef {
     }
 }
 
-/// Per-query traversal spec (§23/04 §1).
+/// Per-query traversal spec.
 #[derive(Debug, Clone)]
 pub enum GraphQuery {
     /// BFS from `anchor` outward up to `depth`. Anchor may be
@@ -119,7 +118,7 @@ pub enum Direction {
     Both,
 }
 
-/// Search config (§23/04 §1).
+/// Search config.
 #[derive(Debug, Clone, Copy)]
 pub struct GraphRetrieverConfig {
     pub top_k: usize,
@@ -139,7 +138,7 @@ impl Default for GraphRetrieverConfig {
     }
 }
 
-/// Error taxonomy (§23/04 §7).
+/// Error taxonomy.
 #[derive(Debug, thiserror::Error)]
 pub enum GraphError {
     #[error("anchor entity not found: {0:?}")]
@@ -161,13 +160,13 @@ pub enum GraphError {
     Internal(String),
 }
 
-/// Proximity score per §23/04 §2: `1 / (hop_distance + 1)`.
+/// Proximity score: `1 / (hop_distance + 1)`.
 #[must_use]
 pub fn proximity_score(hop_distance: u8) -> f32 {
     1.0 / (f32::from(hop_distance) + 1.0)
 }
 
-/// Validate depth caps per §23/04 §4. Returns early
+/// Validate depth caps. Returns early
 /// `MaxDepthExceeded` for any of the three modes.
 pub fn validate_depth(query: &GraphQuery, config: &GraphRetrieverConfig) -> Result<(), GraphError> {
     if query.depth() > MAX_DEPTH_HARD_CAP {

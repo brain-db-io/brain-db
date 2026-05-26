@@ -1,13 +1,12 @@
-//! FORGET cascade operations (sub-task 24.2)
-//! §"Cascading effects of FORGET".
+//! FORGET cascade operations — cascading effects of FORGET.
 //!
 //! When a memory is forgotten, statements / relations whose
 //! evidence list referenced it must be updated:
 //!
 //! 1. Drop `memory_id` from the statement's evidence — inline buffer
 //!    on the row when small, the overflow row when the list spilled.
-//! 2. Recompute `confidence` from the remaining evidence per
-//!    §25/00 §"Confidence aggregation across evidence".
+//! 2. Recompute `confidence` from the remaining evidence via
+//!    confidence aggregation across evidence.
 //! 3. If evidence becomes empty AND confidence < threshold,
 //!    tombstone with reason `SourceMemoryForgotten` and reclaim
 //!    the orphaned overflow row.
@@ -26,11 +25,10 @@
 //!
 //! ## Audit
 //!
-//! Audit-event semantics for the cascade live in §25/00 §"The
-//! audit log" but the v1 `audit_ops::audit_write` API targets
-//! extraction events. Cascade audit rows land as a post-v1
-//! enhancement; the cascade still updates the row, so an
-//! external observer can see the change via the change feed.
+//! The `audit_ops::audit_write` API currently targets extraction
+//! events. Cascade audit rows are a future enhancement; the cascade
+//! still updates the row, so an external observer can see the change
+//! via the change feed.
 
 use brain_core::{
     aggregate_confidence, ConfidenceConfig, EvidenceEntry, EvidenceOverflowId, StatementKind,
@@ -83,10 +81,9 @@ pub struct CascadeSummary {
 /// statement. Returns counts.
 ///
 /// `batch_cap` bounds the scan in a single txn so heavily-
-/// referenced memories don't produce an unbounded wtxn. Spec
-/// §27/04 §4.5 ("continuation jobs") tracks the post-v1
-/// follow-up that resumes from a cursor when the batch cap is
-/// hit.
+/// referenced memories don't produce an unbounded wtxn. A future
+/// continuation-job mechanism will resume from a cursor when the batch
+/// cap is hit.
 ///
 /// `confidence_threshold` follows the [`DEFAULT_CASCADE_CONFIDENCE_THRESHOLD`]
 /// when the caller doesn't override.
@@ -315,7 +312,7 @@ struct AffectedStatement {
 }
 
 // ---------------------------------------------------------------------------
-// Edge + relation cascade (Phase C wiring).
+// Edge + relation cascade.
 // ---------------------------------------------------------------------------
 
 /// Per-cascade summary for the unified-edge sweep.

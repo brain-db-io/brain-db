@@ -1,7 +1,6 @@
 //! Per-namespace schema persistence.
 //!
-//! Single transactional path for the four schema-management
-//! opcodes (§28/05 / phase 19.6):
+//! Single transactional path for the four schema-management opcodes:
 //!
 //! - `SCHEMA_UPLOAD` → [`schema_upload`]: bumps the active version
 //!   counter for the namespace and persists the parsed AST.
@@ -11,8 +10,7 @@
 //!   `parse_schema` + `validate` + [`schema_active`] (for the
 //!   would-be-next version hint).
 //!
-//! Migration-time compatibility checks are out of scope for v1
-//! (§21/07 Q3).
+//! Migration-time compatibility checks are out of scope.
 
 use brain_protocol::schema::ValidatedSchema;
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};

@@ -1,4 +1,4 @@
-//! Shared helper for the 10.11 worker / config / audit / agent /
+//! Shared helper for the worker / config / audit / agent /
 //! shard families: render a uniform error when the admin server
 //! returns a structured 501 body. The CLI exits non-zero so scripts
 //! can detect deferred actions; the rendered message tells operators

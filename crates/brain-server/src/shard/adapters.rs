@@ -1,23 +1,23 @@
-//! Phase-8 worker source adapters wired to per-shard state (sub-task 9.8).
+//! Background-worker source adapters wired to per-shard state.
 //!
-//! Phase 8 shipped four pluggable "source" traits with `Disabled*` defaults:
+//! There are four pluggable "source" traits with `Disabled*` defaults:
 //!
 //! - `RebuildSource`: feeds `HnswMaintenanceWorker` the active
 //!   `(MemoryId, vector)` pairs for full rebuild.
 //! - `WalRetentionSource`: tells `WalRetentionWorker` which segments
 //!   are past `durable_lsn` and removes them.
 //! - `SnapshotSource`: backs `SnapshotWorker`'s take / list / delete.
-//! - `CacheEvictionSource`: stays `Disabled*` until 9.10 wires a real
-//!   `CachingDispatcher` per shard.
+//! - `CacheEvictionSource`: stays `Disabled*` until a real
+//!   `CachingDispatcher` is wired per shard.
 //!
-//! 9.7b registered all 12 Phase-8 workers against the per-shard
-//! scheduler with the `Disabled*` defaults; 9.8 plugs in real adapters
-//! for the first three. The fourth — cache eviction — stays disabled
-//! and is constructed at the call-site (no adapter struct here).
+//! Every worker is registered against the per-shard scheduler with the
+//! `Disabled*` defaults; real adapters are plugged in for the first
+//! three. The fourth — cache eviction — stays disabled and is
+//! constructed at the call-site (no adapter struct here).
 //!
 //! All adapters are `!Send + !Sync` by construction (they hold
 //! `Rc<RefCell<…>>` references into per-shard state). Their trait
-//! contracts dropped `Send + Sync` in 9.8 to match.
+//! contracts dropped `Send + Sync` to match.
 
 #![cfg(target_os = "linux")]
 // `ShardSnapshotSource::take_snapshot` holds immutable `borrow()` on
@@ -56,9 +56,8 @@ use brain_workers::wal_retention::{
 // ---------------------------------------------------------------------------
 
 /// Walks the shard's `ArenaFile` and yields a `(MemoryId, vector)` for
-/// every occupied, non-tombstoned, non-hard-forgotten slot. Spec
-/// §11/04 §7 — the rebuild source is the substrate for full HNSW
-/// rebuild.
+/// every occupied, non-tombstoned, non-hard-forgotten slot. The
+/// rebuild source is the substrate for full HNSW rebuild.
 ///
 /// Holds an `Rc<RefCell<ArenaFile>>` so the per-shard main loop can
 /// mutate the arena (via `borrow_mut`) between the adapter's
@@ -155,8 +154,8 @@ impl WalRetentionSource for WalDirRetentionSource {
     fn current_checkpoint(&self) -> CheckpointFuture<'_> {
         let metadata = self.metadata.clone();
         Box::pin(async move {
-            // brain_metadata::MetadataDb caches durable_lsn in memory
-            // (sink.rs §616-§622); the lookup is a single u64 read.
+            // brain_metadata::MetadataDb caches durable_lsn in memory;
+            // the lookup is a single u64 read.
             let lsn = brain_storage::recovery::MetadataSink::durable_lsn(metadata.as_ref());
             Ok(CheckpointDesc { durable_lsn: lsn })
         })
@@ -621,7 +620,7 @@ mod tests {
         let metadata: SharedMetadataDb = Arc::new(md);
 
         // The source's future returns are `!Send` (their trait dropped
-        // Send in 9.8), so construct it inside the executor closure
+        // Send), so construct it inside the executor closure
         // rather than across the spawn boundary.
         let cp = glommio_run(move || async move {
             let src = WalDirRetentionSource::new(wal_dir, uuid, metadata);

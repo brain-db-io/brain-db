@@ -11,9 +11,8 @@ pub enum WorkerError {
     #[error("ops layer error: {0}")]
     Ops(String),
 
-    /// A cycle exceeded its `WorkerConfig::max_runtime` budget. Spec
-    /// §11/01 §5: cycles are bounded; runtime violations are surfaced
-    /// rather than ignored.
+    /// A cycle exceeded its `WorkerConfig::max_runtime` budget. Cycles
+    /// are bounded; runtime violations are surfaced rather than ignored.
     #[error("worker cycle exceeded budget: {0}")]
     BudgetExceeded(String),
 

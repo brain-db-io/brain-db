@@ -1,5 +1,5 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Decay worker integration tests (sub-task 8.2).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Decay worker integration tests.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

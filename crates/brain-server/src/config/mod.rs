@@ -43,7 +43,7 @@ pub struct Config {
     pub tracing: TracingConfig,
     #[serde(default)]
     pub auth: AuthConfig,
-    /// Sub-task 9.15. Defaulted so existing `dev.toml` files keep
+    /// Defaulted so existing `dev.toml` files keep
     /// working (consolidation remains disabled until an LLM backend
     /// is wired).
     #[serde(default)]
@@ -273,23 +273,23 @@ pub struct WorkersConfig {
     pub statistics_update_interval_sec: Option<u64>,
     pub embedder_cache_eviction_interval_sec: Option<u64>,
     pub snapshot_interval_sec: Option<u64>,
-    /// Phase B: substrate auto-derived `SimilarTo` edges. Defaults
+    /// Substrate auto-derived `SimilarTo` edges. Defaults
     /// kick in when the section is omitted from TOML.
     #[serde(default)]
     pub auto_edge: AutoEdgeWorkerConfig,
-    /// Phase E: per-shard extractor pipeline worker. Drains the
+    /// Per-shard extractor pipeline worker. Drains the
     /// writer's post-encode channel and runs the three-tier
     /// extractor framework (pattern + classifier + LLM) before
     /// writing entities / statements / relations / mention edges.
     /// Section may be omitted; every field has a default.
     #[serde(default)]
     pub extractor: ExtractorWorkerConfig,
-    /// Phase T: substrate auto-derived `FollowedBy` edges keyed on
+    /// Substrate auto-derived `FollowedBy` edges keyed on
     /// per-agent temporal adjacency. Defaults kick in when the
     /// section is omitted from TOML.
     #[serde(default)]
     pub temporal_edge: TemporalEdgeWorkerConfig,
-    /// Phase C: substrate auto-derived `Caused` edges, sourced from
+    /// Substrate auto-derived `Caused` edges, sourced from
     /// extractor-asserted causal statements (`brain:caused_by` etc).
     /// No-schema deployments resolve an empty whitelist and the
     /// worker no-ops; setting `enabled = false` skips registration
@@ -299,7 +299,7 @@ pub struct WorkersConfig {
 }
 
 /// `[workers.auto_edge]` TOML section. Controls the substrate
-/// SimilarTo derivation worker (Phase B). Every field defaults so an
+/// SimilarTo derivation worker. Every field defaults so an
 /// existing `dev.toml` keeps working without edits.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -377,7 +377,7 @@ fn default_auto_edge_channel_capacity() -> usize {
 }
 
 /// `[workers.temporal_edge]` TOML section. Controls the substrate
-/// `FollowedBy` derivation worker (sub-task T). Every field defaults
+/// `FollowedBy` derivation worker. Every field defaults
 /// so an existing `dev.toml` keeps working without edits.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
@@ -692,7 +692,7 @@ pub enum AuthMode {
 }
 
 // ----------------------------------------------------------------------------
-// Summarizer (sub-task 9.15)
+// Summarizer
 // ----------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]

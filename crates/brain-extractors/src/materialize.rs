@@ -1,7 +1,6 @@
 //! Convert persisted
 //! [`brain_metadata::tables::extractor::ExtractorDefinition`]
-//! rows into runtime `Arc<dyn Extractor>` instances +
-//! §21/05 §1.
+//! rows into runtime `Arc<dyn Extractor>` instances.
 //!
 //! Called once at server / shard startup to populate the
 //! in-memory [`crate::ExtractorRegistry`] from
@@ -430,8 +429,8 @@ fn extract_cache_ttl(ast: &ExtractorDef) -> Option<Duration> {
     None
 }
 
-/// Outcome of cost-budget extraction. Phase 21 supports
-/// `PerRequest` only (§22/09 §5); the other variants land as
+/// Outcome of cost-budget extraction. v1 supports
+/// `PerRequest` only; the other variants land as
 /// degraded extractors with operator-actionable reasons.
 enum CostBudgetExtract {
     Unset,

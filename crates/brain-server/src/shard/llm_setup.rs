@@ -1,9 +1,7 @@
-//! LLM-tier startup wiring for the per-shard executor
-//! §2 (provider routing) +.4 / §26 (per-shard
-//! `llm_cache.redb`).
+//! LLM-tier startup wiring for the per-shard executor: provider
+//! routing and the per-shard `llm_cache.redb`.
 //!
-//! Phase 21.5 builds the `MaterializeDeps` slots that 21.4 left
-//! empty:
+//! Builds the `MaterializeDeps` slots:
 //!
 //! - Reads `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` (optionally
 //!   `BRAIN_ANTHROPIC_MODEL` / `BRAIN_OPENAI_MODEL` to override
@@ -17,11 +15,11 @@
 //!
 //! ## Why one client per provider in v1
 //!
-//! routes by **prefix only**: the operator's
+//! The router routes by **prefix only**: the operator's
 //! `model:` schema field selects the provider, not the wire
 //! model. The wire model is whichever model the server-side
 //! client was constructed for. Per-extractor model selection +
-//! per-provider client pools are deferred (§22/07 — phase 22+).
+//! per-provider client pools are deferred.
 //!
 //! Defaults are picked to match the embedded pricing table in
 //! `brain_extractors::Pricing::for_model`:

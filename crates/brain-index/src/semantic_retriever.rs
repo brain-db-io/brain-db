@@ -1,7 +1,6 @@
-//! Semantic retriever trait + value types (phase 23.1).
+//! Semantic retriever trait + value types.
 //!
-//! The trait surface defined here matches
-//! `spec/13_retrievers/03_semantic_retriever.md`. The
+//! The
 //! production impl (`BrainSemanticRetriever`) lives in
 //! `brain-ops::ops::retrievers::semantic` because it needs
 //! both the HNSW handles defined here and the `MetadataDb`
@@ -20,16 +19,16 @@ use crate::tantivy_shard::{RankedItem, RankedItemId};
 /// 384-dim vectors per BGE-small.
 pub const VECTOR_DIM: usize = 384;
 
-/// Substrate HNSW default `ef_search` (§06/02).
+/// Substrate HNSW default `ef_search`.
 pub const DEFAULT_EF_SEARCH: usize = 64;
 
-/// Hard cap on `ef_search` (§06/02 §5).
+/// Hard cap on `ef_search`.
 pub const EF_SEARCH_MAX: usize = 500;
 
-/// Default top-k (§23/03 §3).
+/// Default top-k.
 pub const DEFAULT_TOP_K: usize = 64;
 
-/// Default timeout (§23/03 §3).
+/// Default timeout.
 pub const DEFAULT_TIMEOUT_MS: u32 = 50;
 
 /// The semantic-retrieval trait. Object-safe; consumers hold
@@ -57,16 +56,16 @@ pub enum SemanticQuery {
 /// Which corpus to search.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SemanticScope {
-    /// Substrate memory HNSW (§06). Returns `RankedItemId::Memory`.
+    /// Substrate memory HNSW. Returns `RankedItemId::Memory`.
     Memory,
-    /// Statement HNSW (§26/00). Returns `RankedItemId::Statement`.
+    /// Statement HNSW. Returns `RankedItemId::Statement`.
     Statement,
     /// Both corpora; results merged by descending cosine.
     Both,
 }
 
-/// Filters applied either as HNSW push-down (memory scope,
-/// per §23/03 §5) or post-search.
+/// Filters applied either as HNSW push-down (memory scope)
+/// or post-search.
 #[derive(Debug, Clone, Default)]
 pub struct SemanticFilters {
     pub agent_id: Option<AgentId>,
@@ -107,7 +106,7 @@ impl Default for SemanticRetrieverConfig {
     }
 }
 
-/// Error taxonomy (§23/03 §7).
+/// Error taxonomy.
 #[derive(Debug, thiserror::Error)]
 pub enum SemanticError {
     #[error("index unavailable (rebuild in progress)")]
@@ -124,7 +123,7 @@ pub enum SemanticError {
     Internal(String),
 }
 
-/// Validate scope + filter compatibility per §23/03 §5.
+/// Validate scope + filter compatibility.
 /// Wrong-scope filter (e.g. `predicate_id` with `Memory` scope)
 /// returns `QueryParseFailed`.
 pub fn validate_filters_for_scope(

@@ -1,10 +1,9 @@
 //! Trigram extraction, Jaccard similarity, and the `entity_trigrams`
-//! index ops. Sub-task 16.4.
+//! index ops.
 //!
-//! Implements the tier-2 fuzzy-resolution primitives per
-//! `spec/02_data_model/01_resolution.md` § Tier 2. Free functions over
-//! redb transactions; matches the `entity_ops` precedent so callers
-//! can compose multi-table writes within one transaction.
+//! Implements the tier-2 fuzzy-resolution primitives. Free functions
+//! over redb transactions; matches the `entity_ops` precedent so
+//! callers can compose multi-table writes within one transaction.
 //!
 //! ## Trigram extraction style
 //!
@@ -39,10 +38,10 @@ pub enum TrigramOpError {
 // ---------------------------------------------------------------------------
 // Extraction + similarity — re-exported from brain-core.
 //
-// Sub-task 16.5 moved the pure trigram functions to brain-core so the
-// resolver (in brain-core) can use them without taking a dep on
-// brain-metadata. The redb integration stays here; the pure functions
-// are re-exported for compatibility with existing callers.
+// The pure trigram functions live in brain-core so the resolver (in
+// brain-core) can use them without taking a dep on brain-metadata. The
+// redb integration stays here; the pure functions are re-exported for
+// compatibility with existing callers.
 // ---------------------------------------------------------------------------
 
 pub use brain_core::resolution::trigrams::{extract_trigrams, jaccard};
@@ -142,8 +141,8 @@ pub fn lookup_candidates_by_trigram(
 /// Tier-2 candidate union: for every trigram of `query_normalized`,
 /// collect EntityIds from the index and return the deduplicated set.
 ///
-/// The resolver (16.5) feeds the result through Jaccard scoring +
-/// the configured threshold. This function returns *candidates*, not
+/// The resolver feeds the result through Jaccard scoring + the
+/// configured threshold. This function returns *candidates*, not
 /// resolved matches.
 pub fn candidates_for_query(
     rtxn: &ReadTransaction,
@@ -193,8 +192,8 @@ mod tests {
     // ----- Extraction + Jaccard ----------------------------------------
     //
     // The pure functions live in brain-core::knowledge::trigrams and are
-    // tested there (sub-task 16.5 moved them). One re-export sanity test
-    // here ensures the public path through brain-metadata still works.
+    // tested there. One re-export sanity test here ensures the public
+    // path through brain-metadata still works.
 
     #[test]
     fn re_export_extract_trigrams_works() {

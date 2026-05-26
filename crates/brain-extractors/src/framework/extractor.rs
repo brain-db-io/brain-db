@@ -1,5 +1,4 @@
-//! `Extractor` trait + execution context + result types,
-//! §22/02, §22/05.
+//! `Extractor` trait + execution context + result types.
 
 use std::collections::HashMap;
 use std::future::Future;

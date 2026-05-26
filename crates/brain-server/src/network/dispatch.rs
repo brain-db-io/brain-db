@@ -1,4 +1,4 @@
-//! Frame dispatcher (sub-task 9.10) — Tokio↔Glommio boundary.
+//! Frame dispatcher — Tokio↔Glommio boundary.
 //!
 //! Owns:
 //!
@@ -16,11 +16,11 @@
 //! aside from `Frame` construction — testable as a pure state machine.
 
 #![cfg(target_os = "linux")]
-// Several fields/variants are wired into 9.10's response shape but
+// Several fields/variants are wired into the response shape but
 // don't fan out into the connection-loop's match arms yet: AGENT id is
-// captured at AUTH_OK but not used to authorize ops until 9.11+;
+// captured at AUTH_OK but not yet used to authorize ops;
 // `Action::Close` is the no-frame close case (CLIENT_PONG today) — not
-// yet emitted but reserved for 9.11/9.14. Allow rather than churn the
+// yet emitted but reserved. Allow rather than churn the
 // surface in/out as each lands.
 #![allow(dead_code)]
 
@@ -86,9 +86,9 @@ impl ConnState {
 /// Read-only handles a connection task uses: the shard pool + routing.
 ///
 /// `routing` is wrapped in [`arc_swap::ArcSwap`] so future cluster
-/// reconfiguration (admin RPC + gossip, post-Phase-9) can publish a
-/// new `RoutingTable` atomically — without restarting connections
-/// (§12/02 §2). Readers call `routing.load_full`
+/// reconfiguration (admin RPC + gossip) can publish a
+/// new `RoutingTable` atomically — without restarting connections.
+/// Readers call `routing.load_full`
 /// per request; the refcount bump is ~50 ns and invisible next to
 /// the agent-id hash + shard lookup.
 #[derive(Clone)]
@@ -96,7 +96,7 @@ pub struct Topology {
     pub shards: Arc<Vec<ShardHandle>>,
     pub routing: Arc<arc_swap::ArcSwap<RoutingTable>>,
     pub server_caps: Arc<ServerCapabilities>,
-    /// Per-operation request metrics (12.1b). Shared with the admin
+    /// Per-operation request metrics. Shared with the admin
     /// exposition path via `AdminState::request_metrics`.
     pub request_metrics: Arc<crate::metrics::request::RequestMetrics>,
     /// Scope-bound API key store. The AUTH handler resolves the
@@ -117,7 +117,7 @@ pub struct Topology {
 pub(crate) enum Action {
     Inline(Frame),
     OpDispatch(OpDispatch),
-    /// Open a new SUBSCRIBE stream (sub-task 9.11). The connection
+    /// Open a new SUBSCRIBE stream. The connection
     /// loop registers the subscription, spawns the per-sub task, and
     /// emits an opening empty SUBSCRIBE_EVENT frame on the same
     /// stream so the client sees the stream is open.
@@ -144,7 +144,7 @@ pub(crate) struct OpDispatch {
     /// Wire-level session id minted at HELLO. Stamped onto the
     /// `RequestCaller` so TXN_BEGIN can link the new entry back to
     /// the originating connection — drives the connection-drop
-    /// auto-abort sweep (spec §05/04).
+    /// auto-abort sweep.
     pub(crate) session_id: [u8; 16],
 }
 
@@ -178,9 +178,8 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
     let opcode = match Opcode::from_u16(frame.header.opcode_u16()) {
         Ok(o) => o,
         Err(_) => {
-            // Per: unknown opcodes return BadOpcode and
-            // the connection stays open. F-3
-            // reconciled the previous CloseWith behaviour.
+            // Unknown opcodes return BadOpcode and
+            // the connection stays open (rather than closing).
             return Action::Inline(error_frame(
                 frame.header.stream_id_u32(),
                 ErrorCode::BadOpcode,
@@ -189,7 +188,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         }
     };
 
-    // F-2:
+    // Stream-id rules:
     // - Connection-level opcodes (HELLO/AUTH/PING/PONG/BYE/…)
     //   MUST ride on stream_id = 0.
     // - Client-initiated op streams MUST be odd (and != 0).
@@ -262,7 +261,7 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
         }
     };
 
-    // SUBSCRIBE / UNSUBSCRIBE / CANCEL_STREAM (sub-task 9.11) bypass
+    // SUBSCRIBE / UNSUBSCRIBE / CANCEL_STREAM bypass
     // the shard-dispatch path: they mutate the connection-layer
     // SubscriptionRegistry rather than fanning a request to brain_ops.
     let stream_id = frame.header.stream_id_u32();
@@ -526,7 +525,7 @@ fn pick_target_shard(req: &RequestBody, bound_shard: u16, routing: &RoutingTable
     // Requests carrying a target MemoryId route by memory shard; other
     // requests use the agent's bound shard. The `source` end of LINK /
     // UNLINK is the routing anchor; the `target`
-    // memory's shard may differ (cross-shard edges are 9.11+).
+    // memory's shard may differ (cross-shard edges land later).
     match req {
         RequestBody::Forget(r) => Some(shard_for_memory(brain_core::MemoryId::from_raw(
             r.memory_id,
@@ -800,7 +799,7 @@ mod tests {
         }
     }
 
-    /// F-2: HELLO with stream_id != 0 returns BadFrame and stays
+    /// HELLO with stream_id != 0 returns BadFrame and stays
     /// open.
     #[test]
     fn connection_level_opcode_rejects_nonzero_stream() {
@@ -818,7 +817,7 @@ mod tests {
         }
     }
 
-    /// F-2: client op on even stream_id is BadFrame.
+    /// Client op on even stream_id is BadFrame.
     #[test]
     fn op_stream_must_be_odd() {
         // EncodeReq on stream_id = 2 (even). The op is client-bound
@@ -835,7 +834,7 @@ mod tests {
         }
     }
 
-    /// F-2: client op on stream_id = 0 is BadFrame.
+    /// Client op on stream_id = 0 is BadFrame.
     #[test]
     fn op_stream_must_be_nonzero() {
         let frame = Frame::new(Opcode::EncodeReq.as_u16(), FLAG_EOS, 0, Vec::new());
@@ -849,7 +848,7 @@ mod tests {
         }
     }
 
-    /// F-3: unknown opcode returns BadOpcode but the connection stays
+    /// Unknown opcode returns BadOpcode but the connection stays
     /// open (Action::Inline, not CloseWith).
     #[test]
     fn unknown_opcode_stays_open() {

@@ -46,8 +46,8 @@ pub fn parse_schema(input: &str) -> Result<Schema, ParseError> {
                 schema.namespace = parse_namespace_decl(inner);
             }
             Rule::use_decl => {
-                // §21/01 admits the token; v1 has no multi-document support
-                // (§21/04 + §21/07 Q6) — accept-and-discard.
+                // The grammar admits the token; v1 has no multi-document
+                // support — accept-and-discard.
                 let _ = inner;
             }
             Rule::entity_type_def => {
@@ -413,7 +413,7 @@ fn parse_relation_type_def(pair: Pair<'_, Rule>) -> Result<RelationTypeDef, Pars
             field: "to".into(),
         });
     }
-    // Default cardinality `many-to-many` per §21/02 if unspecified.
+    // Default cardinality `many-to-many` if unspecified.
     let _ = saw_cardinality;
 
     Ok(def)

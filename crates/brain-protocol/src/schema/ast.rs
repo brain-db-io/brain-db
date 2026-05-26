@@ -1,9 +1,8 @@
 //! Schema-DSL AST — value-typed.
 //!
-//! Consumed by the parser (§21/01 / phase 19.3), validator
-//! (§21/03 / phase 19.4), persistence (§21/05 / phase 19.5), and
-//! the SDK `SchemaBuilder` (§29/00 / phase 19.8). One source of
-//! truth for the in-memory shape of a schema document.
+//! Consumed by the parser, validator, persistence, and the SDK
+//! `SchemaBuilder`. One source of truth for the in-memory shape of a
+//! schema document.
 //!
 //! Flat per document — namespaces don't nest. `Schema::namespace`
 //! qualifies every predicate / entity / relation declared inside.
@@ -183,7 +182,7 @@ pub struct ExtractorDef {
     pub target: ExtractorTarget,
     /// Source-order-preserved configuration fields. The validator
     /// rejects duplicates (e.g., two `Model` entries) and reports
-    /// the source line for diagnostics (§21/02 §7).
+    /// the source line for diagnostics.
     #[serde(default)]
     pub fields: Vec<ExtractorField>,
 }
@@ -231,7 +230,7 @@ pub enum ExtractorField {
     CostBudget(CostExpr),
     /// Names of upstream extractors this one depends on.
     DependsOn(Vec<String>),
-    /// Resolver configuration (placeholder; §22 fills in).
+    /// Resolver configuration (placeholder; to be filled in).
     Resolver(ResolverConfig),
 }
 
@@ -316,7 +315,7 @@ pub enum ConditionValue {
     List(Vec<ConditionValue>),
 }
 
-/// Placeholder for resolver config — §22 will populate this.
+/// Placeholder for resolver config — to be populated later.
 #[derive(Debug, Clone, PartialEq, Default, Serialize, Deserialize)]
 pub struct ResolverConfig {}
 

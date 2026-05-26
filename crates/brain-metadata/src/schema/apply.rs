@@ -1,6 +1,5 @@
 //! Fan-out from a `ValidatedSchema` into the existing
-//! entity_type / predicate / relation_type intern paths
-//! (phase 19.7).
+//! entity_type / predicate / relation_type intern paths.
 //!
 //! Called by [`crate::schema::store::schema_upload`] after the
 //! schema-version row is written. The single code path used both
@@ -41,7 +40,7 @@ pub enum SchemaApplyError {
 }
 
 /// Walk `validated.items` in source order and intern each
-/// definition. Extractors are skipped (phase 20+).
+/// definition. Extractors are skipped.
 pub fn apply_schema_definitions(
     wtxn: &WriteTransaction,
     validated: &ValidatedSchema,
@@ -54,8 +53,8 @@ pub fn apply_schema_definitions(
     for item in &schema.items {
         match item {
             SchemaItem::EntityType(e) => {
-                // `schema_blob` left empty in 19.7 — phase 19+
-                // typed accessors will own the encoding.
+                // `schema_blob` left empty — typed accessors will own
+                // the encoding.
                 entity_type_intern(wtxn, &e.name, Vec::new(), now_unix_nanos)?;
             }
             SchemaItem::Predicate(p) => {
@@ -187,8 +186,8 @@ fn map_statement_kind(k: StatementKindAst) -> Option<StatementKind> {
     }
 }
 
-/// Mirror of the 17.3 byte encoding: `0` any / `1` Entity /
-/// `2` Value / `3` Memory / `4` Statement.
+/// Byte encoding for the object-type constraint: `0` any / `1` Entity
+/// / `2` Value / `3` Memory / `4` Statement.
 fn object_type_constraint_byte(o: &ObjectTypeDecl) -> u8 {
     match o {
         ObjectTypeDecl::Any => 0,
@@ -217,9 +216,8 @@ pub(crate) fn map_extractor_kind(k: ExtractorKindAst) -> ExtractorKind {
 }
 
 /// `"Any"` → `None`; otherwise looks up the entity type by name.
-/// In 19.7 the only relation-type targets are `"Any"` so missing
-/// lookups fall through as `None` (preserves the pre-19 "no
-/// constraint" semantics for unknown / Any).
+/// Missing lookups fall through as `None`, preserving the "no
+/// constraint" semantics for unknown / Any targets.
 fn resolve_entity_type(
     wtxn: &WriteTransaction,
     name: &str,

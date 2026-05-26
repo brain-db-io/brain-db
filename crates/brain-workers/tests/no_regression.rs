@@ -1,12 +1,12 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Phase 8 no-regression smoke gate (sub-task 8.14).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! No-regression smoke gate.
 //!
 //! Goal: catch a worker implementation that catastrophically starves
 //! the foreground request path. Not the acceptance
 //! bench — that runs against 16-core x86_64 hardware on 1M memories
-//! for 10 minutes, and lives in Phase 9. Here we just compare a
-//! workers-off baseline to a workers-on run and assert the
-//! workers-on path is within a generous 5× multiplier.
+//! for 10 minutes. Here we just compare a workers-off baseline to a
+//! workers-on run and assert the workers-on path is within a generous
+//! 5× multiplier.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;
@@ -159,7 +159,7 @@ fn fast_worker_cfg() -> WorkerConfig {
     }
 }
 
-/// Register every Phase-8 worker on `sched`. Pluggable workers get
+/// Register every worker on `sched`. Pluggable workers get
 /// `Disabled*Source` so they tick (stressing the scheduler) but do
 /// no real work.
 fn register_all_workers(sched: &mut WorkerScheduler, ctx: Arc<OpsContext>) {

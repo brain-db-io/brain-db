@@ -1,6 +1,6 @@
 //! Distance kernels for PQ codes.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §6. Two modes:
+//! Two modes:
 //!
 //! - **Asymmetric Distance Computation (ADC).** Used at search time —
 //!   the query is full-precision `f32`, the target is a PQ code.
@@ -239,8 +239,7 @@ impl<const M: usize> Distance<u8> for PqDist<M> {
         let code_b: &[u8; M] = vb.try_into().expect("PQ code length must equal M");
 
         // ADC if a search LUT is installed (hnsw_rs calls
-        // eval(query, candidate) — see crate src/hnsw.rs:943 and
-        // sibling sites in §09.07 design notes).
+        // eval(query, candidate)).
         let adc_distance = SEARCH_LUT.with(|cell| {
             cell.borrow().as_ref().and_then(|any_arc| {
                 any_arc

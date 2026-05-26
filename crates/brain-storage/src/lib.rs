@@ -3,8 +3,6 @@
 //! The durable storage layer: a memory-mapped vector arena and a
 //! write-ahead log (WAL).
 //!
-//! See `spec/08_storage/` for the authoritative design.
-//!
 //! - **Arena**: 1600-byte slots (1536 vector + 64 metadata), 64-byte aligned.
 //!   Per-slot CRC32C. Allocator uses a per-shard free list with version
 //!   bumping on reclamation.
@@ -51,7 +49,7 @@ pub mod wal;
 
 pub use layout::{ensure_dirs, ShardPaths};
 
-/// Slot size in bytes, per `spec/08_storage/02_arena_layout.md`.
+/// Slot size in bytes.
 pub const SLOT_SIZE_BYTES: usize = 1600;
 
 /// Slot alignment in bytes.

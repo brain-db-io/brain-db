@@ -1,16 +1,15 @@
 //! `ClientError` — the SDK's unified error type.
 //!
-//! Mirrors the enum sketch. Variants present in
-//! 10.1 cover the failure surface a connecting client can hit;
-//! later sub-tasks may add `Overloaded`, `Timeout`, etc. without
-//! breaking callers (the enum is `#[non_exhaustive]`).
+//! The current variants cover the failure surface a connecting client
+//! can hit; later additions may add `Overloaded`, `Timeout`, etc.
+//! without breaking callers (the enum is `#[non_exhaustive]`).
 
 use std::io;
 
 use brain_protocol::error::ProtocolError;
 
 /// Failures returned by `Client::connect`, `Client::bye`, and the
-/// per-op methods landing in 10.5+.
+/// per-op methods.
 ///
 /// Variants are stable; new ones may be added in future minor
 /// releases (`#[non_exhaustive]`).
@@ -45,8 +44,7 @@ pub enum ClientError {
 
     /// The pool is at `max_connections`, no connection was freed
     /// within `acquire_timeout`, and the request couldn't be
-    /// served. Distinct from a server-side overload (
-    /// §13).
+    /// served. Distinct from a server-side overload.
     #[error("client overloaded: {detail}")]
     Overloaded {
         /// Human-readable context (cap value, timeout duration).

@@ -1,4 +1,4 @@
-//! Slot reclamation worker (sub-task 8.7).
+//! Slot reclamation worker.
 //!
 //! Scans for memories whose `tombstoned_at_unix_nanos + grace_period`
 //! is past, and reclaims them: delete the MEMORIES row + adjacent
@@ -6,10 +6,10 @@
 //!
 //! ## v1 deviations (documented)
 //!
-//! - **No arena / free-list push.** step 6 wants the slot id
+//! - **No arena / free-list push.** Reclamation wants the slot id
 //!   pushed back onto the arena free list. v1 has no arena and never
 //!   reuses slots (each ENCODE mints a fresh slot from a monotonic
-//!   counter), so the push is a no-op until Phase 9.
+//!   counter), so the push is a no-op for now.
 //! - **No SLOT_VERSIONS table / version bump.** v1 doesn't reuse
 //!   slots, so the version bump has no observable effect.
 //!   `MemoryId` already encodes the version, and stale references
@@ -17,9 +17,9 @@
 //! - **Adjacent edges only.**: we delete `EDGES_OUT` where
 //!   `source = id` and `EDGES_IN` where `target = id`. Other-direction
 //!   dangling edges (`EDGES_OUT` where `target = id`) survive — the
-//!   edge-scrub worker (sub-task 8.9) cleans those up.
+//!   edge-scrub worker cleans those up.
 //! - **No HNSW node deletion.** — the HNSW node referencing
-//!   the reclaimed slot is left for the maintenance worker (8.5) to
+//!   the reclaimed slot is left for the maintenance worker to
 //!   rebuild away.
 
 use std::future::Future;
@@ -250,7 +250,7 @@ fn purge_adjacent_edges(wtxn: &redb::WriteTransaction, id: MemoryId) -> Result<(
     // Reverse rows anchored at `id`. The forward-table mirror lives
     // on the OTHER memory's `(from=other, kind, to=id)` row — that
     // row points AT the reclaimed slot but is keyed at `other`, not
-    // `id`. Leaving the forward mirror dangling matches the spec:
+    // `id`. Leaving the forward mirror dangling is intentional:
     // slot reclamation only purges rows adjacent to the slot; the
     // edge-scrub worker reaps dangling forward rows on its own
     // schedule.

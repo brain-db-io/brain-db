@@ -1,15 +1,14 @@
-//! End-to-end wire smoke (sub-task 9.17).
+//! End-to-end wire smoke.
 //!
-//! ## Scope re-framing
+//! ## Scope
 //!
-//! The phase doc originally said "Uses `brain-sdk-rust` to drive
-//! encode → recall → forget → recall. Verifies expected results."
-//! Two facts re-shaped the test:
+//! Drives encode → recall → forget → recall. Two facts shape the
+//! test:
 //!
-//! 1. `brain-sdk-rust` is a placeholder; the real client SDK is a
-//!    Phase 13 effort (`spec/06_sdk/`). 9.17 drives the
-//!    server via the same hand-rolled frame helpers used by 9.10
-//!    / 9.11's wire tests.
+//! 1. `brain-sdk-rust` is a placeholder; the real client SDK lands
+//!    later. This test drives the
+//!    server via the same hand-rolled frame helpers used by the
+//!    other wire tests.
 //! 2. The shard scaffold uses [`crate::shard::NopDispatcher`]
 //!    (zero-vector embeddings). Cosine similarity between two zero
 //!    vectors is degenerate; RECALL returns memories essentially
@@ -19,7 +18,7 @@
 //!    suite lives in the brain-ops / brain-planner crates with
 //!    proper fixtures.
 //!
-//! 9.17 is therefore the **wire smoke**: prove the whole stack
+//! This is therefore the **wire smoke**: prove the whole stack
 //! survives a full client lifecycle, end-to-end, without hangs /
 //! panics / FD leaks. Specifically:
 //!
@@ -230,7 +229,7 @@ async fn recall_round_trip(client: &mut TcpStream, stream_id: u32, cue: &str) ->
     )
     .await;
     let resp = read_one_frame(client).await.expect("RECALL response");
-    // EOS must be set (single-frame EOS in v1 per 9.10).
+    // EOS must be set (single-frame EOS in v1).
     assert!(
         resp.header.flags_u8() & FLAG_EOS != 0,
         "RECALL response must carry EOS in v1"
@@ -324,7 +323,7 @@ async fn encode_recall_forget_recall_round_trip() {
         "ENCODE returned unexpected opcode 0x{encode_op:02x}"
     );
 
-    // Step 2: RECALL. Single-frame EOS response per 9.10.
+    // Step 2: RECALL. Single-frame EOS response.
     let recall_op = recall_round_trip(&mut client, 3, "cat").await;
     assert!(
         recall_op == Opcode::RecallResp.as_u16() || recall_op == Opcode::Error.as_u16(),
@@ -333,7 +332,7 @@ async fn encode_recall_forget_recall_round_trip() {
 
     // Step 3: FORGET (only if we got a memory_id). Routes to the
     // memory's shard via `shard_for_memory(memory_id)` — exercises
-    // 9.10's memory-id routing path.
+    // the memory-id routing path.
     if let Some(memory_id) = encode_id {
         let forget_op = forget_round_trip(&mut client, 5, memory_id).await;
         assert!(
@@ -367,7 +366,7 @@ async fn repeated_encode_recall_is_stable() {
     complete_handshake(&mut client, agent_id).await;
 
     // 100 × (ENCODE + RECALL). Rotate stream ids 1, 3, 5, …
-    // through a 1024-slot space (well below 9.9's outgoing
+    // through a 1024-slot space (well below the outgoing
     // capacity).
     for i in 0..100u32 {
         let enc_stream = (i * 4 + 1) % 1024;
@@ -451,8 +450,8 @@ async fn bye_and_shutdown_drain_cleanly() {
     drop(client);
 
     // Server shutdown — the test scaffold's `stop()` runs the same
-    // graceful_shutdown_shards path that production uses (sub-task
-    // 9.14). We rely on its timeouts: listener exits within 2 s,
+    // graceful_shutdown_shards path that production uses.
+    // We rely on its timeouts: listener exits within 2 s,
     // admin within 2 s, shards within the default 30 s budget.
     let started = std::time::Instant::now();
     server.stop().await;

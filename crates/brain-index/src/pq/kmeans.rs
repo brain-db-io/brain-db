@@ -1,6 +1,6 @@
 //! Deterministic k-means trainer for PQ codebooks.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §4. Per subspace, runs k-means++
+//! Per subspace, runs k-means++
 //! seeding followed by Lloyd iterations, with a collapsed-cell re-seed
 //! that picks the point furthest from any existing centroid when a
 //! centroid receives zero assignments. The trainer is deterministic

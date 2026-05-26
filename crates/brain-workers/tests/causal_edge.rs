@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 
 //! CausalEdgeWorker integration test — drives the worker through the
 //! `StatementObject::Memory` short-circuit branch (one causal statement

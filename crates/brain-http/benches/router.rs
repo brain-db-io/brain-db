@@ -1,7 +1,7 @@
 //! Criterion bench for `Router::dispatch` — pure routing throughput.
 //!
 //! No TCP, no hyper. Measures the dispatch overhead in isolation so
-//! Phase 12's instrumentation changes can be compared against this
+//! later instrumentation changes can be compared against this
 //! baseline.
 
 use std::sync::Arc;

@@ -1,4 +1,4 @@
-//! LLM extractor wire smoke (phase 21.6).
+//! LLM extractor wire smoke.
 //!
 //! Asserts the LLM tier lights up over the wire when an operator
 //! schema declares one:
@@ -253,12 +253,12 @@ async fn schema_upload_registers_llm_extractor_in_list() {
 //
 // The wire-level audit-row observation for an operator-uploaded
 // LLM extractor therefore can't be exercised end-to-end until a
-// follow-up sub-task wires the registry-sync hook (likely phase
-// 22+, alongside the resolver-tier persistence work). The
+// follow-up wires the registry-sync hook (alongside the
+// resolver-tier persistence work). The
 // end-to-end audit-row path stays covered for built-in
-// extractors by `knowledge_extractors_phase_exit.rs` (20.9) and
+// extractors by `knowledge_extractors_phase_exit.rs` and
 // at the unit level by `crates/brain-extractors/tests/
-// llm_pipeline.rs` (21.6).
+// llm_pipeline.rs`.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "current_thread")]

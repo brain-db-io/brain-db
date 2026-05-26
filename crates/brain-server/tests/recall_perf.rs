@@ -16,7 +16,7 @@
 //! 1. The 100-iteration loop dominates wall time in `cargo test`.
 //! 2. The thresholds are workstation-tuned; CI hardware skew can
 //!    legitimately blow past 12 ms without the underlying code
-//!    being slower. The phase-23 acceptance suite is the
+//!    being slower. The acceptance suite is the
 //!    production-reference gate.
 //!
 //! Run with: `cargo test -p brain-server --test recall_perf --

@@ -1,4 +1,4 @@
-//! Schema wire-op smoke (sub-task 19.10a).
+//! Schema wire-op smoke.
 //!
 //! Drives `SCHEMA_UPLOAD` / `SCHEMA_GET` / `SCHEMA_LIST` /
 //! `SCHEMA_VALIDATE` through the full data-plane stack (TCP →

@@ -1,17 +1,17 @@
-//! EXPLAIN + TRACE renderers (phase 23.8).
+//! EXPLAIN + TRACE renderers.
 //!
-//! Implements the §24/00 §"Plan structure" diagnostic format.
+//! The plan-structure diagnostic format.
 //!
-//! - [`render_plan`] takes a `QueryPlan` (23.6) and returns a
+//! - [`render_plan`] takes a `QueryPlan` and returns a
 //!   human-readable text report — no execution.
 //! - [`render_trace`] takes the plan + a `QueryMetadata`
-//!   (23.7) and appends an EXECUTION block with per-retriever
+//!   and appends an EXECUTION block with per-retriever
 //!   latency / status / result count, filter-chain survivor
 //!   counts, and total wall-time.
 //!
 //! Format is plain text, monospace-friendly, designed for
 //! `tracing`-style logs or wire-text frames. JSON serialisation
-//! lives in the 23.9 wire layer.
+//! lives in the wire layer.
 
 use std::fmt::Write;
 

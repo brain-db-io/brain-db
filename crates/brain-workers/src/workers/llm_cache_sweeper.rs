@@ -55,7 +55,7 @@ pub struct LlmCacheSweeper {
 }
 
 impl LlmCacheSweeper {
-    /// Construct with the spec-default cadence and an empty metrics
+    /// Construct with the default cadence and an empty metrics
     /// slot. The shard wires its shared `Arc<LlmCacheSweepMetrics>`
     /// in via [`Self::with_metrics`] at registration time.
     #[must_use]

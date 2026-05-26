@@ -1,5 +1,4 @@
-//! Admin HTTP handlers for the snapshot family (
-//! sub-task 10.9).
+//! Admin HTTP handlers for the snapshot family.
 //!
 //! Routes:
 //! - `POST /v1/snapshots[?shard=N]`        → take snapshot

@@ -1,19 +1,15 @@
 //! `slot_versions` table: per-slot version counter for lazy reclaim.
 //!
-//! See `spec/10_metadata/02_table_layout.md` §13 (purpose +
-//! shape) and `spec/08_storage/07_write_path.md` §2.3
-//! (initial value: 1 for never-used, current+1 for reclaimed).
+//! Initial value is 1 for a never-used slot, current+1 for a reclaimed
+//! one.
 //!
-//! ## Realignment note (sub-task 3.7)
+//! ## Why this is not a tombstone table
 //!
-//! The phase doc originally titled this sub-task "Tombstone table" with
-//! value `(memory_id, tombstoned_at, grace_until)`. That table is not
-//! in the spec's 13-table catalog (§07/02 §1). Tombstone *state* lives
-//! as `flags & HARD_FORGOTTEN` + `forgot_at_unix_nanos` on the existing
-//! `memories` row (3.2's `MemoryMetadata`); the reclaim worker scans
-//! memories for `forgot_at + grace < now`. The
-//! actual reclaim-related table in the spec catalog is
-//! `slot_versions`, which is this file.
+//! Tombstone *state* does not live here — it lives as
+//! `flags & HARD_FORGOTTEN` + `forgot_at_unix_nanos` on the existing
+//! `memories` row; the reclaim worker scans memories for
+//! `forgot_at + grace < now`. This table only tracks the per-slot
+//! version counter that lets a reclaimed slot mint a fresh `MemoryId`.
 //!
 //! ## What lives here
 //!
@@ -26,13 +22,13 @@
 //! ## What does NOT live here
 //!
 //! - Composition with FORGET / reclaim (increment + memory-row remove
-//!   + arena zero in one txn) — `MetadataDb` (3.10) + Phase 8 worker.
+//!   + arena zero in one txn) — `MetadataDb` + the reclaim worker.
 //! - MemoryId minting (packing `slot_id + version` into 16 bytes) —
 //!   `brain-core`'s identifier code.
-//! - Recovery cross-check vs the arena's slot metadata (
-//!   §6) — composition lives in the `MetadataSink` impl (3.11).
-//! - Retirement strategy for u32::MAX-overflowed slots — spec doesn't
-//!   address; v1 surfaces the error and lets the caller decide.
+//! - Recovery cross-check vs the arena's slot metadata — composition
+//!   lives in the `MetadataSink` impl.
+//! - Retirement strategy for u32::MAX-overflowed slots — the substrate
+//!   surfaces the error and lets the caller decide.
 
 use redb::{ReadableTable, Table, TableDefinition};
 
@@ -40,8 +36,8 @@ use redb::{ReadableTable, Table, TableDefinition};
 /// current `version` as `u32`. Uses redb's built-in scalar `Value`
 /// impls — no rkyv wrapper (no struct to evolve).
 ///
-/// `slot_id` is logically 48 bits in the MemoryId (`spec/02_data_model/02_memory.md`
-/// §2.1) but is stored as `u64` here 's catalog.
+/// `slot_id` is logically 48 bits in the MemoryId but is stored as
+/// `u64` here.
 pub const SLOT_VERSIONS_TABLE: TableDefinition<'static, u64, u32> =
     TableDefinition::new("slot_versions");
 
@@ -188,8 +184,8 @@ mod tests {
     #[test]
     fn overflow_returns_exhausted_and_does_not_write() {
         // The catastrophic-failure-mode pin: a slot at u32::MAX must
-        // not wrap to 0 on increment. Silent wrap would violate spec
-        // §02/03 §2.3's MemoryId-stability invariant.
+        // not wrap to 0 on increment. Silent wrap would violate the
+        // MemoryId-stability invariant.
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let slot = 0xDEAD_BEEFu64;

@@ -1,6 +1,6 @@
-//! `brain-cli shard {list,create,delete}`;
-//! sub-task 10.11. Only `list` is backed; create/delete are
-//! Phase-12 cluster operations.
+//! `brain-cli shard {list,create,delete}`.
+//! Only `list` is backed; create/delete are
+//! deferred cluster operations.
 
 pub mod create;
 pub mod delete;

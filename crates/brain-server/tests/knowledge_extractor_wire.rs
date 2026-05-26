@@ -1,4 +1,4 @@
-//! Extractor governance wire-op smoke (sub-task 20.9).
+//! Extractor governance wire-op smoke.
 //!
 //! Drives `EXTRACTOR_LIST` / `EXTRACTOR_DISABLE` / `EXTRACTOR_ENABLE`
 //! through the full data-plane stack and asserts:

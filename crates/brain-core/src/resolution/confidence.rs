@@ -1,4 +1,4 @@
-//! Confidence aggregation. Phase 17.9.
+//! Confidence aggregation.
 //!
 //! Pure noisy-OR formula:
 //!
@@ -11,7 +11,7 @@
 //! when inline evidence carries per-entry metadata
 //! (`confidence_milli > 0`). Wire callers without per-evidence
 //! metadata keep their caller-supplied statement-level confidence
-//! until phase 22's `STATEMENT_ADD_EVIDENCE` op lands.
+//! until the `STATEMENT_ADD_EVIDENCE` op lands.
 
 use crate::nodes::{kinds::StatementKind, statement::EvidenceEntry};
 

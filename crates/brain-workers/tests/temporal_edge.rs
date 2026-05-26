@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 
 //! TemporalEdgeWorker integration tests — verify the worker emits one
 //! `Phase::Link` per derived `FollowedBy` edge via `submit(Write)`, with

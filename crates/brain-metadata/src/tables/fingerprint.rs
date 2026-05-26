@@ -25,8 +25,7 @@
 //! [`FingerprintEntry`] — the `MemoryId` of the Active memory and
 //! the `inserted_at_unix_nanos` for diagnostics. Only Active
 //! memories are reachable here; FORGET / reclamation evict the row
-//! in the same write transaction as the tombstone (
-//! §6.3 + §07/07 §6.5).
+//! in the same write transaction as the tombstone.
 //!
 //! ## What does NOT live here
 //!

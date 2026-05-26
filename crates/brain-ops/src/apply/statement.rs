@@ -1,7 +1,7 @@
 //! Apply functions for statement-shaped phases.
 //!
-//! Full P2c coverage: UpsertStatement, Tombstone(Statement),
-//! Supersede(Statement) all real. Each ports to a brain-metadata
+//! Covers UpsertStatement, Tombstone(Statement), and
+//! Supersede(Statement). Each ports to a brain-metadata
 //! helper that runs inside the wtxn.
 
 use brain_core::{EvidenceRef, Statement, StatementId, TombstoneReason};

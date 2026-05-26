@@ -1,4 +1,4 @@
-//! Statement-kind pattern classifier perf bench (sub-task W1.3).
+//! Statement-kind pattern classifier perf bench.
 //!
 //! Target: 100k ops/sec on a single core. Pure pattern matching over
 //! a lowercased copy of the input + a handful of byte scans; no

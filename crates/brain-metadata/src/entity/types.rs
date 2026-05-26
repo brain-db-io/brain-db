@@ -1,16 +1,14 @@
 //! Typed CRUD + interning over the entity-type registry.
 //!
-//! Mirrors [`crate::schema::predicate`] (17.3) and
-//! [`crate::relation::types`] (18.3), introduced in 19.7 when the
-//! system-schema bootstrap started flowing every entity-type
-//! registration through the shared apply path.
+//! Mirrors [`crate::schema::predicate`] and
+//! [`crate::relation::types`]; every entity-type registration flows
+//! through the shared apply path.
 //!
 //! Entity types don't have a `(namespace, name)` qname today —
 //! `Person` lives at the bare name "Person" with the implicit
-//! `brain:` namespace. The on-disk row layout pre-dates phase 19's
-//! namespace scheme; widening it is tracked as a §22+ migration
-//! concern (per-namespace ID space). For now the registry is keyed
-//! on bare `name`.
+//! `brain:` namespace. The on-disk row layout pre-dates the namespace
+//! scheme; widening it to a per-namespace ID space is a future
+//! migration concern. For now the registry is keyed on bare `name`.
 
 use brain_core::EntityTypeId;
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};

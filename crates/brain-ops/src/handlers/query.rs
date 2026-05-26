@@ -1,4 +1,4 @@
-//! Hybrid query handlers (phase 23.9).
+//! Hybrid query handlers.
 //!
 //! Wire entry points for the four hybrid-query opcodes:
 //!
@@ -50,8 +50,8 @@ use crate::error::OpError;
 // ---------------------------------------------------------------------------
 
 /// Max bytes of `text` accepted at handler entry. Mirrors RECALL's
-/// existing bound (substrate §09/03 §"Cue text"); keeps a single
-/// rkyv decode from amplifying into a huge backing string.
+/// existing cue-text bound; keeps a single rkyv decode from
+/// amplifying into a huge backing string.
 pub const MAX_QUERY_TEXT_BYTES: usize = 16 * 1024;
 
 /// Max entries in `RetrieverSelectionWire::Explicit(_)`. Matches

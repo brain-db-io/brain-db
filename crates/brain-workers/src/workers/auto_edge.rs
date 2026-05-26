@@ -6,7 +6,7 @@
 //! Before this worker landed, every substrate edge was client-supplied
 //! (via `ENCODE_REQ.edges` or a separate `LINK`). The memory graph was
 //! empty by default, which made the planner's memory-anchor graph
-//! retriever (Phase A's hybrid recall) a no-op on any deployment that
+//! retriever (the hybrid recall) a no-op on any deployment that
 //! didn't manually LINK things. AutoEdgeWorker fills that gap: the
 //! substrate now produces a real graph clients can traverse without
 //! lifting a finger.
@@ -312,8 +312,8 @@ async fn do_auto_edge_cycle(
             continue;
         }
 
-        // Zero-vector guard. Until the real embedder lands (Phase 9.10
-        // wires the BGE-small CpuDispatcher), the stub dispatcher hands
+        // Zero-vector guard. Until the real embedder lands (the
+        // BGE-small CpuDispatcher), the stub dispatcher hands
         // every encode a [0; VECTOR_DIM] vector. Two such memories in
         // HNSW make cosine similarity compute 0/0 = NaN, which
         // contaminates the edge weight and crashes downstream consumers

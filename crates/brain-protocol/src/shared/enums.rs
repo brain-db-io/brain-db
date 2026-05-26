@@ -396,7 +396,7 @@ pub enum ErrorCodeWire {
     RetrieverDegraded = 0x0094,
 
     // Typed-graph error codes (0x01xx namespace; low-byte family mirrors
-    // the typed-graph opcode ranges). See spec §04/07 §3.10.
+    // the typed-graph opcode ranges).
     SchemaInvalid = 0x0120,
     SchemaMigrationRequired = 0x0121,
     EntityNotFound = 0x0130,

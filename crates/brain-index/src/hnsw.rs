@@ -6,12 +6,10 @@
 //! so the search wrapper can build an ADC LUT.
 //!
 //! Re-rank against the full-precision arena is intentionally NOT done
-//! here — task 25.5 layers it on top via [`crate::hnsw::rerank`]
+//! here — it is layered on top via [`crate::hnsw::rerank`]
 //! once the arena reader trait threads through. The PQ search result
 //! ordering is therefore ADC-approximate; callers that need exact
 //! ranking call the re-rank helper.
-//!
-//! Spec: `spec/09_indexing/07_hnsw_pq.md` §7.
 
 use std::sync::Arc;
 
@@ -134,7 +132,7 @@ impl<const M: usize> HnswIndexImpl<M> {
 
     /// Search for the `k` ADC-nearest candidates. The result ordering
     /// is ADC-approximate — exact ranking against full-precision
-    /// vectors is the re-rank pass's job (task 25.5).
+    /// vectors is the re-rank pass's job.
     ///
     /// `ef` works the same as in [`HnswIndexImpl::search`]: `None` uses
     /// `params.ef_search`; `Some` clamps to `[k, params.ef_search_max]`.

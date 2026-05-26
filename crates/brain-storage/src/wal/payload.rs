@@ -1,22 +1,20 @@
 //! Typed WAL payloads.
 //!
 //! The byte-framing layer (`record.rs`) treats the payload as opaque. This
-//! module gives every spec'd record kind a typed Rust shape so callers
+//! module gives every record kind a typed Rust shape so callers
 //! (writers, recovery, audit tools) can construct and inspect records
 //! without juggling raw bytes.
 //!
-//! Layouts come from `spec/08_storage/05_wal_records.md` §§5–16.
 //! Encoding is little-endian for scalars; `MemoryId` keeps its big-endian
 //! wire layout so it round-trips through `to_be_bytes`.
 //!
-//! Two layout choices the spec leaves underspecified:
+//! Two layout choices:
 //! - **`vector_dims` length prefix** in `Encode` / `Consolidate` /
-//!   `MigrateEmbedding`. The spec writes `[f32; 384]` literally; we add a
-//!   `u16` length prefix so the file format is forward-compatible with
-//!   larger embedding models. `0` means "no vector".
-//! - **`UpdateSalience` count prefix** describes coalesced
-//!   records as carrying "multiple tuples" without specifying a count
-//!   prefix. We always emit `count: u32 + tuples` (count=1 in the
+//!   `MigrateEmbedding`. We add a `u16` length prefix so the file format
+//!   is forward-compatible with larger embedding models. `0` means
+//!   "no vector".
+//! - **`UpdateSalience` count prefix**. Coalesced records carry
+//!   multiple tuples. We always emit `count: u32 + tuples` (count=1 in the
 //!   non-coalesced case). One uniform encoder is simpler than branching on
 //!   the `flags` bit at this layer.
 
@@ -42,7 +40,7 @@ pub struct EncodePayload {
     pub salience_initial: f32,
     pub embedding_model_fp: EmbeddingModelFp,
     pub text: String,
-    /// Empty `Vec` means "vector excluded" (spec's optional-include mode).
+    /// Empty `Vec` means "vector excluded" (optional-include mode).
     pub vector: Vec<f32>,
     pub edges: Vec<EdgePayload>,
     /// blake3 of the canonical request body. Recovery uses this to
@@ -152,15 +150,13 @@ pub enum SalienceReason {
 
 /// Reclaim payload.
 ///
-/// lists three fields (`slot_id`, `old_version`,
-/// `new_version`); we add `memory_id` so the metadata sink can delete the
-/// reclaimed memory's row by primary key in O(1) instead of scanning the
-/// `memories` table. See `docs/development/spec-deviations.md` SD-3.11-3 (which
-/// supersedes the deferred reconciliation in SD-3.11-2).
+/// Carries `slot_id`, `old_version`, and `new_version`; we add
+/// `memory_id` so the metadata sink can delete the reclaimed memory's
+/// row by primary key in O(1) instead of scanning the `memories` table.
 ///
 /// On-disk layout: `slot_id` (u64) → `old_version` (u32) → `new_version`
-/// (u32) → `memory_id` (16 B). Spec ordering preserved; new field appended
-/// so that a future spec amendment can declare the layout authoritative.
+/// (u32) → `memory_id` (16 B). The base field ordering is preserved with
+/// the new field appended.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct ReclaimPayload {
     pub slot_id: u64,
@@ -229,7 +225,7 @@ pub struct MigrateEmbeddingPayload {
 }
 
 // ---------------------------------------------------------------------------
-// Typed-relation payloads (Phase C).
+// Typed-relation payloads.
 //
 // First-class WAL representation for relation create / supersede /
 // tombstone. The sidecar metadata is carried inline so recovery can replay
@@ -286,18 +282,16 @@ pub struct RelationTombstonePayload {
 
 use crate::wal::kinds::WalRecordKind;
 
-/// Opaque knowledge-layer WAL record (sub-task 15.2).
+/// Opaque knowledge-layer WAL record.
 ///
-/// The body is the rkyv-encoded record produced by phase 16+ writers
-/// (entity / statement / relation / schema / audit). For the framing
-/// layer it is an opaque blob: the WAL records, reads, and recovery
-/// transports it unchanged. The substrate apply-paths ignore these
-/// records; knowledge-state hydration is a phase-16+ concern with its
-/// own sink.
+/// The body is the rkyv-encoded record produced by knowledge-layer
+/// writers (entity / statement / relation / schema / audit). For the
+/// framing layer it is an opaque blob: the WAL records, reads, and
+/// recovery transports it unchanged. The substrate apply-paths ignore
+/// these records; knowledge-state hydration has its own sink.
 ///
-/// Body size is bounded by the frame header's `payload_len` (3 bytes
-/// ), i.e. ~16 MiB — same envelope as substrate
-/// payloads.
+/// Body size is bounded by the frame header's `payload_len` (3 bytes),
+/// i.e. ~16 MiB — same envelope as substrate payloads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct KnowledgeRecord {
     pub kind: WalRecordKind,
@@ -329,7 +323,7 @@ impl KnowledgeRecord {
     }
 }
 
-/// Typed WAL payload, one variant per spec'd record kind.
+/// Typed WAL payload, one variant per record kind.
 #[derive(Debug, Clone, PartialEq)]
 pub enum WalPayload {
     Encode(EncodePayload),
@@ -347,7 +341,7 @@ pub enum WalPayload {
     TxnCommit(TxnCommitPayload),
     TxnAbort(TxnAbortPayload),
     MigrateEmbedding(MigrateEmbeddingPayload),
-    /// Typed-relation create. Phase C made these first-class instead of
+    /// Typed-relation create. These are first-class instead of
     /// being carried as an opaque `Knowledge` body so recovery can
     /// rebuild the unified edge row + sidecar atomically.
     RelationLink(RelationLinkPayload),
@@ -357,7 +351,7 @@ pub enum WalPayload {
     RelationTombstone(RelationTombstonePayload),
     /// Knowledge-layer record carried as an opaque body. Used for the
     /// entity / statement / schema / audit kinds whose typed body
-    /// schemas land in later phases; the framing layer transports them
+    /// schemas are layered above; the framing layer transports them
     /// unchanged.
     Knowledge(KnowledgeRecord),
 }
@@ -389,7 +383,7 @@ impl WalPayload {
         }
     }
 
-    /// Encode this payload to the spec's byte layout.
+    /// Encode this payload to its byte layout.
     #[must_use]
     pub fn encode_to_bytes(&self) -> Vec<u8> {
         let mut out = Vec::new();
@@ -448,7 +442,7 @@ impl WalPayload {
             WalRecordKind::MigrateEmbedding => {
                 Self::MigrateEmbedding(decode_migrate_embedding(&mut r)?)
             }
-            // Typed-relation kinds are first-class (Phase C): they carry
+            // Typed-relation kinds are first-class: they carry
             // a fully-typed payload rather than an opaque body, so
             // recovery can rebuild the unified edge row + sidecar in
             // one step.
@@ -1130,7 +1124,7 @@ fn decode_migrate_embedding(
 }
 
 // ---------------------------------------------------------------------------
-// Typed-relation helpers (Phase C).
+// Typed-relation helpers.
 // ---------------------------------------------------------------------------
 
 #[inline]
@@ -1651,7 +1645,7 @@ mod tests {
 
     #[test]
     fn empty_vector_round_trips() {
-        // Encode with vector=[] is the spec's "exclude vector" path.
+        // Encode with vector=[] is the "exclude vector" path.
         let p = WalPayload::Encode(EncodePayload {
             memory_id: mid(1),
             request_id: rid(0),
@@ -1775,14 +1769,14 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Knowledge-layer (sub-task 15.2).
+    // Knowledge-layer.
     // -----------------------------------------------------------------
 
     #[test]
     fn knowledge_record_round_trip() {
-        // After Phase C, the three RelationCreate/Supersede/Tombstone
-        // kinds are first-class typed payloads — not opaque-body
-        // knowledge records — so they are excluded from this fixture.
+        // The three RelationCreate/Supersede/Tombstone kinds are
+        // first-class typed payloads — not opaque-body knowledge
+        // records — so they are excluded from this fixture.
         for kind in [
             WalRecordKind::EntityCreate,
             WalRecordKind::EntityUpdate,
@@ -1894,7 +1888,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Phase C: NodeRef / EdgeKindRef widening + typed-relation payloads.
+    // NodeRef / EdgeKindRef widening + typed-relation payloads.
     // -----------------------------------------------------------------
 
     #[test]

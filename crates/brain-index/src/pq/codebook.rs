@@ -1,7 +1,7 @@
 //! Trained PQ codebook — the immutable artefact produced by k-means
 //! training and consumed by every later operation.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §4. Layout: `m` subspaces, each
+//! Layout: `m` subspaces, each
 //! with `K = 2^bits` centroids of `D/m` `f32` components. v1 fixes
 //! `K = 256`. Centroids are stored contiguously in a single flat
 //! `Vec<f32>` so SIMD-friendly access patterns work without per-subspace

@@ -2,8 +2,7 @@
 //!
 //! Centralizes the names of files and directories that live inside a
 //! shard's data root. Substrate names (`arena.bin`, `metadata.redb`,
-//! `wal/`, `shard.uuid`) are pre-existing; knowledge-layer names are
-//! added by sub-task 15.3 per `spec/26_knowledge_storage/00_purpose.md`.
+//! `wal/`, `shard.uuid`) coexist with knowledge-layer names.
 //!
 //! ## Layout (per shard)
 //!
@@ -13,11 +12,11 @@
 //!   arena.bin                  (substrate)
 //!   metadata.redb              (substrate + knowledge tables)
 //!   wal/                       (substrate — directory)
-//!   statements.tantivy/        (knowledge — directory; phase 22)
-//!   memory_text.tantivy/       (knowledge — directory; phase 22)
-//!   entity.hnsw                (knowledge — file; phase 16)
-//!   statement.hnsw             (knowledge — file; phase 17)
-//!   llm_cache.redb             (knowledge — file; sub-task 15.4)
+//!   statements.tantivy/        (knowledge — directory)
+//!   memory_text.tantivy/       (knowledge — directory)
+//!   entity.hnsw                (knowledge — file)
+//!   statement.hnsw             (knowledge — file)
+//!   llm_cache.redb             (knowledge — file)
 //! ```
 //!
 //! Files are created by their owning module on first use (HNSW on
@@ -26,7 +25,7 @@
 //!
 //! ## Migration note
 //!
-//! As of sub-task 15.3, callers outside `brain-storage` and the
+//! Some callers outside `brain-storage` and the
 //! `spawn_shard` site still use literal path strings (test code,
 //! integration tests). Migrating them to the constants below is a
 //! separate cleanup and not blocking — the constants here remain the
@@ -49,27 +48,26 @@ pub const ARENA_FILE: &str = "arena.bin";
 pub const METADATA_DB_FILE: &str = "metadata.redb";
 
 /// `wal/` — write-ahead log directory; segments live inside as
-/// `seg-XXXXXXXXXX.wal` (.08).
+/// `seg-XXXXXXXXXX.wal`.
 pub const WAL_DIR: &str = "wal";
 
 // ---------------------------------------------------------------------------
 // Knowledge-layer names.
 // ---------------------------------------------------------------------------
 
-/// `entity.hnsw` — HNSW index over entity embeddings (phase 16).
+/// `entity.hnsw` — HNSW index over entity embeddings.
 pub const ENTITY_HNSW_FILE: &str = "entity.hnsw";
 
-/// `statement.hnsw` — HNSW index over statement embeddings (phase 17).
+/// `statement.hnsw` — HNSW index over statement embeddings.
 pub const STATEMENT_HNSW_FILE: &str = "statement.hnsw";
 
-/// `statements.tantivy/` — BM25 index over statement text (phase 22).
+/// `statements.tantivy/` — BM25 index over statement text.
 pub const STATEMENTS_TANTIVY_DIR: &str = "statements.tantivy";
 
-/// `memory_text.tantivy/` — BM25 index over memory text (phase 22).
+/// `memory_text.tantivy/` — BM25 index over memory text.
 pub const MEMORY_TEXT_TANTIVY_DIR: &str = "memory_text.tantivy";
 
-/// `llm_cache.redb` — separate redb file for LLM extractor cache
-/// (sub-task 15.4 opens; phase 21 populates).
+/// `llm_cache.redb` — separate redb file for LLM extractor cache.
 pub const LLM_CACHE_DB_FILE: &str = "llm_cache.redb";
 
 // ---------------------------------------------------------------------------

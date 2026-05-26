@@ -8,8 +8,6 @@
 //! - [`AGENT_CONTEXTS_TABLE`] — `(AgentId, ContextId)` → `()`: the
 //!   membership index, supporting "list contexts for agent A" via a
 //!   prefix range scan.
-//!
-//! See `spec/10_metadata/05_context_table.md` (full).
 
 use brain_core::{AgentId, ContextId};
 use redb::TableDefinition;
@@ -35,9 +33,8 @@ pub const AGENT_CONTEXTS_TABLE: TableDefinition<'static, ([u8; 16], u64), ()> =
 // Naming conventions.
 // ---------------------------------------------------------------------------
 
-/// Names starting with `_` are reserved. The writer
-/// task (Phase 9) enforces this against client input; the storage layer
-/// itself doesn't validate.
+/// Names starting with `_` are reserved. The writer task enforces this
+/// against client input; the storage layer itself doesn't validate.
 pub const RESERVED_NAME_PREFIX: &str = "_";
 
 /// The implicit "default" context name created on first ENCODE if no

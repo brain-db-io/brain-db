@@ -1,16 +1,10 @@
 //! Entity family — 5 tables.
 //!
-//! See `spec/02_data_model/` (record + resolution) and
-//! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
-//!
 //! - [`ENTITIES_TABLE`]                — primary `EntityId → EntityMetadata`.
 //! - [`ENTITY_BY_CANONICAL_NAME_TABLE`] — exact-match resolution.
 //! - [`ENTITY_ALIASES_TABLE`]          — alias resolution (multi-value via key).
 //! - [`ENTITY_TRIGRAMS_TABLE`]         — fuzzy resolution via trigram index.
 //! - [`ENTITY_MENTIONS_TABLE`]         — reverse index (which memories mention an entity).
-//!
-//! Phase 15.1 — types only. Phase 16 (entity layer) wires the resolver
-//! and the typed CRUD around these tables.
 
 use crate::impl_redb_rkyv_value;
 use brain_core::{Entity, EntityAttributes, EntityId, EntityTypeId};
@@ -35,9 +29,8 @@ pub const ENTITY_ALIASES_TABLE: TableDefinition<'static, (u32, &'static str, [u8
 
 /// `(entity_type_id, trigram, EntityId.to_bytes())` → `()`.
 ///
-/// Trigrams are fixed 3-byte windows (pg_trgm-style, byte-level) per
-/// 15.1 declared this with `&'static str` for the trigram
-/// component; sub-task 16.4 corrected the key shape to `[u8; 3]`.
+/// Trigrams are fixed 3-byte windows (pg_trgm-style, byte-level),
+/// keyed as `[u8; 3]`.
 pub const ENTITY_TRIGRAMS_TABLE: TableDefinition<'static, (u32, [u8; 3], [u8; 16]), ()> =
     TableDefinition::new("entity_trigrams");
 
@@ -48,8 +41,8 @@ pub const ENTITY_MENTIONS_TABLE: TableDefinition<'static, ([u8; 16], [u8; 16]), 
 /// Bytes per persisted entity vector — 384 f32 components × 4 bytes
 /// each. Pinned to the BGE-small dimensionality. If/when a deployment
 /// migrates to a different model, the row's bytes are still valid for
-/// the model that wrote them; the recovery path (`spec/09/06 §6`)
-/// re-embeds any row whose length doesn't match.
+/// the model that wrote them; the recovery path re-embeds any row
+/// whose length doesn't match.
 pub const ENTITY_VECTOR_BYTES: usize = 384 * 4;
 
 /// `EntityId.to_bytes()` → bytemuck-cast `[f32; 384]` as a fixed-size
@@ -57,7 +50,7 @@ pub const ENTITY_VECTOR_BYTES: usize = 384 * 4;
 /// restart can rebuild the entity HNSW from durable vectors without
 /// re-embedding canonical names. A missing row (a pre-feature entity,
 /// or a write that landed before the vector existed) falls back to
-/// re-embed at startup — see `spec/09/06_persistence.md §6`.
+/// re-embed at startup.
 pub const ENTITY_VECTORS_TABLE: TableDefinition<
     'static,
     [u8; 16],
@@ -65,7 +58,7 @@ pub const ENTITY_VECTORS_TABLE: TableDefinition<
 > = TableDefinition::new("entity_vectors");
 
 // ---------------------------------------------------------------------------
-// Status flags (sub-task 16.2).
+// Status flags.
 // ---------------------------------------------------------------------------
 
 /// Bits in [`EntityMetadata::flags`].
@@ -76,13 +69,12 @@ pub mod flags {
     /// Bit 0: entity has been tombstoned. Secondary indexes
     /// (`entity_by_canonical_name`, `entity_aliases`) are torn down on
     /// tombstone so the resolver never sees the row again. The primary
-    /// row stays for audit + 16.7 unmerge.
+    /// row stays for audit + unmerge.
     pub const TOMBSTONED: u32 = 1 << 0;
 
     /// Bit 1: entity has been merged into another. Redundant with
-    /// `merged_into_bytes.is_some()`; kept as a flag bit so
-    /// flag-scan filters in 16.5+ don't have to deref the option.
-    /// Set by 16.7; not used in 16.2.
+    /// `merged_into_bytes.is_some()`; kept as a flag bit so flag-scan
+    /// filters don't have to deref the option. Set by the merge path.
     pub const MERGED: u32 = 1 << 1;
 
     /// Bits 2..=31 reserved.
@@ -108,12 +100,10 @@ pub mod mention_context {
 // Value structs.
 // ---------------------------------------------------------------------------
 
-/// Primary entity record (§"Entity record schema").
+/// Primary entity record.
 ///
-/// Sub-task 16.1 promoted `aliases` from an opaque `Vec<u8>` blob to a
-/// typed `Vec<String>` and bumped `type_name` to `::v2`. `attributes`
-/// remains an opaque blob until phase 19's schema DSL defines the
-/// typed `Value` union.
+/// `aliases` is a typed `Vec<String>`. `attributes` remains an opaque
+/// blob until the schema DSL defines the typed `Value` union.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct EntityMetadata {
@@ -121,10 +111,11 @@ pub struct EntityMetadata {
     pub entity_type_id: u32,
     pub canonical_name: String,
     pub normalized_name: String,
-    /// caps the alias list at 32 by default; not enforced
-    /// at this layer (CRUD in 16.2 enforces).
+    /// Alias list is capped at 32 by default; the cap is enforced by
+    /// the CRUD layer, not here.
     pub aliases: Vec<String>,
-    /// rkyv-encoded `BTreeMap<String, Value>` (Value union resolves in phase 19).
+    /// rkyv-encoded `BTreeMap<String, Value>` (Value union resolves
+    /// with the schema DSL).
     pub attributes_blob: Vec<u8>,
     pub mention_count: u32,
     pub created_at_unix_nanos: u64,
@@ -177,8 +168,8 @@ impl EntityMetadata {
     }
 
     /// Append an alias to this entity (no dedup or normalization;
-    /// callers should pre-normalize). The on-rename caller in 16.2
-    /// uses this to move an old canonical_name into the alias list.
+    /// callers should pre-normalize). The on-rename caller uses this to
+    /// move an old canonical_name into the alias list.
     pub fn add_alias(&mut self, alias: String) {
         self.aliases.push(alias);
     }
@@ -187,7 +178,7 @@ impl EntityMetadata {
 impl_redb_rkyv_value!(EntityMetadata, "brain_metadata::EntityMetadata::v2");
 
 // ---------------------------------------------------------------------------
-// brain-core ↔ brain-metadata boundary conversions (sub-task 16.1).
+// brain-core ↔ brain-metadata boundary conversions.
 // ---------------------------------------------------------------------------
 
 impl From<&Entity> for EntityMetadata {
@@ -297,9 +288,8 @@ mod tests {
 
     #[test]
     fn aliases_round_trip() {
-        // Sub-task 16.1: aliases moved from `Vec<u8>` blob to
-        // `Vec<String>`. Verify the typed field round-trips through
-        // rkyv + redb.
+        // aliases is a typed `Vec<String>`, not a `Vec<u8>` blob.
+        // Verify the typed field round-trips through rkyv + redb.
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let id = EntityId::new();
@@ -333,8 +323,8 @@ mod tests {
 
     #[test]
     fn entity_round_trip_through_brain_core() {
-        // Sub-task 16.1: `From<&Entity> for EntityMetadata` and the
-        // reverse must preserve every field. Build a fully-populated
+        // `From<&Entity> for EntityMetadata` and the reverse must
+        // preserve every field. Build a fully-populated
         // `brain_core::Entity`, convert to `EntityMetadata`, convert
         // back, assert equality.
         use brain_core::{Entity, EntityAttributes};
@@ -411,7 +401,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let id = EntityId::new();
-        // 16.4: trigram component is `[u8; 3]`, not `&str`.
+        // Trigram component is `[u8; 3]`, not `&str`.
         let key = (1u32, *b"pri", id.to_bytes());
 
         let wtxn = db.begin_write().unwrap();

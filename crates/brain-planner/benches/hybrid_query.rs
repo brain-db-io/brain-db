@@ -1,10 +1,10 @@
-//! Hybrid query criterion benches against §16/02 §2.10 (phase 23.12).
+//! Hybrid query criterion benches.
 //!
 //! Three benches:
 //!
 //! 1. Hybrid 3-retriever end-to-end — `plan + execute` with
 //!    Semantic + Lexical + Graph mocked at the trait level (target
-//!    p50 10 ms / p99 50 ms; the wall-time gate is phase 14
+//!    p50 10 ms / p99 50 ms; the wall-time gate is end-to-end
 //!    acceptance — this bench is a regression detector for the
 //!    plan/fuse/filter/project glue).
 //! 2. Router-degraded single-retriever path — text-only query with
@@ -15,7 +15,8 @@
 //! Mocked retrievers return a fixed list of `RankedItem` so the
 //! bench measures planner + executor + RRF fusion + filter chain +
 //! result projection. Production-scale (real BGE embedder + 100K
-//! HNSW + tantivy + redb-backed graph) is validated in phase 14.
+//! HNSW + tantivy + redb-backed graph) is validated in end-to-end
+//! acceptance.
 //!
 //! Run:
 //!
@@ -187,8 +188,8 @@ fn build_plan(req: &PlannerQueryRequest) -> QueryPlan {
 // ---------------------------------------------------------------------------
 
 /// Hybrid 3-retriever end-to-end: text + entity anchor invites
-/// Semantic, Lexical, and Graph. §16/02 §2.10 target p50 10 ms /
-/// p99 50 ms (production wall-time gate is phase 14; this bench
+/// Semantic, Lexical, and Graph. Target p50 10 ms / p99 50 ms
+/// (production wall-time gate is end-to-end acceptance; this bench
 /// measures plan/fuse/filter/project glue with mocked retrievers).
 fn bench_hybrid_three_retriever(c: &mut Criterion) {
     let semantic_items = make_items(TOP_N, |i| {
@@ -217,7 +218,7 @@ fn bench_hybrid_three_retriever(c: &mut Criterion) {
 }
 
 /// Router-degraded path: text-only query → router picks Semantic +
-/// Lexical (no Graph). §16/02 §2.10 target p50 7 ms / p99 30 ms.
+/// Lexical (no Graph). Target p50 7 ms / p99 30 ms.
 fn bench_hybrid_router_degraded(c: &mut Criterion) {
     let semantic_items = make_items(TOP_N, |i| {
         RankedItemId::Memory(MemoryId::from_raw(i as u128))
@@ -242,8 +243,8 @@ fn bench_hybrid_router_degraded(c: &mut Criterion) {
     });
 }
 
-/// EXPLAIN — `plan(req)` only. No retrievers invoked. §16/02 §2.10
-/// target p50 500 µs / p99 2 ms.
+/// EXPLAIN — `plan(req)` only. No retrievers invoked. Target
+/// p50 500 µs / p99 2 ms.
 fn bench_explain_plan_only(c: &mut Criterion) {
     let req = text_anchor_request();
 

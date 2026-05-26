@@ -1,7 +1,6 @@
 //! Model fingerprint computation.
 //!
-//! Literal implementation of `spec/07_embedding/07_fingerprinting.md`
-//! §3's algorithm — byte-for-byte. Every memory's stored fingerprint
+//! Every memory's stored fingerprint
 //! depends on this; changing the algorithm orphans every stored vector.
 //! See `crates/brain-metadata/src/tables/model_fingerprint.rs` for the
 //! storage side.
@@ -23,8 +22,7 @@
 //! ```
 //!
 //! Note: `weights_file` is hashed *separately* into 32 bytes (the full
-//! BLAKE3 output), then those 32 bytes are appended to the outer
-//! hasher pseudocode is explicit.
+//! BLAKE3 output), then those 32 bytes are appended to the outer hasher.
 
 use std::io::Read;
 use std::path::Path;
@@ -36,8 +34,7 @@ use std::path::Path;
 /// via [`blake3_hash_file`] or equivalent.
 ///
 /// `vector_dim` is the model's output dim (= 384 for BGE-small).
-/// `normalize` is `true` for Brain (we always L2-normalise per spec
-/// §04/04).
+/// `normalize` is `true` for Brain (we always L2-normalise).
 ///
 /// Returns the 16-byte truncated BLAKE3.
 #[must_use]
@@ -66,9 +63,8 @@ pub fn compute_fingerprint(
 }
 
 /// Compute the BLAKE3-truncated-16 of a text string. The cache in
-/// `crate::dispatcher::cache` uses this as its key, per spec
-/// `04_embedding_layer/05_caching.md` §2 — 16 bytes are enough that
-/// collision probability at 10⁶ entries is ≈ 10⁻¹⁹.
+/// `crate::dispatcher::cache` uses this as its key — 16 bytes are enough
+/// that collision probability at 10⁶ entries is ≈ 10⁻¹⁹.
 #[must_use]
 pub fn blake3_hash_text(text: &str) -> [u8; 16] {
     let full = blake3::hash(text.as_bytes());

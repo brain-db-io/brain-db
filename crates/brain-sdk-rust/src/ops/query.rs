@@ -1,4 +1,4 @@
-//! Fluent hybrid query builder + result projections. Phase 23.10.
+//! Fluent hybrid query builder + result projections.
 //!
 //! Public surface: one verb on [`crate::Client`] — [`Client::query`] —
 //! returns a [`QueryBuilder`] with three modifier verbs:
@@ -7,11 +7,6 @@
 //! - `.explain()` → `ExplainResult` (planner output, no execution).
 //! - `.trace()`   → `TraceResult`   (planner + per-retriever execution
 //!   metrics).
-//!
-//! See `spec/29_knowledge_sdk/00_purpose.md` §"Fluent query builder"
-//! for the target ergonomics and
-//! `spec/24_hybrid_query/00_purpose.md` for the server-side pipeline
-//! this builder drives.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::{Client, ClientError, StatementKind, ItemRef, TimeRange};
@@ -76,7 +71,7 @@ pub const MAX_EXPLICIT_RETRIEVERS: usize = 3;
 // ---------------------------------------------------------------------------
 
 /// A retriever family. The hybrid engine runs zero or more of these
-/// in parallel and fuses their ranks (`spec/13_retrievers/00_purpose.md`).
+/// in parallel and fuses their ranks.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Retriever {
     Semantic,
@@ -142,7 +137,7 @@ impl From<brain_protocol::RetrieverNameWire> for Retriever {
 }
 
 /// Which retrievers the planner is allowed to run. [`Self::auto`] lets
-/// the router pick from the rules in `§24/00 §"Routing rules"`.
+/// the router pick from its routing rules.
 /// [`Self::explicit`] forces a specific set (validated at construction).
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub enum RetrieverSelection {
@@ -986,8 +981,7 @@ impl<'a> QueryBuilder<'a> {
 // ---------------------------------------------------------------------------
 
 impl Client {
-    /// Start a fluent hybrid query builder §"Fluent
-    /// query builder".
+    /// Start a fluent hybrid query builder.
     ///
     /// The builder validates its inputs once, inside the terminal
     /// verb (`.execute()` / `.explain()` / `.trace()`); invalid

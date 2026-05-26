@@ -1,4 +1,4 @@
-//! Chaos tests for Phase C — recovery of typed-relation payloads
+//! Chaos tests for recovery of typed-relation payloads
 //! under partial WAL writes, replay idempotency, and corruption
 //! diagnostics on a tombstone without its sidecar.
 //!

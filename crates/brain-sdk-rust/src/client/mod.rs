@@ -141,14 +141,14 @@ impl Client {
     /// dereferences to `&mut Connection`; drop releases it back.
     ///
     /// 10.5+ uses this from each op method.
-    #[allow(dead_code)] // Consumed by op methods in 10.5.
+    #[allow(dead_code)] // Consumed by op methods.
     pub async fn acquire(&self) -> Result<PoolGuard, ClientError> {
         self.pool.acquire().await
     }
 
-    /// Mint a fresh [`RequestId`] (UUIDv7 by default). Spec
-    /// §13/04 §3: state-mutating ops (ENCODE / FORGET / LINK /
-    /// UNLINK / TXN_COMMIT) need one; 10.5's op-method builders
+    /// Mint a fresh [`RequestId`] (UUIDv7 by default).
+    /// State-mutating ops (ENCODE / FORGET / LINK /
+    /// UNLINK / TXN_COMMIT) need one; the op-method builders
     /// call this when the caller didn't supply one. Retries
     /// **reuse the same id** so the server's 24-hour
     /// idempotency cache deduplicates.
@@ -169,7 +169,7 @@ impl Client {
         self.metrics.snapshot()
     }
 
-    // ---- Cognitive operations (-§11) ----
+    // ---- Cognitive operations ----
 
     /// ENCODE a memory. Returns an [`EncodeBuilder`]; chain
     /// optional fields and call `.send().await`.
@@ -311,7 +311,7 @@ impl Client {
     /// — used for the metrics breakdown and span attribute.
     ///
     /// 10.5+ wraps every op method with this helper.
-    #[allow(dead_code)] // Consumed by op methods in 10.5.
+    #[allow(dead_code)] // Consumed by op methods.
     pub(crate) async fn run_op<F, Fut, T>(
         &self,
         op_name: &'static str,

@@ -1,4 +1,4 @@
-//! Unit tests for the query planner (phase 23.6).
+//! Unit tests for the query planner.
 
 use brain_core::StatementKind;
 use brain_core::{EntityId, PredicateId};
@@ -76,8 +76,7 @@ fn no_signal_returns_error() {
 
 #[test]
 fn filter_only_request_also_returns_no_signal() {
-    // §24/00 §"Routing rules" Rule 4: type-filter alone adds
-    // no retriever; v1 plan rejects.
+    // Rule 4: type-filter alone adds no retriever; v1 plan rejects.
     let req = QueryRequest {
         kind_filter: vec![StatementKind::Fact],
         ..Default::default()

@@ -1,4 +1,4 @@
-//! Integration tests for the sub-task 9.10 frame dispatcher.
+//! Integration tests for the frame dispatcher.
 //!
 //! Each test brings up a fresh `ConnectionListener` plus a small pool
 //! of real `spawn_shard`'d Glommio executors on `127.0.0.1:0`, drives
@@ -599,8 +599,8 @@ async fn recall_returns_single_frame_eos_in_v1() {
     .await;
     let resp = read_one_frame(&mut client).await.expect("read recall resp");
     let opcode = resp.header.opcode_u16();
-    // 9.10 ships single-frame EOS responses for streaming ops. The
-    // frame *header* has the EOS bit set regardless of body opcode.
+    // The dispatcher ships single-frame EOS responses for streaming ops.
+    // The frame *header* has the EOS bit set regardless of body opcode.
     assert!(
         opcode == Opcode::RecallResp.as_u16() || opcode == Opcode::Error.as_u16(),
         "expected RecallResp or Error, got 0x{opcode:02x}"

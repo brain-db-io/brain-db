@@ -1,5 +1,5 @@
-//! Integration tests for `handle_plan` (sub-task 7.5; refactored in
-//! 7.8 to insert edges through the wire LINK path).
+//! Integration tests for `handle_plan`. Edges are inserted through the
+//! wire LINK path.
 //!
 //! Drives the full pipeline:
 //!   dispatcher → handle_plan → plan_path_inner → execute_path

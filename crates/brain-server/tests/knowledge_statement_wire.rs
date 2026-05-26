@@ -1,4 +1,4 @@
-//! Statement wire-op smoke (sub-task 17.10a).
+//! Statement wire-op smoke.
 //!
 //! Drives `STATEMENT_CREATE / _GET / _SUPERSEDE / _TOMBSTONE /
 //! _RETRACT / _HISTORY / _LIST` through the full data-plane stack

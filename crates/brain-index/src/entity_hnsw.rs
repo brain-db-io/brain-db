@@ -1,6 +1,6 @@
 //! `EntityHnswIndex` — per-shard HNSW over entity embeddings.
 //!
-//! Sub-task 16.3. Distinct from the substrate's [`crate::HnswIndex`]
+//! Distinct from the substrate's [`crate::HnswIndex`]
 //! over memory embeddings:
 //!
 //! | Index | M | ef_construction | ef_search | capacity_hint |
@@ -8,19 +8,14 @@
 //! | Memory (existing) | 16 | 200 | 64 | 1024 |
 //! | Entity (this module) | 16 | **100** | 64 | **256** |
 //!
-//! "Entity embedding HNSW" — entity counts are typically
+//! Entity counts are typically
 //! 10–100× smaller than memory counts per shard, so the index is
 //! initialized smaller and its `ef_construction` is lower.
 //!
-//! ## Surface (16.3 only)
-//!
-//! - In-memory only; no `entity.hnsw` persistence (deferred — phase
-//!   plan 16.3 F-2).
-//! - Single-owner; no concurrency wrapper (deferred to 16.5+ when
-//!   the resolver needs concurrent reads).
+//! - In-memory only; no `entity.hnsw` persistence.
+//! - Single-owner; no concurrency wrapper.
 //! - Inlined `EntityId ↔ u32` mapping (Vec + HashMap) — does NOT
 //!   reuse the substrate's `MemoryId`-typed [`crate::IdMap`].
-//!   Generalizing the id-map is a phase-16 follow-up.
 
 use std::collections::HashMap;
 
@@ -41,8 +36,8 @@ const OVER_FACTOR: usize = 2;
 // ---------------------------------------------------------------------------
 
 /// HNSW knobs for the entity index. Defaults from
-/// [`Self::default_v1`] match `spec/02_data_model/02_storage.md`:
-/// `M=16, ef_construction=100, ef_search=64`, capacity hint 256.
+/// [`Self::default_v1`]: `M=16, ef_construction=100, ef_search=64`,
+/// capacity hint 256.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct EntityHnswParams {
     /// Max edges per non-bottom-layer node range:
@@ -155,7 +150,7 @@ pub struct RebuildReport {
 
 /// Per-shard HNSW over entity embeddings (384-dim, BGE-small).
 ///
-/// **Single-writer** by `&mut self` discipline (CLAUDE.md §5 inv. 2).
+/// **Single-writer** by `&mut self` discipline.
 pub struct EntityHnswIndex {
     inner: Hnsw<'static, f32, DistCosine>,
     params: EntityHnswParams,

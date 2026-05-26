@@ -1,7 +1,5 @@
 //! Tracing/log subscriber installation.
 //!
-//! Sub-task 12.2.
-//!
 //! Two entry points:
 //!
 //! - [`init_pre_config`] — called before the config is loaded so
@@ -88,15 +86,15 @@ pub fn init_pre_config() {
 ///
 /// Composes three layers:
 /// - `EnvFilter` (env-driven level filter).
-/// - Format layer (compact or JSON per §14/02 §1).
-/// - Optional OpenTelemetry layer (§14/03; built by
+/// - Format layer (compact or JSON).
+/// - Optional OpenTelemetry layer (built by
 ///   `bootstrap::tracing::build` when `[tracing] enabled = true`).
 ///
 /// Returns the `TracerProvider` when the OTel pipeline installed —
 /// callers must keep it alive (drop on shutdown to flush). Returns
 /// `None` when tracing is disabled or the OTel exporter failed to
-/// build (failure is logged via `warn!`, not propagated
-/// §17 mandates "no-trace fallback").
+/// build (failure is logged via `warn!`, not propagated — tracing
+/// degrades to a no-trace fallback rather than failing startup).
 #[must_use = "drop the returned TracerProvider on shutdown to flush spans"]
 pub fn reinit_from_config(
     logging: &LoggingConfig,

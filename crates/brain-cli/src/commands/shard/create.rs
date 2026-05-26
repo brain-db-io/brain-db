@@ -1,5 +1,5 @@
 //! `brain-cli shard create --logical-id N` — POST /v1/shards.
-//! Returns the structured 501 today (Phase-12 cluster expansion).
+//! Returns the structured 501 today (cluster expansion is deferred).
 
 use std::time::Duration;
 

@@ -3,7 +3,7 @@
 //!
 //! ## Why one table instead of two
 //!
-//! Before Phase C, substrate edges (`Memory → Memory`) and typed
+//! Previously, substrate edges (`Memory → Memory`) and typed
 //! knowledge relations (`Entity → Entity`) lived in separate redb
 //! tables. Mention edges (`Memory → Entity`) had no home at all. The
 //! unified table keys both endpoints as [`NodeRef`] and the label as

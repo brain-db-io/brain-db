@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for `agent` (sub-task 10.11).
+//! Admin HTTP handlers for `agent`.
 //!
 //! All routes deferred — agent_id secondary index doesn't exist yet.
 

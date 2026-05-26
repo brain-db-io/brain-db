@@ -1,12 +1,9 @@
 //! Snapshot persistence for `HnswIndex`.
 //!
-//! See `spec/09_indexing/06_persistence.md` §7 and SD-4.5-1 in
-//! `docs/development/spec-deviations.md`.
-//!
 //! ## File layout
 //!
 //! A snapshot is a **directory** containing four files at the same
-//! `basename` (SD-4.5-1: hnsw_rs's `Hnsw::file_dump` writes two files,
+//! `basename` (hnsw_rs's `Hnsw::file_dump` writes two files,
 //! and the PQ codebook is a third sibling, so the wrapper makes four):
 //!
 //! - `<basename>.hnsw.graph` — hnsw_rs's graph dump.
@@ -58,12 +55,12 @@ pub const BRAIN_MAGIC: [u8; 4] = *b"BHN0";
 
 /// On-disk format version. Bump on any incompatible layout change.
 ///
-/// v1 (pre-Task 3) — non-PQ HnswIndex snapshot (`.brain` wrapper only).
-/// v2 (Task 3)     — PQ snapshot. The `.brain` body now carries BLAKE3
-///                   hashes of the sibling files (`.hnsw.graph`,
-///                   `.hnsw.data`, `.codebook`) so the wrapper protects
-///                   the whole quadruple, not just itself. The codebook
-///                   sidecar is new in v2.
+/// v1 — non-PQ HnswIndex snapshot (`.brain` wrapper only).
+/// v2 — PQ snapshot. The `.brain` body now carries BLAKE3
+///      hashes of the sibling files (`.hnsw.graph`,
+///      `.hnsw.data`, `.codebook`) so the wrapper protects
+///      the whole quadruple, not just itself. The codebook
+///      sidecar is new in v2.
 pub const FORMAT_VERSION: u32 = 2;
 
 /// Size of the fixed-width header (bytes 0..=63).

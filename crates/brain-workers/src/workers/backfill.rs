@@ -1,4 +1,4 @@
-//! Backfill worker (sub-task 24.1).
+//! Backfill worker.
 //!
 //! Admin-triggered worker that walks a `(memory_range × extractor_ids)`
 //! grid and re-runs extractors against each memory. Each
@@ -18,10 +18,10 @@
 //! - For live runs, mark items `Failed` with reason
 //!   `"memory text not persisted (v1 limitation)"`.
 //!
-//! This matches the §27/07 deferred-work entry for phase 22's
-//! memory text rebuild scope cut. Operators re-ingest in v1; the
-//! checkpoint scaffolding here ships so phase-25+ can light up
-//! content-aware re-extraction without re-designing the worker.
+//! This matches the deferred memory-text-rebuild scope cut. Operators
+//! re-ingest in v1; the checkpoint scaffolding here ships so a later
+//! version can light up content-aware re-extraction without
+//! re-designing the worker.
 
 use std::collections::VecDeque;
 use std::future::Future;

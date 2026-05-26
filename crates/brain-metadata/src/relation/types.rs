@@ -1,10 +1,5 @@
 //! Typed CRUD + interning over the relation-type registry.
-//! Sub-task 18.3. Mirrors [`crate::schema::predicate`] (17.3).
-//!
-//! Spec refs:
-//! - `spec/02_data_model/00_purpose.md` §"Relation type declaration".
-//! - `spec/26_knowledge_storage/00_purpose.md` — relation_types row
-//!   lives in the knowledge-storage catalog.
+//! Mirrors [`crate::schema::predicate`].
 
 use std::collections::HashSet;
 
@@ -198,7 +193,7 @@ pub fn relation_type_list(
 
 /// Intern (or look up) a relation type by its qname.
 ///
-/// Semantics mirror `predicate_intern` (17.3):
+/// Semantics mirror `predicate_intern`:
 /// - No prior row: allocate fresh id, write row + qname index entry.
 /// - Prior row with identical constraints: return existing id.
 /// - Prior row with diverging constraints: error.

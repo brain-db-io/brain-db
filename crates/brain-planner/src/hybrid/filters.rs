@@ -1,11 +1,10 @@
-//! Post-fusion filter chain (phase 23.5).
+//! Post-fusion filter chain.
 //!
-//! Implements §24/00 §"Filter chain". Reads metadata from redb
-//! to evaluate per-filter predicates against each fused item,
-//! drops items that don't pass, applies the final limit, and
-//! reports per-step survivor counts for EXPLAIN/TRACE (23.8).
+//! Reads metadata from redb to evaluate per-filter predicates against
+//! each fused item, drops items that don't pass, applies the final
+//! limit, and reports per-step survivor counts for EXPLAIN/TRACE.
 //!
-//! Filter order (§24/00 binding):
+//! Filter order (binding):
 //!
 //! 1. Type — kind_filter (statement) + memory_kind_filter +
 //!    predicate_filter.
@@ -78,7 +77,7 @@ pub struct FilterChain {
     pub as_of_record_time_unix_nanos: Option<u64>,
 }
 
-/// Per-step survivor counts. Surfaces in EXPLAIN/TRACE (23.8).
+/// Per-step survivor counts. Surfaces in EXPLAIN/TRACE.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct FilterChainStats {
     pub before: u32,
@@ -97,7 +96,7 @@ pub enum FilterError {
     Metadata(String),
 }
 
-/// Apply the §24/00 filter chain in order, then truncate to
+/// Apply the filter chain in order, then truncate to
 /// `limit`. `limit == 0` means "no limit".
 pub fn apply_filter_chain(
     items: Vec<FusedItem>,

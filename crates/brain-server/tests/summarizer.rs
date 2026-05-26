@@ -1,4 +1,4 @@
-//! Integration tests for sub-task 9.15 — OpenAI / Ollama
+//! Integration tests for the OpenAI / Ollama
 //! Summarizer adapters.
 //!
 //! Each test stands up a hand-rolled mock HTTP server (Tokio

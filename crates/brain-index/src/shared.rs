@@ -13,8 +13,6 @@
 //! - The pending buffer holds full-precision `f32` vectors so pending
 //!   inserts are visible at exact cosine immediately; the closure
 //!   isn't called for them.
-//!
-//! Spec: `spec/09_indexing/07_hnsw_pq.md` §§7-9.
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -67,7 +65,7 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
     }
 
     /// Persist the published main to a directory at the given basename.
-    /// Writes four files per `spec/09_indexing/06_persistence.md §7`:
+    /// Writes four files:
     /// `<basename>.hnsw.graph`, `<basename>.hnsw.data`,
     /// `<basename>.codebook`, and `<basename>.brain` (the wrapper, written
     /// **last** so its presence marks "snapshot complete"). The wrapper
@@ -274,7 +272,7 @@ fn blake3_file(path: &std::path::Path) -> Result<[u8; 32], HnswError> {
 
 /// Search-time over-fetch factor: pull `K * RERANK_FACTOR` ADC
 /// candidates from the HNSW, re-rank against full-precision arena
-/// vectors, keep the top `K`. Spec §09.07 §3.1 default.
+/// vectors, keep the top `K` (the default).
 const RERANK_FACTOR: usize = 4;
 
 /// An immutable PQ-HNSW snapshot for a single published epoch.
@@ -681,7 +679,7 @@ impl<const M: usize> WriterImpl<M> {
 // ===== Helpers =============================================================
 
 /// Dot product of two equal-length `f32` vectors. With L2-normalised
-/// inputs (BGE-small output, spec `§04/03 §1`) this equals cosine
+/// inputs (BGE-small output) this equals cosine
 /// similarity.
 fn dot(a: &[f32; VECTOR_DIM], b: &[f32; VECTOR_DIM]) -> f32 {
     let mut sum = 0.0_f32;
@@ -845,7 +843,7 @@ mod tests {
         }
     }
 
-    // ----- Snapshot persistence (Task 3) ---------------------------------
+    // ----- Snapshot persistence ------------------------------------------
 
     fn unit_vec(seed: u64) -> [f32; crate::params::VECTOR_DIM] {
         // Build a deterministic non-zero vector so the HNSW has actual
@@ -1036,7 +1034,7 @@ mod tests {
     //
     // Simulates each plausible kill-during-snapshot state by manually
     // mutating the on-disk snapshot. The invariant we're protecting
-    // (`CLAUDE.md §5.7`, "no silent corruption") is: any load failure
+    // ("no silent corruption") is: any load failure
     // surfaces as `Err(_)` — never a panic, never a silently-wrong load.
     // Recovery's contract is that a bad snapshot triggers the arena-
     // rebuild fallback; these tests check the "bad snapshot" detection

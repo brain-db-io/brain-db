@@ -1,7 +1,7 @@
 //! Workspace-wide error type and result alias.
 //!
-//! The variant set mirrors the wire-protocol error codes in
-//! `spec/04_wire_protocol/10_errors.md`. Keep them aligned.
+//! The variant set mirrors the wire-protocol error codes. Keep them
+//! aligned.
 
 use thiserror::Error;
 
@@ -40,17 +40,17 @@ pub enum Error {
     Timeout,
 
     /// The arena's slot space is exhausted (no free slots and growth refused
-    /// or impossible). Spec `§03/10` error class `ResourceExhausted`.
+    /// or impossible). A `ResourceExhausted` error class.
     #[error("the shard is out of slots")]
     OutOfSlots,
 
     /// Memory allocation failed (e.g., an arena resize couldn't fallocate, or
-    /// an in-memory structure exceeded its budget). Spec `§03/10`
-    /// `ResourceExhausted`.
+    /// an in-memory structure exceeded its budget). A `ResourceExhausted`
+    /// error class.
     #[error("out of memory: {0}")]
     OutOfMemory(String),
 
-    /// The caller's request was throttled. Spec `§03/10` `ResourceExhausted`.
+    /// The caller's request was throttled. A `ResourceExhausted` error class.
     /// The error message includes operator-facing hints (e.g., retry-after
     /// duration); SDKs map it to the language-native rate-limit type.
     #[error("rate limited: {0}")]

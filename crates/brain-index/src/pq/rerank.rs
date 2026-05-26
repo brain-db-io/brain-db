@@ -1,7 +1,7 @@
 //! Re-rank pass: turn PQ-ADC-approximate candidates into exact-ranked
 //! results by scoring each against the full-precision arena vector.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §7. The HNSW search returns
+//! The HNSW search returns
 //! candidates ordered by ADC distance — a lossy proxy for true cosine
 //! similarity. Re-ranking reads each candidate's full-precision
 //! vector from the caller-owned arena, computes exact cosine
@@ -34,8 +34,8 @@ use crate::params::VECTOR_DIM;
 /// detect this by comparing `result.len()` to `k`.
 ///
 /// The query and every arena vector are assumed L2-normalised
-/// (BGE-small output is normalised by construction; spec
-/// `§04/03 §1`). Cosine similarity reduces to a dot product in that
+/// (BGE-small output is normalised by construction). Cosine similarity
+/// reduces to a dot product in that
 /// case, so the inner loop is `D` multiply-adds — much cheaper than
 /// rebuilding the norm per call.
 #[must_use]

@@ -4,8 +4,6 @@
 //! idempotency table, and the durable LSN checkpoint. WAL recovery
 //! lives in `recovery/` (one file per WalPayload family), implementing
 //! `brain_storage::recovery::MetadataSink` for `MetadataDb`.
-//!
-//! See `spec/10_metadata/` for the authoritative design.
 
 #![allow(
     clippy::module_name_repetitions,

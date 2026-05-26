@@ -1,4 +1,4 @@
-//! Phase-23 exit integration test (sub-task 23.12).
+//! Hybrid query exit integration test.
 //!
 //! Drives the full hybrid query pipeline end-to-end through the
 //! live wire-op dispatcher:
@@ -12,7 +12,7 @@
 //! - **Substrate RECALL** transparently routes through the hybrid
 //!   pipeline on schema-declared deployments.
 //!
-//! Complements the per-sub-task wire tests
+//! Complements the per-op wire tests
 //! (`query_wire.rs`, `recall_hybrid_routing.rs`) — those
 //! check each opcode in isolation; this one checks them all against
 //! a populated shard.
@@ -323,7 +323,7 @@ async fn hybrid_explain_renders_plan_text() {
 }
 
 /// TRACE runs the executor and appends an EXECUTION block to the
-/// plan text §"Plan structure".
+/// plan text.
 #[tokio::test(flavor = "current_thread")]
 async fn hybrid_trace_includes_execution_block() {
     let server = start(1).await;

@@ -1,8 +1,7 @@
 //! `next_lsn` table: singleton holding the next WAL LSN to allocate.
 //!
-//! See `spec/10_metadata/02_table_layout.md` §1 row 12 (catalog
-//! entry) and §7 (singleton convention: `()` key with `t.get(&())` /
-//! `t.insert(&(), &value)`).
+//! Singleton convention: `()` key with `t.get(&())` /
+//! `t.insert(&(), &value)`.
 //!
 //! ## What lives here
 //!
@@ -12,11 +11,11 @@
 //! ## What does NOT live here
 //!
 //! - **LSN allocation logic** (read, hand out, advance, persist) —
-//!   `MetadataSink` impl (3.11) composes this table with the WAL.
+//!   the `MetadataSink` impl composes this table with the WAL.
 //! - **Initial value on missing** (fresh shard vs replayed-from-WAL) —
-//!   spec doesn't pin; the recovery code seeds this row from a WAL
-//!   scan during the open-or-recover handshake. Storage stays
-//!   decision-free; callers pick their default via
+//!   the recovery code seeds this row from a WAL scan during the
+//!   open-or-recover handshake. Storage stays decision-free; callers
+//!   pick their default via
 //!   `.get(&()).unwrap_or_default()` or by inserting an explicit
 //!   initial value.
 

@@ -1,6 +1,6 @@
 //! Product-Quantization configuration knobs.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §3. The default profile matches
+//! The default profile matches
 //! `PqParams::default_v1`: `m=8, bits=8, training_sample=65_536,
 //! kmeans_iters=25, rerank_factor=4`. Disabled by default at the
 //! [`crate::IndexParams`] level (`pq: None`).
@@ -21,7 +21,7 @@ pub const PQ_CENTROIDS_PER_SUBSPACE: usize = 1 << (PQ_BITS_V1 as usize);
 
 /// Minimum sample size accepted by the trainer. Smaller samples cannot
 /// fill 256 centroids per subspace without severe under-training; the
-/// spec rejects the activation with `PqError::InsufficientSample`
+/// activation is rejected with `PqError::InsufficientSample`
 /// rather than silently degrading recall.
 pub const MIN_TRAINING_SAMPLE: usize = 4_096;
 
@@ -30,8 +30,7 @@ pub const MIN_TRAINING_SAMPLE: usize = 4_096;
 pub const MAX_TRAINING_SAMPLE: usize = 1_048_576;
 
 /// Per-corpus PQ knobs. Always nested inside [`crate::IndexParams::pq`]
-/// — a `None` there means pure HNSW. See `spec/09_indexing/07_hnsw_pq.md`
-/// §3 for the defaults rationale.
+/// — a `None` there means pure HNSW.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct PqParams {
     /// Number of subquantisers. Must divide [`VECTOR_DIM`] evenly so
@@ -54,7 +53,7 @@ pub struct PqParams {
 }
 
 impl PqParams {
-    /// The v1 profile per `spec/09_indexing/07_hnsw_pq.md` §3.1.
+    /// The v1 profile.
     #[must_use]
     pub const fn default_v1() -> Self {
         Self {

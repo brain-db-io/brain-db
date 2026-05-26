@@ -1,13 +1,11 @@
 //! Per-shard LLM extractor response cache.
 //!
-//! See `spec/26_knowledge_storage/00_purpose.md` ("LLM extractor cache").
-//!
 //! ## Why a separate redb file
 //!
 //! The cache payload (raw LLM responses) can grow to multiple GB per
-//! shard at the spec'd 10 GB default cap. Keeping it inside
-//! `metadata.redb` would slow every hot-path metadata read. A separate
-//! file (`llm_cache.redb`) decouples the cache's growth from the hot
+//! shard at the 10 GB default cap. Keeping it inside `metadata.redb`
+//! would slow every hot-path metadata read. A separate file
+//! (`llm_cache.redb`) decouples the cache's growth from the hot
 //! substrate metadata.
 //!
 //! ## Two tables
@@ -15,18 +13,8 @@
 //! - [`LLM_RESPONSES_TABLE`] — `(input_hash, extractor_id,
 //!   extractor_version, model_id) → LlmResponse`. The cache row itself.
 //! - [`LLM_RESPONSE_TTL_TABLE`] — `(expiry_unix_secs, input_hash) → ()`.
-//!   Sorted secondary index that the cache sweeper (phase 24) walks
-//!   in `range(..=now)` order to evict expired rows.
-//!
-//! ## What this sub-task does (15.4)
-//!
-//! - Define the table sigs and value type.
-//! - Open the redb file on `spawn_shard`; tables initialize.
-//! - Round-trip + idempotency tests.
-//!
-//! The cache **writer** (LLM extractor with retry + budget) lands in
-//! phase 21. The **sweeper** (TTL eviction + LRU when over capacity)
-//! lands in phase 24. 15.4 is purely the file + schema.
+//!   Sorted secondary index that the cache sweeper walks in
+//!   `range(..=now)` order to evict expired rows.
 
 use std::path::{Path, PathBuf};
 
@@ -43,9 +31,8 @@ use crate::impl_redb_rkyv_value;
 /// Cache-key components:
 ///
 /// - `[u8; 32]` — blake3-256 hash of the input text + relevant context.
-/// - `u32`      — `ExtractorId.raw()` (interned per 15.1).
-/// - `u32`      — `extractor_version` (bumped on extractor change per
-///   AUTONOMY §23).
+/// - `u32`      — `ExtractorId.raw()` (interned).
+/// - `u32`      — `extractor_version` (bumped on extractor change).
 /// - `u64`      — `model_id`: blake3-low-64 of the model identifier
 ///   string (e.g. `"anthropic/claude-haiku-4-5"`). Avoids embedding a
 ///   variable-length string in every cache key.
@@ -75,14 +62,14 @@ pub const LLM_RESPONSE_TTL_TABLE: TableDefinition<'static, LlmTtlKey, ()> =
 
 /// One cached LLM response.
 ///
-/// `response_blob` is opaque to 15.4 — it's an rkyv-encoded payload
-/// that phase 21 (the LLM extractor) parses according to its
+/// `response_blob` is opaque to this layer — it's an rkyv-encoded
+/// payload that the LLM extractor parses according to its
 /// schema-validated output type. The framing layer here doesn't peek
 /// inside.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct LlmResponse {
-    /// rkyv-encoded typed response. Phase 21 defines the shape.
+    /// rkyv-encoded typed response. The LLM extractor defines the shape.
     pub response_blob: Vec<u8>,
 
     /// Wall-clock nanoseconds when this row was first cached.
@@ -93,8 +80,8 @@ pub struct LlmResponse {
     /// this value for sweeper-side range scans.
     pub expires_at_unix_nanos: u64,
 
-    /// Total tokens consumed by the call that produced this row. Phase
-    /// 21 uses this for per-extractor cost budgeting.
+    /// Total tokens consumed by the call that produced this row. The
+    /// LLM extractor uses this for per-extractor cost budgeting.
     pub token_count: u32,
 
     /// blake3-low-64 of the model identifier, mirrored from the cache
@@ -416,9 +403,8 @@ mod tests {
 
     #[test]
     fn ttl_index_range_scan() {
-        // Phase 24 (sweeper) walks the TTL index in `range(..=now)`
-        // order. Verify the sort + scan semantics work with our key
-        // shape.
+        // The sweeper walks the TTL index in `range(..=now)` order.
+        // Verify the sort + scan semantics work with our key shape.
         let dir = tempfile::tempdir().unwrap();
         let mut db = LlmCacheDb::open(cache_path(&dir)).unwrap();
 

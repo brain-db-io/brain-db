@@ -1,15 +1,15 @@
 //! EXPLAIN-style pretty-printer for execution plans.
 //!
 //! Operators read this output in logs or via the future
-//! `ADMIN_EXPLAIN_PLAN` opcode (Phase 9). The format is human-only —
+//! `ADMIN_EXPLAIN_PLAN` opcode. The format is human-only —
 //! no parser, no machine consumer.
 //!
 //! Renders as a tree using ASCII box-drawing characters
 //! (`├─ │ └─`). Each plan-type's title line carries `(est. X.YZ ms)`
 //! so cost is visible without scanning.
 //!
-//! Phase doc 6.8 said "impl Debug"; we ship `Display` instead because
-//! the derive-generated `Debug` is still used in test panic messages
+//! We ship `Display` rather than overriding `Debug` because the
+//! derive-generated `Debug` is still used in test panic messages
 //! (`assert!(format!("{plan:?}").contains(...))`). Overriding `Debug`
 //! would break that. `Display` is the idiomatic home for human
 //! formatting in Rust.

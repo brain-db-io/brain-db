@@ -1,12 +1,12 @@
 //! End-to-end: drive the in-process brain-server harness via
-//! `brain_sdk_rust::Client`. Sub-task 10.13.
+//! `brain_sdk_rust::Client`.
 //!
 //! The goal is *protocol-level* coverage: prove the same three
 //! layers (server, wire protocol, SDK) survive a full client
 //! lifecycle. Content-level assertions (e.g. "recall returns the
 //! memory I just encoded") are intentionally avoided — the brain-
 //! server harness's dispatcher path doesn't guarantee semantic
-//! correctness under the test config (cf. sub-task 9.17 framing in
+//! correctness under the test config (cf. the framing in
 //! `e2e.rs`).
 
 #![cfg(target_os = "linux")]
@@ -184,9 +184,9 @@ async fn sdk_concurrent_encodes_serialize() {
     server.stop().await;
 }
 
-/// 12.1b: after running a few encodes, /metrics emits the new
-/// request-path families with the correct counts. Asserts spec
-/// §14/01 §3 (`brain_request_total`, `_active`, `_duration_ms`).
+/// After running a few encodes, /metrics emits the
+/// request-path families with the correct counts
+/// (`brain_request_total`, `_active`, `_duration_ms`).
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn admin_metrics_emit_request_families() {
     let server = start(1).await;

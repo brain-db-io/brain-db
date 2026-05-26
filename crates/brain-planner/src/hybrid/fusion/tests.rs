@@ -1,4 +1,4 @@
-//! Unit tests for RRF fusion (phase 23.4).
+//! Unit tests for RRF fusion.
 
 use brain_core::{EntityId, MemoryId, StatementId};
 use brain_index::{RankedItem, RankedItemId};
@@ -70,8 +70,8 @@ fn single_retriever_passthrough_score_matches_formula() {
 
 #[test]
 fn formula_matches_spec_example() {
-    // §23/01: rank 1 contributes 1/61 ≈ 0.0164;
-    //         rank 10 contributes 1/70 ≈ 0.0143.
+    // rank 1 contributes 1/61 ≈ 0.0164;
+    // rank 10 contributes 1/70 ≈ 0.0143.
     let items_rank1 = vec![memory_item(1, 1, 1.0)];
     let items_rank10 = vec![memory_item(2, 10, 1.0)];
     let weights = PerRetrieverWeights::default();

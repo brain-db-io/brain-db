@@ -1,7 +1,6 @@
 //! Product Quantization for the HNSW indexes.
 //!
-//! Implements the design in `spec/09_indexing/07_hnsw_pq.md` — an
-//! opt-in compression layer that swaps the HNSW graph payload from
+//! An opt-in compression layer that swaps the HNSW graph payload from
 //! full-precision `[f32; D]` to `[u8; M]` PQ codes. The arena keeps
 //! full-precision vectors so the search path can re-rank against
 //! exact distances and recover recall.
@@ -11,9 +10,6 @@
 //! - [`params`]: `PqParams` knobs + validation (no runtime state).
 //! - [`codebook`]: the trained quantiser (immutable artefact).
 //! - [`kmeans`]: deterministic trainer that produces a [`Codebook`].
-//!
-//! Later sub-tasks add the encoder (25.2), distance kernels (25.3),
-//! and the `HnswIndex` wrapper (25.4).
 
 pub mod bootstrap;
 pub mod codebook;

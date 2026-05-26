@@ -1,8 +1,8 @@
 //! Entity merge / unmerge / resolve / list / tombstone wire integration
-//! tests (sub-task 16.7.9).
+//! tests.
 //!
 //! Drives the five new opcodes (and re-tests the existing four with
-//! event emission added in 16.7.8) through the full data-plane stack.
+//! event emission) through the full data-plane stack.
 //!
 //! Mirrors `knowledge_entity_wire.rs`'s pattern (Linux-only via zigbuild).
 

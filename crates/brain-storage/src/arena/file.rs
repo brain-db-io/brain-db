@@ -1,19 +1,17 @@
 //! The arena file: open, mmap, read/write slots, grow.
 //!
-//! See `spec/08_storage/{01,02,03}*.md`.
-//!
 //! `ArenaFile` owns one `arena.bin` and the mmap'd view of it. The file
 //! has a 4096-byte header followed by a contiguous array of fixed-size
 //! `Slot` (1600 bytes each).
 //!
 //! ## Why hand-rolled libc instead of `memmap2`
 //!
-//! prescribes `mremap(2)` with `MREMAP_MAYMOVE` for growth.
-//! `memmap2` does not expose `mremap`, so going through it would force the
-//! spec's *fallback* path (§05/03 §5: unmap-then-mmap). Hand-rolling lets
-//! us use the primary path and keeps a single owned region we grow in
-//! place. Every `unsafe` block in this file carries a `// SAFETY:` comment
-//! and is the smallest scope that compiles.
+//! Growth uses `mremap(2)` with `MREMAP_MAYMOVE`. `memmap2` does not
+//! expose `mremap`, so going through it would force the *fallback* path
+//! (unmap-then-mmap). Hand-rolling lets us use the primary path and keeps
+//! a single owned region we grow in place. Every `unsafe` block in this
+//! file carries a `// SAFETY:` comment and is the smallest scope that
+//! compiles.
 //!
 //! ## Concurrency
 //!
@@ -57,10 +55,9 @@ pub const SLOT_SIZE_V1: u32 = 1600;
 
 /// End of the CRC-covered region within the header.
 ///
-/// prints "[0..76]" but byte 76 splits the `last_grow_at`
-/// u64 (offsets 72..80). Same typo pattern as the slot CRC; we read it as
-/// "every header field before `header_crc32c`" — bytes `[0..80]`. See
-/// `.claude/plans/phase-02-task-04.md` §3.1 for the rationale.
+/// Byte 76 would split the `last_grow_at` u64 (offsets 72..80), so the
+/// coverage is "every header field before `header_crc32c`" — bytes
+/// `[0..80]`.
 pub const HEADER_CRC_COVERAGE_END: usize = 80;
 
 /// Default initial capacity for a fresh arena.
@@ -251,8 +248,8 @@ impl ArenaFile {
         let fd = file.as_raw_fd();
 
         // SAFETY: fd is valid (we own `file`). offset=0, len=file_size,
-        // mode=0 are all valid arguments. fallocate is the spec's chosen
-        // primitive (§05/03 §3); mode 0 grows the file's reported size.
+        // mode=0 are all valid arguments. fallocate with mode 0 grows the
+        // file's reported size.
         let rc = unsafe { libc::fallocate(fd, 0, 0, file_size as libc::off_t) };
         if rc != 0 {
             return Err(ArenaOpenError::FallocateFailed(io::Error::last_os_error()));
@@ -440,9 +437,9 @@ impl ArenaFile {
         MSYNC_ALL_CALLS.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
 
         // SAFETY: `base` is a valid mmap returned by `mmap_rw`, of length
-        // `file_size`. `MS_SYNC` is the spec-prescribed flag (§05/09 §3
-        // step 3 + §05/03 §13). No concurrent unmap is possible because
-        // `Drop` requires owned `self`.
+        // `file_size`. `MS_SYNC` blocks until the dirty pages reach stable
+        // storage. No concurrent unmap is possible because `Drop` requires
+        // owned `self`.
         let rc = unsafe {
             libc::msync(
                 self.base.as_ptr() as *mut c_void,
@@ -620,7 +617,7 @@ unsafe fn mmap_rw(fd: i32, len: usize) -> Result<NonNull<u8>, ArenaOpenError> {
     Ok(NonNull::new(raw.cast()).expect("mmap returned non-null on successful return"))
 }
 
-/// Apply the spec's madvise hints (`MADV_RANDOM`, `MADV_DONTDUMP`) to the
+/// Apply madvise hints (`MADV_RANDOM`, `MADV_DONTDUMP`) to the
 /// arena region. Failures are non-fatal hints; logged at warn.
 fn apply_madvise(base: NonNull<u8>, len: usize) {
     // SAFETY: base/len describe a live mmap region.
@@ -641,8 +638,7 @@ fn apply_madvise(base: NonNull<u8>, len: usize) {
 }
 
 /// CRC32C over the header's covered region (`bytes[0..80]`). See
-/// `HEADER_CRC_COVERAGE_END` and the plan's §3.1 for the rationale on the
-/// `[0..80]` choice.
+/// `HEADER_CRC_COVERAGE_END` for the rationale on the `[0..80]` choice.
 fn compute_header_crc(header: &HeaderRaw) -> u32 {
     let bytes: &[u8] = bytemuck::bytes_of(header);
     crc32c::crc32c(&bytes[0..HEADER_CRC_COVERAGE_END])
@@ -655,7 +651,7 @@ fn compute_header_crc(header: &HeaderRaw) -> u32 {
 // Tests in this module open files and call mmap/mremap/msync/fallocate/
 // pwritev2 — none of which miri shims. Gated behind `not(miri)` so the
 // crate compiles + runs under miri (the syscall-free tests in other
-// modules still run). See `.claude/plans/phase-02-miri.md`.
+// modules still run).
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;

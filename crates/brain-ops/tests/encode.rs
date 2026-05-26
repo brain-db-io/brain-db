@@ -129,7 +129,7 @@ fn encode_full_pipeline_returns_memory_id() {
 // same `RequestId` retried returns the original
 // responsea: idempotency replay does NOT set
 // `was_deduplicated` — that flag is for fingerprint dedup
-// (`deduplicate = true`) only, see §07/07 §6. The two mechanisms
+// (`deduplicate = true`) only. The two mechanisms
 // are intentionally separate.
 
 #[test]
@@ -288,7 +288,7 @@ fn encode_auto_edges_added_counts_inserted_only() {
 // 5b. Fingerprint dedup (a).
 // ---------------------------------------------------------------------------
 //
-// Distinct from idempotency (§4). Opt-in via `EncodeRequest.deduplicate`;
+// Distinct from idempotency. Opt-in via `EncodeRequest.deduplicate`;
 // scoped per `(shard, agent_id, context_id)`; tombstone-aware.
 
 fn encode_req_with_dedup(
@@ -688,7 +688,7 @@ fn encode_dedup_hit_does_not_clobber_original_text_row() {
 // fingerprint dedup hit, the cached response carries that signal; a
 // retry MUST surface it too. Otherwise the same `request_id` returns
 // two different response shapes, breaking the "same params → cached
-// response" invariant in CLAUDE.md §5.
+// response" invariant.
 
 #[test]
 fn encode_dedup_then_replay_returns_was_deduplicated_true() {

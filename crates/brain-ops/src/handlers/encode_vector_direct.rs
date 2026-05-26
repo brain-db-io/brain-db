@@ -37,9 +37,8 @@ use crate::handlers::link::downcast_writer_pub;
 use crate::state::idempotency::hash_encode_request;
 use crate::write::{Phase, PhaseAck, Write, WriteId};
 
-/// L2-norm tolerance window. Spec §07/02 §16.2 quotes `+/- 1e-3`;
-/// we lift that constant verbatim so client embedders that round to
-/// f32 don't trip the check.
+/// L2-norm tolerance window of `+/- 1e-3`, so client embedders that
+/// round to f32 don't trip the unit-norm check.
 const L2_NORM_TOLERANCE: f32 = 1.0e-3;
 
 pub async fn handle_encode_vector_direct(

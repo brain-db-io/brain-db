@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 
 //! AutoEdgeWorker integration tests — exercise the unified
 //! `submit(Write)` path. Each cycle should emit a Phase::Link per

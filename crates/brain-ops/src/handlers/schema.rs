@@ -1,5 +1,5 @@
 //! Schema wire-op handlers — `SCHEMA_UPLOAD / _GET / _LIST /
-//! _VALIDATE` (phase 19.6).
+//! _VALIDATE`.
 //!
 //! Each handler:
 //!
@@ -13,7 +13,7 @@
 //!
 //! Parse/validate failures don't become `OpError`s — they ride in
 //! the response body's `validation_errors` field with
-//! `schema_version = 0`. This matches §28/05 §2.2 semantics.
+//! `schema_version = 0`.
 
 use brain_core::{Cardinality, RequestId, StatementKind};
 use brain_metadata::entity::types::entity_type_lookup_by_name_rtxn;
@@ -39,7 +39,7 @@ use crate::handlers::entity::emit_knowledge_event;
 use crate::handlers::link::downcast_writer_pub;
 use crate::write::{Phase, PhaseAck, Write, WriteId};
 
-/// 1 MiB cap per §28/05 §2.3 / `04_validation.md` §3.1.
+/// 1 MiB cap on the uploaded schema document.
 pub const MAX_SCHEMA_DOCUMENT_BYTES: usize = 1024 * 1024;
 
 // ---------------------------------------------------------------------------
@@ -426,7 +426,7 @@ struct MergeSummary {
 /// current persisted state. Returns the conflict-free summary; on the
 /// first conflict produces `OpError::SchemaConflict` so the upload
 /// aborts before any writer txn opens. This keeps the merge
-/// all-or-nothing per the §03 associative-merge contract: a single
+/// all-or-nothing under the associative-merge contract: a single
 /// conflict reverts the whole upload, the previous active version
 /// remains live.
 fn classify_schema_merge(
@@ -633,8 +633,7 @@ fn map_extractor_kind_byte(k: ExtractorKindAst) -> u8 {
 
 // ---------------------------------------------------------------------------
 // Tests — handler-level integration tests live in
-// `crates/brain-server/tests/` (phase 19.10a). Pure-function helpers
-// covered here.
+// `crates/brain-server/tests/`. Pure-function helpers covered here.
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]

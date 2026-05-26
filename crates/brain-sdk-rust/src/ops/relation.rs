@@ -1,8 +1,5 @@
 //! Fluent builders + uniform `RelationHandle` over the 7 relation
-//! wire opcodes. Phase 18.8.
-//!
-//! See `spec/29_knowledge_sdk/00_purpose.md` §"Typed relation API"
-//! for the target ergonomics.
+//! wire opcodes.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::{Client, ClientError, EntityId};
@@ -18,7 +15,7 @@
 //! # Ok(()) }
 //! ```
 //!
-//! Hand-written. Phase 19 adds `#[derive(BrainRelation)]` and typed
+//! Hand-written. A later `#[derive(BrainRelation)]` adds typed
 //! wrappers `Relation<ReportsTo>` etc.; v1 returns the uniform
 //! [`RelationHandle`].
 

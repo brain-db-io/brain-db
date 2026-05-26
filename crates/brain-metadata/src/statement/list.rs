@@ -1,10 +1,8 @@
 //! Listing, history walk, contradiction surface.
 //!
-//! Spec refs:
-//! - `spec/02_data_model/01_supersession.md` §4.1 — anchor-from-any-member.
-//! - `spec/02_data_model/02_contradiction.md` §3 — Fact-only,
-//!   surface-don't-resolve.
-//! - `spec/02_data_model/03_storage.md` §7 — narrowest-index dispatch.
+//! Anchors a supersession chain from any member; surfaces Fact
+//! contradictions without resolving them; dispatches to the narrowest
+//! index for each query shape.
 
 use brain_core::Statement;
 use brain_core::{EntityId, MemoryId, PredicateId, StatementId, StatementKind};
@@ -40,8 +38,8 @@ pub struct StatementListFilter {
     pub limit: usize,
 }
 
-/// Default cap when [`StatementListFilter::limit`] is `0`. Phase-23
-/// cursor pagination will replace this; see §19/06 Q11.
+/// Default cap when [`StatementListFilter::limit`] is `0`. Cursor
+/// pagination may replace this later.
 pub const DEFAULT_LIST_LIMIT: usize = 1_000;
 
 // ---------------------------------------------------------------------------
@@ -49,7 +47,7 @@ pub const DEFAULT_LIST_LIMIT: usize = 1_000;
 // ---------------------------------------------------------------------------
 
 /// Walk a supersession chain in version ascending order. Anchor may
-/// be the chain root id or any member of the chain (§01 §4.1).
+/// be the chain root id or any member of the chain.
 pub fn statement_history(
     rtxn: &ReadTransaction,
     anchor: StatementId,

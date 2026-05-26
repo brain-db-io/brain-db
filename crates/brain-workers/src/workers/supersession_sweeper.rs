@@ -1,4 +1,4 @@
-//! Supersession sweeper (sub-task 24.3).
+//! Supersession sweeper.
 //!
 //! Periodic low-priority worker that hard-deletes superseded
 //! statements past the configured retention. **Off by default**

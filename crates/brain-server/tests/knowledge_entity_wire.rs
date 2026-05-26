@@ -1,4 +1,4 @@
-//! Entity wire-op smoke (sub-task 16.6c).
+//! Entity wire-op smoke.
 //!
 //! Drives `ENTITY_CREATE` / `ENTITY_GET` / `ENTITY_UPDATE` / `ENTITY_RENAME`
 //! through the full data-plane stack (TCP → frame codec → connection
@@ -59,7 +59,7 @@ mod support_harness;
 use support_harness::start;
 
 const FLAG_EOS: u8 = 1 << 7;
-/// `Person` entity-type id seeded by `MetadataDb::open` (16.1).
+/// `Person` entity-type id seeded by `MetadataDb::open`.
 const PERSON_TYPE_ID: u32 = 1;
 
 // ---------------------------------------------------------------------------

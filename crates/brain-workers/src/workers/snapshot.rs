@@ -1,9 +1,8 @@
-//! Snapshot worker (sub-task 8.13).
+//! Snapshot worker.
 //!
-//! Periodic snapshot trigger with retention policy marks
-//! this worker **off by default** ("many deployments prefer
-//! external backup tooling. The substrate's built-in snapshot worker
-//! is a convenience").
+//! Periodic snapshot trigger with retention policy. This worker is
+//! **off by default** — many deployments prefer external backup
+//! tooling, and the built-in snapshot worker is a convenience.
 //!
 //! ## v1 deviation (documented)
 //!
@@ -11,11 +10,12 @@
 //! - `SharedHnsw::save_snapshot` exists but no arena / metadata
 //!   wrappers do.
 //! - No `Wal` instance hangs off the writer, so the "trigger
-//!   checkpoint first" sequencing is Phase 9.
+//!   checkpoint first" sequencing is not yet wired.
 //!
 //! v1 ships the **worker shape + retention policy** as a pluggable
-//! seam (same pattern as 8.5/8.8/8.12). [`DisabledSnapshotSource`]
-//! is the default. Phase 9 plugs in a real source.
+//! seam (same pattern as the HNSW / WAL-retention / cache-evict
+//! workers). [`DisabledSnapshotSource`] is the default; a real source
+//! plugs in later.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -70,7 +70,7 @@ impl Default for RetentionPolicy {
 ///   - its age >= `max_age` (oldness rule), or
 ///   - it's outside the newest `max_count` (count rule).
 ///
-/// 2 leaves the combination unspecified; v1 uses "either".
+/// The combination is unspecified; v1 uses "either".
 #[must_use]
 pub fn decide_retention(
     snapshots: &[SnapshotDesc],
@@ -99,7 +99,7 @@ pub fn decide_retention(
 }
 
 // ---------------------------------------------------------------------------
-// Source trait — Phase 9 injects an impl.
+// Source trait — a real impl is injected here.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Error)]
@@ -118,9 +118,9 @@ pub type DeleteFuture<'a> = Pin<Box<dyn Future<Output = Result<(), SnapshotSourc
 
 /// Pluggable seam for the snapshot worker. Production deployments
 /// inject an impl backed by the per-shard arena + WAL + metadata
-/// (Phase 9.8 `ShardSnapshotSource`).
+/// (`ShardSnapshotSource`).
 ///
-/// Post-9.8 the trait is `!Send + !Sync`: real adapters hold
+/// The trait is `!Send + !Sync`: real adapters hold
 /// `Rc<RefCell<…>>` per-shard state and run on the per-shard Glommio
 /// executor.
 pub trait SnapshotSource: 'static {

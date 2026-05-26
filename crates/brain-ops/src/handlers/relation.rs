@@ -1,6 +1,5 @@
 //! Relation wire-op handlers — `RELATION_CREATE / _GET / _SUPERSEDE /
-//! _TOMBSTONE / _LIST_FROM / _LIST_TO / _TRAVERSE` (
-//! phase 18.7).
+//! _TOMBSTONE / _LIST_FROM / _LIST_TO / _TRAVERSE`.
 //!
 //! Each handler:
 //!
@@ -16,9 +15,8 @@
 //!    TOMBSTONE).
 //! 8. Projects brain-core `Relation` → wire `RelationView`.
 //!
-//! Phase 18.7 handlers do NOT yet handle cross-shard relation reads
-//! or the relation embedding worker — both deferred per the §20
-//! open questions.
+//! These handlers do NOT yet handle cross-shard relation reads
+//! or the relation embedding worker — both deferred.
 
 use brain_core::Relation;
 use brain_core::{Cardinality, EntityId, RelationId, RelationTypeId, RequestId};
@@ -773,7 +771,7 @@ fn type_qname(rtxn: &redb::ReadTransaction, id: RelationTypeId) -> Result<String
 
 /// `relation_type_lookup_by_qname` takes `&ReadTransaction`, but our
 /// validation runs inside a `WriteTransaction`. Inline a wtxn-friendly
-/// variant — mirrors `predicate_lookup_by_qname_wtxn` (17.7).
+/// variant — mirrors `predicate_lookup_by_qname_wtxn`.
 fn relation_type_lookup_by_qname_wtxn(
     wtxn: &redb::WriteTransaction,
     namespace: &str,

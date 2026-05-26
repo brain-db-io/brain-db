@@ -1,5 +1,4 @@
-//! Per-(worker, item) checkpoint table for state-carrying workers
-//! (— phase 24.1 introduces; 24.2 / 24.8 reuse).
+//! Per-(worker, item) checkpoint table for state-carrying workers.
 //!
 //! ## Layout
 //!

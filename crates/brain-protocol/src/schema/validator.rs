@@ -6,8 +6,7 @@
 //! downstream storage code that takes `&ValidatedSchema` cannot be
 //! handed a raw `Schema`.
 //!
-//! Migration-time compatibility checks are out of scope for v1
-//! (§21/07 Q3).
+//! Migration-time compatibility checks are out of scope for v1.
 
 use std::collections::HashMap;
 
@@ -142,7 +141,7 @@ fn validate_inner(
 }
 
 // ---------------------------------------------------------------------------
-// §2.1 Namespace.
+// Namespace.
 // ---------------------------------------------------------------------------
 
 fn check_namespace(schema: &Schema, errors: &mut ValidationErrors, mode: ValidatorMode) {
@@ -189,7 +188,7 @@ fn is_lower_snake_ident(s: &str) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// §2.2 Duplicate definitions.
+// Duplicate definitions.
 // ---------------------------------------------------------------------------
 
 fn check_duplicates(schema: &Schema, errors: &mut ValidationErrors) {
@@ -241,7 +240,7 @@ fn check_duplicates(schema: &Schema, errors: &mut ValidationErrors) {
 }
 
 // ---------------------------------------------------------------------------
-// §2.3 helpers.
+// Helpers.
 // ---------------------------------------------------------------------------
 
 fn collect_entity_names(schema: &Schema) -> Vec<&str> {
@@ -271,7 +270,7 @@ fn resolves_to_entity(name: &str, entity_names: &[&str]) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// §2.6 Entity attributes.
+// Entity attributes.
 // ---------------------------------------------------------------------------
 
 fn check_entity_attributes(
@@ -350,7 +349,7 @@ fn default_matches_attr_type(default: &LiteralValue, attr: &AttrType) -> bool {
 }
 
 // ---------------------------------------------------------------------------
-// §2.3 + §2.4 Predicate.
+// Predicate.
 // ---------------------------------------------------------------------------
 
 fn check_predicate(pred: &PredicateDef, entity_names: &[&str], errors: &mut ValidationErrors) {
@@ -395,7 +394,7 @@ fn predicate_kind_object_compatible(kind: StatementKindAst, object: &ObjectTypeD
 }
 
 // ---------------------------------------------------------------------------
-// §2.3 + §2.5 + §2.6 Relation.
+// Relation.
 // ---------------------------------------------------------------------------
 
 fn check_relation(rel: &RelationTypeDef, entity_names: &[&str], errors: &mut ValidationErrors) {
@@ -440,7 +439,7 @@ fn check_relation(rel: &RelationTypeDef, entity_names: &[&str], errors: &mut Val
 }
 
 // ---------------------------------------------------------------------------
-// §2.7 Extractor.
+// Extractor.
 // ---------------------------------------------------------------------------
 
 fn check_extractor(

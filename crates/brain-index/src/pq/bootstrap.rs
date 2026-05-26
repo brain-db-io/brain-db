@@ -1,6 +1,6 @@
 //! Process-global bootstrap codebook.
 //!
-//! PQ is core (`spec/09_indexing/07_hnsw_pq.md` §1): every Brain
+//! PQ is core: every Brain
 //! corpus is PQ-compressed from byte zero. Callers don't construct
 //! codebooks — they reach for [`bootstrap_codebook`] which trains
 //! once per process, lazily, against a deterministic synthetic
@@ -8,8 +8,8 @@
 //!
 //! Once a corpus accumulates `MIN_TRAINING_SAMPLE` real vectors, the
 //! per-shard maintenance worker retrains against that corpus's actual
-//! distribution and swaps in the refined codebook (lifecycle path:
-//! §09.07 §8). The bootstrap codebook is only the cold-start fallback.
+//! distribution and swaps in the refined codebook. The bootstrap
+//! codebook is only the cold-start fallback.
 //!
 //! Why deterministic-synthetic instead of an embedded blob:
 //!
@@ -43,7 +43,7 @@ const SYNTHETIC_SEED: u64 = 0x4252_4149_4e2d_5051; // "BRAIN-PQ"
 const TRAINER_SEED: u64 = 0x4453_4554_3030_3030; // "DSET0000"
 
 /// Lazy global. First reader pays the ~one-time training cost
-/// (~150 ms with the synthetic sample at the spec minimum); every
+/// (~150 ms with the synthetic sample at the minimum sample size); every
 /// subsequent reader gets the cached `Arc` for free.
 static BOOTSTRAP: OnceLock<Arc<Codebook<BOOTSTRAP_M>>> = OnceLock::new();
 

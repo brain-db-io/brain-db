@@ -1,7 +1,7 @@
 //! Relation CRUD over the unified edge table + sidecar metadata.
 //!
-//! Phase C collapsed substrate edges and typed relations into one
-//! redb table pair. This module is the typed-relation writer
+//! Substrate edges and typed relations are collapsed into one redb
+//! table pair. This module is the typed-relation writer
 //! plus reader projections on that pair:
 //!
 //! - `relation_create` writes one row to

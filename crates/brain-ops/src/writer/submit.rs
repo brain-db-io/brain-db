@@ -9,15 +9,15 @@
 //!
 //! For every submitted [`Write`] the writer does:
 //!
-//! 1. Idempotency check (in-memory cache for now; durable redb-backed
-//!    cache lands in P3c).
+//! 1. Idempotency check (in-memory cache for now; a durable redb-backed
+//!    cache lands later).
 //! 2. Open ONE `WriteTransaction`.
 //! 3. For each phase: call [`apply::dispatch`] against the wtxn.
 //! 4. Commit.
 //! 5. Stamp the idempotency cache.
 //! 6. Return the [`WriteAck`].
 //!
-//! WAL framing (P3b) and post-commit event publishing (P3c) layer on
+//! WAL framing and post-commit event publishing layer on
 //! top — both are additive to this skeleton. The phase apply functions
 //! never read clocks / mint ids / publish events, so the writer is the
 //! only place those side-effects live; adding them later doesn't
@@ -256,7 +256,7 @@ impl RealWriterHandle {
     /// - [`WriterError::Internal`] for storage / apply failures (the
     ///   wtxn auto-rolls-back on drop).
     /// - [`WriterError::Conflict`] for idempotency mismatch — same
-    ///   `WriteId`, different phases. (Not yet wired in P3; the cache
+    ///   `WriteId`, different phases. (Not yet wired; the cache
     ///   just returns the cached ack on hit.)
     pub async fn submit(&self, write: Write) -> Result<Arc<WriteAck>, WriterError> {
         let start = Instant::now();
@@ -295,7 +295,7 @@ impl RealWriterHandle {
             }
         };
 
-        // 3. HNSW side effects (P3d). Run before the redb wtxn opens
+        // 3. HNSW side effects. Run before the redb wtxn opens
         // so the wtxn lifetime stays minimal and a HNSW failure
         // abandons the encode before any metadata commits.
         if let Err(e) = execute_hnsw_side_effects(self, &write) {
@@ -669,7 +669,7 @@ async fn wal_append_for_write(
     Ok(lsns.first().copied())
 }
 
-/// P3d: HNSW writes per phase. Runs after WAL append and before the
+/// HNSW writes per phase. Runs after WAL append and before the
 /// redb wtxn opens. A HNSW failure here aborts the write before any
 /// metadata commits; the WAL record stays and recovery's replay will
 /// retry on next start.
@@ -931,8 +931,8 @@ fn memory_id_from_node_ref(n: NodeRef) -> MemoryId {
 ///
 /// Storage / metadata / phase mis-shape all surface as `Internal` — the
 /// writer is the boundary at which apply errors become wire errors. The
-/// schema-admission and not-found variants get richer wire mappings in
-/// P4 when the handler-side projection lands.
+/// schema-admission and not-found variants get richer wire mappings
+/// once the handler-side projection lands.
 fn map_apply_err(e: ApplyError) -> WriterError {
     match e {
         ApplyError::Storage(s) => WriterError::Internal(format!("storage: {s}")),
@@ -1160,7 +1160,7 @@ mod tests {
 
     #[tokio::test]
     async fn submit_upsert_memory_inserts_into_hnsw() {
-        // P3d: UpsertMemory's HNSW side-effect lands the vector in
+        // UpsertMemory's HNSW side-effect lands the vector in
         // the search index. We query via the SharedHnsw reader half
         // — the writer holds only the Writer half.
         let (_dir, writer, shared) = build_writer_with_shared();

@@ -1,7 +1,7 @@
 //! Per-opcode builders for every cognitive operation.
 //!
 //! Each op has its own file; the `Client` exposes a method that
-//! returns the builder-§11.
+//! returns the builder.
 //!
 //! Streaming ops (RECALL / PLAN / REASON / SUBSCRIBE) ship with a
 //! Vec-collecting `send()` (or `collect()`); the async-iterator

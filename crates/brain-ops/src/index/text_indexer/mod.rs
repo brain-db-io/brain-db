@@ -1,23 +1,19 @@
-//! Tantivy text-indexer workers (phase 22.3 + 22.4).
+//! Tantivy text-indexer workers.
 //!
-//! Implements the post-commit pipeline defined in
-//! `spec/27_knowledge_workers/02_text_indexer_workers.md`.
+//! Implements the post-commit text-indexing pipeline.
 //!
 //! Two indexers per shard (memory + statement), both:
 //!
 //! - Run on the near-foreground priority lane.
 //! - Use a bounded `flume` channel; on overflow the foreground
-//!   awaits the send (§27/02 §1 backpressure).
+//!   awaits the send (backpressure).
 //! - Drain via an async loop that owns the per-scope `IndexWriter`.
 //! - Group-commit on N=256 writes OR T=1 s, env-overridable.
-//! - Stamp the brain schema-version payload (§26/01 §2) on
-//!   every commit so subsequent opens via 22.1 see a current
+//! - Stamp the brain schema-version payload on
+//!   every commit so subsequent opens see a current
 //!   version.
 //! - Retry once on commit failure, then escalate to shard-fatal
-//!   (§27/02 §4) — text indexing is correctness, not best-effort.
-//!
-//! Phase 22.3 lands the `MemoryTextIndexer` half. Phase 22.4
-//! adds the statement side in this same module.
+//!   — text indexing is correctness, not best-effort.
 
 pub mod memory;
 pub mod rebuild;
@@ -34,11 +30,11 @@ pub use statement::spawn_statement_text_indexer_local;
 
 use std::time::Duration;
 
-/// Default queue capacity (§27/02 §1, "bounded queues with
-/// capacity 4096 by default").
+/// Default queue capacity — bounded queues with
+/// capacity 4096 by default.
 pub const DEFAULT_QUEUE_CAPACITY: usize = 4096;
 
-/// Default commit cadence per §26/01 §3 — group commit every
+/// Default commit cadence — group commit every
 /// 256 writes or 1 second, whichever first.
 pub const DEFAULT_COMMIT_N: usize = 256;
 pub const DEFAULT_COMMIT_MS: u64 = 1000;

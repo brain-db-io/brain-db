@@ -1,4 +1,4 @@
-//! Unit tests for the LexicalRetriever (phase 22.5).
+//! Unit tests for the LexicalRetriever.
 
 use std::sync::Arc;
 

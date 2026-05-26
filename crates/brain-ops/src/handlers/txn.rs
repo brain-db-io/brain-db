@@ -1,4 +1,4 @@
-//! Transactions (sub-task 7.9).
+//! Transactions.
 //!
 //! True buffer-and-apply transaction semantics.
 //! Operations carrying a `txn_id` push into a per-txn `TxnBuffer`
@@ -7,9 +7,8 @@
 //! write path — every phase commits in one redb wtxn. TXN_ABORT
 //! drops the buffer.
 //!
-//! Out of scope for v1: WAL records (Phase 9 wires the shard's Wal),
-//! cross-shard txns, substrate-level nested-txn detection. See the
-//! plan in `.claude/plans/phase-07-task-09.md` for the full design.
+//! Out of scope for v1: WAL records, cross-shard txns,
+//! substrate-level nested-txn detection.
 
 use std::collections::{HashMap, HashSet};
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -32,8 +31,8 @@ const MAX_TIMEOUT_SECONDS: u32 = 300;
 const DEFAULT_TIMEOUT_SECONDS: u32 = 30;
 
 /// Maximum number of buffered operations (ENCODE + FORGET + LINK +
-/// UNLINK) a single transaction may hold. Spec §05/04 §10 fixes the
-/// limit at 1000; beyond it, TXN_COMMIT returns `TransactionTooLarge`
+/// UNLINK) a single transaction may hold. The limit is 1000; beyond
+/// it, TXN_COMMIT returns `TransactionTooLarge`
 /// and the client splits into multiple transactions.
 ///
 /// Fixed at a compile-time constant in v1.0: the value is a protocol
@@ -272,9 +271,9 @@ impl TxnStore {
 
     /// Auto-abort every Active txn opened by the given wire session.
     /// Called by the connection layer when a TCP/TLS connection drops
-    /// before the client COMMIT/ABORT — the spec (§05/04, §01/03 §8)
-    /// is explicit that buffered work from a dropped connection must
-    /// not take effect, and the per-txn timeout sweep is too lazy:
+    /// before the client COMMIT/ABORT — buffered work from a dropped
+    /// connection must not take effect, and the per-txn timeout sweep
+    /// is too lazy:
     /// the entries would otherwise occupy RAM for up to
     /// `timeout_seconds` after the socket closed.
     ///

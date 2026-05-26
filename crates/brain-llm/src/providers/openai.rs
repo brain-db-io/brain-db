@@ -55,8 +55,7 @@ use crate::types::{LlmRequest, LlmResponse, LlmRole};
 const DEFAULT_BASE_URL: &str = "https://api.openai.com";
 
 /// Pricing (dollar micro-units per token) for unknown OpenAI
-/// models. Conservative; phase 22+ ships a pricing table per
-/// model (§22/09 §5 + §22/07 Q-llm-3).
+/// models. Conservative; a per-model pricing table ships later.
 const PRICE_INPUT_PER_TOKEN_DEFAULT: u64 = 1;
 const PRICE_OUTPUT_PER_TOKEN_DEFAULT: u64 = 4;
 
@@ -236,7 +235,7 @@ impl From<&LlmRequest> for OpenAIRequestBody {
     fn from(req: &LlmRequest) -> Self {
         // OpenAI puts the system prompt as the first message with
         // role="system". For o-series models the role becomes
-        // "developer"; phase 21 sticks with "system" — OpenAI accepts
+        // "developer"; we stick with "system" — OpenAI accepts
         // both transparently. Anthropic-style prompt caching has no
         // direct equivalent on the Chat Completions API, so cached
         // and live blocks both fold into a single concatenated system
@@ -344,8 +343,8 @@ fn decode_openai_response(payload: OpenAIResponseBody) -> Result<LlmResponse, Ll
 
 fn parse_retry_after(headers: &reqwest::header::HeaderMap) -> u64 {
     // OpenAI returns `retry-after` in seconds (sometimes as a
-    // float, sometimes integer). Phase 21 reads seconds-as-integer
-    // and converts; non-integer / absent → 0.
+    // float, sometimes integer). We read seconds-as-integer
+    // and convert; non-integer / absent → 0.
     headers
         .get("retry-after")
         .and_then(|v| v.to_str().ok())

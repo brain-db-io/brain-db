@@ -75,8 +75,8 @@ pub const DEFAULT_INTERVAL_SECS: u64 = 3600;
 pub const DEFAULT_MAX_PER_TICK: usize = 64;
 
 /// Cosine the recomputed score must reach for the worker to promote a
-/// proposal to an actual merge. 0.95 matches the spec's "autonomous
-/// merge" threshold (§18/03 §4.2).
+/// proposal to an actual merge. 0.95 matches the "autonomous merge"
+/// threshold.
 pub const DEFAULT_AUTO_APPLY_THRESHOLD: f32 = 0.95;
 
 /// Recomputed scores below this floor flip the proposal to `Rejected`
@@ -155,7 +155,7 @@ pub struct AmbiguityResolverWorker {
 }
 
 impl AmbiguityResolverWorker {
-    /// Build a worker with spec defaults. The metadata + HNSW + embedder
+    /// Build a worker with default settings. The metadata + HNSW + embedder
     /// handles are the same per-shard ones threaded through the
     /// extractor and statement-embed workers.
     #[must_use]

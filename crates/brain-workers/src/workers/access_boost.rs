@@ -1,4 +1,4 @@
-//! Access-boost worker (sub-task 8.3), §8, §16.
+//! Access-boost worker.
 //!
 //! Drains the per-shard `AccessBuffer` (filled by RECALL responses)
 //! and applies a `salience × (1 + boost_factor)` bump, capped at 1.0.

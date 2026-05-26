@@ -1,30 +1,28 @@
 //! `texts` table: per-memory UTF-8 text, stored separately from
 //! `memories` so metadata reads don't pay for text bytes.
 //!
-//! See `spec/10_metadata/07_text_storage.md` (full).
-//!
 //! ## What lives here
 //!
 //! - [`TEXTS_TABLE`] — `MemoryId` → raw UTF-8 bytes.
 //!
-//! That's the whole sub-task. The substrate stores the bytes
-//! byte-for-byte ("carries UTF-8; the substrate stores it
-//! byte-for-byte"); every other concern lives above the storage layer.
+//! The substrate stores the bytes byte-for-byte; every other concern
+//! lives above the storage layer.
 //!
 //! ## What does NOT live here
 //!
-//! - **UTF-8 validation** — wire layer (Phase 4).
+//! - **UTF-8 validation** — wire layer.
 //! - **`max_text_bytes` size limit** — wire layer.
 //! - **Immutability enforcement** — application-level
 //!   invariant; ENCODE is the only insert path and writes each
 //!   MemoryId once.
 //! - **Hard-forget secure-erase** — the zero-then-delete
 //!   pattern needs `FALLOC_FL_PUNCH_HOLE` on the redb file to actually
-//!   evict pages, which is below redb's API. Phase 8 worker territory.
+//!   evict pages, which is below redb's API. Maintenance-worker
+//!   territory.
 //! - **Same-transaction coupling with `memories`** —
-//!   composed inside `MetadataDb` (sub-task 3.10), which opens both
-//!   tables inside one `begin_write()`.
-//! - **Compression** — not in the spec.
+//!   composed inside `MetadataDb`, which opens both tables inside one
+//!   `begin_write()`.
+//! - **Compression** — out of scope.
 
 use redb::TableDefinition;
 
@@ -141,9 +139,9 @@ mod tests {
 
     #[test]
     fn large_text_round_trips() {
-        // 1 MB — the spec's default `max_text_bytes` ceiling (§4, §7).
-        // The substrate doesn't enforce the limit; this test pins that
-        // reads/writes at that size work in practice.
+        // 1 MB — the default `max_text_bytes` ceiling. The substrate
+        // doesn't enforce the limit; this test pins that reads/writes
+        // at that size work in practice.
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let key = mid(4);

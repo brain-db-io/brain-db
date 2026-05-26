@@ -1,8 +1,7 @@
 //! Admin / observability HTTP server.
 //!
-//! Built on `brain-http` (hyper 1.x) as of Phase 11 M3. Replaces the
-//! hand-rolled HTTP/1.1 parser + writeln-chain that lived here through
-//! Phase 10.
+//! Built on `brain-http` (hyper 1.x). Replaces an earlier
+//! hand-rolled HTTP/1.1 parser + writeln-chain.
 //!
 //! ## Two listeners
 //!
@@ -20,14 +19,12 @@
 //!   matters. Front with mTLS / a token-checking reverse proxy if
 //!   you bind it to a public interface.
 //!
-//! Unknown paths → `404 Not Found` (was `400 Bad Request` pre-M3 —
-//! wire-behaviour delta documented in the M3 commit message). Routes
+//! Unknown paths → `404 Not Found`. Routes
 //! that exist on the "other" listener also 404 — `/v1/workers` on
 //! `metrics_addr` and `/metrics` on `admin_addr` both fail closed.
 //!
-//! (metrics) + §14/06 (admin). The unified
-//! [`AdminServer::new`] constructor still exists for the test
-//! harness; production must not use it.
+//! The unified [`AdminServer::new`] constructor still exists for the
+//! test harness; production must not use it.
 
 #![cfg(target_os = "linux")]
 
@@ -75,10 +72,10 @@ pub struct AdminState {
     pub build_info: BuildInfo,
     pub shards: Arc<Vec<ShardHandle>>,
     pub connections: Arc<ConnectionMetrics>,
-    /// Sub-task 10.11: read-only view of the loaded config, surfaced
+    /// Read-only view of the loaded config, surfaced
     /// by `GET /v1/config`.
     pub config: Arc<Config>,
-    /// 12.1b: per-op request counters / histograms / in-flight gauges.
+    /// Per-op request counters / histograms / in-flight gauges.
     /// Same instance shared with `Topology::request_metrics`.
     pub request_metrics: Arc<RequestMetrics>,
     /// Scope-bound API key store (W2.5). Mint / revoke / list endpoints
@@ -257,8 +254,7 @@ impl BoundAdminServer {
 
     /// Run the accept loop until the brain-server shutdown signal
     /// fires, then drain in-flight connections via brain-http's
-    /// graceful shutdown (30 s cap). Returns the bound local address
-    /// — same shape as the pre-M3 API.
+    /// graceful shutdown (30 s cap). Returns the bound local address.
     pub async fn serve(mut self) -> io::Result<SocketAddr> {
         let local_addr = self.local_addr;
         let log_name = self.log_name;

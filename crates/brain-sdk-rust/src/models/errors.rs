@@ -1,8 +1,8 @@
-//! Knowledge-specific error inspection helpers. Phase 16.8.4.
+//! Knowledge-specific error inspection helpers.
 //!
 //! Until Strategy A lands (knowledge error codes promoted
 //! to first-class `ErrorCodeWire` variants in the substrate's `ERROR`
-//! frame — tracked as §28/09 Q1), the server returns knowledge errors
+//! frame), the server returns knowledge errors
 //! through the Strategy B fallback: substrate codes + message text.
 //!
 //! This module provides typed inspection over the resulting
@@ -28,28 +28,27 @@
 use crate::error::ClientError;
 
 /// Coarse-grained knowledge error category, derived from substrate
-/// `ErrorCode` + message inspection. for the
-/// mapping table.
+/// `ErrorCode` + message inspection.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum EntityErrorKind {
-    /// `ENTITY_NOT_FOUND` (§28 0x30). Currently surfaced as substrate
+    /// `ENTITY_NOT_FOUND`. Currently surfaced as substrate
     /// `MemoryNotFound` (Strategy B) with "entity not found" in the
     /// message.
     NotFound,
 
-    /// `ENTITY_TYPE_MISMATCH` (§28 0x31). Surfaced as substrate
+    /// `ENTITY_TYPE_MISMATCH`. Surfaced as substrate
     /// `InvalidArgument` with "entity_type" / "type mismatch" in the
     /// message.
     TypeMismatch,
 
-    /// `ENTITY_AMBIGUOUS` (§28 0x32). Surfaced as substrate
+    /// `ENTITY_AMBIGUOUS`. Surfaced as substrate
     /// `IdempotencyConflict` with "canonical_name … already exists"
     /// in the message, OR as the resolver's `Ambiguous` outcome
     /// (which is NOT an error — clients see `ResolutionOutcome::Ambiguous`
     /// from `resolve()`).
     AlreadyExists,
 
-    /// `ENTITY_MERGE_CONFLICT` (§28 0x33). Substrate `Conflict` with
+    /// `ENTITY_MERGE_CONFLICT`. Substrate `Conflict` with
     /// merge-specific text ("already merged", "grace period",
     /// "self-merge", "tombstoned").
     MergeConflict,
@@ -99,7 +98,7 @@ impl ClientErrorEntityExt for ClientError {
         let lower = message.to_lowercase();
 
         // Merge conflicts — these come back as substrate `Conflict`
-        // ([§28/03 Strategy B mapping](../spec/28_knowledge_wire_protocol/03_errors.md)).
+        // (Strategy B mapping).
         // Match on the unambiguous keywords first.
         if lower.contains("merge") {
             return Some(EntityErrorKind::MergeConflict);
@@ -135,7 +134,7 @@ impl ClientErrorEntityExt for ClientError {
 }
 
 // ---------------------------------------------------------------------------
-// Statement error inspection (17.8).
+// Statement error inspection.
 // ---------------------------------------------------------------------------
 
 /// Statement error category, derived from substrate `ErrorCode` +
@@ -143,12 +142,12 @@ impl ClientErrorEntityExt for ClientError {
 /// statement-layer opcodes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum StatementErrorKind {
-    /// `STATEMENT_NOT_FOUND` (§28 0x40).
+    /// `STATEMENT_NOT_FOUND`.
     NotFound,
-    /// `STATEMENT_OBJECT_TYPE_MISMATCH` (§28 0x41) — the statement's
+    /// `STATEMENT_OBJECT_TYPE_MISMATCH` — the statement's
     /// object variant violates the predicate's `object_type_constraint`.
     ObjectTypeMismatch,
-    /// `STATEMENT_CONTRADICTS_EXISTING` (§28 0x42). In v1 this is
+    /// `STATEMENT_CONTRADICTS_EXISTING`. In v1 this is
     /// purely an audit signal: Fact create still succeeds even when
     /// it contradicts, so this is reserved for future explicit-reject
     /// modes.
@@ -240,7 +239,7 @@ impl ClientErrorStatementExt for ClientError {
 }
 
 // ---------------------------------------------------------------------------
-// Relation error inspection (18.8).
+// Relation error inspection.
 // ---------------------------------------------------------------------------
 
 /// Relation error category derived from substrate `ErrorCode` +

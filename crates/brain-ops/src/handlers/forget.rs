@@ -205,7 +205,7 @@ async fn handle_forget_in_txn(
     }
 
     // Reject the 1001st op now — replay-cache hits still replay, but
-    // a fresh FORGET against a full buffer fails fast (spec §05/04 §10).
+    // a fresh FORGET against a full buffer fails fast.
     ctx.txn_store
         .with_buffer(txn_id, |buf| buf.check_capacity_for_push())?;
 

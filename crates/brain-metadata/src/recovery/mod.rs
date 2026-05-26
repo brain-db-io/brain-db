@@ -5,13 +5,6 @@
 //! order; the sink commits each `apply` call as its own redb write
 //! transaction.
 //!
-//! Spec references:
-//! - `spec/08_storage/08_recovery.md` — the recovery contract.
-//! - `spec/10_metadata/08_transactions.md` §11 — multi-table atomic writes.
-//! - `spec/08_storage/09_checkpointing.md` §2, §12.1 — checkpoint pairing.
-//! - `spec/10_metadata/06_idempotency.md` §17 — which ops record idempotency.
-//! - `spec/02_data_model/02_memory.md` §2.3 — MemoryId stability under reclaim.
-//!
 //! ## Module layout
 //!
 //! Per-variant apply helpers live in family modules. The
@@ -34,12 +27,11 @@
 //!
 //! - `ModelInfo.model_name` is filled with `""` — `EncodePayload`
 //!   carries the fingerprint bytes but not the human-readable name.
-//!   `ADMIN_REGISTER_MODEL` (Phase 9) or the embedding loader fills
-//!   it later.
-//! - `ModelInfo.memory_count_at_fingerprint` stays at 0; the Phase 8
+//!   `ADMIN_REGISTER_MODEL` or the embedding loader fills it later.
+//! - `ModelInfo.memory_count_at_fingerprint` stays at 0; the
 //!   maintenance worker reconciles it by scanning `memories`.
 //! - `MemoryMetadata.edges_out_count` / `edges_in_count` aren't
-//!   maintained on Link/Unlink. Phase 8 worker reconciles.
+//!   maintained on Link/Unlink. The maintenance worker reconciles.
 
 use std::sync::atomic::Ordering;
 

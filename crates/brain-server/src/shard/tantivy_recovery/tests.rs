@@ -1,4 +1,4 @@
-//! Unit tests for tantivy recovery (phase 22.7).
+//! Unit tests for tantivy recovery.
 
 use std::fs;
 
@@ -77,7 +77,7 @@ fn recover_with_version_mismatch_rebuilds() {
     let _ = TantivyShard::open(dir.path()).expect("first open");
 
     // Stamp a stale payload directly into meta.json (matches the
-    // 22.1 version-mismatch test pattern).
+    // version-mismatch test pattern).
     let meta_path = dir.path().join("memory_text.tantivy").join("meta.json");
     let raw = fs::read_to_string(&meta_path).expect("read meta");
     let mut json: serde_json::Value = serde_json::from_str(&raw).expect("parse");

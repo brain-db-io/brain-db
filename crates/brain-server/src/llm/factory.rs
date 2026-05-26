@@ -1,4 +1,4 @@
-//! `build_summarizer(&Config) -> Arc<dyn Summarizer>` (sub-task 9.15).
+//! `build_summarizer(&Config) -> Arc<dyn Summarizer>`.
 //!
 //! Conditional on Cargo features:
 //!

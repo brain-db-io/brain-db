@@ -1,4 +1,4 @@
-//! Unit tests for the tantivy rebuild worker (phase 22.6).
+//! Unit tests for the tantivy rebuild worker.
 
 use std::fs;
 use std::path::Path;
@@ -238,10 +238,10 @@ fn rebuild_after_corrupt_live_replaces_it() {
 
     // Pre-check: TantivyShard::open would now report
     // NeedsRebuild — but we can rebuild directly without going
-    // through 22.1.
+    // through `TantivyShard::open`.
     rebuild_memory_text(dir.path(), &metadata).expect("second");
 
-    // Re-open via 22.1; status must be Ready.
+    // Re-open via `TantivyShard::open`; status must be Ready.
     let startup = TantivyShard::open(dir.path()).expect("open");
     assert!(matches!(startup.memory_status, IndexStatus::Ready));
 }
@@ -253,7 +253,7 @@ fn rebuild_creates_payload_for_reopen() {
     rebuild_memory_text(dir.path(), &metadata).expect("rebuild");
     rebuild_statements(dir.path(), &metadata).expect("rebuild stmts");
 
-    // The whole point: 22.1 sees Ready after a rebuild.
+    // The whole point: `TantivyShard::open` sees Ready after a rebuild.
     let startup = TantivyShard::open(dir.path()).expect("open");
     assert!(matches!(startup.memory_status, IndexStatus::Ready));
     assert!(matches!(startup.statements_status, IndexStatus::Ready));

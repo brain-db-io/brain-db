@@ -1,5 +1,5 @@
-//! Integration tests for `handle_reason` (sub-task 7.6; refactored
-//! in 7.8 to insert edges via wire LINK).
+//! Integration tests for `handle_reason`. Edges are inserted via
+//! wire LINK.
 
 use std::sync::Arc;
 

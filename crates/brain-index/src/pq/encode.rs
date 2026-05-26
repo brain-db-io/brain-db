@@ -1,6 +1,6 @@
 //! PQ encoder: full-precision `[f32; D]` → compressed `[u8; M]`.
 //!
-//! See `spec/09_indexing/07_hnsw_pq.md` §5. Per subspace, picks the
+//! Per subspace, picks the
 //! centroid index that minimises squared distance to the corresponding
 //! chunk of the input vector. The output code is the concatenation of
 //! the per-subspace centroid indices, one byte each.

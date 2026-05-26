@@ -2,7 +2,7 @@
 //!
 //! A [`Phase`] is the verb. Combine several into a [`super::Write`] and
 //! the writer applies them all against one `WriteTransaction`. The
-//! same enum is the WAL record body (encoded via rkyv in P3) so live
+//! same enum is the WAL record body (encoded via rkyv) so live
 //! writes and crash recovery share one apply path.
 //!
 //! Design rules:
@@ -265,7 +265,7 @@ pub enum Phase {
         retain_aliases: bool,
         retain_attributes: bool,
         at_unix_nanos: u64,
-        /// Operator-supplied confidence (≥ 0.6 per `spec/18/03 §3`).
+        /// Operator-supplied confidence (≥ 0.6).
         confidence: f32,
         /// Free-form reason for the audit row.
         reason: String,

@@ -1,4 +1,4 @@
-//! Relation SDK integration tests. Phase 18.9a.
+//! Relation SDK integration tests.
 //!
 //! Uses the mock-server harness (`common::spawn_mock_server`) to
 //! verify request/response shapes, RelationHandle projection, and

@@ -1,7 +1,6 @@
-//! Audit-ops perf bench (sub-task 20.10).
+//! Audit-ops perf bench.
 //!
-//! Spec targets per `spec/20_benchmarks/02_latency_targets.md`
-//! §2.7 at a single dispatch over a 4 KiB memory:
+//! Latency targets at a single dispatch over a 4 KiB memory:
 //!
 //! - Audit-row write (primary + 3 indexes, single wtxn): p50 200 µs, p99 1 ms.
 //! - `audit_by_memory` (limit 100): p50 500 µs, p99 2 ms.

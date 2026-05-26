@@ -68,12 +68,12 @@ pub fn statement_tombstone(
     Ok(())
 }
 
-/// Hard-delete intent. v1 implementation = `tombstone` with reason
+/// Hard-delete intent. Implemented as `tombstone` with reason
 /// `ExtractorRetraction` (caller may override). Physical reclamation
-/// happens later via the phase-21+ GC worker.
+/// happens later via the GC worker.
 //
-// TODO(phase 21): wire the periodic reclamation worker so retracted
-// rows are physically removed from STATEMENTS_TABLE + indexes after
+// TODO: wire the periodic reclamation worker so retracted rows are
+// physically removed from STATEMENTS_TABLE + indexes after
 // `RETRACT_GRACE_NANOS`.
 pub fn statement_retract(
     wtxn: &WriteTransaction,

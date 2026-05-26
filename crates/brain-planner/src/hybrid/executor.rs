@@ -80,10 +80,9 @@ pub struct QueryResult {
     pub metadata: QueryMetadata,
 }
 
-/// Per-execution observability data — surfaces in
-/// EXPLAIN/TRACE (23.8). Operators read this to see which
-/// retriever was slow, which filter narrowed results most,
-/// total wall-time, etc.
+/// Per-execution observability data — surfaces in EXPLAIN/TRACE.
+/// Operators read this to see which retriever was slow, which filter
+/// narrowed results most, total wall-time, etc.
 #[derive(Debug, Clone, Default)]
 pub struct QueryMetadata {
     pub retriever_latencies_ms: Vec<(Retriever, f64)>,
@@ -502,8 +501,8 @@ fn invoke_semantic(
     apply_pre_filter_to_semantic(&planned.pre_filter, &mut filters);
 
     // Scope: Both when both text and entity_anchor present
-    // (statement HNSW may be empty in v1 → silent Ok([])
-    // per §23/03 §9); Memory otherwise.
+    // (statement HNSW may be empty in v1 → silent Ok([]));
+    // Memory otherwise.
     let scope = if req.entity_anchor.is_some() {
         SemanticScope::Both
     } else {

@@ -1,4 +1,4 @@
-//! Unit tests for `BrainGraphRetriever` (phase 23.2).
+//! Unit tests for `BrainGraphRetriever`.
 
 use std::sync::Arc;
 
@@ -344,7 +344,7 @@ fn path_no_path_returns_both_endpoints() {
         .collect();
     assert!(entity_ids.contains(&a));
     assert!(entity_ids.contains(&b));
-    // Half-credit score per §23/04 §3.
+    // Half-credit score.
     for item in &result {
         if matches!(item.id, RankedItemId::Relation(_)) {
             panic!("no-path result should not contain relations");
@@ -469,7 +469,7 @@ fn ranks_are_dense_and_one_based() {
 }
 
 // ---------------------------------------------------------------------------
-// Memory-anchor mode (Phase A).
+// Memory-anchor mode.
 // ---------------------------------------------------------------------------
 
 mod memory_anchor {

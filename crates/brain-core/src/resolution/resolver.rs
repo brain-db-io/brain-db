@@ -1,7 +1,5 @@
-//! Entity resolver. Sub-task 16.5 added the algorithm + traits on top
-//! of 16.1's type set.
-//!
-//! See `spec/02_data_model/01_resolution.md` for the full algorithm.
+//! Entity resolver — the resolution algorithm plus the traits it
+//! operates against.
 //!
 //! ## Dependency inversion
 //!
@@ -16,9 +14,8 @@
 //! - [`ResolverIndex`] — entity HNSW top-k. Implemented by brain-index
 //!   for `EntityHnswIndex`.
 //!
-//! 16.5 ships the traits + the algorithm + mock-impl tests. The
-//! concrete impls land in phase 20 when extractors invoke the
-//! resolver.
+//! The concrete trait impls are provided by the extractor layer that
+//! invokes the resolver.
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,16 +31,16 @@ pub const VECTOR_DIM: usize = 384;
 
 /// Ambiguity-detection delta: when the top two candidates' scores are
 /// within `δ` of each other (and both above threshold), the resolver
-/// returns `Ambiguous` rather than picking arbitrarily
-/// default; tuned via a future `ResolverConfig` knob.
+/// returns `Ambiguous` rather than picking arbitrarily. Tuned via a
+/// future `ResolverConfig` knob.
 const AMBIGUITY_DELTA: f32 = 0.05;
 
 // ---------------------------------------------------------------------------
 // ResolverTier.
 // ---------------------------------------------------------------------------
 
-/// Which tier of the resolver pipeline produced an outcome (spec
-/// §18/01). `Created` is a side-effect, not a tier in the strict
+/// Which tier of the resolver pipeline produced an outcome.
+/// `Created` is a side-effect, not a tier in the strict
 /// sense — included for completeness so audit records carry a
 /// single enum.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
@@ -140,8 +137,8 @@ impl ResolutionOutcome {
 // ResolverConfig.
 // ---------------------------------------------------------------------------
 
-/// Resolver configuration. Defaults match.
-/// Per-extractor overrides land in phase 20.
+/// Resolver configuration. Per-extractor overrides come from the
+/// extractor layer.
 #[derive(Clone, Debug, PartialEq)]
 pub struct ResolverConfig {
     pub enable_exact: bool,
@@ -396,7 +393,7 @@ where
         (TypeConstraint::Hint, Some(_)) => {
             // Hint mode: prefer matching type but allow fallback.
             // For tier-3 filtering we don't reject; downstream
-            // scoring may bias (left to phase 20).
+            // scoring may bias.
             Ok(true)
         }
         (TypeConstraint::Strict, Some(want)) => {
@@ -1306,13 +1303,12 @@ mod algorithm_tests {
     }
 
     // ---------------------------------------------------------------------
-    // Phase 16.9.2 — adversarial / fuzz-style input cases.
+    // Adversarial / fuzz-style input cases.
     //
-    // Per phase-16 pitfalls: "Fuzz the resolver with adversarial inputs
-    // (Unicode, very long strings, empty strings)." These are
-    // hand-curated unit-level cases that exercise the cleanup paths
-    // tier 1+2 take. True cargo-fuzz integration is phase 14 (protocol-
-    // fuzz suite).
+    // Fuzz the resolver with adversarial inputs (Unicode, very long
+    // strings, empty strings). These are hand-curated unit-level cases
+    // that exercise the cleanup paths tier 1+2 take; the broader
+    // cargo-fuzz integration lives in the protocol-fuzz suite.
     // ---------------------------------------------------------------------
 
     fn adv_vec_zeros() -> [f32; VECTOR_DIM] {
@@ -1410,12 +1406,12 @@ mod algorithm_tests {
     fn unicode_combining_marks_treated_byte_wise() {
         // "café" can be NFC (4 chars) or NFD ("cafe" + combining
         // acute = 5 chars). The resolver normalisation is byte-level
-        // lowercase + whitespace-collapse only — does NOT apply NFKC
-        // (per §28/09 Q6). So NFC and NFD forms are *different*
-        // entities for tier-1 purposes.
+        // lowercase + whitespace-collapse only — does NOT apply NFKC.
+        // So NFC and NFD forms are *different* entities for tier-1
+        // purposes.
         //
-        // Verifies we don't accidentally normalise unicode here; if a
-        // future phase adds NFKC, this test flips.
+        // Verifies we don't accidentally normalise unicode here; if
+        // NFKC is added later, this test flips.
         let m = MockBackend::new();
         let nfc = "café"; // NFC: 4 chars / 5 bytes
         let nfd = "cafe\u{0301}"; // NFD: 5 chars / 6 bytes

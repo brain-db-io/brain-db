@@ -1,10 +1,8 @@
 //! Build a fresh `HnswIndex` from an external iterator of
 //! `(MemoryId, [f32; VECTOR_DIM])` pairs.
 //!
-//! See `spec/09_indexing/06_persistence.md` §2 (rebuild procedure)
-//! and `spec/09_indexing/07_hnsw_pq.md` §8 (PQ-aware rebuild — the
-//! arena vector is encoded against the supplied codebook before
-//! landing in the HNSW graph).
+//! PQ-aware rebuild: the arena vector is encoded against the supplied
+//! codebook before landing in the HNSW graph.
 //!
 //! ## Caller owns the filter
 //!

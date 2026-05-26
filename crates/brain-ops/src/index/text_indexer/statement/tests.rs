@@ -1,4 +1,4 @@
-//! Tests for the statement text indexer worker (phase 22.4).
+//! Tests for the statement text indexer worker.
 //!
 //! Same runtime discipline as `super::super::memory::tests` — both
 //! production and tests run under Glommio.

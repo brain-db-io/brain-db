@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for `config` (sub-task 10.11).
+//! Admin HTTP handlers for `config`.
 //!
 //! Routes:
 //! - `GET /v1/config[?key=a.b.c]` → 200 + JSON (whole config or subtree).

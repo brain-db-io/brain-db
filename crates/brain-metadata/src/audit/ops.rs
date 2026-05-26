@@ -1,7 +1,7 @@
 //! Extractor audit-log query API.
 //!
-//! Single-writer-per-shard discipline (CLAUDE.md §5 invariant 2)
-//! applies — `audit_write` takes the caller's `wtxn`. Reads via
+//! Single-writer-per-shard discipline applies — `audit_write` takes
+//! the caller's `wtxn`. Reads via
 //! `audit_by_*` / `audit_recent_*` are MVCC-safe (`&ReadTransaction`).
 //!
 //! All read paths treat `TableDoesNotExist` as `Ok(empty)` so
@@ -166,9 +166,9 @@ pub fn audit_recent_failures(
 ) -> Result<Vec<ExtractionAudit>, AuditOpError> {
     let mut out = Vec::new();
     // Fan out wide; filter; stop at limit. Worst case scans more rows
-    // than necessary, but phase 20 doesn't ship a status-indexed
-    // secondary table — operators with very-failure-heavy
-    // workloads should raise the issue (§22/07 follow-up).
+    // than necessary; there's no status-indexed secondary table yet —
+    // operators with very-failure-heavy workloads should raise the
+    // issue.
     let fanout = limit.saturating_mul(8).max(limit + 16);
     for row in audit_recent(rtxn, since_unix_nanos, fanout)? {
         if row.status == extraction_status::FAILURE {

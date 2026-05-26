@@ -2,10 +2,8 @@
 //!
 //! Entry point for the Brain cognitive substrate.
 //!
-//! See `spec/01_architecture/` for the layering and request lifecycle.
-//! Phase 9 status: as of 9.9 the Tokio connection layer accepts TCP/TLS and
-//! routes each accepted stream through a per-connection task; the frame
-//! dispatcher lands in 9.10.
+//! The Tokio connection layer accepts TCP/TLS and routes each accepted
+//! stream through a per-connection task, then the frame dispatcher.
 
 #![allow(clippy::missing_errors_doc)]
 
@@ -20,7 +18,7 @@ mod metrics;
 #[cfg(target_os = "linux")]
 mod network;
 #[cfg(target_os = "linux")]
-#[allow(dead_code)] // consumed by the connection layer in sub-task 9.10.
+#[allow(dead_code)] // consumed by the connection layer.
 mod shard;
 
 // Crate-root aliases. The folder reorg moved each module into a
@@ -130,7 +128,7 @@ fn main() -> ExitCode {
 
 // ----------------------------------------------------------------------------
 // Linux runtime: Tokio multi-thread + ConnectionListener.
-// Shards land in 9.10's frame dispatcher; 9.9 just opens the listener.
+// The listener accepts connections; the frame dispatcher routes to shards.
 // ----------------------------------------------------------------------------
 
 #[cfg(target_os = "linux")]
@@ -207,7 +205,7 @@ mod linux_main {
     }
 
     pub fn run(cfg: Config, dispatcher: Arc<dyn brain_embed::Dispatcher>) -> ExitCode {
-        // Sub-task 9.15: build the configured Summarizer (default
+        // Build the configured Summarizer (default
         // `DisabledSummarizer`). Construction happens once and the
         // resulting `Arc<dyn Summarizer>` is cloned into each shard's
         // `ShardSpawnConfig` so all shards share one bridge runtime.
@@ -219,7 +217,7 @@ mod linux_main {
             }
         };
 
-        // Sub-task 9.10: spawn one Glommio shard per `cfg.storage.shard_count`,
+        // Spawn one Glommio shard per `cfg.storage.shard_count`,
         // then build a `Topology` (shards + `RoutingTable` + `ServerCapabilities`)
         // and feed it into the `ConnectionListener`.
         let (shards, joiners) = match spawn_shards(&cfg, &summarizer, &dispatcher) {
@@ -228,7 +226,7 @@ mod linux_main {
         };
         let shards = Arc::new(shards);
 
-        // Sub-task 9.12: publish the routing table via `ArcSwap` so a
+        // Publish the routing table via `ArcSwap` so a
         // future admin RPC can hot-reload it without restarting
         // connections.
         let routing = match RoutingTable::new(cfg.storage.shard_count as u16, HashMap::new()) {
@@ -270,7 +268,7 @@ mod linux_main {
         ));
 
         // Keep an extra `Arc<Vec<ShardHandle>>` clone outside the
-        // runtime so sub-task 9.14's `graceful_shutdown_shards` can
+        // runtime so `graceful_shutdown_shards` can
         // drop it (and thereby close every shard's request channel)
         // after the connection + admin servers have exited.
         let shards_for_drain = shards.clone();
@@ -371,7 +369,7 @@ mod linux_main {
             };
             tracing::info!(addr = %bound.local_addr(), "brain-server listening");
 
-            // Sub-task 9.14: spawn the listener as a JoinHandle so we
+            // Spawn the listener as a JoinHandle so we
             // can `await` it deterministically, then drain the admin
             // server with a bounded budget. Both servers observe the
             // same `ShutdownSignal` clone, so a single SIGINT/SIGTERM
@@ -415,9 +413,9 @@ mod linux_main {
                 .unwrap_or(ExitCode::SUCCESS)
         });
 
-        // Phase B (outside the Tokio runtime): close every shard's
+        // Outside the Tokio runtime: close every shard's
         // request channel, then join each `ShardJoiner` with a per-
-        // shard timeout. Sub-task 9.14.
+        // shard timeout.
         let shard_rc = crate::shutdown::graceful_shutdown_shards(
             shards_for_drain,
             joiners,
@@ -454,7 +452,7 @@ mod linux_main {
                 openai_model: cfg.llm.openai_model.clone(),
                 anthropic_model: cfg.llm.anthropic_model.clone(),
             };
-            // Phase B: ferry the operator's `[workers.auto_edge]`
+            // Ferry the operator's `[workers.auto_edge]`
             // overrides into the per-shard spawn config so the
             // AutoEdgeWorker registers with the configured knobs
             // (or stays unwired when disabled).
@@ -467,7 +465,7 @@ mod linux_main {
                 ef_search: cfg.workers.auto_edge.ef_search,
                 channel_capacity: cfg.workers.auto_edge.channel_capacity,
             };
-            // Phase E: ferry the operator's `[workers.extractor]`
+            // Ferry the operator's `[workers.extractor]`
             // overrides into the per-shard spawn config so the
             // ExtractorWorker registers with the configured knobs (or
             // stays unwired when disabled).
@@ -483,7 +481,7 @@ mod linux_main {
                 skip_already_extracted: cfg.workers.extractor.skip_already_extracted,
                 batch_size: cfg.workers.extractor.batch_size,
             };
-            // Phase T: ferry the operator's `[workers.temporal_edge]`
+            // Ferry the operator's `[workers.temporal_edge]`
             // overrides into the per-shard spawn config.
             spawn_cfg.temporal_edge = TemporalEdgeSpawnConfig {
                 enabled: cfg.workers.temporal_edge.enabled,
@@ -495,7 +493,7 @@ mod linux_main {
                 cross_context: cfg.workers.temporal_edge.cross_context,
                 topical_threshold: cfg.workers.temporal_edge.topical_threshold,
             };
-            // Phase C: ferry the operator's `[workers.causal_edge]`
+            // Ferry the operator's `[workers.causal_edge]`
             // overrides. The whitelist strings are split into
             // (namespace, name) pairs here so the spawn config never
             // carries unparsed qnames. Malformed entries (missing or
@@ -558,7 +556,7 @@ mod linux_main {
                 Err(e) => {
                     tracing::error!(shard_id, error = %e, "failed to spawn shard");
                     // Best-effort: drop the handles we have; ShardJoiners
-                    // will warn on drop without `join()` (9.14 cleans up).
+                    // will warn on drop without `join()` (graceful shutdown cleans up).
                     return Err(ExitCode::FAILURE);
                 }
             }
@@ -593,7 +591,7 @@ mod linux_main {
 
     fn spawn_signal_listener(trigger: ShutdownTrigger) {
         tokio::spawn(async move {
-            // Sub-task 9.14: handle both SIGINT (ctrl-c) and SIGTERM.
+            // Handle both SIGINT (ctrl-c) and SIGTERM.
             // SIGTERM is what process supervisors (systemd, k8s, docker
             // stop) send first; SIGKILL follows if we don't exit fast.
             // We install SIGTERM via tokio::signal::unix; if that
@@ -707,7 +705,7 @@ fn parse_args<I: IntoIterator<Item = String>>(iter: I) -> Result<Args, String> {
 // tracing init (non-Linux fallback)
 //
 // Linux uses crate::bootstrap::logging — it owns the JSON / EnvFilter
-// wiring spec'd in §14/02. The shim below keeps the non-Linux build
+// wiring. The shim below keeps the non-Linux build
 // path (which never reaches linux_main) compilable.
 // ----------------------------------------------------------------------------
 

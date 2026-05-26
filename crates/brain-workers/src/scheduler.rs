@@ -1,7 +1,7 @@
-//! The per-shard worker scheduler, §4.
+//! The per-shard worker scheduler.
 //!
-//! After sub-task 9.7 (audit §6 + §8.2), the scheduler runs **inside
-//! a Glommio executor** — one per shard. `register(...)` spawns one
+//! The scheduler runs **inside a Glommio executor** — one per shard.
+//! `register(...)` spawns one
 //! `glommio::Task` per worker via `spawn_local`. Each task runs the
 //! standard `worker_loop`:
 //!
@@ -34,7 +34,7 @@ use crate::worker::Worker;
 
 const SHUTDOWN_DRAIN_BUDGET: Duration = Duration::from_secs(5);
 
-/// Per-worker control surface — F-13 .
+/// Per-worker control surface.
 ///
 /// - `paused`: when true, the loop skips `run_cycle` but keeps
 ///   ticking on its interval. Set by `WorkerScheduler::pause` /
@@ -71,9 +71,9 @@ pub struct WorkerHandle {
     task: Task<()>,
 }
 
-/// each shard owns one scheduler. After 9.7, lives on
-/// the shard's single Glommio executor. Construction is sync (no
-/// runtime needed); `register` requires Glommio executor context.
+/// each shard owns one scheduler, living on the shard's single Glommio
+/// executor. Construction is sync (no runtime needed); `register`
+/// requires Glommio executor context.
 pub struct WorkerScheduler {
     handles: HashMap<&'static str, WorkerHandle>,
     shutdown: Arc<AtomicBool>,
@@ -129,7 +129,7 @@ impl WorkerScheduler {
         Ok(())
     }
 
-    /// F-13: pause a registered worker. The loop keeps ticking on
+    /// Pause a registered worker. The loop keeps ticking on
     /// its interval but skips `run_cycle` until [`Self::resume`].
     /// Returns false if no such worker.
     pub fn pause(&self, name: &str) -> bool {
@@ -143,7 +143,7 @@ impl WorkerScheduler {
         }
     }
 
-    /// F-13: resume a paused worker. Returns false if no such worker.
+    /// Resume a paused worker. Returns false if no such worker.
     pub fn resume(&self, name: &str) -> bool {
         match self.handles.get(name) {
             Some(h) => {
@@ -158,7 +158,7 @@ impl WorkerScheduler {
         }
     }
 
-    /// F-13: request an immediate cycle. The loop wakes from its
+    /// Request an immediate cycle. The loop wakes from its
     /// current sleep and runs `run_cycle` once. No-op if the
     /// worker is paused. Returns false if no such worker.
     pub fn run_now(&self, name: &str) -> bool {
@@ -185,7 +185,7 @@ impl WorkerScheduler {
     /// Wraps each handle's atomics into a plain
     /// [`crate::metrics::Snapshot`] so callers don't have to chase
     /// `Arc<AtomicU64>` instances. Used by `brain-server`'s admin
-    /// `/metrics` endpoint (sub-task 9.13).
+    /// `/metrics` endpoint.
     ///
     /// Returned order is HashMap iteration order (not registration
     /// order). Callers needing stable output should sort.
@@ -272,7 +272,7 @@ impl Default for WorkerScheduler {
 /// The per-worker loop task lifecycle:
 /// `wake → run_cycle → update metrics → sleep`.
 ///
-/// F-13 extends the loop with two control points:
+/// The loop has two control points:
 ///
 /// - `controls.paused`: when true, skip `run_cycle` for this tick
 ///   (the loop still sleeps so it observes shutdown promptly).

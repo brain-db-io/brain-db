@@ -3,10 +3,8 @@
 //! Takes a wire `RecallRequest` (from `brain-protocol`) and produces a
 //! single-shard `RecallPlan`. Pure: no I/O, no async, no state.
 //!
-//! See `spec/12_query_optimizer/03_recall_planning.md` for the
-//! authoritative shape. Phase 6 ships single-shard (orientation
-//! plan §4.7); Phase 12 lights up the cross-shard branch using the
-//! same `RecallPlan { shards: Vec<_> }` envelope.
+//! Ships single-shard today; the cross-shard branch later lights up
+//! using the same `RecallPlan { shards: Vec<_> }` envelope.
 
 use brain_core::ContextId;
 use brain_protocol::envelope::request::RecallRequest;

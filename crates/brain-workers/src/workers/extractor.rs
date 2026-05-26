@@ -114,8 +114,8 @@ pub struct ExtractorKnobs {
     /// Cycle-wide LLM cost budget in dollar-micro-units (1e-6 USD).
     /// When the per-cycle sum exceeds this, the worker still runs
     /// pattern + classifier on remaining memories but stops invoking
-    /// the LLM tier until the next cycle. Phase E ships an
-    /// observability stub for now — the framework's per-call budget
+    /// the LLM tier until the next cycle. This is an observability stub
+    /// for now — the framework's per-call budget
     /// (`CostBudget::per_call_micro_usd`) is the active enforcement
     /// surface. Per-cycle accounting wires through here in a later
     /// iteration; for now this field tracks the configured ceiling.

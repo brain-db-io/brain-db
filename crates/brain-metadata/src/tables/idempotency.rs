@@ -1,22 +1,22 @@
 //! `idempotency` table: cached responses for state-mutating requests.
 //!
-//! See `spec/10_metadata/06_idempotency.md` (full — table shape,
-//! lookup-then-act protocol, conflict detection via canonical-form hash,
-//! 24h TTL, replay-not-re-execute, scope of idempotency-required ops).
+//! Replay-not-re-execute: a repeated `RequestId` returns the cached
+//! response; differing params for the same id are a conflict. Entries
+//! expire on a 24h TTL.
 //!
 //! ## What lives here
 //!
 //! - [`IDEMPOTENCY_TABLE`] — `RequestId` → [`IdempotencyEntry`].
 //! - [`IdempotencyEntry`] — cached response bytes + a hash of the
 //!   canonical request form + a `created_at` for the TTL sweep.
-//! - [`prune_expired`] — pure helper the Phase 8 maintenance worker calls
+//! - [`prune_expired`] — pure helper the maintenance worker calls
 //!   on a cadence.
 //!
 //! ## What does NOT live here
 //!
-//! - Lookup-then-act handler logic. Phase 9 writer task.
-//! - Request canonicalisation + BLAKE3 hashing. Phase 9.
-//! - Pruning scheduler / cadence. Phase 8.
+//! - Lookup-then-act handler logic. Lives in the writer task.
+//! - Request canonicalisation + BLAKE3 hashing.
+//! - Pruning scheduler / cadence.
 //! - The `IdempotencyConflict` wire error variant. brain-core / brain-protocol.
 
 use redb::{Table, TableDefinition};
@@ -26,7 +26,7 @@ use redb::{Table, TableDefinition};
 // ---------------------------------------------------------------------------
 
 /// The `idempotency` table. Key is `RequestId::to_be_bytes()` (16-byte
-/// UUIDv7 per `spec/02_data_model/02_memory.md`).
+/// UUIDv7).
 pub const IDEMPOTENCY_TABLE: TableDefinition<'static, [u8; 16], IdempotencyEntry> =
     TableDefinition::new("idempotency");
 
@@ -39,8 +39,8 @@ pub const IDEMPOTENCY_TABLE: TableDefinition<'static, [u8; 16], IdempotencyEntry
 /// shipped, do **not** renumber. `0` is reserved so a stale reader can
 /// flag "unknown / future-version".
 ///
-/// enumerates the eight ops below; the substrate enforces
-/// idempotency-required for exactly this set.
+/// The substrate enforces idempotency-required for exactly the set of
+/// ops enumerated below.
 pub mod response_kind {
     pub const UNKNOWN: u8 = 0;
     pub const ENCODE: u8 = 1;
@@ -57,8 +57,8 @@ pub mod response_kind {
 // TTL.
 // ---------------------------------------------------------------------------
 
-/// Default 24-hour TTL for idempotency entries, in nanoseconds
-/// allows operators to shorten or lengthen — this is the substrate's
+/// Default 24-hour TTL for idempotency entries, in nanoseconds.
+/// Operators may shorten or lengthen this; it is the substrate's
 /// default. The number is `24 * 60 * 60 * 1e9`.
 pub const DEFAULT_TTL_NANOS: u64 = 24 * 60 * 60 * 1_000_000_000;
 
@@ -66,20 +66,19 @@ pub const DEFAULT_TTL_NANOS: u64 = 24 * 60 * 60 * 1_000_000_000;
 // IdempotencyEntry.
 // ---------------------------------------------------------------------------
 
-/// Cached response for a single mutating request lists
-/// four fields; this v1 stores those four plus a `request_hash` so the
-/// conflict-detection check mandates can run in O(1) byte
-/// compare. See SD-3.5-1 in `docs/development/spec-deviations.md`.
+/// Cached response for a single mutating request. Stores the original
+/// response plus a `request_hash` so the conflict-detection check can
+/// run in O(1) byte compare.
 ///
 /// - `response_kind` — one of the [`response_kind`] u8 constants.
-/// - `memory_id_bytes` — the resulting memory, if any. Spec lists this
-///   as `Option<MemoryId>`; we store the 16-byte representation and
-///   expose [`IdempotencyEntry::memory_id`] for typed access.
-/// - `response_payload` — the original response, encoded
-///   mandates verbatim replay; the substrate stores these bytes and
-///   hands them back unchanged.
+/// - `memory_id_bytes` — the resulting memory, if any. Stored as the
+///   16-byte representation; [`IdempotencyEntry::memory_id`] exposes
+///   typed access.
+/// - `response_payload` — the original response, encoded. Replayed
+///   verbatim; the substrate stores these bytes and hands them back
+///   unchanged.
 /// - `request_hash` — BLAKE3 (32 bytes) over the canonical request form.
-///   Phase 9 fills this; storage just keeps the bytes.
+///   The writer fills this; storage just keeps the bytes.
 /// - `created_at_unix_nanos` — insertion time. Drives the [`prune_expired`]
 ///   sweep.
 /// - `lsn` — WAL position of the durable record this entry caches.
@@ -178,9 +177,9 @@ impl redb::Value for IdempotencyEntry {
 /// number of rows removed.
 ///
 /// `now_unix_nanos` and `ttl_nanos` are explicit parameters so the
-/// storage layer stays decision-free and testable. The Phase 8
-/// maintenance worker is responsible for choosing the cadence (
-/// says "every hour") and for the wall-clock source.
+/// storage layer stays decision-free and testable. The maintenance
+/// worker is responsible for choosing the cadence (roughly hourly)
+/// and for the wall-clock source.
 ///
 /// Implementation collects keys-to-remove first, then deletes them — we
 /// can't call `remove` while `iter` borrows the table.
@@ -211,10 +210,9 @@ pub fn prune_expired(
 /// `scanned_to_end` is `true` iff the iterator completed without
 /// hitting the `max` cap.
 ///
-/// The Phase 8 idempotency-cleanup worker (sub-task 8.6) uses this
-/// to 's "1000 per txn, multiple iterations" pattern
-/// without blocking the writer for too long on a large initial
-/// sweep.
+/// The idempotency-cleanup worker uses this to bound work per
+/// transaction (1000 per txn, multiple iterations) without blocking
+/// the writer for too long on a large initial sweep.
 pub fn prune_expired_bounded(
     table: &mut Table<'_, [u8; 16], IdempotencyEntry>,
     now_unix_nanos: u64,

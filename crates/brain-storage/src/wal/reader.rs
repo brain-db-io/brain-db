@@ -1,11 +1,9 @@
 //! WAL reader — streams `WalRecord`s from a directory of segments.
 //!
-//! See `spec/08_storage/08_recovery.md` §§4, 10.
-//!
 //! [`WalReader::open`] enumerates `*.wal` segment files, validates each
 //! segment's 4 KB header, and sorts by `segment_seq`. The `Iterator` impl
 //! then streams records in strict LSN order across segments, applying
-//! the spec's tail-vs-mid-segment rule (see below).
+//! the tail-vs-mid-segment rule (see below).
 //!
 //! ## Tail-vs-mid-segment rule
 //!
@@ -518,8 +516,7 @@ fn read_first_n_bytes(path: &Path, n: usize) -> std::io::Result<Vec<u8>> {
 // Tests.
 // ---------------------------------------------------------------------------
 
-// Tests open WAL segment files. Gated under miri; see
-// `.claude/plans/phase-02-miri.md`.
+// Tests open WAL segment files. Gated out under miri.
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;

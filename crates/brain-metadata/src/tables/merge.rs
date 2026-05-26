@@ -1,21 +1,13 @@
 //! `merge_log` table — entity merge history.
 //!
-//! See `spec/02_data_model/02_storage.md` (`MergeRecord` shape) +
-//! `spec/02_data_model/03_merge.md` (merge mechanics) +
-//! `spec/02_data_model/04_unmerge.md` (unmerge replays this record in reverse).
-//!
-//! Key is `(timestamp_unix_nanos, MergeId.to_bytes())` for time-ordered
+//! Unmerge replays this record in reverse. Key is
+//! `(timestamp_unix_nanos, MergeId.to_bytes())` for time-ordered
 //! traversal. Grace-period unmerge consults this table to reconstruct
 //! the pre-merge state.
 //!
-//! ## v1 → v2 (phase 16.7)
-//!
-//! Phase 16.5 stubbed a thin `v1` shape with only
-//! `(survivor, merged, timestamps, confidence, finalized)`. Phase 16.7
-//! widens to the full spec'd shape so unmerge can replay the diff:
-//! aliases contributed, attribute conflicts, mention_count delta, audit
-//! lifecycle. No production data exists on `v1`, so the migration is a
-//! straight replacement — dev databases must be wiped.
+//! The row carries everything unmerge needs to replay the diff:
+//! aliases contributed, attribute conflicts, mention_count delta, and
+//! audit lifecycle.
 
 use crate::impl_redb_rkyv_value;
 use brain_core::{EntityId, MergeId};
@@ -25,10 +17,7 @@ pub const MERGE_LOG_TABLE: TableDefinition<'static, (u64, [u8; 16]), MergeRecord
     TableDefinition::new("merge_log");
 
 /// Overflow rows for merges that re-routed many statements / relations
-/// (phase 17/18+ — the lists live here; phase 16.7 never writes the
-/// table since statement/relation tables don't yet exist).
-///
-/// Spec: `spec/02_data_model/02_storage.md` §"entity_merge_log".
+/// — the re-routed-id lists live here when they don't fit inline.
 pub const ENTITY_MERGE_AUDIT_OVERFLOW: TableDefinition<
     'static,
     ([u8; 16], u32),
@@ -48,7 +37,6 @@ pub mod actor_kind {
 }
 
 /// Conflict-resolution policy byte values for [`AttributeConflictRecord::policy`].
-/// Mirrors `spec/02_data_model/03_merge.md` §6.
 pub mod conflict_policy {
     pub const SURVIVOR_WINS: u8 = 1;
     pub const MERGED_WINS: u8 = 2;
@@ -73,8 +61,8 @@ pub mod conflict_outcome {
 ///
 /// `survivor_value_blob` and `merged_value_blob` carry rkyv-encoded
 /// `StatementValueWire` bytes (the wire-level union of typed
-/// attribute values). Phase 16.7 treats these as opaque bytes; phase
-/// 19's schema validator gets typed access.
+/// attribute values). The merge path treats these as opaque bytes; the
+/// schema validator gets typed access.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct AttributeConflictRecord {
@@ -94,10 +82,8 @@ pub struct AttributeConflictRecord {
 /// Full merge audit row. Carries the complete diff between pre-merge
 /// and post-merge state — unmerge replays this in reverse.
 ///
-/// Phase scope: `statements_rerouted` / `relations_rerouted` are always
-/// `0` in phase 16.7 (statement / relation tables don't exist yet).
-/// Phases 17 / 18 sweep this table and populate the counts + overflow
-/// rows. See `spec/02_data_model/03_merge.md` §0.
+/// `statements_rerouted` / `relations_rerouted` count re-routed graph
+/// rows; the id lists themselves live in the overflow table.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct MergeRecord {
@@ -109,7 +95,7 @@ pub struct MergeRecord {
     pub merged_at_unix_nanos: u64,
     pub grace_period_until_unix_nanos: u64,
     pub confidence: f32,
-    /// Operator-supplied reason. ≤ 4 KiB per `spec/28/04_validation.md` §1.
+    /// Operator-supplied reason. Capped at 4 KiB.
     pub reason: String,
     /// See [`actor_kind`].
     pub actor_kind: u8,
@@ -125,8 +111,7 @@ pub struct MergeRecord {
     pub trigrams_added: Vec<[u8; 3]>,
     pub attribute_conflicts: Vec<AttributeConflictRecord>,
 
-    // Re-routing counts (lists live in the overflow table). Always
-    // `0` in phase 16.7.
+    // Re-routing counts (lists live in the overflow table).
     pub statements_rerouted: u32,
     pub relations_rerouted: u32,
     /// `survivor.mention_count += this` on merge; reversed on unmerge.
@@ -220,8 +205,7 @@ impl MergeRecord {
 
 /// Overflow chunk for very-large re-route lists. Each chunk holds up
 /// to a few thousand re-routed ids; redb's per-value 1 MiB cap drives
-/// the chunking. Phase 16.7 declares the table but never writes it
-/// (`statements_rerouted` / `relations_rerouted` always `0` in 16.7).
+/// the chunking.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct MergeAuditOverflow {

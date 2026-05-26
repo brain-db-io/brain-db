@@ -322,7 +322,7 @@ async fn handle_link_in_txn(
     }
 
     // Reject the 1001st op now — replay-cache hits still replay, but
-    // a fresh LINK against a full buffer fails fast (spec §05/04 §10).
+    // a fresh LINK against a full buffer fails fast.
     ctx.txn_store
         .with_buffer(txn_id, |buf| buf.check_capacity_for_push())?;
 
@@ -490,7 +490,7 @@ async fn handle_unlink_in_txn(
     }
 
     // Reject the 1001st op now — replay-cache hits still replay, but
-    // a fresh UNLINK against a full buffer fails fast (spec §05/04 §10).
+    // a fresh UNLINK against a full buffer fails fast.
     ctx.txn_store
         .with_buffer(txn_id, |buf| buf.check_capacity_for_push())?;
 

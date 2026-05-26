@@ -1,4 +1,4 @@
-//! Cross-crate recovery integration test (sub-task 3.12).
+//! Cross-crate recovery integration test.
 //!
 //! Drives `brain_storage::Wal::append` → "crash" (drop everything) →
 //! `brain_storage::recovery::recover(&mut ArenaFile, &Path, [u8;16], &mut MetadataDb)`,
@@ -14,8 +14,6 @@
 //! - E: recover() is idempotent
 //! - F: durable_lsn survives MetadataDb close + reopen via the checkpoints table
 //! - G: 100-iteration seeded loop covering the phase exit criterion
-//!
-//! See `.claude/plans/phase-03-task-12.md`.
 
 use std::path::PathBuf;
 
@@ -711,7 +709,7 @@ fn run_iteration(seed: u64) {
 // ---------------------------------------------------------------------------
 // Scenario H — typed-relation create / supersede / tombstone replay.
 //
-// Exercises the Phase C unified-edge recovery dispatch. Old data dirs
+// Exercises the unified-edge recovery dispatch. Old data dirs
 // can't open under the v2 schema, so this scenario writes a WAL with
 // three first-class relation records and verifies the rebuilt edge
 // rows + sidecar metadata match the live writer's projections.

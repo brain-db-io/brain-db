@@ -1,12 +1,11 @@
-//! §16/01 correctness gate (sub-task 7.11).
+//! Correctness gate.
 //!
-//! One Rust module per numbered spec criterion. The map is 1-to-1 so a
-//! reviewer can read `spec/20_benchmarks/01_correctness_criteria.md`
-//! with one hand and this file with the other, confirming coverage.
+//! One Rust module per numbered correctness criterion, so each test group
+//! maps 1-to-1 to a documented behavior and coverage is easy to confirm.
 //!
-//! Out-of-scope criteria (§13, §14, §15, §16, §18 + the Hard-FORGET
-//! half of §6) have `#[ignore]` placeholder tests pointing to the phase
-//! that closes them.
+//! Out-of-scope criteria (slot-version, audit-log, recovery, configuration,
+//! schema-versioning + the Hard-FORGET half of FORGET) have `#[ignore]`
+//! placeholder tests until the code that closes them lands.
 
 #![allow(clippy::too_many_lines)]
 #![allow(clippy::needless_pass_by_value)]
@@ -405,7 +404,7 @@ mod common {
 }
 
 // ===========================================================================
-// §1 — Wire-protocol correctness (smoke; deep coverage is in brain-protocol).
+// Wire-protocol correctness (smoke; deep coverage is in brain-protocol).
 // ===========================================================================
 
 mod criterion_01_wire {
@@ -550,7 +549,7 @@ mod criterion_01_wire {
 }
 
 // ===========================================================================
-// §2 — ENCODE correctness.
+// ENCODE correctness.
 // ===========================================================================
 
 mod criterion_02_encode {
@@ -591,7 +590,7 @@ mod criterion_02_encode {
 }
 
 // ===========================================================================
-// §3 — RECALL correctness.
+// RECALL correctness.
 // ===========================================================================
 
 mod criterion_03_recall {
@@ -621,7 +620,7 @@ mod criterion_03_recall {
 }
 
 // ===========================================================================
-// §4 — PLAN correctness.
+// PLAN correctness.
 // ===========================================================================
 
 mod criterion_04_plan {
@@ -668,7 +667,7 @@ mod criterion_04_plan {
 }
 
 // ===========================================================================
-// §5 — REASON correctness.
+// REASON correctness.
 // ===========================================================================
 
 mod criterion_05_reason {
@@ -730,7 +729,7 @@ mod criterion_05_reason {
 }
 
 // ===========================================================================
-// §6 — FORGET correctness.
+// FORGET correctness.
 // ===========================================================================
 
 mod criterion_06_forget {
@@ -770,7 +769,7 @@ mod criterion_06_forget {
 }
 
 // ===========================================================================
-// §7 — LINK / UNLINK correctness.
+// LINK / UNLINK correctness.
 // ===========================================================================
 
 mod criterion_07_link_unlink {
@@ -809,7 +808,7 @@ mod criterion_07_link_unlink {
 }
 
 // ===========================================================================
-// §8 — Idempotency correctness.
+// Idempotency correctness.
 // ===========================================================================
 
 mod criterion_08_idempotency {
@@ -855,7 +854,7 @@ mod criterion_08_idempotency {
 }
 
 // ===========================================================================
-// §9 — Transaction correctness.
+// Transaction correctness.
 // ===========================================================================
 
 mod criterion_09_txn {
@@ -933,7 +932,7 @@ mod criterion_09_txn {
 }
 
 // ===========================================================================
-// §10 — Filter correctness.
+// Filter correctness.
 // ===========================================================================
 
 mod criterion_10_filters {
@@ -999,7 +998,7 @@ mod criterion_10_filters {
 }
 
 // ===========================================================================
-// §11 — Edge-traversal correctness.
+// Edge-traversal correctness.
 // ===========================================================================
 
 mod criterion_11_edge_traversal {
@@ -1058,18 +1057,18 @@ mod criterion_11_edge_traversal {
 }
 
 // ===========================================================================
-// §12 — Tombstone correctness.
+// Tombstone correctness.
 // ===========================================================================
 
 mod criterion_12_tombstones {
     use super::*;
 
-    /// requires tombstone-invisibility across RECALL,
+    /// Tombstone-invisibility is required across RECALL,
     /// PLAN, and REASON. v1 enforces this for RECALL (via HNSW's
     /// tombstone marker) but **not** for PLAN / REASON — those
     /// traversal handlers read redb edges directly and don't yet
-    /// consult the writer's in-process tombstone set. Phase 8 closes
-    /// this when the FORGET handler updates the metadata row's
+    /// consult the writer's in-process tombstone set. This closes
+    /// when the FORGET handler updates the metadata row's
     /// `tombstoned_at_unix_nanos` and the traversal executors learn
     /// to filter on that field.
     #[test]
@@ -1099,7 +1098,7 @@ mod criterion_12_tombstones {
 }
 
 // ===========================================================================
-// §13 — Slot-version correctness (deferred).
+// Slot-version correctness (deferred).
 // ===========================================================================
 
 mod criterion_13_slot_version {
@@ -1117,7 +1116,7 @@ mod criterion_13_slot_version {
 }
 
 // ===========================================================================
-// §14 — Audit-log correctness (deferred).
+// Audit-log correctness (deferred).
 // ===========================================================================
 
 mod criterion_14_audit_log {
@@ -1131,7 +1130,7 @@ mod criterion_14_audit_log {
 }
 
 // ===========================================================================
-// §15 — Recovery correctness (deferred).
+// Recovery correctness (deferred).
 // ===========================================================================
 
 mod criterion_15_recovery {
@@ -1145,7 +1144,7 @@ mod criterion_15_recovery {
 }
 
 // ===========================================================================
-// §16 — Configuration correctness (deferred).
+// Configuration correctness (deferred).
 // ===========================================================================
 
 mod criterion_16_config {
@@ -1159,7 +1158,7 @@ mod criterion_16_config {
 }
 
 // ===========================================================================
-// §17 — Error-code correctness.
+// Error-code correctness.
 // ===========================================================================
 
 mod criterion_17_error_codes {
@@ -1257,7 +1256,7 @@ mod criterion_17_error_codes {
 }
 
 // ===========================================================================
-// §18 — Schema versioning (deferred).
+// Schema versioning (deferred).
 // ===========================================================================
 
 mod criterion_18_schema {
@@ -1271,7 +1270,7 @@ mod criterion_18_schema {
 }
 
 // ===========================================================================
-// §19 — Determinism correctness.
+// Determinism correctness.
 // ===========================================================================
 
 mod criterion_19_determinism {
@@ -1289,7 +1288,7 @@ mod criterion_19_determinism {
 }
 
 // ===========================================================================
-// §20 — "No surprises" — failures leave no partial state.
+// "No surprises" — failures leave no partial state.
 // ===========================================================================
 
 mod criterion_20_no_surprises {

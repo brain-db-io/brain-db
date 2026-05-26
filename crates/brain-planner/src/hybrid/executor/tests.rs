@@ -1,4 +1,4 @@
-//! Unit tests for the hybrid query executor (phase 23.7).
+//! Unit tests for the hybrid query executor.
 
 use std::sync::Arc;
 use std::sync::Mutex as StdMutex;

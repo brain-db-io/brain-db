@@ -22,7 +22,7 @@
 //! - [`enricher_hook`] — `EnricherPlugin` dispatch seam (lives here to
 //!   avoid a circular dep with `brain-plugins`).
 //! - [`supersede_source`] — adapter that exposes the statement HNSW as
-//!   a nearest-neighbour source for the W2.1 supersession judge.
+//!   a nearest-neighbour source for the supersession judge.
 
 #![allow(
     clippy::module_name_repetitions,

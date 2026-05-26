@@ -1,6 +1,4 @@
 //! Edge types for the memory graph.
-//!
-//! See `spec/02_data_model/05_edges.md`.
 
 use serde::{Deserialize, Serialize};
 

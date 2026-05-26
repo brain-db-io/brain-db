@@ -1,9 +1,9 @@
-//! Brain-HTTP error taxonomy. `thiserror` per CLAUDE.md §7.
+//! Brain-HTTP error taxonomy, built on `thiserror`.
 //!
 //! Variants are deliberately Brain-flavoured — they correspond to the
 //! shapes the admin / SDK surfaces care about. Hyper's own
-//! [`hyper::Error`] is collapsed under [`Error::Hyper`] for now; M3
-//! revisits whether finer mapping is worth the surface.
+//! [`hyper::Error`] is collapsed under [`Error::Hyper`] for now; finer
+//! mapping can come later if it's worth the surface.
 
 use http::StatusCode;
 
@@ -11,7 +11,7 @@ mod status;
 pub use status::status_for_error;
 
 /// All errors brain-http exposes. `#[non_exhaustive]` because we
-/// expect to grow the variant set in M3-M8.
+/// expect to grow the variant set over time.
 #[derive(Debug, thiserror::Error)]
 #[non_exhaustive]
 pub enum Error {
@@ -19,9 +19,9 @@ pub enum Error {
     #[error("io: {0}")]
     Io(#[from] std::io::Error),
 
-    /// Hyper produced an error. Collapsed wrapper for now; M3 may
-    /// pattern-match on `hyper::Error` to surface specific Brain
-    /// variants.
+    /// Hyper produced an error. Collapsed wrapper for now; a future
+    /// revision may pattern-match on `hyper::Error` to surface specific
+    /// Brain variants.
     #[error("hyper: {0}")]
     Hyper(#[from] hyper::Error),
 
@@ -31,8 +31,7 @@ pub enum Error {
 
     /// Inbound body exceeded the configured byte limit. Returned by
     /// [`crate::body::read_to_bytes`] without buffering the rest of
-    /// the body (mitigates the trivial-DoS pattern flagged in the
-    /// design report §R9).
+    /// the body (mitigates a trivial-DoS pattern).
     #[error("body too large: {actual} > {limit} bytes")]
     BodyTooLarge {
         /// Bytes seen on the wire or declared in `Content-Length`.

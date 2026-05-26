@@ -891,7 +891,7 @@ fn judge_supersedes_unparseable_response_errors() {
 }
 
 // ------------------------------------------------------------------
-// W2.3 — bounded inferential context in the prompt.
+// Bounded inferential context in the prompt.
 // ------------------------------------------------------------------
 
 fn neighbor(text: &str, score: f32, created_at_unix_nanos: u64) -> NeighborMemory {

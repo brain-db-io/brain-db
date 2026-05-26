@@ -73,7 +73,7 @@ fn dropped_txn_leaves_no_version_row_and_no_active_pointer() {
     let dir = tempfile::tempdir().unwrap();
     let db = fresh_db(&dir);
 
-    // Phase 1: run schema_upload inside a wtxn, then drop without commit.
+    // Step 1: run schema_upload inside a wtxn, then drop without commit.
     {
         let wtxn = db.begin_write().unwrap();
         let v = schema_upload(&wtxn, &acme_v1(), T0).expect("upload runs");
@@ -81,7 +81,7 @@ fn dropped_txn_leaves_no_version_row_and_no_active_pointer() {
         // Intentional: no commit. `wtxn` drops here.
     }
 
-    // Phase 2: a fresh read transaction sees no version row and no
+    // Step 2: a fresh read transaction sees no version row and no
     // active pointer.
     let rtxn = db.begin_read().unwrap();
     assert_eq!(

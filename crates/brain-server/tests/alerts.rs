@@ -9,7 +9,7 @@
 //!   `name` and `rules`.
 //! - Each rule has `alert`, `expr`, `labels.severity`.
 //! - Severities are from the spec set (critical / high / medium / low).
-//! - Every alert promised by -§6 is present (catches
+//! - Every required alert is present (catches
 //!   accidental rule deletion).
 
 #![cfg(target_os = "linux")]
@@ -18,19 +18,19 @@ use std::fs;
 use std::path::PathBuf;
 
 const REQUIRED_ALERTS: &[&str] = &[
-    // §3 critical
+    // critical
     "BrainSubstrateDown",
     "BrainHighErrorRate",
     "BrainCheckpointFailing",
-    // §4 high
+    // high
     "BrainHighLatency",
     "BrainWorkerStuck",
-    // §5 medium
+    // medium
     "BrainHighTombstoneRatio",
     "BrainRecallQualityDegraded",
     "BrainEmbedderSlow",
     "BrainConnectionsChurning",
-    // §6 low
+    // low
     "BrainConfigChanged",
     "BrainWorkerErrorsWarning",
 ];

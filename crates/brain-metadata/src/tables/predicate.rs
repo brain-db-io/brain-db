@@ -1,14 +1,9 @@
 //! `predicates` table — interned predicate registry.
 //!
-//! See `spec/02_data_model/00_purpose.md` (predicate vocabulary) and
-//! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
-//!
-//! Phase 15.1 declared the table with a minimal row. Phase 17.3 widens
-//! the row to match `spec/02_data_model/00_purpose.md` §"Predicate
-//! vocabulary" — adds `kind_constraint`, `object_type_constraint_byte`,
-//! `schema_version`, and `description`, and adds a `predicates_by_qname`
-//! lookup index. Schema DSL (phase 19) populates user predicates at
-//! `SCHEMA_UPLOAD` time; phase 17.3 owns the built-ins.
+//! The row carries `kind_constraint`, `object_type_constraint_byte`,
+//! `schema_version`, and `description`, plus a `predicates_by_qname`
+//! lookup index. The schema DSL populates user predicates at
+//! `SCHEMA_UPLOAD` time; built-ins are seeded by the substrate.
 
 use crate::impl_redb_rkyv_value;
 use brain_core::PredicateId;
@@ -21,8 +16,8 @@ pub const PREDICATES_TABLE: TableDefinition<'static, u32, PredicateDefinition> =
     TableDefinition::new("predicates");
 
 /// `predicates_by_qname` — secondary index for `(namespace, name) →
-/// PredicateId`. Phase 17.3. Key is the canonical `"namespace:name"`
-/// string; value is the predicate id.
+/// PredicateId`. Key is the canonical `"namespace:name"` string;
+/// value is the predicate id.
 pub const PREDICATES_BY_QNAME_TABLE: TableDefinition<'static, &str, u32> =
     TableDefinition::new("predicates_by_qname");
 

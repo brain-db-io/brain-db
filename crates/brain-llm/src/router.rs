@@ -1,8 +1,7 @@
 //! Provider routing: maps a model identifier to its serving
 //! provider.
 //!
-//! Phase 21.1 ships the skeleton + Anthropic prefixes. Phase 21.2
-//! extends with OpenAI prefixes. Unknown prefixes return
+//! Covers Anthropic and OpenAI prefixes. Unknown prefixes return
 //! [`Provider::Unknown`]; the LLM-extractor materializer treats
 //! that as "no client configured" and registers the extractor in
 //! degraded mode.

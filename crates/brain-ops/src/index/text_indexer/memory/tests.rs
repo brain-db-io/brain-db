@@ -1,4 +1,4 @@
-//! Tests for the memory text indexer worker (phase 22.3).
+//! Tests for the memory text indexer worker.
 //!
 //! Production runs the drain loop on a per-shard Glommio executor
 //! (`spawn_memory_text_indexer_local` uses `glommio::spawn_local`).
@@ -315,7 +315,7 @@ fn upsert_round_trips_metadata_fields() {
 #[test]
 fn end_to_end_indexer_to_retriever() {
     run_in_glommio(|| async {
-        // 22.5 smoke: an Upsert via the dispatcher must surface
+        // Smoke: an Upsert via the dispatcher must surface
         // through `TantivyLexicalRetriever::retrieve` against the
         // same shard. Exercises the full write→reload→search path
         // including the protected-token tokenizer.

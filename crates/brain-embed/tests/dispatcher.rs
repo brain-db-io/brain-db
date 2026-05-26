@@ -1,8 +1,8 @@
 //! Integration test for `CpuDispatcher` under concurrent load.
 //!
-//! Spec `04/03 §7` says: "multiple Glommio executors can call inference
+//! Multiple Glommio executors can call inference
 //! concurrently. Each call runs on the current core. The model's
-//! weights are shared across all callers via `Arc<Model>`." This test
+//! weights are shared across all callers via `Arc<Model>`. This test
 //! is the empirical proof that `Arc<ModelHandle>` + candle's `Tensor`
 //! are actually thread-safe at runtime, not just at the type level.
 //!

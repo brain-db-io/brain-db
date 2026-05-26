@@ -1,10 +1,10 @@
-//! Phase-22 exit integration test (sub-task 22.8).
+//! Lexical pipeline exit integration test.
 //!
 //! Exercises the full lexical pipeline end-to-end via the wire:
 //! - ENCODE a memory whose text contains a brain-analyzer
 //!   protected token (`ACME-1247`).
 //! - Stop the server so the indexer drain task commits + drops
-//!   its writer (drop-of-Sender path in 22.3 §run_loop).
+//!   its writer (the drop-of-Sender path in `run_loop`).
 //! - Open `memory_text.tantivy/` from disk and query through
 //!   the public `LexicalRetriever` surface — the protected
 //!   token must surface the memory's id.
@@ -66,7 +66,7 @@ use tempfile::TempDir;
 const FLAG_EOS: u8 = 1 << 7;
 
 // ---------------------------------------------------------------------------
-// Wire helpers — copied from the phase-20 exit test.
+// Wire helpers — copied from the extractors exit test.
 // ---------------------------------------------------------------------------
 
 async fn read_one_frame<S>(stream: &mut S) -> Frame

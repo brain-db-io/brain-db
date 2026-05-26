@@ -1,4 +1,4 @@
-//! Integration tests for transactions (sub-task 7.9).
+//! Integration tests for transactions.
 //!
 //! Covers:
 //! - Lifecycle (begin / commit / abort + replay + sweep)
@@ -989,7 +989,7 @@ fn txn_expires_after_idle_window() {
 }
 
 // =============================================================================
-// Connection-drop auto-abort (spec §05/04, §01/03 §8)
+// Connection-drop auto-abort
 //
 // A client whose TCP/TLS connection dies before TXN_COMMIT must see
 // none of its buffered operations applied. The connection layer fans

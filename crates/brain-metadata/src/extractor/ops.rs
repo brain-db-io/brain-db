@@ -1,5 +1,4 @@
-//! Typed CRUD + interning over the extractor registry +
-//! §21/05 §1.
+//! Typed CRUD + interning over the extractor registry.
 //!
 //! Mirrors [`crate::schema::predicate`] / [`crate::relation::types`]
 //! patterns: qname-keyed uniqueness, idempotent intern,
@@ -46,7 +45,7 @@ pub enum ExtractorOpError {
 ///   definition_blob: return the existing id (idempotent).
 /// - Prior row with diverging kind / definition_blob /
 ///   schema_version: `AlreadyExists` (caller decides whether to
-///   evict + re-intern — phase 22+ extractor versioning).
+///   evict + re-intern).
 #[allow(clippy::too_many_arguments)]
 pub fn extractor_intern(
     wtxn: &WriteTransaction,
@@ -126,8 +125,7 @@ pub fn extractor_intern(
 
 /// Flip the `enabled` flag on an extractor. Returns the **previous**
 /// state, mirroring the `EXTRACTOR_DISABLE` / `_ENABLE` wire
-/// semantics (`previously_enabled` / `previously_disabled` per
-/// §28/05 §7.2).
+/// semantics (`previously_enabled` / `previously_disabled`).
 ///
 /// Idempotent: setting an already-`enabled` extractor to enabled
 /// returns `true` (the previous state) and writes the row again

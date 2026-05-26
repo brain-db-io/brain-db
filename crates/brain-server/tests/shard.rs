@@ -1,4 +1,4 @@
-//! Integration tests for the Phase 9.4 + 9.5 shard scaffold.
+//! Integration tests for the shard scaffold.
 //!
 //! Linux-only — Glommio requires io_uring; brain-storage requires
 //! mmap + pwritev2. Each test runs the Tokio side as `#[tokio::test]`
@@ -15,7 +15,7 @@ use tempfile::TempDir;
 
 // shard.rs uses `crate::shard_adapters::…`; pull both source files into
 // the test binary so that `crate::` resolves the same as in main.rs.
-// The 9.10 `dispatch_op` surface is used only by `tests/dispatch.rs`;
+// The `dispatch_op` surface is used only by `tests/dispatch.rs`;
 // silence the dead-code lint from this binary's perspective.
 #[allow(dead_code)]
 #[path = "../src/shard/mod.rs"]
@@ -46,7 +46,7 @@ fn stub() -> Arc<dyn Dispatcher> {
 }
 
 // ---------------------------------------------------------------------------
-// 9.4 — Ping + lifecycle
+// Ping + lifecycle
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -143,7 +143,7 @@ fn shard_handle_send_sync_at_use_site() {
 }
 
 // ---------------------------------------------------------------------------
-// 9.5 — Arena hookup
+// Arena hookup
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
@@ -198,10 +198,10 @@ async fn arena_uuid_persists_across_restarts() {
         let (handle, joiner) =
             spawn_shard(0, ShardSpawnConfig::new(dir.path(), stub())).expect("spawn 1st");
         // Alloc twice. These slots end up in PENDING_WRITE state — the
-        // encoder (9.7) is responsible for promoting to OCCUPIED; on the
+        // encoder is responsible for promoting to OCCUPIED; on the
         // current scaffold they're correctly reclaimed by the allocator
         // on restart, so we don't assert anything about next-alloc-index
-        // across restart here. See 9.6+ tests for allocator+WAL semantics.
+        // across restart here. See the allocator+WAL tests for those semantics.
         let _ = handle.alloc_slot().await.expect("alloc 1");
         let _ = handle.alloc_slot().await.expect("alloc 2");
         let u = std::fs::read(&uuid_path).unwrap();
@@ -228,7 +228,7 @@ async fn arena_uuid_persists_across_restarts() {
         // accepted the rebuilt allocator. We don't assert the returned
         // index because PENDING_WRITE slots from the prior run are
         // reclaimable (free_list LIFO) and the encoder/WAL plumbing that
-        // turns them into committed slots lands in 9.6+/9.7.
+        // turns them into committed slots lands elsewhere.
         let _ = handle.alloc_slot().await.expect("alloc post-reopen");
         drop(handle);
         tokio::task::spawn_blocking(move || joiner.join())
@@ -313,7 +313,7 @@ async fn take_snapshot_succeeds_on_empty_hnsw_after_pq_pivot() {
 }
 
 /// Regression: the memory HNSW is in-RAM only and rebuilt on startup from the
-/// arena (recovery 08/04 §8). Before the startup reseed landed, a restart left
+/// arena. Before the startup reseed landed, a restart left
 /// the index empty — memories survived in the arena/metadata but were invisible
 /// to semantic recall. This proves the reseed: WAL ENCODEs replayed into the
 /// arena reappear as HNSW nodes after a restart.
@@ -408,7 +408,7 @@ async fn data_dir_under_nested_path() {
 }
 
 // ---------------------------------------------------------------------------
-// 9.6 — Real WAL hookup
+// Real WAL hookup
 // ---------------------------------------------------------------------------
 
 use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, RequestId};
@@ -579,7 +579,7 @@ async fn wal_persists_across_restart() {
 }
 
 // ---------------------------------------------------------------------------
-// 9.7b — Per-shard OpsContext + workers wired in
+// Per-shard OpsContext + workers wired in
 // ---------------------------------------------------------------------------
 
 /// Spawn → full OpsContext stack constructed (metadata + hnsw + writer +

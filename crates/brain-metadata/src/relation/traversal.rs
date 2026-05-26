@@ -1,9 +1,9 @@
-//! Relation graph traversal. Sub-task 18.5.
+//! Relation graph traversal.
 //!
 //! Iterative BFS. Bounded by `max_depth` (cap 5)
 //! and `max_branching_factor` (cap 10_000) with visited-set cycle
-//! detection. The wire `RELATION_TRAVERSE` opcode (`0x0156`, phase
-//! 18.6) routes through this module.
+//! detection. The wire `RELATION_TRAVERSE` opcode (`0x0156`) routes
+//! through this module.
 //!
 //! Pure read path — no writes, no side effects (one tracing::warn
 //! when a super-node truncates).
@@ -28,8 +28,8 @@ pub const DEFAULT_MAX_BRANCHING: u32 = 1_000;
 /// Hard cap on `max_branching_factor`.
 pub const MAX_BRANCHING: u32 = 10_000;
 /// Soft cap on total visited nodes. Past this, traversal returns
-/// early with what it has gathered (no error). Phase 23 may turn
-/// this into a wire-visible "truncated" flag.
+/// early with what it has gathered (no error). This may later become a
+/// wire-visible "truncated" flag.
 pub const MAX_TOTAL_VISITED: usize = 100_000;
 
 // ---------------------------------------------------------------------------

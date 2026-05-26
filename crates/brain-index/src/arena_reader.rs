@@ -1,6 +1,6 @@
 //! Arena-read trait injected into [`crate::SharedHnsw`].
 //!
-//! PQ re-rank (`spec/09_indexing/07_hnsw_pq.md` §7) needs the
+//! PQ re-rank needs the
 //! full-precision vector for every ADC-approximate candidate. Brain-
 //! index doesn't own the arena (closed-leaf rule), so the caller
 //! injects an [`ArenaReader`] at construction; the shared index calls

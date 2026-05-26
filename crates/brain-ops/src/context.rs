@@ -1,15 +1,15 @@
 //! `OpsContext` — the per-shard handle bag handlers consume.
 //!
 //! Thin wrapper over `brain_planner::ExecutorContext` for v1. Each
-//! later sub-task that needs new shared state (txn store in 7.9,
-//! subscribe broadcast in 7.10) adds a field non-breakingly.
+//! later addition that needs new shared state (txn store, subscribe
+//! broadcast) adds a field non-breakingly.
 //!
-//! After sub-task 9.7 (audit §4) `OpsContext` is transitively `!Send`
-//! because `ExecutorContext` holds `Arc<dyn WriterHandle>` and
-//! `WriterHandle` is no longer `Send + Sync`. The interior `Arc<...>`
-//! fields are kept (vs the audit's suggested `Rc<...>` swap) to avoid
-//! gratuitous test churn — single-threaded usage is enforced by the
-//! per-shard Glommio executor, not by the field types.
+//! `OpsContext` is transitively `!Send` because `ExecutorContext`
+//! holds `Arc<dyn WriterHandle>` and `WriterHandle` is no longer
+//! `Send + Sync`. The interior `Arc<...>` fields are kept (rather than
+//! swapping to `Rc<...>`) to avoid gratuitous test churn —
+//! single-threaded usage is enforced by the per-shard Glommio
+//! executor, not by the field types.
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -28,7 +28,7 @@ use crate::txn::TxnStore;
 use crate::writer::WalSink;
 
 /// Default bounded poll window for the one-shot SUBSCRIBE dispatcher
-/// path. Phase 9's long-lived stream bypasses this entirely.
+/// path. The long-lived stream bypasses this entirely.
 pub const DEFAULT_SUBSCRIBE_POLL_WINDOW: Duration = Duration::from_secs(5);
 
 /// Per-shard cross-encoder slot. Replaces an earlier
@@ -88,43 +88,43 @@ pub struct OpsContext {
     /// Per-shard transaction registry.
     pub txn_store: Arc<TxnStore>,
     /// Per-shard change-feed bus. Cross-shard fan-out is the
-    /// connection layer's job (9.11).
+    /// connection layer's job.
     pub events: Arc<EventBus>,
     /// Per-shard subscription registry.
     pub subscriptions: Arc<SubscriptionRegistry>,
     /// One-shot dispatcher poll window for `handle_subscribe`. Tests
     /// override this to keep the timeout-path test fast.
     pub subscribe_poll_window: Duration,
-    /// Recently-accessed memory ids (sub-task 8.3).
+    /// Recently-accessed memory ids.
     pub access_buffer: Arc<AccessBuffer>,
-    /// Live extractor registry. Populated at server startup by
-    /// phase 20.7's system-schema bootstrap; defaults to empty.
+    /// Live extractor registry. Populated at server startup by the
+    /// system-schema bootstrap; defaults to empty.
     /// Wrapped in `RwLock` because `EXTRACTOR_DISABLE` / `_ENABLE`
-    /// wire ops (phase 20.8) mutate it.
+    /// wire ops mutate it.
     pub extractor_registry: Arc<RwLock<ExtractorRegistry>>,
     /// Per-deployment classifier config (operator-provided NER
     /// model path). Defaults to `unloaded`; operators wire
     /// `BRAIN_NER_MODEL_PATH` via `with_classifier_config`.
     pub classifier_config: Arc<ClassifierConfig>,
-    /// Per-shard LLM extractor response cache (4 / §26).
+    /// Per-shard LLM extractor response cache.
     /// `None` when no API keys are configured, the cache file
     /// failed to open, or no LLM extractors are registered.
     /// LLM extractors thread this into their cache lookups via
     /// the registry; later ops (RECALL provenance lookups, cache
     /// admin endpoints) can read through this field directly.
     pub llm_cache: Option<Arc<Mutex<LlmCacheDb>>>,
-    /// Per-shard tantivy index handle (phase 22.1). `None` until
+    /// Per-shard tantivy index handle. `None` until
     /// the server's shard-spawn path wires it via
-    /// [`OpsContext::with_tantivy`]. The retriever (22.5) and
-    /// indexer workers (22.3 / 22.4) borrow through this field;
+    /// [`OpsContext::with_tantivy`]. The retriever and
+    /// indexer workers borrow through this field;
     /// no-schema deployments leave it `None`.
     pub tantivy: Option<Arc<TantivyShard>>,
-    /// Memory text indexer dispatcher (phase 22.3). `None` for
+    /// Memory text indexer dispatcher. `None` for
     /// no-schema deployments and tests that don't spawn the
     /// drain task. ENCODE / FORGET handlers check this slot
     /// post-WAL-commit and enqueue an indexer op when present.
     pub memory_text_dispatcher: Option<Arc<MemoryTextDispatcher>>,
-    /// Statement text indexer dispatcher (phase 22.4). Wired
+    /// Statement text indexer dispatcher. Wired
     /// alongside `memory_text_dispatcher`; statement_create /
     /// supersede / tombstone / retract handlers enqueue
     /// Upsert / Delete events post-commit.
@@ -213,8 +213,7 @@ impl OpsContext {
 
     /// Override the bounded poll window for the one-shot subscribe
     /// dispatcher path. Mostly useful for tests; production servers
-    /// drive streaming via [`SubscriptionRegistry::register`] directly
-    /// (Phase 9).
+    /// drive streaming via [`SubscriptionRegistry::register`] directly.
     #[must_use]
     pub fn with_subscribe_poll_window(mut self, window: Duration) -> Self {
         self.subscribe_poll_window = window;
@@ -269,8 +268,8 @@ impl OpsContext {
         self
     }
 
-    /// Install (or clear) the per-shard LLM cache handle. Phase
-    /// 21.5 calls this once at shard startup with an open
+    /// Install (or clear) the per-shard LLM cache handle. The server
+    /// calls this once at shard startup with an open
     /// `LlmCacheDb`; no-schema deployments and tests pass
     /// `None`.
     #[must_use]
@@ -279,8 +278,8 @@ impl OpsContext {
         self
     }
 
-    /// Install (or clear) the per-shard tantivy handle. Phase
-    /// 22.1 calls this once at shard startup with the
+    /// Install (or clear) the per-shard tantivy handle. The server
+    /// calls this once at shard startup with the
     /// `TantivyShard` returned by `TantivyShard::open`. Tests
     /// and no-schema deployments pass `None`.
     #[must_use]
@@ -289,10 +288,9 @@ impl OpsContext {
         self
     }
 
-    /// Install (or clear) the memory text indexer dispatcher
-    /// (phase 22.3). The matching drain task is spawned
-    /// separately by the caller (server spawn path uses
-    /// `glommio::spawn_local`).
+    /// Install (or clear) the memory text indexer dispatcher.
+    /// The matching drain task is spawned separately by the caller
+    /// (server spawn path uses `glommio::spawn_local`).
     #[must_use]
     pub fn with_memory_text_dispatcher(
         mut self,
@@ -302,9 +300,8 @@ impl OpsContext {
         self
     }
 
-    /// Install (or clear) the statement text indexer dispatcher
-    /// (phase 22.4). Server-spawn pairs this with the drain
-    /// task; tests pass `None`.
+    /// Install (or clear) the statement text indexer dispatcher.
+    /// Server-spawn pairs this with the drain task; tests pass `None`.
     #[must_use]
     pub fn with_statement_text_dispatcher(
         mut self,

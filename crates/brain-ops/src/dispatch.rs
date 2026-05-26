@@ -3,12 +3,12 @@
 //! is a request-response interaction (or streaming for SUBSCRIBE).
 //!
 //! The `match req { … }` is exhaustive over `RequestBody`'s variants.
-//! When Phase 1's wire shape gains a new variant, this file fails to
+//! When the wire shape gains a new variant, this file fails to
 //! compile until the corresponding arm is added — the bug-prevention
 //! guarantee we want.
 //!
-//! Stub handlers return `OpError::NotYetImplemented`; sub-tasks 7.3
-//! through 7.10 replace each stub with a real implementation.
+//! Stub handlers return `OpError::NotYetImplemented` until a real
+//! implementation replaces each one.
 
 use brain_core::AgentId;
 use brain_metadata::api_keys::bits as perm_bits;
@@ -226,7 +226,7 @@ pub async fn dispatch(
     let single = DispatchOutcome::Single;
     match req {
         // -----------------------------------------------------------
-        // Cognitive primitives — real handlers land in 7.3-7.7.
+        // Cognitive primitives.
         // Handlers read `ctx.executor.caller_agent` to populate
         // `agent_id` on the writer Ops they build; the per-request
         // clone above ensures they see the auth-time value, not the
@@ -265,7 +265,7 @@ pub async fn dispatch(
             .map(|b| single(ResponseBody::Forget(b))),
 
         // -----------------------------------------------------------
-        // LINK / UNLINK — 7.8.
+        // LINK / UNLINK.
         // -----------------------------------------------------------
         RequestBody::Link(r) => crate::link::handle_link(r, ctx)
             .await
@@ -276,7 +276,7 @@ pub async fn dispatch(
             .map(|b| single(ResponseBody::Unlink(b))),
 
         // -----------------------------------------------------------
-        // Streaming — 7.10. First-event shape only; subsequent
+        // Streaming. First-event shape only; subsequent
         // events ride a broadcast channel.
         // -----------------------------------------------------------
         RequestBody::Subscribe(r) => crate::subscribe::handle_subscribe(r, ctx)
@@ -300,11 +300,11 @@ pub async fn dispatch(
         }
 
         // -----------------------------------------------------------
-        // Transactions — 7.9.
+        // Transactions.
         // -----------------------------------------------------------
         // TXN_BEGIN stamps the wire-level session id on the entry so
-        // the connection-drop sweep (§05/04: "on connection drop
-        // before commit, none of the operations take effect") can
+        // the connection-drop sweep (on connection drop
+        // before commit, none of the operations take effect) can
         // identify which buffered work belongs to a dying connection.
         RequestBody::TxnBegin(r) => crate::txn::handle_txn_begin(r, caller.session_id, ctx)
             .await
@@ -319,7 +319,7 @@ pub async fn dispatch(
             .map(|b| single(ResponseBody::TxnAbort(b))),
 
         // -----------------------------------------------------------
-        // Connection lifecycle — brain-server (Phase 9) owns these.
+        // Connection lifecycle — brain-server owns these.
         // -----------------------------------------------------------
         RequestBody::Hello(_)
         | RequestBody::Auth(_)
@@ -331,7 +331,7 @@ pub async fn dispatch(
         )),
 
         // -----------------------------------------------------------
-        // Admin ops — Phase 8 (workers) / Phase 9 (server) own these.
+        // Admin ops — workers / server own these.
         // -----------------------------------------------------------
         RequestBody::AdminStats(_)
         | RequestBody::AdminSnapshot(_)
@@ -357,7 +357,7 @@ pub async fn dispatch(
         ),
 
         // -----------------------------------------------------------
-        // Knowledge layer — Phase 16+.
+        // Knowledge layer.
         // -----------------------------------------------------------
         RequestBody::EntityCreate(r) => crate::handlers::entity::handle_entity_create(r, ctx)
             .await
@@ -395,7 +395,7 @@ pub async fn dispatch(
             .await
             .map(|b| single(ResponseBody::EntityTombstone(b))),
 
-        // Statement ops — phase 17.7.
+        // Statement ops.
         RequestBody::StatementCreate(r) => {
             crate::handlers::statement::handle_statement_create(r, ctx)
                 .await
@@ -428,7 +428,7 @@ pub async fn dispatch(
             .await
             .map(|b| single(ResponseBody::StatementList(b))),
 
-        // Relation ops — phase 18.7.
+        // Relation ops.
         RequestBody::RelationCreate(r) => crate::handlers::relation::handle_relation_create(r, ctx)
             .await
             .map(|b| single(ResponseBody::RelationCreate(b))),
@@ -461,7 +461,7 @@ pub async fn dispatch(
                 .map(|b| single(ResponseBody::RelationTraverse(b)))
         }
 
-        // Schema ops — phase 19.6.
+        // Schema ops.
         RequestBody::SchemaUpload(r) => crate::handlers::schema::handle_schema_upload(r, ctx)
             .await
             .map(|b| single(ResponseBody::SchemaUpload(b))),
@@ -480,7 +480,7 @@ pub async fn dispatch(
                 .map(|b| single(ResponseBody::SchemaReplace(b)))
         }
 
-        // Extractor governance ops — phase 20.8-§7.
+        // Extractor governance ops.
         RequestBody::ExtractorList(r) => {
             crate::handlers::extractor_admin::handle_extractor_list(r, ctx)
                 .await
@@ -497,7 +497,7 @@ pub async fn dispatch(
                 .map(|b| single(ResponseBody::ExtractorEnable(b)))
         }
 
-        // Hybrid query ops — phase 23.9.
+        // Hybrid query ops.
         RequestBody::Query(r) => crate::query::handle_query(r, ctx)
             .await
             .map(|b| single(ResponseBody::Query(b))),

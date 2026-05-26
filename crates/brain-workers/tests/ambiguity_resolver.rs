@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 
 //! AmbiguityResolverWorker integration test — drives the worker
 //! end-to-end against a real MetadataDb + EntityHnswIndex. Verifies

@@ -1,8 +1,6 @@
-//! Entity-resolver perf bench (sub-task 16.9.4).
+//! Entity-resolver perf bench.
 //!
-//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
-//! ../../spec/20_benchmarks/02_latency_targets.md) §2.2 at
-//! 100K entities:
+//! Latency targets at 100K entities:
 //!
 //! - tier-1 exact lookup: p50 ≤ 1 ms, p99 ≤ 2 ms.
 //! - tier-1 alias lookup: p50 ≤ 1 ms, p99 ≤ 2 ms.
@@ -12,9 +10,8 @@
 //!
 //! Run with: `cargo bench -p brain-metadata --bench entity_resolve`.
 //!
-//! Phase scope (16.9): benches are operator-run; CI regression
-//! thresholds land in phase 14. Tier-3 (embedding) bench lands in
-//! phase 21 alongside the entity HNSW wiring.
+//! Benches are operator-run; the tier-3 (embedding) bench lands
+//! alongside the entity HNSW wiring.
 
 use brain_core::{Entity, EntityId, EntityType, EntityTypeId};
 use brain_metadata::entity::ops::{

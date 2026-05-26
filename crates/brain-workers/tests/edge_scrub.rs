@@ -1,5 +1,5 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Edge scrub worker tests (sub-task 8.9).
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Edge scrub worker tests.
 
 use std::sync::atomic::Ordering;
 use std::sync::Arc;

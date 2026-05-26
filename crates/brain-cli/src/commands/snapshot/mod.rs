@@ -1,5 +1,4 @@
-//! `brain-cli snapshot {create,list,delete,restore}` —
-//! sub-task 10.9.
+//! `brain-cli snapshot {create,list,delete,restore}`.
 
 pub mod create;
 pub mod delete;

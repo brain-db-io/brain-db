@@ -1,4 +1,4 @@
-//! Integration tests for sub-task 9.11 — cross-shard SUBSCRIBE fan-out.
+//! Integration tests for cross-shard SUBSCRIBE fan-out.
 
 #![cfg(target_os = "linux")]
 
@@ -550,7 +550,7 @@ async fn double_subscribe_with_same_stream_id_errors() {
 // registry's contract end-to-end on the wire.)
 
 // ---------------------------------------------------------------------------
-// WAL-replay end-to-end (sub-task 9.x; subscribe --start-lsn). Encodes
+// WAL-replay end-to-end (subscribe --start-lsn). Encodes
 // memories BEFORE the subscriber connects, then subscribes with
 // from_lsn=1 and asserts the historical events arrive — proof that
 // the writer is WAL-recording substrate ops and the connection-layer

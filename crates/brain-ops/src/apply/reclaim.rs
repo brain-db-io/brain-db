@@ -24,8 +24,8 @@ pub fn apply_reclaim_slots(
 
     // For each slot, walk MEMORIES_TABLE looking for a row whose
     // slot_id matches. (Slot-id is not a unique index key today —
-    // the table is keyed by MemoryId — so the scan is O(N). Phase P2
-    // ports the existing slot_reclaim_worker logic; replacing this
+    // the table is keyed by MemoryId — so the scan is O(N). Porting
+    // the existing slot_reclaim_worker logic and replacing this
     // with a slots → memory_id secondary index is a separate concern.)
     //
     // The MemoryId of the matching row is what we use to evict its
@@ -72,7 +72,7 @@ pub fn apply_reclaim_slots(
 /// hash(32). The slot-reclaim path here only knows the content_hash;
 /// it removes via prefix match isn't directly supported, so we encode
 /// a synthetic key with zeroed agent/context. That's a placeholder —
-/// the real port comes in P5 (worker migration) where the worker
+/// the real port comes with the worker migration, where the worker
 /// already knows the original (agent, context) tuple.
 fn content_hash_to_fp_key(content_hash: [u8; 32]) -> [u8; 56] {
     let mut k = [0u8; 56];

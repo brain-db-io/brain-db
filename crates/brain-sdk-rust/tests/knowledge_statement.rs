@@ -1,4 +1,4 @@
-//! Statement SDK integration tests. Phase 17.10a.
+//! Statement SDK integration tests.
 //!
 //! Uses the mock-server harness (`common::spawn_mock_server`) to
 //! verify that:

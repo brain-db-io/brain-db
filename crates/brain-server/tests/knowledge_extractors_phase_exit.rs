@@ -1,4 +1,4 @@
-//! Phase-20 exit integration test (sub-task 20.9).
+//! Extractor lifecycle exit integration test.
 //!
 //! Exercises the full extractor lifecycle end-to-end:
 //! - System schema seeds `brain.entity_mentions` + `brain.basic_ner`.
@@ -7,7 +7,7 @@
 //! - Verify an audit row was written for the pattern extractor with
 //!   `Success` status and a non-zero item count in `status_reason`.
 //! - Verify the classifier extractor wrote a `Failure` audit row
-//!   with the staged "runtime not wired" reason (phase 20.7b
+//!   with the staged "runtime not wired" reason (a follow-up
 //!   will flip this to a real inference path).
 //! - DISABLE the pattern extractor → ENCODE again → assert only
 //!   the classifier wrote an audit row for the second memory.

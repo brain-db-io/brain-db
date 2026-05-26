@@ -1,8 +1,5 @@
 //! Fluent builders + uniform `StatementHandle` over the 7 statement
-//! wire opcodes. Phase 17.8.
-//!
-//! See `spec/29_knowledge_sdk/00_purpose.md` §"Typed statement API"
-//! for the target ergonomics.
+//! wire opcodes.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::{Client, ClientError, StatementKind};
@@ -28,10 +25,10 @@
 //! # Ok(()) }
 //! ```
 //!
-//! ## Phase scope
+//! ## Scope
 //!
-//! Hand-written builders only — no derive macro. Phase 19 adds
-//! `#[derive(BrainFact)]` and typed wrappers `Fact<RoleAttrs>` etc.
+//! Hand-written builders only — no derive macro. A later
+//! `#[derive(BrainFact)]` adds typed wrappers `Fact<RoleAttrs>` etc.
 //! v1 returns a uniform [`StatementHandle`] that callers branch on by
 //! [`StatementHandle::kind`].
 
@@ -59,8 +56,8 @@ use crate::error::ClientError;
 // ---------------------------------------------------------------------------
 
 /// Read-side projection of a server statement. Uniform across kinds;
-/// callers branch on [`Self::kind`] when they care. Phase 19 adds
-/// typed wrappers via `#[derive(BrainFact)]`.
+/// callers branch on [`Self::kind`] when they care. Typed wrappers via
+/// `#[derive(BrainFact)]` arrive later.
 #[derive(Clone, Debug, PartialEq)]
 pub struct StatementHandle {
     pub id: StatementId,
@@ -360,7 +357,7 @@ macro_rules! shared_setters {
         }
 
         /// Set the evidence list (≤ 8 inline). Overflow evidence is a
-        /// phase-22 surface; v1 SDK rejects more than 8 entries at
+        /// later surface; v1 SDK rejects more than 8 entries at
         /// `.create()` time.
         #[must_use]
         pub fn evidence(mut self, memories: Vec<MemoryId>) -> Self {
@@ -526,7 +523,7 @@ impl<'a> StatementsClient<'a> {
     }
 
     /// Start a LIST builder. Single-page snapshot in v1 (limit cap
-    /// 1000); cursor pagination lands in phase 23.
+    /// 1000); cursor pagination lands later.
     #[must_use]
     pub fn list(&self) -> StatementListBuilder<'a> {
         StatementListBuilder::new(self.client)
@@ -628,7 +625,7 @@ impl<'a> StatementsClient<'a> {
     }
 
     /// Hard-delete a statement. Tombstones immediately and schedules
-    /// zero-out after the GC grace window (phase 21 worker reclaims).
+    /// zero-out after the GC grace window (the GC worker reclaims).
     /// Returns the retraction timestamp.
     pub async fn retract(
         &self,
@@ -974,7 +971,7 @@ mod tests {
     // Note: the request-assembly tests below construct the
     // `StatementCreateRequest` directly to verify builder logic
     // without needing a live server. End-to-end mock-server tests
-    // live in 17.10.
+    // live separately.
 
     #[test]
     fn fact_builder_requires_subject() {

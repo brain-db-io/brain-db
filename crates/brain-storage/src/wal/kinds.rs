@@ -1,26 +1,24 @@
 //! WAL record kind discriminator.
 //!
-//! This module defines the `record_type` byte from `spec/08_storage/
-//! 05_wal_records.md` §3 and the knowledge-layer extensions from
-//! `spec/26_knowledge_storage/00_purpose.md`.
+//! This module defines the `record_type` byte and the knowledge-layer
+//! extensions.
 //!
 //! ## Discriminant ranges
 //!
-//! - **1..=15**  — substrate kinds (per `spec/05/05_wal_records.md` §3).
-//! - **16..=80** — knowledge-layer kinds (per `spec/26` "WAL frame types"),
+//! - **1..=15**  — substrate kinds.
+//! - **16..=80** — knowledge-layer kinds ("WAL frame types"),
 //!   with reserved gaps inside the block for future grouping.
 //! - **81..=127** — reserved for v1 minor versions.
 //! - **128..**   — reserved for v2+ (incompatible format).
 //!
-//! Sub-task 15.2 introduced the knowledge-layer block. Their bodies are
-//! treated as opaque `Vec<u8>` payloads by the framing layer; the typed
-//! body schemas land in phases 16 (entities), 17 (statements), 18
-//! (relations), 19 (schema DSL), 20+ (audit).
+//! Knowledge-layer bodies are treated as opaque `Vec<u8>` payloads by
+//! the framing layer; the typed body schemas (entities, statements,
+//! relations, schema DSL, audit) are layered above.
 
-/// One variant per spec'd `record_type` byte.
+/// One variant per `record_type` byte.
 ///
-/// The discriminant matches the spec table exactly so casts to/from `u8`
-/// are the on-disk encoding.
+/// The discriminant matches the on-disk table exactly so casts to/from
+/// `u8` are the on-disk encoding.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 #[repr(u8)]
 pub enum WalRecordKind {
@@ -70,7 +68,7 @@ pub enum WalRecordKind {
 
 impl WalRecordKind {
     /// Inverse of the `#[repr(u8)]` cast. Returns `None` for `0`
-    /// (reserved per spec) and any value not in a defined slot of the
+    /// (reserved) and any value not in a defined slot of the
     /// substrate (1..=15) or knowledge-layer tables.
     pub const fn from_u8(b: u8) -> Option<Self> {
         Some(match b {
@@ -121,7 +119,7 @@ impl WalRecordKind {
     }
 }
 
-/// Every spec'd kind, in declaration order. Useful for exhaustive tests.
+/// Every kind, in declaration order. Useful for exhaustive tests.
 pub const ALL_KINDS: &[WalRecordKind] = &[
     // Substrate.
     WalRecordKind::Encode,
@@ -160,14 +158,14 @@ mod tests {
 
     #[test]
     fn discriminants_match_spec_table() {
-        // Substrate (spec/08_storage/05_wal_records.md §3).
+        // Substrate.
         assert_eq!(WalRecordKind::Encode.as_u8(), 1);
         assert_eq!(WalRecordKind::Forget.as_u8(), 2);
         assert_eq!(WalRecordKind::Reclaim.as_u8(), 6);
         assert_eq!(WalRecordKind::CheckpointEnd.as_u8(), 11);
         assert_eq!(WalRecordKind::MigrateEmbedding.as_u8(), 15);
 
-        // Knowledge layer (spec/26_knowledge_storage/00_purpose.md).
+        // Knowledge layer.
         assert_eq!(WalRecordKind::EntityCreate.as_u8(), 0x10);
         assert_eq!(WalRecordKind::EntityTombstone.as_u8(), 0x13);
         assert_eq!(WalRecordKind::StatementCreate.as_u8(), 0x20);
@@ -185,7 +183,7 @@ mod tests {
 
     #[test]
     fn from_u8_rejects_reserved_and_unknown() {
-        assert_eq!(WalRecordKind::from_u8(0), None); // reserved per spec
+        assert_eq!(WalRecordKind::from_u8(0), None); // reserved
                                                      // Gaps inside the substrate block — none, 1..=15 are all populated.
                                                      // Gaps inside the knowledge-layer block (entity 0x14..=0x1F, etc.).
         assert_eq!(WalRecordKind::from_u8(0x14), None);

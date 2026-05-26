@@ -1,7 +1,6 @@
-//! Pattern extractor perf bench (sub-task 20.10).
+//! Pattern extractor perf bench.
 //!
-//! Spec targets per `spec/20_benchmarks/02_latency_targets.md`
-//! §2.7 at a single-extractor dispatch over a 4 KiB memory:
+//! Latency targets at a single-extractor dispatch over a 4 KiB memory:
 //!
 //! - Pattern extractor: p50 30 µs, p99 100 µs.
 //!

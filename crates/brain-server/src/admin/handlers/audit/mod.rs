@@ -1,4 +1,4 @@
-//! Admin HTTP handlers for `audit` (sub-task 10.11).
+//! Admin HTTP handlers for `audit`.
 //!
 //! Both routes are deferred — no audit-log primitive exists yet.
 

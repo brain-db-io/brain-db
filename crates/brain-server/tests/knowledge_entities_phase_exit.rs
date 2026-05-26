@@ -1,4 +1,4 @@
-//! Phase-16 exit integration test (sub-task 16.9.3).
+//! Entity lifecycle exit integration test.
 //!
 //! Exercises the full entity lifecycle end-to-end over the wire:
 //! create → get → update → rename → merge → unmerge → rename →
@@ -6,8 +6,8 @@
 //!
 //! Companion to:
 //!
-//! - `knowledge_entity_wire.rs` (16.6c): individual op wire smoke.
-//! - `knowledge_entity_merge_wire.rs` (16.7.9): merge / unmerge /
+//! - `knowledge_entity_wire.rs`: individual op wire smoke.
+//! - `knowledge_entity_merge_wire.rs`: merge / unmerge /
 //!   resolve / list / tombstone wire smoke + error paths.
 //!
 //! This test focuses on **lifecycle ordering** — that the operations

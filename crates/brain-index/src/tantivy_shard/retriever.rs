@@ -1,8 +1,6 @@
-//! LexicalRetriever — phase 22.5 (read side of the tantivy
-//! pipeline). Implements the surface defined in
-//! `spec/13_retrievers/02_lexical_retriever.md`.
+//! LexicalRetriever — the read side of the tantivy pipeline.
 //!
-//! Consumers (phase 23 hybrid query, future RECALL paths) hold an
+//! Consumers (hybrid query, RECALL paths) hold an
 //! `Arc<dyn LexicalRetriever>` and call [`LexicalRetriever::retrieve`].
 //! Per-shard wiring is the server's responsibility (see
 //! `brain-server::shard::spawn`).
@@ -90,9 +88,9 @@ pub struct RankedItem {
 pub enum RankedItemId {
     Memory(MemoryId),
     Statement(StatementId),
-    /// Graph retrieval emits entities (§23/04 §1).
+    /// Graph retrieval emits entities.
     Entity(EntityId),
-    /// Graph retrieval emits relations (§23/04 §1).
+    /// Graph retrieval emits relations.
     Relation(RelationId),
 }
 
@@ -157,9 +155,8 @@ impl LexicalRetriever for TantivyLexicalRetriever {
         // Tantivy's default `ReloadPolicy::OnCommitWithDelay` may
         // lag behind the writer's commits by up to ~50 ms. We
         // call `reload()` synchronously so callers see a
-        // consistent view of all committed writes (matches the
-        // §23/02 §6 idempotency contract: identical results
-        // between commits).
+        // consistent view of all committed writes (the idempotency
+        // contract: identical results between commits).
         reader
             .reload()
             .map_err(|e| LexicalError::Internal(format!("reader reload: {e}")))?;

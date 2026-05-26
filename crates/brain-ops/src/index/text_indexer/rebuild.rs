@@ -1,10 +1,9 @@
-//! Index rebuild worker (phase 22.6).
+//! Index rebuild worker.
 //!
 //! Recovers the per-shard tantivy indexes from the authoritative
-//! redb tables when 22.1's `TantivyShard::open` reports
+//! redb tables when `TantivyShard::open` reports
 //! `IndexStatus::NeedsRebuild` (corrupt segments, missing files,
-//! schema-version mismatch). Implements the algorithm in
-//! `spec/26_knowledge_storage/01_tantivy_layout.md` §5.
+//! schema-version mismatch).
 //!
 //! ## v1 simplifications
 //!
@@ -16,7 +15,7 @@
 //!   index with the correct schema + payload so subsequent
 //!   writes work; operators re-ingest existing memories from
 //!   their own source-of-truth. Full content-aware rebuild
-//!   lands post-v1 (§27/07).
+//!   lands post-v1.
 //! - **Statement text rebuild is content-complete** because
 //!   `StatementMetadata.object_blob` carries the encoded
 //!   `StatementObject`, and `subject_name` / `predicate_name`
@@ -75,7 +74,7 @@ pub fn rebuild_memory_text(
         memory_text_schema(),
         LexicalScope::MemoryText,
         |_, _| {
-            // §27/02 §2 — memory text isn't in redb; rebuild yields
+            // Memory text isn't in redb; rebuild yields
             // an empty but valid index. Documented above.
             Ok(0)
         },
@@ -85,7 +84,7 @@ pub fn rebuild_memory_text(
 /// Rebuild `statements.tantivy/` under `shard_dir`. Iterates
 /// `STATEMENTS_TABLE` and joins against `ENTITIES_TABLE` (subject
 /// canonical_name) + `PREDICATES_TABLE` (predicate name), then
-/// projects the row to the schema defined in §26/01 §2.
+/// projects the row to the lexical-index schema.
 pub fn rebuild_statements(
     shard_dir: &Path,
     metadata: &MetadataDb,
@@ -235,7 +234,7 @@ fn iterate_statements(
         let stmt = value.value();
 
         // Skip tombstoned statements — lexical layer carries only
-        // live rows per §27/02 §3.
+        // live rows.
         if stmt.tombstoned != 0 {
             continue;
         }

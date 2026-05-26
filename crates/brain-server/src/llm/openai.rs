@@ -1,4 +1,4 @@
-//! OpenAI Chat Completions Summarizer adapter (sub-task 9.15).
+//! OpenAI Chat Completions Summarizer adapter.
 //!
 //! Posts to `<api_base>/chat/completions` with the
 //! prompt. API key resolved env-first (`OPENAI_API_KEY`),

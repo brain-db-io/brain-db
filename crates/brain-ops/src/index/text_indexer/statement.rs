@@ -1,8 +1,7 @@
-//! Statement text indexer worker (phase 22.4).
+//! Statement text indexer worker.
 //!
 //! Hooks the statement create / supersede / tombstone / retract
-//! post-commit pipelines into `statements.tantivy/`. See
-//! `spec/27_knowledge_workers/02_text_indexer_workers.md` §3.
+//! post-commit pipelines into `statements.tantivy/`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -57,8 +56,7 @@ impl StatementTextDispatcher {
         Self::channel(DEFAULT_QUEUE_CAPACITY)
     }
 
-    /// Enqueue `op` for the indexer. Awaits on backpressure per
-    /// §27/02 §1.
+    /// Enqueue `op` for the indexer. Awaits on backpressure.
     pub async fn dispatch(&self, op: StatementTextOp) {
         if self.tx.send_async(op).await.is_err() {
             warn!(
@@ -279,7 +277,7 @@ fn kind_to_u64(kind: StatementKind) -> u64 {
     kind.as_u8() as u64
 }
 
-/// Compute the confidence-bucket field per §26/01 §2:
+/// Compute the confidence-bucket field:
 /// `(confidence.clamp(0,1) * 10).floor()` ∈ `[0, 9]`.
 #[must_use]
 pub fn confidence_bucket(confidence: f32) -> u64 {
@@ -360,7 +358,7 @@ pub fn upsert_op_from_statement(
 }
 
 /// Project a `StatementObject` to the text representation indexed
-/// in `statements.tantivy/`. Per §27/02 §3:
+/// in `statements.tantivy/`:
 ///
 /// - Entity → that entity's `canonical_name`.
 /// - Value(Text) → the literal string.

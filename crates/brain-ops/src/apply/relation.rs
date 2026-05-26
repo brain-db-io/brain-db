@@ -1,7 +1,7 @@
 //! Apply functions for relation-shaped phases.
 //!
-//! Full P2c coverage: UpsertRelation, Tombstone(Relation),
-//! Supersede(Relation) all real.
+//! Covers UpsertRelation, Tombstone(Relation), and
+//! Supersede(Relation).
 
 use brain_core::Relation;
 use brain_metadata::relation::ops::{relation_create, relation_supersede, relation_tombstone};

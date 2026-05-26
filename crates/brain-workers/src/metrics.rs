@@ -1,7 +1,7 @@
 //! Per-worker metrics.
 //!
-//! v1 publishes through atomics; Phase 9's tracing/OpenTelemetry
-//! plumbing reads them out. Snapshot getters return a plain `Snapshot`
+//! v1 publishes through atomics; the tracing/OpenTelemetry plumbing
+//! reads them out. Snapshot getters return a plain `Snapshot`
 //! struct so callers (tests, admin handlers) don't have to chase
 //! atomics by hand.
 

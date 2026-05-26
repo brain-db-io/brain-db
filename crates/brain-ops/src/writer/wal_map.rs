@@ -1,6 +1,6 @@
 //! `Phase → WalPayload` mapping for the unified write path.
 //!
-//! This is the first slice of P3b (WAL framing for submit(Write)).
+//! WAL framing for submit(Write).
 //! Single-phase writes whose phase maps to an existing typed
 //! [`WalPayload`] variant get WAL durability automatically.
 //!
@@ -16,7 +16,7 @@
 //! caller (`submit::wal_append_for_write`) — this module just maps
 //! each phase to its payload.
 //!
-//! Deferred (later P3b slices):
+//! Deferred:
 //! - UpsertEntity / UpsertStatement / UpsertRelation / Supersede /
 //!   UpsertSchema / SetExtractorEnabled / MergeEntities — these need
 //!   the `WalPayload::Knowledge` variant with rkyv-encoded bodies; the

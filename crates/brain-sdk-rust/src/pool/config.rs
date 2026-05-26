@@ -1,31 +1,30 @@
 //! `PoolConfig` — per-pool sizing and lifetime knobs.
 //!
-//! Defaults derive from (1 min / 8 max), §5
-//! (5 min idle, 30 s keep-alive), §13 (overloaded threshold).
+//! Defaults: 1 min / 8 max connections, 5 min idle, 30 s keep-alive.
 
 use std::time::Duration;
 
-/// — default minimum connections per pool.
+/// Default minimum connections per pool.
 pub const DEFAULT_MIN_CONNECTIONS: u32 = 1;
-/// — default maximum connections per pool.
+/// Default maximum connections per pool.
 pub const DEFAULT_MAX_CONNECTIONS: u32 = 8;
-/// — close idle connections after this duration.
+/// Close idle connections after this duration.
 pub const DEFAULT_IDLE_TIMEOUT: Duration = Duration::from_secs(300);
 /// How long [`super::Pool::acquire`] waits for a free slot before
 /// returning `ClientError::Overloaded`. Matches `ClientConfig::timeout`'s
 /// 30 s default so callers don't see two competing budgets.
 pub const DEFAULT_ACQUIRE_TIMEOUT: Duration = Duration::from_secs(30);
-/// — periodic keepalive interval. Reserved for 10.6;
-/// 10.2 stores it but does not yet emit `SERVER_PING`-style frames.
+/// Periodic keepalive interval. Reserved for future use;
+/// stored today but does not yet emit `SERVER_PING`-style frames.
 pub const DEFAULT_KEEPALIVE_INTERVAL: Duration = Duration::from_secs(30);
 
 /// Construction-time knobs for [`super::Pool`].
 ///
-/// Use `PoolConfig::default()` for spec-defaults; builder methods
-/// override individual knobs. The defaults collapse to
+/// Use `PoolConfig::default()` for the recommended defaults; builder
+/// methods override individual knobs. The defaults collapse to
 /// "single-connection mode" — `min = 1`, `max = 1` — when set via
 /// [`PoolConfig::single`] so `Client::connect(addr)` keeps its
-/// 10.1 contract.
+/// single-connection contract.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PoolConfig {
     /// Minimum connections kept alive. The idle reaper won't drop

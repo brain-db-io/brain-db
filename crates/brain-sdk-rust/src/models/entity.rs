@@ -1,8 +1,8 @@
-//! Hand-written entity SDK types — phase 16.8.1.
+//! Hand-written entity SDK types.
 //!
 //! Defines:
 //!
-//! - [`BrainEntityType`] — the trait phase 19's derive macro will
+//! - [`BrainEntityType`] — the trait the derive macro will
 //!   auto-implement. The hand-written [`Person`] impl in this file is
 //!   the v1 reference.
 //! - [`Person`] — built-in entity type seeded by
@@ -24,8 +24,8 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 /// Mapping between a user Rust type (`Person`, `Project`, ...) and the
 /// wire-level `entity_type_id` + attribute encoding.
 ///
-/// Phase 16.8 implements this by hand for [`Person`]. Phase 19's
-/// `#[derive(BrainEntity)]` derives it from the struct's fields and
+/// Implemented by hand for [`Person`]. The
+/// `#[derive(BrainEntity)]` macro derives it from the struct's fields and
 /// schema-DSL declarations.
 ///
 /// All implementors must be ZSTs in practice — the trait carries the
@@ -33,14 +33,14 @@ use rkyv::{Archive, Deserialize as RkyvDeserialize, Serialize as RkyvSerialize};
 pub trait BrainEntityType: Sized + Send + Sync + 'static {
     /// The wire `entity_type_id`. For built-in `Person` this is `1`
     /// (seeded by `MetadataDb::open`). User-declared types from
-    /// phase 19's schema DSL get monotonically-increasing ids ≥ 2.
+    /// the schema DSL get monotonically-increasing ids ≥ 2.
     const ENTITY_TYPE_ID: u32;
 
-    /// Human-readable name. Used for diagnostics + phase 19 schema
+    /// Human-readable name. Used for diagnostics + schema
     /// upload.
     const TYPE_NAME: &'static str;
 
-    /// Typed attribute value type. Defined by the impl; phase 19's
+    /// Typed attribute value type. Defined by the impl; the
     /// macro derives this from the struct's named fields.
     type Attributes: Clone + Default + Send + Sync + 'static;
 
@@ -62,7 +62,7 @@ pub trait BrainEntityType: Sized + Send + Sync + 'static {
 // Person.
 // ---------------------------------------------------------------------------
 
-/// Built-in `Person` entity type §"Entity types".
+/// Built-in `Person` entity type.
 ///
 /// The struct is a zero-sized marker; instances are constructed at the
 /// type level via `client.entity::<Person>()`. Per-entity values live
@@ -70,8 +70,8 @@ pub trait BrainEntityType: Sized + Send + Sync + 'static {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Person;
 
-/// Typed accessor for Person's attribute slots. Mirrors the spec
-/// §18/00 "Person" example:
+/// Typed accessor for Person's attribute slots. Mirrors the
+/// "Person" example:
 ///
 /// ```text
 /// define entity_type Person {
@@ -85,8 +85,8 @@ pub struct Person;
 /// ```
 ///
 /// `timezone` is included in the wire shape but not exposed on the
-/// SDK helper struct — phase 19's macro auto-adds attribute fields
-/// from the schema. For 16.8 the three most-commonly-needed slots are
+/// SDK helper struct — the macro auto-adds attribute fields
+/// from the schema. The most-commonly-needed slots are
 /// surfaced; additional attributes round-trip through the wire blob
 /// transparently.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
@@ -99,7 +99,7 @@ pub struct PersonAttributes {
 
 impl BrainEntityType for Person {
     /// Person is `EntityType::PERSON_ID` from `brain-core`, seeded by
-    /// `MetadataDb::open` (phase 16.1).
+    /// `MetadataDb::open`.
     const ENTITY_TYPE_ID: u32 = 1;
     const TYPE_NAME: &'static str = "Person";
     type Attributes = PersonAttributes;
@@ -141,7 +141,7 @@ impl BrainEntityType for Person {
 
 /// rkyv-archived representation behind Person's `attributes_blob`.
 ///
-/// Phase 19's schema DSL replaces this hand-written shape with a
+/// The schema DSL replaces this hand-written shape with a
 /// schema-driven encoding. For now: a fixed Optional-string record
 /// for the four well-known Person slots. Forward-compatible: adding a
 /// new field at the bottom is a non-breaking rkyv-shape change as

@@ -1,10 +1,6 @@
 //! `MetadataDb` — the public composition layer over the 13 tables in
 //! `crate::tables`.
 //!
-//! Spec references:
-//! - `spec/10_metadata/08_transactions.md` — full transaction semantics.
-//! - `spec/10_metadata/02_table_layout.md` — table catalog.
-//!
 //! ## Surface
 //!
 //! - [`MetadataDb::open`] — opens or creates the redb file at the given
@@ -23,18 +19,17 @@
 //!
 //! ## What does NOT live here
 //!
-//! - **`impl MetadataSink for MetadataDb`** — sub-task 3.11.
+//! - **`impl MetadataSink for MetadataDb`** — lives in `recovery/`.
 //! - **Typed convenience methods** (`db.get_memory(&id)` etc.) —
-//!   deliberately not shows callers opening multiple
-//!   tables inside one write transaction; wrapping each row type in a
-//!   dedicated method would (a) duplicate redb's API, (b) break
-//!   batching, (c) hide transaction granularity from the caller.
-//!   Callers `use brain_metadata::tables::memory::MEMORIES_TABLE;` and
-//!   open whatever they need.
-//! - **Cached table handles** — profile-driven; not
-//!   v1.
-//! - **Write-transaction timeout** — writer-task
-//!   concern; `MetadataDb` doesn't auto-abort.
+//!   deliberately omitted. Callers open multiple tables inside one
+//!   write transaction; wrapping each row type in a dedicated method
+//!   would (a) duplicate redb's API, (b) break batching, (c) hide
+//!   transaction granularity from the caller. Callers
+//!   `use brain_metadata::tables::memory::MEMORIES_TABLE;` and open
+//!   whatever they need.
+//! - **Cached table handles** — profile-driven; not done yet.
+//! - **Write-transaction timeout** — writer-task concern; `MetadataDb`
+//!   doesn't auto-abort.
 
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -54,10 +49,9 @@ use crate::tables::checkpoint::{latest as latest_checkpoint, CHECKPOINTS_TABLE};
 /// (`write_txn`) both take `&self` because redb itself coordinates
 /// MVCC reads and per-database write serialisation; wrapping the
 /// handle in a mutex would only block readers against readers without
-/// adding any actual safety. The single-writer-per-shard invariant
-/// (CLAUDE.md §5 invariant 2) is enforced architecturally — one
-/// dedicated writer task per shard drives `write_txn` — not by the
-/// borrow checker.
+/// adding any actual safety. The single-writer-per-shard invariant is
+/// enforced architecturally — one dedicated writer task per shard
+/// drives `write_txn` — not by the borrow checker.
 #[derive(Debug)]
 pub struct MetadataDb {
     pub(crate) db: Database,
@@ -103,8 +97,7 @@ pub enum MetadataDbError {
     #[error("schema: {0}")]
     Schema(#[from] SchemaError),
 
-    /// Phase 19.7 — system-schema seed failed at `MetadataDb::open`.
-    /// Replaces the per-builtin-kind variants from 16.1 / 17.3 / 18.3.
+    /// System-schema seed failed at `MetadataDb::open`.
     #[error("system schema seed: {0}")]
     SystemSchemaSeed(#[from] SystemSchemaError),
 }
@@ -136,11 +129,10 @@ impl MetadataDb {
             }
         };
 
-        // Phase 19.7: replaces the three hand-seeded paths from
-        // 16.1 / 17.3 / 18.3 with a single parse-validate-apply over
-        // the embedded `system_schema/schema.brain` source. Idempotent
-        // — re-opens are no-ops because `schema_active("brain")`
-        // returns `Some(1)` on a previously-seeded DB.
+        // Single parse-validate-apply over the embedded
+        // `system_schema/schema.brain` source. Idempotent — re-opens
+        // are no-ops because `schema_active("brain")` returns `Some(1)`
+        // on a previously-seeded DB.
         seed_system_schema(&db)?;
 
         Ok(Self {
@@ -421,7 +413,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Sub-task 16.1: Person bootstrap.
+    // Person bootstrap.
     // -----------------------------------------------------------------
 
     /// The system schema seeds the six built-in entity types in
@@ -509,7 +501,7 @@ mod tests {
             wtxn.commit().unwrap();
         }
 
-        // Re-open: seed must be a no-op. Phase 19.7 gates on
+        // Re-open: seed must be a no-op. The seed gates on
         // `schema_active("brain")`, not on table emptiness.
         let db = MetadataDb::open(&path).unwrap();
         let rtxn = db.read_txn().unwrap();
@@ -526,7 +518,7 @@ mod tests {
     }
 
     // -----------------------------------------------------------------
-    // Sub-task 18.3: built-in relation type seeding.
+    // Built-in relation type seeding.
     // -----------------------------------------------------------------
 
     #[test]
@@ -555,7 +547,7 @@ mod tests {
 
         let rtxn = db.read_txn().unwrap();
         let all = crate::relation::types::relation_type_list(&rtxn, Some("brain")).unwrap();
-        // Phase 19.7: system schema seeds 3 brain relation types
+        // The system schema seeds 3 brain relation types
         // (`related_to`, `reports_to`, `co_authored`). Idempotent
         // on reopen — count stays at 3, not 6.
         assert_eq!(all.len(), 3, "re-open must not duplicate built-in seeds");

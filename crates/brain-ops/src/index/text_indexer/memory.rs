@@ -1,8 +1,7 @@
-//! Memory text indexer worker (phase 22.3).
+//! Memory text indexer worker.
 //!
 //! Hooks the ENCODE / FORGET post-commit pipelines into
-//! `memory_text.tantivy/`. See
-//! `spec/27_knowledge_workers/02_text_indexer_workers.md` §2.
+//! `memory_text.tantivy/`.
 
 use std::sync::Arc;
 use std::time::{Duration, Instant};
@@ -55,7 +54,7 @@ impl MemoryTextDispatcher {
     }
 
     /// Enqueue `op` for the indexer. **Awaits** if the queue is
-    /// full — the explicit §27/02 §1 backpressure-on-overflow
+    /// full — the explicit backpressure-on-overflow
     /// discipline. Returns `Err` only if the indexer has shut
     /// down (drop of the receiver), which signals shard
     /// teardown; the caller logs + continues to drain whatever
@@ -155,8 +154,7 @@ pub async fn run_memory_text_indexer(
 fn build_writer(handle: &IndexHandle) -> Result<IndexWriter, IndexerError> {
     debug_assert!(matches!(handle.scope, LexicalScope::MemoryText));
     // 50 MB heap, 1 writer thread. Tantivy enforces a minimum of
-    // ~15 MB; 50 MB is comfortable for the 256-doc batch shape
-    // §26/01 §3 specifies.
+    // ~15 MB; 50 MB is comfortable for the 256-doc batch shape.
     Ok(handle.index.writer_with_num_threads(1, 50_000_000)?)
 }
 
@@ -303,7 +301,7 @@ fn kind_to_u64(kind: MemoryKind) -> u64 {
 /// Returns `Err(())` on the **second** failure, signalling that
 /// the caller should terminate the drain loop. The shard
 /// supervisor sees the drop of the dispatcher's receiver and
-/// alerts (§27/02 §4 — text indexing failure is shard-fatal).
+/// alerts (text indexing failure is shard-fatal).
 fn commit_with_retry(writer: &mut IndexWriter) -> Result<(), ()> {
     match attempt_commit(writer) {
         Ok(()) => Ok(()),

@@ -1,7 +1,7 @@
 //! Minimal hand-rolled blocking HTTP/1.1 GET.
 //!
 //! brain-cli's needs are tiny: hit the admin server's
-//! `/healthz` / `/metrics` endpoints (sub-task 9.13) and read
+//! `/healthz` / `/metrics` endpoints and read
 //! the body. A full reqwest dep (or even reqwest::blocking)
 //! pulls hyper / tokio for one syscall's worth of work. The
 //! ~80 LOC below covers it.
@@ -88,7 +88,7 @@ fn parse_response(raw: &[u8]) -> anyhow::Result<HttpResponse> {
 }
 
 // ---------------------------------------------------------------------------
-// POST / DELETE (sub-task 10.11)
+// POST / DELETE
 // ---------------------------------------------------------------------------
 
 /// HTTP/1.1 POST. `body` may be empty. `read_timeout` lets callers

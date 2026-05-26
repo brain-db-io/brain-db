@@ -31,19 +31,17 @@
 //!                 channel closes ─▶ shard_main_loop exits ─▶ joiner.join() returns
 //! ```
 //!
-//! (layers), §01/05 (hardware: io_uring, CPU pinning),
-//! §10/02 (single writer per shard), §12/01 §3 (shard UUID permanence).
-//! Audit `phase-09-glommio-port.md` §7 locks flume as the boundary primitive;
-//! §8.2 defers the in-shard `Rc<Cell<bool>>` shutdown flag to 9.7.
+//! flume is the boundary primitive between the connection layer and the
+//! shard; a per-shard `Rc<Cell<bool>>` flag drives in-shard shutdown.
 
 #![cfg(target_os = "linux")]
-// OpsContext is intentionally `!Send + !Sync` post-9.7 (audit §4). The
+// OpsContext is intentionally `!Send + !Sync`. The
 // per-shard Glommio executor is the containment boundary; `Arc<OpsContext>`
 // is used in the shard's main loop without crossing threads.
 #![allow(clippy::arc_with_non_send_sync)]
-// 9.8: `shard.wal` is `Rc<RefCell<Option<Wal>>>`. The main loop's
+// `shard.wal` is `Rc<RefCell<Option<Wal>>>`. The main loop's
 // `AppendWalRecord` handler takes an *immutable* `borrow()` on the
-// outer cell across `Wal::append(...).await`. The Phase-8 snapshot
+// outer cell across `Wal::append(...).await`. The snapshot
 // adapter also takes immutable borrows. The single-threaded Glommio
 // executor + the discipline that the *only* `borrow_mut()` site is the
 // shutdown path (after the scheduler has drained) guarantee no
@@ -95,7 +93,7 @@ use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
 use tracing::{error, info, warn};
 
 // ---------------------------------------------------------------------------
-// Request type — extended by 9.10 with `Frame { req, reply_tx }`.
+// Request type.
 // ---------------------------------------------------------------------------
 
 pub(crate) enum ShardRequest {
@@ -106,7 +104,7 @@ pub(crate) enum ShardRequest {
         reply_tx: Sender<Result<(u64, SlotVersion), ShardOpError>>,
     },
     /// Dispatch a wire `RequestBody` through `brain_ops::dispatch` and
-    /// return the resulting `ResponseBody`. Added in 9.10 — the
+    /// return the resulting `ResponseBody`. The
     /// frame-dispatcher's primary boundary primitive.
     ///
     /// `caller` carries the authenticated agent from the
@@ -120,41 +118,40 @@ pub(crate) enum ShardRequest {
         reply_tx: Sender<Result<brain_ops::DispatchOutcome, OpError>>,
     },
     /// Append a pre-built record to the WAL. Returns the durable LSN.
-    /// Stub op for 9.6 — 9.7's `RealWriterHandle` wraps the real
+    /// Low-level op — `RealWriterHandle` wraps the real
     /// encode/forget/link payload construction inside a higher-level op.
     AppendWalRecord {
         record: WalRecord,
         reply_tx: Sender<Result<u64, ShardOpError>>,
     },
     /// Snapshot every per-shard worker's metrics. Used by the admin
-    /// `/metrics` endpoint (sub-task 9.13).
+    /// `/metrics` endpoint.
     SchedulerSnapshot {
         reply_tx: Sender<Vec<(&'static str, WorkerKind, MetricsSnapshot)>>,
     },
-    /// Trigger a synchronous snapshot; sub-task 10.9.
+    /// Trigger a synchronous snapshot.
     /// The reply carries the snapshot id (mapped from
     /// `brain_workers::snapshot::SnapshotId.0`).
     TakeSnapshot {
         reply_tx: Sender<Result<u64, String>>,
     },
-    /// List all on-disk snapshots for this shard. Sub-task 10.9.
+    /// List all on-disk snapshots for this shard.
     ListSnapshots {
         reply_tx: Sender<Result<Vec<SnapshotInfo>, String>>,
     },
-    /// Delete a single snapshot by id. Sub-task 10.9.
+    /// Delete a single snapshot by id.
     DeleteSnapshot {
         id: u64,
         reply_tx: Sender<Result<(), String>>,
     },
     /// Trigger an immediate HNSW rebuild on this shard.
-    /// Sub-task 10.10.
     RebuildHnsw {
         reply_tx: Sender<Result<RebuildReport, String>>,
     },
     /// Snapshot the HNSW index counts. Used by the admin `/metrics`
-    /// path to emit `brain_hnsw_*` families. Sub-task 12.8.
+    /// path to emit `brain_hnsw_*` families.
     HnswSnapshot { reply_tx: Sender<HnswCounts> },
-    /// F-13: pause / resume / run-now a single background worker.
+    /// Pause / resume / run-now a single background worker.
     /// Replies with `true` iff the named worker exists.
     WorkerControl {
         name: String,
@@ -171,7 +168,7 @@ pub(crate) enum ShardRequest {
     },
     /// Auto-abort every Active txn owned by `session_id`. Fanned out
     /// by the connection layer the moment a TCP/TLS connection drops
-    /// before TXN_COMMIT (spec §05/04, §01/03 §8). Reply carries the
+    /// before TXN_COMMIT. Reply carries the
     /// count of aborted entries for connection-layer logging; the
     /// individual `TxnId`s stay on the shard.
     AbortOrphanedTxns {
@@ -193,7 +190,7 @@ pub struct ExtractBackfillReport {
     pub skipped: u64,
 }
 
-/// F-13 action verbs for [`ShardRequest::WorkerControl`].
+/// Action verbs for [`ShardRequest::WorkerControl`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum WorkerAction {
     /// Pause the worker. Loop keeps ticking but skips `run_cycle`.
@@ -236,7 +233,7 @@ pub struct SnapshotInfo {
     pub size_bytes: u64,
 }
 
-/// Report returned by `rebuild-ann`. Sub-task 10.10.
+/// Report returned by `rebuild-ann`.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct RebuildReport {
     /// Number of entries in the new index after rebuild.
@@ -249,7 +246,7 @@ pub struct RebuildReport {
 // Spawn config
 // ---------------------------------------------------------------------------
 
-/// `Debug` was dropped in 9.15 — `Arc<dyn Summarizer>` doesn't
+/// `Debug` is not derived — `Arc<dyn Summarizer>` doesn't
 /// implement `Debug`. Tests that previously printed the spawn
 /// config can format individual fields directly.
 #[derive(Clone)]
@@ -259,27 +256,27 @@ pub struct ShardSpawnConfig {
     /// Root data directory. Per-shard subdir is `<data_dir>/<shard_id>/`.
     pub data_dir: PathBuf,
     /// Initial arena capacity in slots. The arena grows on demand via
-    /// `ArenaFile::grow_to` (wired in a later sub-task).
+    /// `ArenaFile::grow_to` (not yet wired).
     pub arena_initial_capacity_slots: u64,
     /// WAL configuration (group commit window, segment size limit, ...).
     pub wal_config: WalConfig,
-    /// Consolidation worker's Summarizer (sub-task 9.15). Defaults to
+    /// Consolidation worker's Summarizer. Defaults to
     /// [`DisabledSummarizer`] so existing tests + non-LLM deployments
     /// keep working. `main.rs::linux_main::run` injects an LLM-backed
     /// impl when `cfg.summarizer.backend != Disabled`.
     pub summarizer: Arc<dyn Summarizer>,
-    /// Phase B: per-shard auto-edge worker knobs. Defaults registered
+    /// Per-shard auto-edge worker knobs. Defaults registered
     /// every shard with a 100 ms tick, top_k=5, threshold=0.85,
     /// channel cap 1024. Set `enabled=false` to skip registration
     /// entirely (no worker, no channel, encodes see a `None` sender).
     pub auto_edge: AutoEdgeSpawnConfig,
-    /// Phase E: per-shard extractor pipeline knobs. Same shape as
+    /// Per-shard extractor pipeline knobs. Same shape as
     /// `auto_edge` — `enabled=false` skips registration entirely.
     pub extractor: ExtractorSpawnConfig,
-    /// Phase T: per-shard temporal-edge worker knobs. Same shape as
+    /// Per-shard temporal-edge worker knobs. Same shape as
     /// `auto_edge`; `enabled=false` skips registration entirely.
     pub temporal_edge: TemporalEdgeSpawnConfig,
-    /// Phase C: per-shard causal-edge worker knobs. Extractor-driven;
+    /// Per-shard causal-edge worker knobs. Extractor-driven;
     /// `enabled=false` skips registration entirely (no worker, no
     /// channel, the extractor's enqueue path stays `None`).
     pub causal_edge: CausalEdgeSpawnConfig,
@@ -633,7 +630,7 @@ pub enum ShardOpError {
 pub struct ShardHandle {
     shard_id: ShardId,
     tx: Sender<ShardRequest>,
-    /// Cross-shard event-feed (sub-task 9.11). The shard's
+    /// Cross-shard event-feed. The shard's
     /// `fanout_task` drains `OpsContext::events` (brain-ops's
     /// in-process broadcast bus) and publishes each envelope through
     /// this channel. The connection layer's `SubscriptionRegistry`
@@ -650,17 +647,17 @@ pub struct ShardHandle {
     /// subscribe-replay. Same value that's stamped in every WAL
     /// segment + arena slot.
     shard_uuid: [u8; 16],
-    /// Phase B metrics shared with the writer + AutoEdgeWorker for
+    /// AutoEdgeWorker metrics shared with the writer for
     /// this shard. `None` when the worker is disabled in spawn
     /// config. The `/metrics` exposition reads this directly (no
     /// channel hop — the atomics are `Send + Sync` and the handle
     /// itself is shared by `Arc`).
     auto_edge_metrics: Option<Arc<brain_ops::AutoEdgeMetrics>>,
-    /// Phase E metrics. Same shape as [`Self::auto_edge_metrics`].
+    /// ExtractorWorker metrics. Same shape as [`Self::auto_edge_metrics`].
     extractor_metrics: Option<Arc<brain_ops::ExtractorMetrics>>,
-    /// Phase T (TemporalEdgeWorker) metrics. Same shape.
+    /// TemporalEdgeWorker metrics. Same shape.
     temporal_edge_metrics: Option<Arc<brain_ops::TemporalEdgeMetrics>>,
-    /// Phase C (CausalEdgeWorker) metrics. Same shape.
+    /// CausalEdgeWorker metrics. Same shape.
     causal_edge_metrics: Option<Arc<brain_ops::CausalEdgeMetrics>>,
     /// LLM cache sweeper metrics. `None` when the shard has no LLM
     /// cache configured (no API keys / lock contention at startup).
@@ -680,7 +677,7 @@ impl ShardHandle {
         self.shard_id
     }
 
-    /// Read-only handle to the Phase B (AutoEdgeWorker) metric
+    /// Read-only handle to the AutoEdgeWorker metric
     /// state for this shard. `None` when the worker was disabled in
     /// spawn config (no-schema deployments / tests).
     #[must_use]
@@ -688,21 +685,21 @@ impl ShardHandle {
         self.auto_edge_metrics.clone()
     }
 
-    /// Read-only handle to the Phase E (ExtractorWorker) metric
+    /// Read-only handle to the ExtractorWorker metric
     /// state for this shard.
     #[must_use]
     pub fn extractor_metrics(&self) -> Option<Arc<brain_ops::ExtractorMetrics>> {
         self.extractor_metrics.clone()
     }
 
-    /// Read-only handle to the Phase T (TemporalEdgeWorker) metric
+    /// Read-only handle to the TemporalEdgeWorker metric
     /// state for this shard.
     #[must_use]
     pub fn temporal_edge_metrics(&self) -> Option<Arc<brain_ops::TemporalEdgeMetrics>> {
         self.temporal_edge_metrics.clone()
     }
 
-    /// Read-only handle to the Phase C (CausalEdgeWorker) metric
+    /// Read-only handle to the CausalEdgeWorker metric
     /// state for this shard.
     #[must_use]
     pub fn causal_edge_metrics(&self) -> Option<Arc<brain_ops::CausalEdgeMetrics>> {
@@ -818,7 +815,7 @@ impl ShardHandle {
     }
 
     /// Trigger a synchronous snapshot of this shard. Returns the
-    /// snapshot's id on success; sub-task 10.9.
+    /// snapshot's id on success.
     pub async fn take_snapshot(&self) -> Result<u64, ShardError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
@@ -861,7 +858,7 @@ impl ShardHandle {
     }
 
     /// Snapshot the HNSW index counts for this shard. Used by the
-    /// admin `/metrics` exposition path (sub-task 12.8). Cheap; reads
+    /// admin `/metrics` exposition path. Cheap; reads
     /// two atomics inside the shard executor.
     pub async fn hnsw_snapshot(&self) -> Result<HnswCounts, ShardError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
@@ -875,7 +872,7 @@ impl ShardHandle {
             .map_err(|_| ShardError::ShardDisconnected)
     }
 
-    /// F-13: pause / resume / run-now a named background worker on
+    /// Pause / resume / run-now a named background worker on
     /// this shard. Returns `Ok(true)` iff the worker exists,
     /// `Ok(false)` if there's no such worker (caller should reply
     /// `404 unknown worker`).
@@ -926,7 +923,7 @@ impl ShardHandle {
     }
 
     /// Trigger an immediate full HNSW rebuild. Returns the new
-    /// entry count + elapsed time; sub-task 10.10.
+    /// entry count + elapsed time.
     pub async fn rebuild_hnsw(&self) -> Result<RebuildReport, ShardError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
@@ -942,7 +939,7 @@ impl ShardHandle {
 
     /// Dispatch a fully-decoded wire request through the shard's
     /// `OpsContext`. Returns the wire `ResponseBody` (variant chosen by
-    /// `brain_ops::dispatch`). Added in 9.10 as the frame-dispatcher's
+    /// `brain_ops::dispatch`). The frame-dispatcher's
     /// boundary primitive.
     ///
     /// `caller` carries the authenticated agent from the
@@ -975,8 +972,8 @@ impl ShardHandle {
     /// Auto-abort every Active txn this shard holds for the given
     /// wire session. The connection layer invokes this on every shard
     /// in the topology when a TCP/TLS connection drops before the
-    /// client committed (spec §05/04: "On TXN_ABORT or connection
-    /// drop before commit, none of the operations take effect"). The
+    /// client committed: on TXN_ABORT or connection drop before commit,
+    /// none of the operations take effect. The
     /// shard does the work synchronously inside its Glommio executor;
     /// the reply carries the number of entries swept so the
     /// connection-layer logger can summarise.
@@ -1042,7 +1039,7 @@ pub struct ShardJoiner {
 }
 
 impl ShardJoiner {
-    /// The shard this joiner belongs to. Used by sub-task 9.14's
+    /// The shard this joiner belongs to. Used by
     /// `graceful_shutdown_shards` for per-shard timeout logging.
     #[must_use]
     pub fn shard_id(&self) -> ShardId {
@@ -1081,7 +1078,7 @@ impl Drop for ShardJoiner {
 
 struct Shard {
     shard_id: ShardId,
-    /// `Rc<RefCell<…>>` so the shard's Phase-8 worker adapters
+    /// `Rc<RefCell<…>>` so the shard's worker adapters
     /// (`ArenaRebuildSource`, `ShardSnapshotSource`) can hold an
     /// independent handle into the same on-disk arena. The main loop's
     /// `AllocSlot` handler borrows mutably for the duration of one
@@ -1096,24 +1093,24 @@ struct Shard {
     /// before awaiting `Wal::shutdown` (which consumes the value).
     wal: Rc<RefCell<Option<Wal>>>,
     /// Per-shard OpsContext — embedder, index, metadata, writer.
-    /// Constructed inside the executor in sub-task 9.7b.
-    #[allow(dead_code)] // consumed by the frame dispatcher in sub-task 9.10
+    /// Constructed inside the executor.
+    #[allow(dead_code)] // consumed by the frame dispatcher
     ops: Arc<OpsContext>,
     /// Per-shard worker scheduler. `Option` so shutdown can `.take()`.
     scheduler: Option<WorkerScheduler>,
-    /// Snapshot source for the admin HTTP routes (sub-task 10.9).
+    /// Snapshot source for the admin HTTP routes.
     /// Cloned from the same `Arc` the `SnapshotWorker` holds.
     snapshot_source: Arc<dyn SnapshotSource>,
-    /// Rebuild source for the admin `rebuild-ann` route (sub-task
-    /// 10.10). Same `Arc` the `HnswMaintenanceWorker` holds.
+    /// Rebuild source for the admin `rebuild-ann` route.
+    /// Same `Arc` the `HnswMaintenanceWorker` holds.
     rebuild_source: Arc<dyn RebuildSource<{ VECTOR_DIM }>>,
     /// The shared HNSW handle. `rebuild-ann` swaps a freshly-
     /// rebuilt index in via `SharedHnsw::swap()`.
     hnsw_shared: SharedHnsw,
 }
 
-/// Register every Phase-8 worker against `scheduler`. Sub-task 9.8
-/// plugs in real adapters for `RebuildSource`, `WalRetentionSource`,
+/// Register every background worker against `scheduler`, plugging in
+/// real adapters for `RebuildSource`, `WalRetentionSource`,
 /// and `SnapshotSource`. `Summarizer` is injected by `main.rs` (OpenAI
 /// / Ollama if configured, `DisabledSummarizer` otherwise).
 fn register_phase8_workers(
@@ -1161,7 +1158,7 @@ pub fn spawn_shard(
 ) -> Result<(ShardHandle, ShardJoiner), ShardError> {
     // ---- 1. Directory layout ------------------------------------------------
     //
-    // `ensure_dirs` (sub-task 15.3) mkdir-p's the shard root, `wal/`, and
+    // `ensure_dirs` mkdir-p's the shard root, `wal/`, and
     // the knowledge-layer tantivy directories. It's idempotent over
     // existing substrate shards (no-op when present) and bootstraps fresh
     // ones. Knowledge-layer *files* (entity.hnsw, statement.hnsw,
@@ -1186,9 +1183,8 @@ pub fn spawn_shard(
 
     // ---- 4. MetadataDb open + WAL recovery against the real sink ----------
     //
-    // Per the audit, `recover()` is sync (mmap-based, reads only — io_uring
-    // brings nothing). Sub-task 9.7b replaces 9.6's InMemoryMetadataSink
-    // stand-in with the durable redb-backed MetadataDb.
+    // `recover()` is sync (mmap-based, reads only — io_uring
+    // brings nothing). The durable redb-backed MetadataDb is the sink.
     let metadata_path = paths.metadata_db();
     let mut metadata_db = MetadataDb::open(&metadata_path)?;
 
@@ -1256,7 +1252,7 @@ pub fn spawn_shard(
 
     // ---- 5. Spawn the Glommio executor + build the rest of the stack -----
     let (tx, rx) = flume::bounded::<ShardRequest>(cfg.channel_capacity);
-    // 9.11 cross-shard event feed. The Glommio closure spawns a
+    // Cross-shard event feed. The Glommio closure spawns a
     // fanout_task that drains `ops.events` into this channel; the
     // connection layer reads the Receiver via `ShardHandle::events()`.
     let (events_tx, events_rx) = flume::bounded::<EventEnvelope>(1024);
@@ -1345,7 +1341,7 @@ pub fn spawn_shard(
     // Provider credentials / model overrides for the LLM extractor
     // tier, resolved env-first / config-fallback inside the closure.
     let llm_config_for_closure = cfg.llm.clone();
-    // Construct the Phase B / Phase E metric handles up-front so we
+    // Construct the AutoEdge / Extractor metric handles up-front so we
     // can both stash them on `ShardHandle` (for /metrics exposition)
     // and inject them into the writer + worker (so both sides bump
     // the same atomics). `None` when the worker is disabled in
@@ -1410,7 +1406,7 @@ pub fn spawn_shard(
     let arena_path_for_executor = arena_path.clone();
     let metadata_path_for_executor = metadata_path.clone();
     let snapshots_root_for_executor = dir.join("snapshots");
-    // 21.5: the shard dir is also home to the per-shard LLM
+    // The shard dir is also home to the per-shard LLM
     // extractor response cache (`<shard_dir>/llm_cache.redb`).
     let shard_dir_for_executor = dir.clone();
     // Tantivy is opened above and propagated into the closure pre-built.
@@ -1489,7 +1485,7 @@ pub fn spawn_shard(
             let (wal_sink, wal_drain_rx) = brain_ops::writer::channel_wal_sink();
             let wal_sink_for_ops: Arc<dyn brain_ops::writer::WalSink> = wal_sink.clone();
 
-            // Phase B: per-shard AutoEdgeWorker channel. The sender
+            // Per-shard AutoEdgeWorker channel. The sender
             // lives on the writer; the worker (registered below in
             // register_phase8_workers) drains the receiver every
             // `interval_ms`. We construct the channel here so the
@@ -1506,7 +1502,7 @@ pub fn spawn_shard(
                 (None, None)
             };
 
-            // Phase E: per-shard ExtractorWorker channel. Same shape
+            // Per-shard ExtractorWorker channel. Same shape
             // as auto-edge — disabled means no channel, no worker, no
             // overhead. The writer stores the Sender; the Receiver
             // moves into the worker we register below.
@@ -1520,7 +1516,7 @@ pub fn spawn_shard(
                 (None, None)
             };
 
-            // Phase T: per-shard TemporalEdgeWorker channel. Mirrors
+            // Per-shard TemporalEdgeWorker channel. Mirrors
             // the auto-edge shape; disabled → no channel, no worker.
             let temporal_edge_spawn_cfg = temporal_edge_spawn_cfg_for_closure.clone();
             let (temporal_edge_sender, temporal_edge_receiver) = if temporal_edge_spawn_cfg.enabled
@@ -1533,7 +1529,7 @@ pub fn spawn_shard(
                 (None, None)
             };
 
-            // Phase C: per-shard CausalEdgeWorker channel. Driven by
+            // Per-shard CausalEdgeWorker channel. Driven by
             // the ExtractorWorker (statement-create post-commit), not
             // the encode-time writer. The channel is created here so
             // the extractor can be stamped with the sender before
@@ -1548,11 +1544,11 @@ pub fn spawn_shard(
                 (None, None)
             };
 
-            // Phase 20.7: materialise the persisted `EXTRACTORS_TABLE`
+            // Materialise the persisted `EXTRACTORS_TABLE`
             // rows (seeded by the system-schema bootstrap at
             // MetadataDb::open) into a runtime ExtractorRegistry.
             //
-            // Phase 21.5 lights up the LLM-tier deps the materializer
+            // The LLM-tier deps the materializer
             // needs: a `ModelRouter` built from provider keys (env
             // ANTHROPIC_API_KEY / OPENAI_API_KEY first, then the `[llm]`
             // config section) and the per-shard `llm_cache.redb`. Both
@@ -1679,7 +1675,7 @@ pub fn spawn_shard(
                 reg
             };
 
-            // 22.3 + 22.4: spawn the per-shard text indexer drain
+            // Spawn the per-shard text indexer drain
             // tasks and install their dispatchers. The writer holds
             // the memory dispatcher so single-op ENCODE and TXN
             // batches share one dispatch point; OpsContext also
@@ -1768,7 +1764,7 @@ pub fn spawn_shard(
 
             // The lexical retriever was constructed alongside the
             // tantivy open above and propagated in here pre-built.
-            // Hybrid query (phase 23) consumes it via
+            // Hybrid query consumes it via
             // `OpsContext.lexical_retriever`.
             let lexical_retriever_for_ops = lexical_retriever_for_closure;
 
@@ -1794,13 +1790,13 @@ pub fn spawn_shard(
             // broadcast EventBus (`ops.events`) into the cross-shard
             // flume Sender we set up before entering the closure. The
             // connection layer reads the matching Receiver via
-            // `ShardHandle::events()`. Spec audit §8.1.
+            // `ShardHandle::events()`.
             //
             // `tokio::sync::broadcast::Receiver` is runtime-agnostic
             // (atomics + Waker, no tokio I/O); polling its `recv()`
             // future inside Glommio is sound. `Lagged` is treated as
             // a transient skip — slow subscribers see gaps, not
-            // crashes (4).
+            // crashes.
             {
                 let event_bus = ops.events.clone();
                 let events_tx = events_tx.clone();
@@ -1876,14 +1872,14 @@ pub fn spawn_shard(
             })
             .detach();
 
-            // Build real Phase-8 adapters (sub-task 9.8).
+            // Build real worker adapters.
             let rebuild_source: Arc<dyn RebuildSource<{ VECTOR_DIM }>> = Arc::new(
                 ArenaRebuildSource::<{ VECTOR_DIM }>::new(shard_id, arena_cell.clone()),
             );
-            // Keep a clone for the admin `rebuild-ann` route (10.10).
+            // Keep a clone for the admin `rebuild-ann` route.
             let rebuild_source_for_shard = rebuild_source.clone();
 
-            // Recovery step 6 (spec 08.04 §8): restore the memory HNSW.
+            // Recovery step 6: restore the memory HNSW.
             // Try snapshot-load first; on any failure (missing, CRC /
             // version / shard_uuid mismatch, hnsw_rs deserialization),
             // fall through to a full rebuild from the arena. The
@@ -2011,8 +2007,8 @@ pub fn spawn_shard(
             // its embedding tie-break after restart and over-creates
             // duplicate entities until each surface is re-extracted.
             //
-            // Prefer the durable vector written at entity-create time
-            // (`spec/09/06_persistence.md §6`): a stored vector goes
+            // Prefer the durable vector written at entity-create time:
+            // a stored vector goes
             // straight into the HNSW with no embedder call. Rows
             // without a stored vector (pre-feature data, or a partial
             // write) fall back to re-embedding the canonical name.
@@ -2121,12 +2117,12 @@ pub fn spawn_shard(
                 metadata.clone(),
                 hnsw_shared.clone(),
             ));
-            // CacheEvictionSource stays Disabled* until 9.10 wires the
-            // real CachingDispatcher per shard.
+            // CacheEvictionSource stays Disabled* until a
+            // real CachingDispatcher is wired per shard.
             let cache_eviction_source: Arc<dyn CacheEvictionSource> =
                 Arc::new(DisabledCacheEvictionSource);
 
-            // Spawn the per-shard scheduler + register all 12 Phase-8 workers.
+            // Spawn the per-shard scheduler + register all background workers.
             let mut scheduler = WorkerScheduler::new();
             register_phase8_workers(
                 &mut scheduler,
@@ -2191,7 +2187,7 @@ pub fn spawn_shard(
                     .expect("register ConfidenceSweepWorker");
             }
 
-            // Phase B: register the AutoEdgeWorker when the channel was
+            // Register the AutoEdgeWorker when the channel was
             // created above (i.e. when `cfg.auto_edge.enabled` is true).
             // The worker drains the receiver feeding off post-commit
             // encodes and writes `SimilarTo` edges back through the
@@ -2221,7 +2217,7 @@ pub fn spawn_shard(
                     .expect("register AutoEdgeWorker");
             }
 
-            // Phase T: register the TemporalEdgeWorker when its
+            // Register the TemporalEdgeWorker when its
             // channel was created above. Drains the writer's post-
             // encode channel, looks up the agent's prior memory, and
             // writes a decay-weighted `FollowedBy` edge.
@@ -2251,7 +2247,7 @@ pub fn spawn_shard(
                     .expect("register TemporalEdgeWorker");
             }
 
-            // Phase E: register the ExtractorWorker when its channel was
+            // Register the ExtractorWorker when its channel was
             // created above (i.e. when `cfg.extractor.enabled` is true).
             // The worker drains the writer's post-encode channel and
             // runs the three-tier extractor pipeline against each
@@ -2286,7 +2282,7 @@ pub fn spawn_shard(
                 if let Some(m) = extractor_metrics_for_closure.clone() {
                     extractor_worker = extractor_worker.with_metrics(m);
                 }
-                // Phase C: when the CausalEdgeWorker is also enabled
+                // When the CausalEdgeWorker is also enabled
                 // we hand the extractor its sender + the qname
                 // whitelist so post-commit causal statements fan out.
                 // Without this wire, the extractor never enqueues onto
@@ -2310,7 +2306,7 @@ pub fn spawn_shard(
                     .expect("register ExtractorWorker");
             }
 
-            // Phase C: register the CausalEdgeWorker when its channel
+            // Register the CausalEdgeWorker when its channel
             // was created above. The worker drains the extractor's
             // post-commit channel, walks the cause/effect mapping, and
             // writes `Caused` edges between memories.
@@ -2578,7 +2574,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
             } => {
                 // `brain_ops::dispatch` is async and runs entirely
                 // within the per-shard Glommio executor: it touches
-                // `OpsContext` (which is !Send post-9.7a) and yields
+                // `OpsContext` (which is !Send) and yields
                 // through Glommio-aware I/O. Awaiting here is sound —
                 // the main loop is single-threaded and processes one
                 // request at a time, the same shape as
@@ -3003,9 +2999,9 @@ mod tests {
         joiner.join().expect("shard should join cleanly");
     }
 
-    /// Sub-task 15.3 — spawning a shard must leave the knowledge-layer
-    /// tantivy directories present on disk so phases 16/22 can open
-    /// them without a separate mkdir step.
+    /// Spawning a shard must leave the knowledge-layer
+    /// tantivy directories present on disk so the owning modules can
+    /// open them without a separate mkdir step.
     #[test]
     fn spawn_creates_knowledge_directories() {
         let dir = TempDir::new().unwrap();
@@ -3033,8 +3029,8 @@ mod tests {
         assert!(paths.metadata_db().exists(), "metadata.redb should exist");
         assert!(paths.shard_uuid().exists(), "shard.uuid should exist");
 
-        // entity.hnsw / statement.hnsw — NOT created by spawn; owning
-        // modules open them on demand in phases 16 / 17.
+        // entity.hnsw / statement.hnsw — NOT created by spawn; the owning
+        // modules open them on demand.
         assert!(
             !paths.entity_hnsw().exists(),
             "entity.hnsw is created by phase 16, not by spawn"
@@ -3044,17 +3040,17 @@ mod tests {
             "statement.hnsw is created by phase 17, not by spawn"
         );
 
-        // llm_cache.redb — IS created by spawn as of sub-task 15.4.
+        // llm_cache.redb — IS created by spawn.
         assert!(
             paths.llm_cache_db().exists(),
             "llm_cache.redb should be created by spawn (sub-task 15.4)"
         );
 
-        // 22.1: spawn now opens the tantivy indexes via
+        // Spawn opens the tantivy indexes via
         // `TantivyShard::open`, which calls `Index::create_in_dir`
         // on a fresh shard. The presence of `meta.json` is the
-        // observable proof that this happened (a bare mkdir from
-        // §15.3 leaves the directory empty).
+        // observable proof that this happened (a bare mkdir
+        // leaves the directory empty).
         assert!(
             paths.memory_text_tantivy().join("meta.json").exists(),
             "memory_text.tantivy/meta.json should exist after spawn (sub-task 22.1)"

@@ -3,8 +3,7 @@
 //! Maps a wire `EncodeRequest` (from `brain-protocol`) into an
 //! 8-step `EncodePlan`. Pure: no I/O, no async, no state.
 //!
-//! See `spec/12_query_optimizer/04_encode_planning.md` for the
-//! authoritative shape:
+//! Step shape:
 //! 1. Idempotency check
 //! 2. Embedding
 //! 3. Context resolution

@@ -1,8 +1,7 @@
-//! Relation-ops perf bench (sub-task 18.9b).
+//! Relation-ops perf bench.
 //!
-//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
-//! ../../spec/20_benchmarks/02_latency_targets.md) §2.4 at
-//! 1M relations per shard (operator-run on the reference rig):
+//! Latency targets at 1M relations per shard (operator-run on the
+//! reference rig):
 //!
 //! - `RELATION_CREATE`:          p50 3 ms, p99 15 ms.
 //! - `RELATION_GET`:              p50 0.5 ms, p99 2 ms.

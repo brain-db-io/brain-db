@@ -1,7 +1,7 @@
 //! `StatementHnswIndex` — per-shard HNSW over statement embeddings.
 //!
-//! Sub-task 17.5. Distinct from the substrate's [`crate::HnswIndex`] over
-//! memory embeddings and the [`crate::EntityHnswIndex`] (16.3) over
+//! Distinct from the substrate's [`crate::HnswIndex`] over
+//! memory embeddings and the [`crate::EntityHnswIndex`] over
 //! entity embeddings:
 //!
 //! | Index | M | ef_construction | ef_search | capacity_hint |
@@ -10,28 +10,23 @@
 //! | Entity | 16 | 100 | 64 | 256 |
 //! | Statement (this module) | **32** | 200 | **128** | 1024 |
 //!
-//! §"statement.hnsw" — statement counts are typically 0.1–1×
+//! Statement counts are typically 0.1–1×
 //! memory counts per shard, so the index is sized similarly to memory
 //! and the wider `M`+`ef_search` give better recall on the denser
 //! semantic neighbourhoods statements form.
 //!
-//! ## Surface (17.5 only)
-//!
-//! - In-memory only; no `statement.hnsw` persistence (deferred to
-//!   phase 23 — see plan `.claude/plans/phase-17-task-05.md`).
+//! - In-memory only; no `statement.hnsw` persistence.
 //! - Single-owner; no concurrency wrapper. The shard's worker
 //!   discipline (one writer per shard) is enough.
 //! - Inlined `StatementId ↔ u32` mapping (`Vec` + `HashMap`) — mirrors
-//!   the entity HNSW. Generalising the id-map across all three HNSWs
-//!   is a phase-23 refactor.
+//!   the entity HNSW.
 //!
 //! ## Population
 //!
-//! Phase 17.5 wires the index type and surfaces. The embedding worker
-//! that produces vectors from
+//! The embedding worker produces vectors from
 //! `subject_canonical_name + " " + predicate_name + " " + object_text`
 //! and subscribes to `STATEMENT_CREATED / _SUPERSEDED / _TOMBSTONED`
-//! events lands in **phase 21**.
+//! events.
 
 use std::collections::HashMap;
 
@@ -52,8 +47,8 @@ const OVER_FACTOR: usize = 2;
 // ---------------------------------------------------------------------------
 
 /// HNSW knobs for the statement index. Defaults from
-/// [`Self::default_v1`] match `spec/26_knowledge_storage/00_purpose.md`:
-/// `M=32, ef_construction=200, ef_search=128`, capacity hint 1024.
+/// [`Self::default_v1`]: `M=32, ef_construction=200, ef_search=128`,
+/// capacity hint 1024.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub struct StatementHnswParams {
     /// Max edges per non-bottom-layer node range:
@@ -73,8 +68,7 @@ pub struct StatementHnswParams {
 }
 
 impl StatementHnswParams {
-    /// Per §"statement.hnsw". Differences vs entity HNSW
-    /// are commented inline.
+    /// Differences vs entity HNSW are commented inline.
     #[must_use]
     pub const fn default_v1() -> Self {
         Self {
@@ -161,7 +155,7 @@ pub struct RebuildReport {
 
 /// Per-shard HNSW over statement embeddings (384-dim, BGE-small).
 ///
-/// **Single-writer** by `&mut self` discipline (CLAUDE.md §5 inv. 2).
+/// **Single-writer** by `&mut self` discipline.
 pub struct StatementHnswIndex {
     inner: Hnsw<'static, f32, DistCosine>,
     params: StatementHnswParams,

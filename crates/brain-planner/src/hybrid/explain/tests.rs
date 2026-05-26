@@ -1,4 +1,4 @@
-//! Unit tests for the EXPLAIN + TRACE renderers (phase 23.8).
+//! Unit tests for the EXPLAIN + TRACE renderers.
 
 use brain_core::EntityId;
 use brain_core::StatementKind;

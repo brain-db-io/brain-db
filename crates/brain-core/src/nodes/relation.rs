@@ -2,12 +2,7 @@
 //!
 //! Pure value types — no I/O, no async, no rkyv. The rkyv-archived
 //! storage shape lives in `brain-metadata::tables::knowledge::relation`;
-//! the wire-archived shape lives in `brain-protocol::knowledge::relation_*`
-//! (phase 18.6).
-//!
-//! See `spec/02_data_model/00_purpose.md` for the canonical schema and
-//! `spec/02_data_model/{01_cardinality, 02_symmetric, 03_storage, 04_traversal, 05_evidence}.md`
-//! for the per-concern contracts.
+//! the wire-archived shape lives in `brain-protocol::knowledge::relation_*`.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,8 +14,7 @@ use crate::MemoryId;
 // RelationType — registry value type.
 // ---------------------------------------------------------------------------
 
-/// A registered relation type. Spec `§20/00 §"Relation type
-/// declaration"`.
+/// A registered relation type.
 ///
 /// `from_type` / `to_type` constrain the endpoints to specific
 /// entity types (e.g., `reports_to` requires both to be `Person`).
@@ -54,7 +48,7 @@ impl RelationType {
 // Relation — the value type.
 // ---------------------------------------------------------------------------
 
-/// A typed edge between two entities. Spec `§20/00`.
+/// A typed edge between two entities.
 ///
 /// Pure value type. The brain-metadata storage layer holds the rkyv-
 /// archived form (`RelationMetadata`); the wire layer holds
@@ -73,7 +67,7 @@ pub struct Relation {
     pub from_entity: EntityId,
     pub to_entity: EntityId,
 
-    /// Opaque properties blob. Phase 19's schema DSL defines the
+    /// Opaque properties blob. The schema DSL will define the
     /// typed shape; v1 stores an empty `Vec<u8>` by default.
     pub properties_blob: Vec<u8>,
 
@@ -90,7 +84,7 @@ pub struct Relation {
     pub version: u32,
     pub superseded_by: Option<RelationId>,
     pub supersedes: Option<RelationId>,
-    /// Spec `§20/01` chain root — id of the first relation in this
+    /// Chain root — id of the first relation in this
     /// chain. Self-referential for un-superseded relations.
     pub chain_root: RelationId,
 
@@ -175,8 +169,8 @@ impl Relation {
 // canonical_pair — symmetric canonicalisation.
 // ---------------------------------------------------------------------------
 
-/// Order a pair of EntityIds for symmetric-relation storage per
-/// spec `§20/02 §2`. Returns `(min, max)` byte-wise.
+/// Order a pair of EntityIds for symmetric-relation storage.
+/// Returns `(min, max)` byte-wise.
 ///
 /// Asymmetric relations pass `from, to` verbatim through this
 /// function (or don't call it at all); only symmetric relations

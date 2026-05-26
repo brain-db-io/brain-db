@@ -1,6 +1,5 @@
 //! User-domain renderers. Admin-domain renderers (shard health,
-//! snapshot manifest, etc.) live in brain-cli — see
-//! .claude/plans/brain-explore-ui-layer.md §4.3.1.
+//! snapshot manifest, etc.) live in brain-cli.
 //!
 //! Each submodule implements [`crate::Render`] for one user-domain
 //! response shape (encode result, recall hit list, plan steps,

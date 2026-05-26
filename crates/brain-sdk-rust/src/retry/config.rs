@@ -57,14 +57,13 @@ impl Default for RetryConfig {
 }
 
 impl RetryConfig {
-    /// Spec defaults.
+    /// Recommended defaults.
     #[must_use]
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// "No retries" preset — single attempt, fail fast. Spec
-    /// §13/04 §11 / §16.
+    /// "No retries" preset — single attempt, fail fast.
     #[must_use]
     pub fn none() -> Self {
         Self {

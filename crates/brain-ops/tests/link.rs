@@ -1,10 +1,10 @@
-//! Integration tests for `handle_link` / `handle_unlink` (sub-task 7.8).
+//! Integration tests for `handle_link` / `handle_unlink`.
 //!
 //! Drives the full pipeline:
 //!   dispatcher → handle_link/unlink → RealWriterHandle →
 //!   redb edges_out + edges_in + memory edge-count denorms.
 //!
-//! Also pins the post-7.8 fix to the **encode flow**: inline
+//! Also pins the **encode flow**: inline
 //! encode-edges now actually land in `edges_out` / `edges_in`. Prior
 //! versions of the writer reported `EdgeOutcome::Inserted` but never
 //! opened the edge tables — this file verifies the new behaviour.
@@ -519,7 +519,7 @@ fn encode_inline_edges_actually_land_in_redb() {
             other => panic!("got {other:?}"),
         };
 
-        // The edge must actually exist in redb (pre-7.8 bug: it didn't).
+        // The edge must actually exist in redb (regression: it once didn't).
         assert!(edge_exists(&fix, linker, CoreEdgeKind::References, target));
 
         // Edge counts must be set on BOTH endpoints.

@@ -1,12 +1,12 @@
 //! The handle bag passed to every `execute_*` function.
 //!
-//! "handles are cheap to clone (Arc-based). Each
-//! executor task gets its own handles; no contention." We use the
-//! same pattern: every field is shareable across tasks (Send + Sync).
+//! Handles are cheap to clone (Arc-based). Each executor task gets its
+//! own handles; no contention. Every field is shareable across tasks
+//! (Send + Sync).
 //!
-//! Phase 6.4 ships embedder + index + metadata (read side) + writer
-//! (write side). Future sub-tasks may add `arena: Arc<Arena>` if a
-//! caller needs raw arena access — current executors don't.
+//! Ships embedder + index + metadata (read side) + writer (write
+//! side). An `arena: Arc<Arena>` field may be added later if a caller
+//! needs raw arena access — current executors don't.
 
 use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
@@ -27,11 +27,11 @@ use super::writer::WriterHandle;
 /// readers for no real safety win.
 pub type SharedMetadataDb = Arc<MetadataDb>;
 
-/// Read-your-writes snapshot of an in-flight transaction. Spec
-/// §09/08 §5: RECALL/PLAN/REASON within a txn must see the buffer's
-/// pending writes layered on top of committed state. brain-ops
-/// builds this from its `TxnBuffer` and attaches it to a cloned
-/// `ExecutorContext` for the duration of the request.
+/// Read-your-writes snapshot of an in-flight transaction.
+/// RECALL/PLAN/REASON within a txn must see the buffer's pending
+/// writes layered on top of committed state. brain-ops builds this
+/// from its `TxnBuffer` and attaches it to a cloned `ExecutorContext`
+/// for the duration of the request.
 #[derive(Clone, Debug, Default)]
 pub struct TxnSnapshot {
     /// Pending edges added by the txn: `(source, kind, target, weight)`.
@@ -114,7 +114,6 @@ impl ExecutorContext {
     }
 }
 
-// After sub-task 9.7 (audit §4) ExecutorContext is intentionally
-// `!Send + !Sync`: WriterHandle is per-shard (single-writer-per-shard
-// ). Phase 9's per-shard Glommio executor is the
-// containment boundary; no cross-thread sharing is required.
+// ExecutorContext is intentionally `!Send + !Sync`: WriterHandle is
+// per-shard (single-writer-per-shard). The per-shard Glommio executor
+// is the containment boundary; no cross-thread sharing is required.

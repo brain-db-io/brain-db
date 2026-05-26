@@ -1,4 +1,4 @@
-//! Production `SemanticRetriever` impl (phase 23.1).
+//! Production `SemanticRetriever` impl.
 //!
 //! The trait + value types live in `brain-index::semantic_retriever`
 //! (kept free of `brain-metadata` so brain-index stays
@@ -61,7 +61,7 @@ impl BrainSemanticRetriever {
     ) -> Result<Box<[f32; SEMANTIC_VECTOR_DIM]>, SemanticError> {
         match query {
             SemanticQuery::Vector(v) => Ok(v.clone()),
-            // BGE asymmetric retrieval (spec 07/02 §12a): the hybrid
+            // BGE asymmetric retrieval: the hybrid
             // SemanticRetriever's query path applies the retrieval prefix.
             // The cache keys on input text so this doesn't collide with
             // any stored passage embedding for the same surface.
@@ -137,7 +137,7 @@ impl BrainSemanticRetriever {
         _filters: &SemanticFilters,
     ) -> Result<Vec<RankedItem>, SemanticError> {
         let Some(handle) = self.statement_index.as_ref() else {
-            // §23/03 §9: statement HNSW corpus may be empty in
+            // Statement HNSW corpus may be empty in
             // v1 until the embedding worker is wired. Silent
             // empty result, not an error.
             return Ok(Vec::new());
@@ -146,9 +146,8 @@ impl BrainSemanticRetriever {
         let hits = guard
             .search_with_ef(vector, config.top_k, Some(config.ef_search))
             .map_err(|e| SemanticError::Internal(format!("statement search: {e}")))?;
-        // v1 has no statement metadata-side filter push-down
-        // (§23/03 §5 fallback). Post-search filters would land
-        // here if/when needed.
+        // v1 has no statement metadata-side filter push-down.
+        // Post-search filters would land here if/when needed.
         Ok(project_statement_hits(hits, config.similarity_threshold))
     }
 

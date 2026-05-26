@@ -1,4 +1,4 @@
-//! Integration tests for sub-task 10.2 — Pool semantics.
+//! Integration tests for Pool semantics.
 //!
 //! Each test wires a fresh `tokio::net::TcpListener` mock server
 //! that runs the canned HELLO → AUTH_OK script as many times as

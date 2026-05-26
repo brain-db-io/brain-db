@@ -807,8 +807,8 @@ impl StatementView {
                 Some(self.original_predicate_qname.clone())
             },
             is_stateful: self.is_stateful,
-            // W3.4 bi-temporal field — wire layer doesn't carry it yet;
-            // the W3.4 follow-up will extend `StatementView` and route
+            // Bi-temporal field — wire layer doesn't carry it yet;
+            // a follow-up will extend `StatementView` and route
             // the value through here. Until then the wire-decoded
             // statement is treated as "still active in record-time".
             record_invalidated_at_unix_nanos: None,

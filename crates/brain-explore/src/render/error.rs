@@ -24,7 +24,7 @@ const BODY_INDENT: &str = "  ";
 
 /// User-facing error wrapper.
 ///
-/// `code` is the wire numeric code from `spec/04_wire_protocol/10_errors.md`.
+/// `code` is the wire numeric error code.
 /// `0` means "client-side / no wire code" (e.g. connect refused,
 /// pool closed) — the renderer hides the code row in that case.
 /// `message` is the server's (or SDK's) human string.
@@ -167,10 +167,9 @@ fn render_human(e: &RenderableError, ctx: &RenderCtx, w: &mut dyn Write) -> io::
     }
 
     // ── Body: retry verdict ─────────────────────────────────────
-    // maps category → retryability. Print one
-    // labelled row so the operator sees the verdict without
-    // consulting the spec; `retry_after_ms`, when present, joins
-    // the same line.
+    // Map category → retryability and print one labelled row so the
+    // operator sees the verdict at a glance; `retry_after_ms`, when
+    // present, joins the same line.
     let (retry_glyph_token, retry_text) = if info.retryable {
         let mut s = "yes".to_string();
         if let Some(ms) = e.retry_after_ms {
@@ -238,7 +237,7 @@ struct CodeInfo {
 /// see the raw number in the card so support diagnostics work.
 fn code_info(code: u16) -> CodeInfo {
     let (name, category, retryable) = match code {
-        // §3.1 Protocol — all non-retryable client bugs
+        // Protocol — all non-retryable client bugs
         0x0001 => ("BadMagic", "Protocol", false),
         0x0002 => ("BadHeaderCrc", "Protocol", false),
         0x0003 => ("BadPayloadCrc", "Protocol", false),
@@ -250,18 +249,18 @@ fn code_info(code: u16) -> CodeInfo {
         0x0009 => ("BadFlagCombination", "Protocol", false),
         0x000A => ("MalformedRkyv", "Protocol", false),
         0x000B => ("MalformedVector", "Protocol", false),
-        // §3.2 Connection / handshake
+        // Connection / handshake
         0x0020 => ("VersionNotSupported", "Authentication", false),
         0x0021 => ("NoSuchAuthMethod", "Authentication", false),
         0x0022 => ("Unauthenticated", "Authentication", false),
         0x0023 => ("NotAuthenticated", "Authentication", false),
         0x0024 => ("AuthBackendUnavailable", "Authentication", true),
         0x0025 => ("SessionExpired", "Authentication", false),
-        // §3.3 Authorization
+        // Authorization
         0x0030 => ("PermissionDenied", "Authorization", false),
         0x0031 => ("AdminPermissionRequired", "Authorization", false),
         0x0032 => ("WrongShard", "Authorization", false),
-        // §3.4 Validation
+        // Validation
         0x0040 => ("InvalidArgument", "Validation", false),
         0x0041 => ("MissingRequiredField", "Validation", false),
         0x0042 => ("TextTooLarge", "Validation", false),
@@ -275,20 +274,20 @@ fn code_info(code: u16) -> CodeInfo {
         0x004A => ("BadModelFingerprint", "Validation", false),
         0x004B => ("PredicateNotInSchema", "Validation", false),
         0x004C => ("RelationTypeNotInSchema", "Validation", false),
-        // §3.5 Not found
+        // Not found
         0x0050 => ("MemoryNotFound", "NotFound", false),
         0x0051 => ("ContextNotFound", "NotFound", false),
         0x0052 => ("SubscriptionNotFound", "NotFound", false),
         0x0053 => ("SnapshotNotFound", "NotFound", false),
         0x0054 => ("TxnNotFound", "NotFound", false),
-        // §3.6 Conflict
+        // Conflict
         0x0060 => ("IdempotencyConflict", "Conflict", false),
         0x0061 => ("TransactionConflict", "Conflict", false),
         0x0062 => ("TxnExpired", "Conflict", false),
         0x0063 => ("StreamIdInUse", "Conflict", false),
         0x0064 => ("SubscriptionLsnTooOld", "Conflict", false),
         0x0065 => ("CardinalityViolation", "Conflict", false),
-        // §3.7 Resource exhausted — retryable after backoff
+        // Resource exhausted — retryable after backoff
         0x0070 => ("OutOfSlots", "ResourceExhausted", true),
         0x0071 => ("OutOfDisk", "ResourceExhausted", true),
         0x0072 => ("OutOfMemory", "ResourceExhausted", true),
@@ -296,13 +295,13 @@ fn code_info(code: u16) -> CodeInfo {
         0x0074 => ("StreamLimitExceeded", "ResourceExhausted", true),
         0x0075 => ("ConnectionLimitExceeded", "ResourceExhausted", true),
         0x0076 => ("TransactionLimitExceeded", "ResourceExhausted", true),
-        // §3.8 Internal — retry once
+        // Internal — retry once
         0x0080 => ("Internal", "Internal", true),
         0x0081 => ("StorageError", "Internal", true),
         0x0082 => ("IndexError", "Internal", true),
         0x0083 => ("EmbeddingError", "Internal", true),
         0x0084 => ("MetadataError", "Internal", true),
-        // §3.9 Unavailable — retry per retry_after_ms
+        // Unavailable — retry per retry_after_ms
         0x0090 => ("ShardUnavailable", "Unavailable", true),
         0x0091 => ("Overloaded", "Unavailable", true),
         0x0092 => ("Restarting", "Unavailable", true),

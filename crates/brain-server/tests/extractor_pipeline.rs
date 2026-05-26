@@ -1,4 +1,4 @@
-//! End-to-end ExtractorWorker smoke (Phase E).
+//! End-to-end ExtractorWorker smoke.
 //!
 //! Spawns one shard with the default extractor tick (1s) + the system
 //! schema's built-in `entity_mentions` pattern extractor. Sends an

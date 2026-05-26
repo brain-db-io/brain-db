@@ -1,4 +1,4 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 //! Extractor worker — `StageCompleted` publish guarantees.
 //!
 //! Pins the wait-for-extraction contract: for every memory that

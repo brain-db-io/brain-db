@@ -1,4 +1,4 @@
-//! Query SDK integration tests. Phase 23.10.
+//! Query SDK integration tests.
 //!
 //! Uses the mock-server harness to verify that:
 //!

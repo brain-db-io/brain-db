@@ -49,9 +49,9 @@ pub trait Worker: 'static {
     /// processed — the scheduler adds it to `processed_total`.
     ///
     /// Implementations typically delegate to [`drive_batch`], which
-    /// honours the batch / runtime bounds and the
-    /// §11/01 §6 yield discipline. Workers with monolithic cycles
-    /// (e.g., HNSW rebuild) may implement their own bounded body.
+    /// honours the batch / runtime bounds and the yield discipline.
+    /// Workers with monolithic cycles (e.g., HNSW rebuild) may implement
+    /// their own bounded body.
     fn run_cycle<'a>(
         &'a self,
         ctx: &'a WorkerContext,
@@ -60,7 +60,7 @@ pub trait Worker: 'static {
 
 /// drive a stream of work-units, bounded by batch
 /// size, wall-clock time, and shutdown. Yields every
-/// `YIELD_EVERY` units (§11/01 §6).
+/// `YIELD_EVERY` units.
 ///
 /// `unit` returns `Ok(true)` when work was done and more *may* exist,
 /// `Ok(false)` when there's nothing else to do (cycle ends early),

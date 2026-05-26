@@ -1,8 +1,8 @@
 //! Worker configuration.
 //!
-//! `WorkerKind` enumerates the 12 workers shipped by sub-tasks
-//! 8.2 – 8.13. `WorkerConfig` is the shared bag of knobs every worker
-//! shares; per-worker configs add their own fields on top.
+//! `WorkerKind` enumerates the 12 workers. `WorkerConfig` is the shared
+//! bag of knobs every worker shares; per-worker configs add their own
+//! fields on top.
 
 use std::time::Duration;
 
@@ -21,7 +21,7 @@ pub enum WorkerKind {
     Statistics,
     EmbedderCacheEvict,
     Snapshot,
-    // Phase 24 — knowledge-layer workers.
+    // Knowledge-layer workers.
     Backfill,
     ForgetCascade,
     SchemaMigration,
@@ -131,10 +131,8 @@ pub struct WorkerConfig {
 }
 
 impl WorkerConfig {
-    /// default cadence table. Per-worker sub-tasks
-    /// may tune (e.g., HNSW maintenance bumps `max_runtime` for the
-    /// rebuild). Snapshot defaults disabled — operators opt in via
-    /// `ADMIN_*_SNAPSHOT` (Phase 9).
+    /// Default cadence table. Per-worker configs may tune (e.g., HNSW
+    /// maintenance bumps `max_runtime` for the rebuild).
     #[must_use]
     pub fn defaults_for(kind: WorkerKind) -> Self {
         let (enabled, interval, batch_size, max_runtime_ms) = match kind {
@@ -149,15 +147,11 @@ impl WorkerConfig {
             WorkerKind::CounterReconcile => (true, Duration::from_secs(3600), 1, 30_000),
             WorkerKind::Statistics => (true, Duration::from_secs(300), 1, 5_000),
             WorkerKind::EmbedderCacheEvict => (true, Duration::from_secs(60), 5_000, 2_000),
-            // Was `false` during the PQ-persistence stub era — every tick
-            // would have failed on `SnapshotNotYetImplemented`. With Task 3
-            // landed, save_snapshot writes the four-file triple cleanly,
-            // so the worker is on by default; an hourly snapshot bounds
-            // the next restart's WAL replay. The worker's
-            // `do_snapshot_cycle` skips empty-HNSW shards to avoid
-            // writing redundant CHECKPOINT records.
+            // On by default: an hourly snapshot bounds the next restart's
+            // WAL replay. `do_snapshot_cycle` skips empty-HNSW shards to
+            // avoid writing redundant CHECKPOINT records.
             WorkerKind::Snapshot => (true, Duration::from_secs(3600), 1, 300_000),
-            // Phase 24 — knowledge workers.
+            // Knowledge workers.
             // Backfill is admin-triggered; the loop ticks fast when work is pending.
             WorkerKind::Backfill => (true, Duration::from_secs(1), 256, 20_000),
             WorkerKind::ForgetCascade => (true, Duration::from_secs(1), 256, 10_000),
@@ -201,7 +195,7 @@ impl WorkerConfig {
             // pathological "huge predicate bucket" case.
             WorkerKind::ConfidenceSweep => (true, Duration::from_secs(3600), 256, 10_000),
             // Ambiguity resolver re-checks merge-review-queue rows.
-            // 1 h tick matches the spec band: a proposal's confidence
+            // 1 h tick: a proposal's confidence
             // shifts only as the HNSW absorbs new aliases (hours, not
             // seconds). batch_size=64 caps per-cycle wall-clock at
             // 64 * (1 embed + 1 HNSW knn + 1 possible merge_entity) ≈

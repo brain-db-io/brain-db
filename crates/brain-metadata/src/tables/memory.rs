@@ -1,7 +1,6 @@
 //! `memories` table: per-memory metadata.
 //!
-//! See `spec/10_metadata/03_memory_table.md`. Row layout per §1
-//! (~140 bytes/row), flags per §2.7, lifecycle per §10.
+//! Row layout is ~140 bytes/row.
 //!
 //! ## Storage representation
 //!
@@ -15,10 +14,10 @@
 //! ## Deserialize-on-read, not zero-copy
 //!
 //! [`redb::Value::from_bytes`] returns an owned `MemoryMetadata`
-//! (full rkyv deserialize) advertises rkyv's
-//! "zero-copy" path — supplying a `&ArchivedMemoryMetadata` view into
-//! the redb-mmap'd page. We defer that until profiling identifies a
-//! hot read path; owned reads are simpler to reason about and test.
+//! (full rkyv deserialize) rather than rkyv's "zero-copy" path —
+//! supplying a `&ArchivedMemoryMetadata` view into the redb-mmap'd
+//! page. We defer that until profiling identifies a hot read path;
+//! owned reads are simpler to reason about and test.
 
 use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
 use redb::TableDefinition;
@@ -35,7 +34,7 @@ pub const MEMORIES_TABLE: TableDefinition<'static, [u8; 16], MemoryMetadata> =
 /// Secondary timeline index keyed `(agent_id_bytes, created_at_unix_nanos
 /// BE bytes, context_id BE bytes, memory_id BE bytes)` → `()`.
 ///
-/// The TemporalEdgeWorker (§02/06 `FollowedBy` auto-derivation) needs
+/// The TemporalEdgeWorker (`FollowedBy` auto-derivation) needs
 /// to answer "most-recent memory by agent A within context C and
 /// timestamp window" cheaply. Without this index the worker would
 /// either full-scan `MEMORIES_TABLE` per encode or maintain an

@@ -1,4 +1,4 @@
-//! Performance gate for the unified edge layer (Phase C).
+//! Performance gate for the unified edge layer.
 //!
 //! Validates that collapsing the substrate `edges_out`/`edges_in`
 //! tables and the typed-relation `relations`/`by_from`/`by_to` tables
@@ -10,9 +10,8 @@
 //! - depth=3 : p50 ≤ 30 ms
 //!
 //! Also validates that the no-schema memory-anchored walk
-//! (`walk_memory_edges` from Phase A, exercised when no typed
-//! relations are declared) has not regressed under the same
-//! unification.
+//! (`walk_memory_edges`, exercised when no typed relations are
+//! declared) has not regressed under the same unification.
 //!
 //! Fixture:
 //! - 1000 entities + 5000 typed relations across 3 distinct relation
@@ -218,7 +217,7 @@ fn build_memory_fixture() -> MemoryFixture {
 }
 
 // ---------------------------------------------------------------------------
-// p50 helpers — direct timing so we can assert against the spec target
+// p50 helpers — direct timing so we can assert against the latency target
 // even when criterion is invoked without the statistical-summary mode.
 // ---------------------------------------------------------------------------
 
@@ -401,7 +400,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
 }
 
 /// Memory-anchor walk on a memory-only fixture (no typed relations
-/// declared). Verifies that Phase A's `walk_memory_edges` (now backed
+/// declared). Verifies that `walk_memory_edges` (now backed
 /// by the unified `EDGES_TABLE`) hasn't regressed against the depth=1
 /// target.
 fn bench_substrate_walk(c: &mut Criterion) {

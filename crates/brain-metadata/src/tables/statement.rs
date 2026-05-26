@@ -1,8 +1,5 @@
 //! Statement family — 8 tables.
 //!
-//! See `spec/02_data_model/` (record + supersession rules) and
-//! `spec/26_knowledge_storage/00_purpose.md` (table catalog).
-//!
 //! - [`STATEMENTS_TABLE`]                  — primary `StatementId → StatementMetadata`.
 //! - [`STATEMENTS_BY_SUBJECT_TABLE`]       — subject-anchored secondary.
 //! - [`STATEMENTS_BY_PREDICATE_TABLE`]     — predicate-anchored secondary.
@@ -12,12 +9,9 @@
 //! - [`STATEMENT_CHAIN_TABLE`]             — supersession-chain traversal.
 //! - [`EVIDENCE_OVERFLOW_TABLE`]           — long evidence lists that don't fit inline.
 //!
-//! Phase 15.1 declared the tables with minimal value shapes. Phase 17.4
-//! widens `StatementMetadata.evidence_inline` from `Vec<[u8; 16]>` to
-//! a parallel structure carrying confidence + timestamp + extractor
-//! and adds the typed `StatementObject` encoding
-//! via a private rkyv shim. Archive ids bumped to `v2` — pre-v1.0,
-//! no migration needed.
+//! `StatementMetadata.evidence_inline` is a parallel structure
+//! carrying confidence + timestamp + extractor, and the typed
+//! `StatementObject` encoding is done via a private rkyv shim.
 
 use crate::impl_redb_rkyv_value;
 use brain_core::{
@@ -143,9 +137,8 @@ impl EvidenceEntryRow {
 /// Private rkyv shim for `brain_core::StatementValue`.
 ///
 /// One variant byte + one populated payload field; the rest are zero/
-/// empty. Stable byte layout so phase-21 readers can skim past the
-/// payload without a full deserialize when only the discriminant
-/// matters.
+/// empty. Stable byte layout so readers can skim past the payload
+/// without a full deserialize when only the discriminant matters.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 struct StatementValueBlob {
@@ -313,8 +306,8 @@ pub fn confidence_bucket(c: f32) -> u8 {
 // Value structs.
 // ---------------------------------------------------------------------------
 
-/// Primary statement record. Carries every field §"Schema"
-/// in rkyv-archived form.
+/// Primary statement record. Carries every schema field in
+/// rkyv-archived form.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct StatementMetadata {

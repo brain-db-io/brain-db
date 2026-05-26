@@ -1,31 +1,21 @@
-//! Connection layer — Tokio TCP accept loop with optional rustls TLS
-//! (sub-task 9.9) (L1), §03/02 (transport).
+//! Connection layer — Tokio TCP accept loop with optional rustls TLS.
 //!
-//! ## What 9.9 ships
+//! ## What it ships
 //!
 //! - `TcpListener::bind` on `config.server.listen_addr` with
 //!   `SO_REUSEADDR`.
 //! - Optional `tokio_rustls::TlsAcceptor` wrap on accepted streams.
 //! - Per-connection task: applies `TCP_NODELAY` + `SO_KEEPALIVE`,
 //!   reads one frame at a time with a per-frame read timeout, validates
-//!   with [`brain_protocol::Frame::decode_with_max`], and (for now)
-//!   replies `ERROR(BadFrame)` then closes.
+//!   with [`brain_protocol::Frame::decode_with_max`], runs the
+//!   HELLO/WELCOME/AUTH handshake, then the dispatch loop.
 //! - Graceful shutdown via a `watch::channel`-based [`ShutdownSignal`]
 //!   shared with `main`. (Switched off `tokio::sync::Notify` to avoid
 //!   the "wake lost between loop iterations" race.)
 //!
-//! ## What 9.10 will plug in
+//! ## Not yet wired
 //!
-//! The body of [`serve_connection`] becomes the real handshake →
-//! AUTH → dispatch loop. The frame I/O helpers and the shutdown wiring
-//! stay as they are; only the inner match changes.
-//!
-//! ## What stays out of 9.9
-//!
-//! - HELLO/WELCOME/AUTH/AUTH_OK handshake — 9.10.
-//! - Real opcode → shard routing — 9.10.
-//! - Idle PING/PONG, BYE handling — 9.10.
-//! - Per-IP / per-agent connection limits — 9.13.
+//! - Per-IP / per-agent connection limits.
 //! - mTLS — follow-up marks opt-in.
 
 #![cfg(target_os = "linux")]
@@ -154,9 +144,8 @@ impl Default for ConnectionLimits {
 }
 
 /// Live connection counters surfaced via the admin `/metrics`
-/// endpoint. Extended in 12.7 (closed-by-reason + frame send/recv
-/// counters) and in F-7 (frame_size_bytes histograms after the
-/// unit-agnostic `Histogram` refactor).
+/// endpoint. Covers closed-by-reason + frame send/recv
+/// counters and frame_size_bytes histograms.
 pub struct ConnectionMetrics {
     pub active: AtomicU64,
     pub total: AtomicU64,
@@ -164,7 +153,7 @@ pub struct ConnectionMetrics {
     pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
     pub frame_send_total: AtomicU64,
     pub frame_recv_total: AtomicU64,
-    /// F-7: raw-mode histograms of
+    /// Raw-mode histograms of
     /// outbound / inbound frame size in bytes. `Histogram::new` with
     /// [`FRAME_BYTES_BUCKETS`] gives an exact `_sum`.
     pub frame_send_bytes: crate::metrics::histogram::Histogram,
@@ -290,13 +279,13 @@ pub struct ConnectionListener {
     listen_addr: SocketAddr,
     tls: Option<Arc<ServerConfig>>,
     topology: Topology,
-    /// Cross-shard event hub (sub-task 9.11). Built once per listener
+    /// Cross-shard event hub. Built once per listener
     /// at construction time; spawns one bridge task per shard that
     /// drains the shard's per-process flume Receiver into a
     /// `broadcast::Sender`. Per-connection `SubscriptionRegistry`s
     /// subscribe to the right shard's broadcast.
     event_hub: ShardEventHub,
-    /// Live counters surfaced by the admin server (sub-task 9.13).
+    /// Live counters surfaced by the admin server.
     metrics: Arc<ConnectionMetrics>,
     limits: ConnectionLimits,
     shutdown: ShutdownSignal,
@@ -376,8 +365,8 @@ impl BoundConnectionListener {
     ///
     /// Returns once the accept loop has exited. Per-connection tasks
     /// that were already running are NOT awaited here — they observe
-    /// the same `shutdown` notify and unwind on their own. 9.14 layers
-    /// a JoinSet-based drain over this.
+    /// the same `shutdown` notify and unwind on their own. Graceful
+    /// shutdown layers a JoinSet-based drain over this.
     pub async fn serve(mut self) -> io::Result<SocketAddr> {
         let local_addr = self.local_addr;
         info!(addr = %local_addr, "connection listener accepting");
@@ -408,7 +397,7 @@ impl BoundConnectionListener {
                     let topology = self.topology.clone();
                     let event_hub = self.event_hub.clone();
                     let metrics = self.metrics.clone();
-                    // Counter bookkeeping (sub-task 9.13). `_guard`
+                    // Counter bookkeeping. `_guard`
                     // decrements `active` on drop — handles every
                     // exit path including TLS handshake failure.
                     metrics.total.fetch_add(1, Ordering::Relaxed);
@@ -453,7 +442,7 @@ impl BoundConnectionListener {
 // Per-connection task
 // ---------------------------------------------------------------------------
 
-/// One connection's lifetime (sub-task 9.10). Splits the stream into
+/// One connection's lifetime. Splits the stream into
 /// reader + writer halves and runs three loops:
 ///
 /// 1. **Reader** — pulls frames from the socket, decides via
@@ -486,7 +475,7 @@ where
     let writer_metrics = metrics.clone();
     let writer = tokio::spawn(writer_loop(write_half, frame_rx, writer_metrics));
 
-    // Sub-task 9.11: each connection gets its own SubscriptionRegistry.
+    // Each connection gets its own SubscriptionRegistry.
     // It reuses the listener-wide `ShardEventHub` to subscribe to per-
     // shard broadcasts.
     let subscriptions = Arc::new(SubscriptionRegistry::new(event_hub));
@@ -513,8 +502,8 @@ where
     drop(frame_tx);
     let _ = writer.await;
 
-    // Spec §05/04 + §01/03 §8: "On TXN_ABORT or connection drop
-    // before commit, none of the operations take effect." Any txn
+    // On TXN_ABORT or connection drop before commit, none of the
+    // operations take effect. Any txn
     // this session opened (TXN_BEGIN without a matching COMMIT/ABORT)
     // is still buffering work on its target shard; sweep every shard
     // and discard the buffer. Pre-handshake disconnects carry an
@@ -689,7 +678,7 @@ where
                                     .unwrap_or("unknown");
                                 let stream_id = op.stream_id;
                                 let target_shard = op.target_shard;
-                                // 12.3 — request-level span instruments each
+                                // Request-level span instruments each
                                 // request; child spans inside the shard (brain.encode →
                                 // brain.embed → brain.hnsw.insert) attach to this parent.
                                 let span = tracing::info_span!(
@@ -827,7 +816,7 @@ fn build_close_error_frame_with_category(
 }
 
 // ---------------------------------------------------------------------------
-// SUBSCRIBE / UNSUBSCRIBE / CANCEL_STREAM helpers (sub-task 9.11)
+// SUBSCRIBE / UNSUBSCRIBE / CANCEL_STREAM helpers
 // ---------------------------------------------------------------------------
 
 async fn handle_subscribe_start(
@@ -844,7 +833,7 @@ async fn handle_subscribe_start(
         Ok(_) => {
             // Subscription established. Per-sub task is running; it
             // will start emitting SUBSCRIBE_EVENT frames as events
-            // arrive. 9.11 doesn't send a synchronous opener frame
+            // arrive. We don't send a synchronous opener frame
             // (the wire protocol doesn't require one); the client
             // observes the first event when it lands.
         }
@@ -924,8 +913,8 @@ where
 {
     // Wait for the first byte of the next frame WITHOUT a timeout.
     // Inter-frame idle is governed by the connection layer's
-    // [`ConnectionLimits::idle_timeout`] + SERVER_PING path (spec
-    // §03/02 §6.1). Bounding it here too caused a real regression:
+    // [`ConnectionLimits::idle_timeout`] + SERVER_PING path.
+    // Bounding it here too caused a real regression:
     // any client (e.g. the `brain` REPL) that paused > `read_timeout`
     // between two valid requests was silently closed before the
     // application-level keepalive could fire. `read_timeout`

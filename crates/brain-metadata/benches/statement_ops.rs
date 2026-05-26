@@ -1,9 +1,7 @@
-//! Statement-ops perf bench (sub-task 17.10b).
+//! Statement-ops perf bench.
 //!
-//! Spec targets per [`spec/20_benchmarks/02_latency_targets.md`](
-//! ../../spec/20_benchmarks/02_latency_targets.md) §2.3 at
-//! 1M statements per shard (operator-run on the 16-core / 64 GB /
-//! NVMe reference rig):
+//! Latency targets at 1M statements per shard (operator-run on the
+//! 16-core / 64 GB / NVMe reference rig):
 //!
 //! - `STATEMENT_CREATE` (Fact, 3 evidence): p50 2 ms, p99 10 ms.
 //! - `STATEMENT_GET`:                       p50 0.5 ms, p99 2 ms.

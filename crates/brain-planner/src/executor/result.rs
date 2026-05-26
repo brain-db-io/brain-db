@@ -1,6 +1,6 @@
-//! Rust-side result types returned by `execute_*`. Phase 9's server
-//! wraps these into the wire `ResponseBody` variants; for Phase 6
-//! they're the integration-test assertion targets.
+//! Rust-side result types returned by `execute_*`. The server wraps
+//! these into the wire `ResponseBody` variants; for now they're the
+//! integration-test assertion targets.
 
 use brain_core::{ContextId, EdgeKind, MemoryId, MemoryKind};
 
@@ -80,7 +80,7 @@ pub struct ForgetResult {
 
 /// Outcome of `execute_path` — multiple paths are
 /// computable, but the v1 wire frame carries only the top-1; this
-/// type preserves the full result for Phase 9's streaming chunker.
+/// type preserves the full result for the streaming chunker.
 #[derive(Debug, Clone)]
 pub struct PathResult {
     pub paths: Vec<Path>,

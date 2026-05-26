@@ -1,24 +1,17 @@
 //! # brain-index
 //!
 //! Approximate-nearest-neighbour index for Brain, wrapping `hnsw_rs::Hnsw`
-//! with the parameters and lifecycle (build, search, snapshot, rebuild)
-//! defined in `spec/09_indexing/`.
+//! with the parameters and lifecycle (build, search, snapshot, rebuild).
 //!
 //! This crate is a **closed leaf**: vectors in, candidates out. It has
 //! no dependency on `brain-storage` or `brain-metadata`; the cross-crate
 //! composition (rebuilding the HNSW from arena slots + active-memory
-//! scans) lives in a higher-layer crate from Phase 7 onward.
+//! scans) lives in a higher-layer crate.
 //!
-//! ## Current surface (sub-task 4.1)
-//!
-//! - [`IndexParams`] — HNSW knobs with spec defaults
+//! - [`IndexParams`] — HNSW knobs with defaults
 //!   (`M=16, ef_construction=200, ef_search=64, ef_search_max=500`).
 //! - [`HnswIndex<D>`] — const-generic over vector dim. Production use
 //!   pins `D = `[`VECTOR_DIM`] (= 384 for BGE-small).
-//!
-//! Later sub-tasks add `MemoryId` mapping (4.2), tombstone filtering
-//! (4.3/4.4), persistence (4.5), rebuild (4.6), the recall benchmark
-//! (4.7), and the `ArcSwap` concurrency wrapper (4.8).
 
 #![allow(
     clippy::module_name_repetitions,

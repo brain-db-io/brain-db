@@ -1,6 +1,6 @@
 //! Bounded body reader.
 //!
-//! Mitigates the trivial-DoS pattern flagged in the design report §R9:
+//! Mitigates a trivial-DoS pattern:
 //! a malicious client declares a huge `Content-Length` (or sends an
 //! unbounded chunked body), and a naive `collect().await` OOMs trying
 //! to buffer it. [`read_to_bytes`] consults `size_hint().upper()`

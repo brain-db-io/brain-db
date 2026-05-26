@@ -2,7 +2,7 @@
 //! `StatementHnswIndex`.
 //!
 //! The metadata-layer
-//! [`brain_metadata::statement::TieredSupersedeDecider`] (W2.1) calls
+//! [`brain_metadata::statement::TieredSupersedeDecider`] calls
 //! `StatementSimilaritySource::nearest` on the candidate vector for
 //! Tier 1/2 of the supersession ladder. The metadata crate itself
 //! does not depend on `brain-index` — inverting the dep would break

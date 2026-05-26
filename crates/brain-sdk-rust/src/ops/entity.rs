@@ -1,4 +1,4 @@
-//! Fluent builders over the knowledge-layer entity opcodes. Phase 16.8.2.
+//! Fluent builders over the knowledge-layer entity opcodes.
 //!
 //! ```no_run
 //! # use brain_sdk_rust::{Client, Person};
@@ -160,15 +160,15 @@ where
     }
 
     /// Start a RESOLVE builder. Provide optional `.context(...)` text
-    /// (helps the embedding tier in phase 21+) and `.allow_create(...)`,
+    /// (helps the embedding tier) and `.allow_create(...)`,
     /// then `.send().await`.
     #[must_use]
     pub fn resolve(&self, candidate_name: impl Into<String>) -> EntityResolveBuilder<'a, T> {
         EntityResolveBuilder::new(self.client, candidate_name.into())
     }
 
-    /// Start a LIST builder. Single-page snapshot in 16.7 (limit cap
-    /// 1000); cursor-resume lands in phase 23.
+    /// Start a LIST builder. Single-page snapshot in v1 (limit cap
+    /// 1000); cursor-resume lands later.
     #[must_use]
     pub fn list(&self) -> EntityListBuilder<'a, T> {
         EntityListBuilder::new(self.client)
@@ -310,7 +310,7 @@ where
 /// Builder for `ENTITY_UPDATE` (full-replace semantics at the wire
 /// layer).
 ///
-/// **Field-by-field semantics in 16.8:**
+/// **Field-by-field semantics:**
 ///
 /// - `canonical_name`, `aliases`: if unset on the builder, the
 ///   builder fetches the current entity via GET and inherits.
@@ -325,7 +325,7 @@ where
 ///   [`EntityClient::rename`] for name-only changes.
 ///
 /// Full attribute-merge semantics (per-field patching that preserves
-/// untouched fields) land in phase 19 alongside the
+/// untouched fields) land alongside the
 /// `#[derive(BrainEntity)]` macro, which can introspect schema-
 /// declared fields to know which slots exist.
 pub struct EntityUpdateBuilder<'a, T: BrainEntityType> {
@@ -559,17 +559,17 @@ where
         }
     }
 
-    /// Surrounding text used by tier 3 (embedding) when phase 21+
-    /// wires the entity HNSW. Currently informational only.
+    /// Surrounding text used by tier 3 (embedding) once the entity
+    /// HNSW is wired. Currently informational only.
     #[must_use]
     pub fn context(mut self, ctx: impl Into<String>) -> Self {
         self.context = ctx.into();
         self
     }
 
-    /// Allow tier-5 auto-create when no entity resolves. Phase 16.8
+    /// Allow tier-5 auto-create when no entity resolves. Current
     /// behavior: returns [`ResolutionOutcome::NotFound`] regardless;
-    /// auto-create wires when statement extraction lands (phase 17+).
+    /// auto-create wires when statement extraction lands.
     #[must_use]
     pub fn allow_create(mut self, allow: bool) -> Self {
         self.allow_create = allow;
@@ -625,9 +625,9 @@ where
 /// callers can downstream-`get()` with a typed `EntityHandle<T>`
 /// without re-asserting the entity type.
 ///
-/// Phase 16.8.7: `Resolved` / `Ambiguous` / `NotFound` are the
-/// reachable variants. `Created` lights up when phase 17+ wires
-/// resolver-driven auto-create through statement extraction.
+/// `Resolved` / `Ambiguous` / `NotFound` are the
+/// reachable variants. `Created` lights up when statement extraction
+/// wires resolver-driven auto-create.
 #[derive(Clone, Debug)]
 pub enum ResolutionOutcome<T: BrainEntityType> {
     Resolved {
@@ -731,8 +731,8 @@ where
         self
     }
 
-    /// Fetch the (single-page) snapshot. Cursor pagination lands in
-    /// phase 23 — currently any non-empty cursor would be rejected by
+    /// Fetch the (single-page) snapshot. Cursor pagination lands
+    /// later — currently any non-empty cursor would be rejected by
     /// the server.
     pub async fn fetch(self) -> Result<Vec<EntityHandle<T>>, ClientError> {
         let body = RequestBody::EntityList(EntityListRequest {
@@ -874,8 +874,7 @@ fn unexpected_body(expected: &str, body: ResponseBody) -> ClientError {
 /// Returns `true` iff `err` is a server-side ENTITY_NOT_FOUND. Used
 /// by `get()` to translate "not found" into `Ok(None)`. Delegates to
 /// [`ClientErrorEntityExt`] which inspects the server's message
-/// (Strategy B). Strategy A migration is a
-/// follow-up tracked in §28/09 Q1.
+/// (Strategy B). Strategy A migration is a follow-up.
 fn is_entity_not_found(err: &ClientError) -> bool {
     err.is_entity_not_found()
 }

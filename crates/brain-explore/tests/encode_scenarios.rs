@@ -172,7 +172,7 @@ fn wide_mode_surfaces_stub_embedder_warning_when_fingerprint_is_zeros() {
     // The honesty signal: server today uses NopDispatcher, so the
     // embedder fingerprint is [0; 16]. The renderer must say so
     // explicitly rather than pretending it's a real fingerprint.
-    // When 9.10 wires the real CpuDispatcher this row flips to
+    // When the real CpuDispatcher is wired this row flips to
     // "fp <short hex>" and this test will need to be updated.
     assert!(
         out.contains("stub")

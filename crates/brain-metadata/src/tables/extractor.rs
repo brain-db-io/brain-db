@@ -1,12 +1,8 @@
 //! `extractors` table — interned extractor registry.
 //!
-//! (three-tier model) + §21/05 §1 (schema fan-out).
-//!
-//! Phase 15.1 declared a placeholder row. Phase 20.5 widens to the
-//! canonical pattern (namespace + name + qname index) matching
-//! [`crate::tables::predicate::PredicateDefinition`] /
+//! Row follows the canonical pattern (namespace + name + qname index)
+//! matching [`crate::tables::predicate::PredicateDefinition`] /
 //! [`crate::tables::relation_type::RelationTypeDefinition`].
-//! Type tag bumped `::v1` → `::v2`; v1 hasn't shipped.
 
 use crate::impl_redb_rkyv_value;
 use brain_core::{ExtractorId, ExtractorKind};
@@ -30,7 +26,7 @@ pub const EXTRACTORS_BY_QNAME_TABLE: TableDefinition<'static, &str, u32> =
 /// [`brain_core::ExtractorKind::as_u8`].
 ///
 /// `definition_blob`: `serde_json::to_vec(&ExtractorDef)` where
-/// `ExtractorDef` is the §19.2 AST. Opaque to brain-metadata;
+/// `ExtractorDef` is the schema-DSL AST. Opaque to brain-metadata;
 /// brain-extractors decodes it when materialising the runtime
 /// extractor at MetadataDb::open / `SCHEMA_UPLOAD` time.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]

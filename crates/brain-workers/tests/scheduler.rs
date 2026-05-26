@@ -1,10 +1,10 @@
-#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send post-9.7 (audit §4)
-//! Sub-task 8.1 scheduler integration tests.
+#![allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
+//! Scheduler integration tests.
 //!
 //! Drives the trait + scheduler with a `TestWorker` fixture that
 //! exposes controllable per-cycle behaviour (work units, error
 //! injection, sleep). The ops layer comes from a real `OpsContext`
-//! built over a tempdir — workers don't touch it in 8.1, but the
+//! built over a tempdir — these tests don't touch it, but the
 //! scheduler's `register` signature requires one.
 
 use std::future::Future;
@@ -23,8 +23,8 @@ use brain_workers::{
 };
 
 // ---------------------------------------------------------------------------
-// OpsContext fixture (shared by every test). 8.1 doesn't exercise the
-// ops layer through workers, but the scheduler signature demands one.
+// OpsContext fixture (shared by every test). These tests don't exercise
+// the ops layer through workers, but the scheduler signature demands one.
 // ---------------------------------------------------------------------------
 
 struct NopDispatcher;
@@ -63,8 +63,7 @@ fn make_ops_context() -> (Arc<OpsContext>, tempfile::TempDir) {
 // TestWorker: per-cycle behaviour driven by an injected closure.
 // ---------------------------------------------------------------------------
 
-// After 9.7 (audit §4) the Worker trait drops Send+Sync; the test
-// CycleBody alias matches.
+// The Worker trait drops Send+Sync; the test CycleBody alias matches.
 type CycleBody =
     Arc<dyn Fn(&WorkerContext) -> Pin<Box<dyn Future<Output = Result<usize, WorkerError>>>>>;
 

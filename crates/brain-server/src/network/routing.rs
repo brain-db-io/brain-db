@@ -4,15 +4,15 @@
 //! that owns the request. Two routing modes:
 //!
 //! - **Memory-based**: `MemoryId` already encodes its shard in the high
-//!   16 bits (`brain-core` §02/03 §2.1). O(1) bit extraction.
+//!   16 bits. O(1) bit extraction.
 //! - **Agent-based**: BLAKE3 hash of the agent's UUID bytes, modulo
 //!   `shard_count`. Optionally overridden via a startup-time map for
 //!   VIP / extra-large agents.
 //!
-//! Out of scope for v1 (deferred to v2, §8, §14):
-//!   - Multi-shard agents (§8).
-//!   - "WrongShard" handling (§14) — connection layer's concern.
-//!   - Consistent hashing for elastic shard counts (§6).
+//! Out of scope for v1 (deferred to v2):
+//!   - Multi-shard agents.
+//!   - "WrongShard" handling — connection layer's concern.
+//!   - Consistent hashing for elastic shard counts.
 
 use std::collections::HashMap;
 
@@ -77,7 +77,7 @@ impl RoutingTable {
     }
 
     #[must_use]
-    #[allow(dead_code)] // surface for diagnostics / future 9.13 admin
+    #[allow(dead_code)] // surface for diagnostics / future admin
     pub fn shard_count(&self) -> u16 {
         self.shard_count
     }
@@ -97,7 +97,7 @@ impl RoutingTable {
 // Free functions
 // ---------------------------------------------------------------------------
 
-/// BLAKE3-of-uuid-bytes modulo `shard_count`–§5.
+/// BLAKE3-of-uuid-bytes modulo `shard_count`.
 ///
 /// Panics if `shard_count == 0` (precondition; the typed `RoutingTable`
 /// constructor enforces this — direct callers must validate first).
@@ -250,7 +250,7 @@ mod tests {
         assert_eq!(shard_for_memory(id), 11);
     }
 
-    /// Sub-task 9.12: the `RoutingTable` is published via `ArcSwap`
+    /// The `RoutingTable` is published via `ArcSwap`
     /// in production (`Topology.routing`). This test confirms a
     /// follow-up `store()` is visible to a fresh `load_full()`
     /// without restarting the server.

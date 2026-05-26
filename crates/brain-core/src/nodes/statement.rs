@@ -7,10 +7,6 @@
 //! brain-core value type and those layers is the respective layer's
 //! responsibility (via `From` impls).
 //!
-//! See `spec/02_data_model/00_purpose.md` for the canonical schema and
-//! `spec/02_data_model/{01_supersession, 02_contradiction, 04_confidence, 05_evidence}.md`
-//! for the kind-specific contracts.
-//!
 //! ## Four-timestamp bi-temporal model
 //!
 //! Every statement carries four independent timestamps so an agent can
@@ -54,8 +50,6 @@ pub const INLINE_EVIDENCE_CAP: usize = 8;
 
 /// The subject of a statement — either a resolved entity or a pending
 /// resolution audit (when the resolver returns `Ambiguous`).
-///
-/// Spec `§19/00` §"Schema".
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum SubjectRef {
     Entity(EntityId),
@@ -88,8 +82,7 @@ impl SubjectRef {
 
 /// Typed literal value used in [`StatementObject::Value`].
 ///
-/// Spec `§19/00` lists "typed literal" without specifying the variants
-/// — these match the value types the wire layer encodes in
+/// These match the value types the wire layer encodes in
 /// `brain-protocol::knowledge::statement_resp::StatementValueWire`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub enum StatementValue {
@@ -98,8 +91,7 @@ pub enum StatementValue {
     Float(f64),
     Bool(bool),
     UnixNanos(u64),
-    /// Opaque bytes (caps at 64 KiB at the wire layer per
-    /// `spec/28_knowledge_wire_protocol/04_validation.md`).
+    /// Opaque bytes (caps at 64 KiB at the wire layer).
     Blob(Vec<u8>),
 }
 
@@ -119,7 +111,7 @@ impl StatementValue {
 // StatementObject (tagged union).
 // ---------------------------------------------------------------------------
 
-/// The object of a statement §"Schema":
+/// The object of a statement:
 ///
 /// ```text
 /// enum StatementObject {
@@ -169,15 +161,14 @@ impl StatementObject {
 // EvidenceEntry + EvidenceRef.
 // ---------------------------------------------------------------------------
 
-/// One piece of evidence backing a statement. Spec `§19/05 §1`.
+/// One piece of evidence backing a statement.
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub struct EvidenceEntry {
     pub memory_id: MemoryId,
     /// Per-source confidence in `[0, 1]`. Aggregated into the
-    /// statement's `confidence` via the noisy-OR in `§19/04`.
+    /// statement's `confidence` via noisy-OR.
     pub confidence_milli: u16,
-    /// When the evidence was first observed. Drives decay in
-    /// `§19/04 §3`.
+    /// When the evidence was first observed. Drives confidence decay.
     pub timestamp_unix_nanos: u64,
     /// Which extractor (`0` = user-authored).
     pub extractor_id: ExtractorId,
@@ -218,7 +209,7 @@ impl EvidenceEntry {
 }
 
 /// Evidence pointer — inline (up to `INLINE_EVIDENCE_CAP`) or
-/// overflow row pointer. Spec `§19/05`.
+/// overflow row pointer.
 ///
 /// The inline payload is boxed: the inline `SmallVec` carries an
 /// 8-wide `EvidenceEntry` buffer (~272 bytes); without boxing every
@@ -254,7 +245,7 @@ impl EvidenceRef {
 
 impl EvidenceRef {
     /// `true` if no evidence backs this statement. Used by the
-    /// FORGET cascade in `§19/05 §6` to decide auto-tombstone.
+    /// FORGET cascade to decide auto-tombstone.
     #[must_use]
     pub fn is_empty(&self) -> bool {
         match self {
@@ -282,8 +273,6 @@ impl EvidenceRef {
 
 /// Why a statement was tombstoned. Mirrors the byte discriminants in
 /// `brain-metadata::tables::nodes::statement::tombstone_reason`.
-///
-/// Spec `§19/00` §"Schema".
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 #[repr(u8)]
 pub enum TombstoneReason {
@@ -315,7 +304,7 @@ impl TombstoneReason {
 // Statement (the value type).
 // ---------------------------------------------------------------------------
 
-/// A typed claim about an entity. Spec `§19/00`.
+/// A typed claim about an entity.
 ///
 /// Pure value type. The brain-metadata storage layer holds the rkyv-
 /// archived form (`brain_metadata::tables::statement::StatementMetadata`);
@@ -337,7 +326,7 @@ pub struct Statement {
 
     /// Open-ended if `None`.
     pub valid_from_unix_nanos: Option<u64>,
-    /// Open-ended if `None`. Set on supersession (`§19/01 §3.2`).
+    /// Open-ended if `None`. Set on supersession.
     pub valid_to_unix_nanos: Option<u64>,
     /// Required for `Event` kind; `None` for `Fact` / `Preference`.
     pub event_at_unix_nanos: Option<u64>,
@@ -345,7 +334,7 @@ pub struct Statement {
     pub version: u32,
     pub superseded_by: Option<StatementId>,
     pub supersedes: Option<StatementId>,
-    /// Spec `§19/01` — id of the first statement in this chain.
+    /// Id of the first statement in this chain.
     /// Self-referential for un-superseded statements.
     pub chain_root: StatementId,
 
@@ -436,8 +425,6 @@ impl Statement {
     /// `true` iff the statement is the current entry in its chain:
     /// not superseded, not tombstoned, and (if validity-bounded) the
     /// `now` value falls within `[valid_from, valid_to)`.
-    ///
-    /// Spec `§19/01 §3.1` `is_current` bit definition.
     #[must_use]
     pub fn is_current(&self, now_unix_nanos: u64) -> bool {
         if self.tombstoned || self.superseded_by.is_some() {
@@ -475,7 +462,7 @@ impl Statement {
 // Predicate (the registry value type).
 // ---------------------------------------------------------------------------
 
-/// A registered predicate. Spec `§19/00 §"Predicate vocabulary"`.
+/// A registered predicate.
 ///
 /// The id is a u32 (`PredicateId`), interned at first use in the
 /// `predicates` redb table. `kind_constraint` / `object_type_constraint`
@@ -487,9 +474,9 @@ pub struct Predicate {
     pub name: String,
     /// `None` means any kind is allowed for this predicate.
     pub kind_constraint: Option<StatementKind>,
-    /// Per-predicate object-type constraint (spec `§21_schema_dsl`).
-    /// Phase 17 uses a coarse byte; phase 19's schema DSL replaces
-    /// this with a richer typed constraint.
+    /// Per-predicate object-type constraint. Currently a coarse byte;
+    /// the schema DSL will later replace this with a richer typed
+    /// constraint.
     pub object_type_constraint_byte: u8,
     pub schema_version: u32,
     pub description: String,

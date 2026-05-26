@@ -1,4 +1,4 @@
-//! Hybrid query wire-op smoke tests (phase 23.9).
+//! Hybrid query wire-op smoke tests.
 //!
 //! Drives the four hybrid-query opcodes through the full data-plane
 //! stack:
@@ -9,8 +9,8 @@
 //! - `RECALL_HYBRID`  (0x0163) — narrow projection → memory ids.
 //!
 //! These tests run against the shared in-process harness (one shard,
-//! empty fixture). Retrievers are wired automatically by `spawn_shard`
-//! (22.5 / 23.1 / 23.2), so a text-only auto-routed query is expected
+//! empty fixture). Retrievers are wired automatically by `spawn_shard`,
+//! so a text-only auto-routed query is expected
 //! to return an empty result set with the per-retriever outcome list
 //! populated.
 

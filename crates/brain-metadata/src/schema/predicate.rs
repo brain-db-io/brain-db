@@ -1,15 +1,9 @@
-//! Typed CRUD + interning over the predicate registry. Sub-task 17.3.
+//! Typed CRUD + interning over the predicate registry.
 //!
 //! Free functions over `redb::{ReadTransaction, WriteTransaction}`
 //! mirroring the [`crate::entity::ops`] precedent: callers compose them
-//! inside their own redb txns so a phase-17.4 `statement_create` can
+//! inside their own redb txns so a `statement_create` can
 //! validate-and-write atomically.
-//!
-//! Spec refs:
-//! - `spec/02_data_model/00_purpose.md` §"Predicate vocabulary" —
-//!   field shape + built-in catalog.
-//! - `spec/26_knowledge_storage/00_purpose.md` — predicate row lives
-//!   in the knowledge storage catalog.
 
 use std::collections::HashSet;
 

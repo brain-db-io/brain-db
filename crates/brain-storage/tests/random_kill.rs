@@ -12,15 +12,12 @@
 //! 6. Assert that the set of recovered records is exactly the prefix that
 //!    physically survived the truncation — no extras, no gaps.
 //!
-//! See `spec/20_benchmarks/06_durability_criteria.md` §§2–3,9.
-//!
 //! ## Why file truncation, not `kill -9`
 //!
 //! The contract is purely about *file state after a crash*: the kernel
 //! may have written any prefix of the last `pwritev2`. Truncation at a
 //! random byte simulates that prefix space exactly — deterministically,
-//! fast, and without OS-coupling. See plan §3.1 in
-//! `.claude/plans/phase-02-task-11.md`.
+//! fast, and without OS-coupling.
 //!
 //! ## Reproducing a failure
 //!
@@ -69,8 +66,8 @@ fn rng_next(state: &mut u64) -> u64 {
 
 fn shard_uuid_from_seed(seed: u64) -> [u8; 16] {
     // Take 16 bytes from the seed's low half + high half; force the first
-    // byte non-zero so the UUID isn't all-zero (which is the spec's
-    // reserved "null" pattern).
+    // byte non-zero so the UUID isn't all-zero (the reserved "null"
+    // pattern).
     let lo = seed.to_le_bytes();
     let hi = seed.wrapping_mul(GOLDEN).to_le_bytes();
     let mut out = [0u8; 16];
@@ -132,7 +129,7 @@ fn pre_create_arena(arena_path: &Path, shard_uuid: [u8; 16]) {
 /// Write N records via `Wal::append`. Returns each record's encoded size and
 /// the updated RNG state.
 ///
-/// After sub-task 9.6a, `Wal::*` are async and live on Glommio. We host them
+/// `Wal::*` are async and live on Glommio. We host them
 /// on a fresh `LocalExecutor` per call — short-lived, no pinning needed for
 /// correctness (the executor stays on the spawning thread's lifetime).
 fn write_records(

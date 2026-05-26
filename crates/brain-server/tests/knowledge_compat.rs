@@ -1,10 +1,9 @@
-//! Substrate-only mode regression test. Sub-task 15.5.
+//! Substrate-only mode regression test.
 //!
-//! Closes Phase 15 (knowledge-layer storage extensions). Proves that
-//! after the new redb tables (15.1), WAL frame kinds (15.2), on-disk
-//! paths (15.3), and `llm_cache.redb` (15.4) are in place, the
-//! substrate primitives still work end-to-end **and** the knowledge
-//! layer stays dormant when no schema is declared.
+//! Proves that after the knowledge-layer storage extensions (new redb
+//! tables, WAL frame kinds, on-disk paths, and `llm_cache.redb`) are
+//! in place, the substrate primitives still work end-to-end **and**
+//! the knowledge layer stays dormant when no schema is declared.
 //!
 //! ## What's asserted
 //!
@@ -12,7 +11,7 @@
 //! 2. The 25 knowledge-layer redb tables remain empty after the
 //!    workload (no behavior accidentally wrote into them).
 //! 3. The WAL contains zero knowledge-layer frames (none of the
-//!    `0x10..=0x50` discriminants from 15.2 ever produced).
+//!    `0x10..=0x50` discriminants ever produced).
 //! 4. `llm_cache.redb` opens and both cache tables exist + are empty.
 //!
 //! ## Latency
@@ -21,10 +20,10 @@
 //! only assertion is a loose backstop: p99 < 500 ms. Tight `≤110%
 //! of baseline` thresholds need quiet reference hardware + a
 //! committed baseline file; both are operator-cadence concerns for
-//! Phase 14 (substrate acceptance). 15.5 only catches catastrophic
+//! substrate acceptance. This test only catches catastrophic
 //! regressions.
 //!
-//! ## AUTONOMY §23 binding
+//! ## Binding
 //!
 //! Schema-optional behavior must be byte-identical to a
 //! pre-knowledge-layer deployment. (2) and (3) above are how we
@@ -97,7 +96,7 @@ const RECALL_COUNT: usize = 20;
 const FORGET_COUNT: usize = 5;
 const P99_BACKSTOP: Duration = Duration::from_millis(500);
 
-/// Phase 15 closure test. Drives the substrate's hot paths and asserts
+/// Drives the substrate's hot paths and asserts
 /// the knowledge layer stayed dormant.
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn schema_off_substrate_round_trips_and_keeps_knowledge_dormant() {

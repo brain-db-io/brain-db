@@ -1,6 +1,5 @@
-//! Shared sweeper-side primitives (sub-tasks 24.3–24.7).
-//! — common discipline (dry-run, batch cap,
-//! SweepSummary).
+//! Shared sweeper-side primitives — common discipline (dry-run, batch
+//! cap, SweepSummary).
 //!
 //! Individual sweepers live in `brain-workers::workers::*` and
 //! call into this module for the metadata-side scan-and-delete.
@@ -21,7 +20,7 @@ pub struct SweepSummary {
 }
 
 // ---------------------------------------------------------------------------
-// 24.3 — Supersession sweeper.
+// Supersession sweeper.
 // ---------------------------------------------------------------------------
 
 /// Hard-delete superseded statements past `retention_seconds`.
@@ -46,8 +45,7 @@ pub fn sweep_superseded_statements(
     // scan-side immutable.
     //
     // Retired-at proxy: `valid_to_unix_nanos`. `statement_supersede`
-    // (statement_ops.rs §"Supersede non-Event statements") sets
-    // `valid_to_unix_nanos = Some(new.extracted_at_unix_nanos)` on
+    // sets `valid_to_unix_nanos = Some(new.extracted_at_unix_nanos)` on
     // the old row when its existing valid_to was None — which is
     // the universal case for supersession-driven retirement. Events
     // cannot be superseded, so their None valid_to here is correct:
@@ -97,14 +95,13 @@ pub fn sweep_superseded_statements(
 }
 
 // ---------------------------------------------------------------------------
-// 24.7 — Audit log sweeper.
+// Audit log sweeper.
 // ---------------------------------------------------------------------------
 
-/// Hard-delete audit rows older than `retention_seconds`. Spec
-/// §27/03 §3. Merge/Unmerge audit rows are exempt (kept forever
-/// per §25/00) — v1 audit table stores extraction events only,
-/// so the merge-exemption is a no-op until merge audits land on
-/// this table.
+/// Hard-delete audit rows older than `retention_seconds`. Merge/Unmerge
+/// audit rows are exempt (kept forever) — the audit table stores
+/// extraction events only, so the merge-exemption is a no-op until
+/// merge audits land on this table.
 pub fn sweep_audit_log(
     wtxn: &WriteTransaction,
     retention_seconds: u64,
@@ -153,7 +150,7 @@ pub fn sweep_audit_log(
 }
 
 // ---------------------------------------------------------------------------
-// 24.4 — Stale extraction detector.
+// Stale extraction detector.
 // ---------------------------------------------------------------------------
 
 /// Stale-extraction flag bit on `StatementMetadata` is not yet

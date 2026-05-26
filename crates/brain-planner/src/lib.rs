@@ -4,20 +4,16 @@
 //! `brain-protocol`'s typed requests to the storage stack
 //! (`brain-storage`, `brain-metadata`, `brain-index`, `brain-embed`).
 //!
-//! See `spec/12_query_optimizer/` for the authoritative design.
-//!
-//! ## Sub-task 6.1 surface
+//! ## Surface
 //!
 //! - [`ExecutionPlan`] — one variant per cognitive operation, each
 //!   carrying a per-request plan struct.
-//! - [`PlannerConfig`] — spec-default knobs (`ef=64`, `max_ef=500`,
+//! - [`PlannerConfig`] — default knobs (`ef=64`, `max_ef=500`,
 //!   `budget=1 s`, …).
 //! - [`ShardStats`] — per-shard state the cost model consults.
 //! - [`PlannerContext`] = (config, stats).
 //! - [`PlanError`] — `QueryTooExpensive` + `InvalidParameters` +
 //!   `Unsupported` (catch-all for not-yet-supported shapes).
-//!
-//! Logic (planner functions, executor) lands in sub-tasks 6.2–6.8.
 
 #![allow(
     clippy::module_name_repetitions,
@@ -67,8 +63,8 @@ pub use planner::recall::{plan_recall, plan_recall_inner};
 pub use stats::ShardStats;
 
 /// Compile-time guard: every plan type must be `Send + Sync` so the
-/// executor (when it lands in 6.7) can move plans across async-task
-/// boundaries (Glommio per-shard executors, etc.).
+/// executor can move plans across async-task boundaries (Glommio
+/// per-shard executors, etc.).
 const _: fn() = || {
     fn require<T: Send + Sync>() {}
     require::<ExecutionPlan>();
@@ -220,10 +216,10 @@ mod tests {
         };
     }
 
-    /// plan size < 4 KB. A heap-allocating plan
+    /// Plan size < 4 KB. A heap-allocating plan
     /// (Vec, String) measures only the stack footprint via
     /// `size_of`; that's the right thing to bound — the heap content
-    /// is dominated by the cue text, which the spec says is acceptable
+    /// is dominated by the cue text, which is acceptable.
     #[test]
     fn plan_stack_size_under_four_kib() {
         assert!(

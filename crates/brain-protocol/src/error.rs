@@ -73,7 +73,7 @@ impl ErrorCategory {
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash)]
 #[non_exhaustive]
 pub enum ErrorCode {
-    // §3.1 Protocol
+    // Protocol
     BadMagic,
     BadHeaderCrc,
     BadPayloadCrc,
@@ -86,7 +86,7 @@ pub enum ErrorCode {
     MalformedRkyv,
     MalformedVector,
 
-    // §3.2 Connection / handshake
+    // Connection / handshake
     VersionNotSupported,
     NoSuchAuthMethod,
     Unauthenticated,
@@ -94,12 +94,12 @@ pub enum ErrorCode {
     AuthBackendUnavailable,
     SessionExpired,
 
-    // §3.3 Authorization
+    // Authorization
     PermissionDenied,
     AdminPermissionRequired,
     WrongShard,
 
-    // §3.4 Validation
+    // Validation
     InvalidArgument,
     MissingRequiredField,
     TextTooLarge,
@@ -121,14 +121,14 @@ pub enum ErrorCode {
     /// `PredicateNotInSchema` for the relation registry.
     RelationTypeNotInSchema,
 
-    // §3.5 Not found
+    // Not found
     MemoryNotFound,
     ContextNotFound,
     SubscriptionNotFound,
     SnapshotNotFound,
     TxnNotFound,
 
-    // §3.6 Conflict
+    // Conflict
     IdempotencyConflict,
     TransactionConflict,
     TransactionTimeout,
@@ -140,7 +140,7 @@ pub enum ErrorCode {
     /// behave as ManyToMany.
     CardinalityViolation,
 
-    // §3.7 Resource exhausted
+    // Resource exhausted
     OutOfSlots,
     OutOfDisk,
     OutOfMemory,
@@ -148,15 +148,15 @@ pub enum ErrorCode {
     StreamLimitExceeded,
     ConnectionLimitExceeded,
     TransactionLimitExceeded,
-    /// Transaction buffer exceeded the per-transaction op cap (1000 ops
-    /// per spec §05/04 §10). Surfaced both at append-time (so the agent
+    /// Transaction buffer exceeded the per-transaction op cap (1000 ops).
+    /// Surfaced both at append-time (so the agent
     /// learns immediately when the 1001st op is buffered) and at commit
     /// time (defense-in-depth for any buffer mutation that slipped past
     /// the append guard). The client should split the work into multiple
     /// transactions.
     TransactionTooLarge,
 
-    // §3.8 Internal
+    // Internal
     Internal,
     StorageError,
     IndexError,
@@ -167,7 +167,7 @@ pub enum ErrorCode {
     /// stream's terminal ERROR frame.
     Cancelled,
 
-    // §3.9 Unavailable
+    // Unavailable
     ShardUnavailable,
     Overloaded,
     Restarting,
@@ -179,7 +179,7 @@ pub enum ErrorCode {
     /// spawn if a required retriever is unwired.
     RetrieverDegraded,
 
-    // §3.10 Typed-graph error codes (`0x01xx` namespace). Low-byte family
+    // Typed-graph error codes (`0x01xx` namespace). Low-byte family
     // mirrors the typed-graph opcode ranges.
     /// Schema upload failed validation (syntax, type-ref, attribute rule, etc.).
     SchemaInvalid,
@@ -558,22 +558,22 @@ mod tests {
         );
     }
 
-    /// Pins every typed-graph code (§3.10) + the newly-assigned Cancelled
-    /// (§3.8) and RetrieverDegraded (§3.9) to the categories the spec lists.
-    /// Drift guard: if the spec changes a category, this fails and forces
+    /// Pins every typed-graph code plus the Cancelled and
+    /// RetrieverDegraded codes to their assigned categories.
+    /// Drift guard: if a category changes, this fails and forces
     /// an explicit decision rather than silent drift.
     #[test]
     fn typed_graph_and_new_codes_match_spec_categories() {
-        // §3.8 Internal additions.
+        // Internal additions.
         assert_eq!(ErrorCode::Cancelled.category(), ErrorCategory::Internal);
 
-        // §3.9 Unavailable additions.
+        // Unavailable additions.
         assert_eq!(
             ErrorCode::RetrieverDegraded.category(),
             ErrorCategory::Unavailable
         );
 
-        // §3.10 Typed-graph codes.
+        // Typed-graph codes.
         assert_eq!(
             ErrorCode::SchemaInvalid.category(),
             ErrorCategory::Validation

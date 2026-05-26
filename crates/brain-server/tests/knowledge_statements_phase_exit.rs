@@ -1,11 +1,11 @@
-//! Phase 17 exit integration test (sub-task 17.10a).
+//! Statement lifecycle exit integration test.
 //!
 //! Exercises the full statement lifecycle end-to-end over the wire:
 //! create Fact then contradiction → supersede Fact → create Preference
 //! then auto-supersede → list current → history → create Event →
 //! tombstone → retract.
 //!
-//! Companion to `knowledge_statement_wire.rs` (17.10a): individual
+//! Companion to `knowledge_statement_wire.rs`: individual
 //! op smoke + error paths. This test focuses on **lifecycle ordering**
 //! — that the operations compose correctly across a single subject's
 //! history, in the order a real operator would issue them.
@@ -275,7 +275,7 @@ async fn statement_lifecycle_end_to_end() {
 
     // Step 4 — both Facts reachable via GET (both primary rows
     // exist; the by_subject single-value index limitation is
-    // documented in 17.4 as a v1 trade-off).
+    // a v1 trade-off).
     let (_, body) = round_trip(
         &mut client,
         11,

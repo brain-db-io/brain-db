@@ -1,6 +1,6 @@
 //! WAL record framing.
 //!
-//! On-disk layout per `spec/08_storage/05_wal_records.md`:
+//! On-disk layout:
 //!
 //! ```text
 //! header (32 bytes, all little-endian):
@@ -70,7 +70,7 @@ pub const MAX_PAYLOAD: u32 = 16 * 1024 * 1024;
 /// In-memory representation of one WAL record.
 ///
 /// Holds every header field so encode/decode is a lossless round-trip.
-/// `payload` is the raw bytes; per-kind interpretation lands in sub-task 2.2.
+/// `payload` is the raw bytes; per-kind interpretation is layered above.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct WalRecord {
     pub lsn: Lsn,
@@ -245,7 +245,7 @@ pub enum DecodeOutcome {
 
 /// Validation failures that are *not* truncation.
 ///
-/// Per, recovery may collapse these into "truncate here". We
+/// Recovery may collapse these into "truncate here". We
 /// keep them distinct at this layer so callers (`WalReader`, recovery, audit
 /// tooling) can decide policy.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, thiserror::Error)]
@@ -397,7 +397,7 @@ mod tests {
     fn unknown_record_type_rejected() {
         let rec = sample(WalRecordKind::Encode, vec![]);
         let mut buf = rec.encode();
-        buf[8] = 0; // 0 is reserved per spec
+        buf[8] = 0; // 0 is reserved
                     // Recompute CRC so we hit UnknownRecordType, not CrcMismatch.
         let crc = crc32c::crc32c(&buf[..HEADER_LEN]);
         let crc_off = HEADER_LEN; // payload is empty
@@ -529,8 +529,8 @@ mod tests {
         use crate::wal::payload::{KnowledgeRecord, WalPayload};
 
         // One example per discriminant boundary in the knowledge block.
-        // RelationCreate / RelationSupersede / RelationTombstone became
-        // first-class typed payloads in Phase C, so they are no longer
+        // RelationCreate / RelationSupersede / RelationTombstone are
+        // first-class typed payloads, so they are no longer
         // valid kinds for an opaque-body KnowledgeRecord.
         for kind in [
             WalRecordKind::EntityCreate,

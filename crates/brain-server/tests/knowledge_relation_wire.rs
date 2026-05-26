@@ -1,4 +1,4 @@
-//! Relation wire-op smoke (sub-task 18.9a).
+//! Relation wire-op smoke.
 //!
 //! Drives `RELATION_CREATE / _GET / _SUPERSEDE / _TOMBSTONE /
 //! _LIST_FROM / _LIST_TO / _TRAVERSE` through the full data-plane

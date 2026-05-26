@@ -13,26 +13,25 @@
 //!
 //! ## Single global version vs per-table versions
 //!
-//! Spec `§07/02 §6` reads "each table has a format version embedded in
-//! its metadata." A literal implementation would maintain 13 separate
-//! version rows. We instead carry one global row covering the whole
-//! metadata file. The 13 tables ship from the same crate and co-evolve
-//! — bumping one means bumping the whole file's format — and the
-//! per-table machinery (13× the open-time checks and migration registry
-//! entries) adds bookkeeping with no concrete benefit at v1. This is a
-//! coverage-scope decision, not a behavioral deviation; if a future
-//! version diverges per-table, we'll extend this module.
+//! In principle each table could carry its own format version embedded
+//! in its metadata. A literal implementation would maintain 13
+//! separate version rows. We instead carry one global row covering the
+//! whole metadata file. The 13 tables ship from the same crate and
+//! co-evolve — bumping one means bumping the whole file's format — and
+//! the per-table machinery (13× the open-time checks and migration
+//! registry entries) adds bookkeeping with no concrete benefit. If a
+//! future version diverges per-table, we'll extend this module.
 //!
 //! Internal "private" tables get an underscore-prefixed name; the 13
-//! spec'd domain tables in `§07/02 §1` never use that prefix.
+//! domain tables never use that prefix.
 
 use redb::{Database, ReadableDatabase, TableDefinition};
 
 /// The schema version this crate writes. Bumped on backward-incompatible
 /// changes to the redb table layout or value encoding.
 ///
-/// Phase C unified the substrate edge tables and the typed-relation
-/// tables under a single `NodeRef`-keyed layout. The on-disk shape is
+/// The v2 layout unified the substrate edge tables and the
+/// typed-relation tables under a single `NodeRef`-keyed layout. The on-disk shape is
 /// not readable by a v1 binary, and a v1 DB is not readable by a v2
 /// binary — operators must run the migration tool to copy data into a
 /// fresh v2 directory.
@@ -136,8 +135,7 @@ pub fn open_or_init_schema(db: &Database) -> Result<u32, SchemaError> {
 // ---------------------------------------------------------------------------
 
 // redb internally uses mmap, which miri doesn't shim. Gate the test module
-// behind `not(miri)` (consistent with brain-storage's pattern). See
-// `.claude/plans/phase-02-miri.md` for context.
+// behind `not(miri)` (consistent with brain-storage's pattern).
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -204,7 +202,7 @@ mod tests {
 
     #[test]
     fn schema_too_old_on_v1_db() {
-        // A v1 DB on disk is unreachable from the Phase C v2 layout. No
+        // A v1 DB on disk is unreachable from the v2 layout. No
         // migration tool exists — operators delete data/ and restart.
         let dir = tempfile::tempdir().unwrap();
         let path = dir.path().join("test.redb");

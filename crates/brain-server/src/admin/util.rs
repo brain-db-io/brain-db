@@ -32,8 +32,7 @@ pub fn text_response(status: StatusCode, body: &str) -> Response<ResponseBody> {
 }
 
 /// Uniform `501 Not Implemented` body shape used by routes whose CLI
-/// surface is wired (Phase 10) but whose server-side primitive lands
-/// in a later phase.
+/// surface is wired but whose server-side primitive lands later.
 ///
 /// Shape: `{"error":"not_implemented","deferred_to":<slug>,"detail":<text>}`.
 pub fn not_implemented(deferred_to: &str, detail: &str) -> Response<ResponseBody> {

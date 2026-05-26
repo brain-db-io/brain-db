@@ -6,8 +6,6 @@
 //! redb row lives in `brain-metadata::tables::nodes::entity::EntityMetadata`.
 //! Conversion at the boundary is via `From` impls defined on the
 //! brain-metadata side.
-//!
-//! See `spec/02_data_model/00_purpose.md` for the canonical schema.
 
 use serde::{Deserialize, Serialize};
 
@@ -19,10 +17,10 @@ use crate::ids::{EntityId, EntityTypeId};
 
 /// Free-form per-entity key/value attribute bag.
 ///
-/// In Phase 16 this is an opaque `Vec<u8>` (rkyv-encoded
-/// `BTreeMap<String, Value>` once phase 19's schema DSL lands). The
-/// newtype isolates callers from the encoding so phase 19 can add
-/// typed accessors without changing the public field type.
+/// Currently an opaque `Vec<u8>` (an rkyv-encoded
+/// `BTreeMap<String, Value>` once the schema DSL lands). The
+/// newtype isolates callers from the encoding so typed accessors can
+/// be added later without changing the public field type.
 #[derive(Clone, Debug, Default, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct EntityAttributes(pub Vec<u8>);
 
@@ -67,14 +65,14 @@ impl From<EntityAttributes> for Vec<u8> {
 // EntityType — registry entry for a user-declared (or built-in) entity type.
 // ---------------------------------------------------------------------------
 
-/// A registered entity type. In Phase 16 only the built-in `Person`
-/// type exists (seeded by `MetadataDb::open`); phase 19's schema DSL
+/// A registered entity type. Currently only the built-in `Person`
+/// type exists (seeded by `MetadataDb::open`); the schema DSL
 /// adds user-declared types via `SCHEMA_UPLOAD`.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct EntityType {
     pub id: EntityTypeId,
     pub name: String,
-    /// rkyv-encoded attribute schema. Phase 19 defines the shape.
+    /// rkyv-encoded attribute schema. The schema DSL defines the shape.
     pub attribute_schema_blob: Vec<u8>,
     pub created_at_unix_nanos: u64,
 }
@@ -107,26 +105,26 @@ impl EntityType {
 
 /// A canonical reference to a noun in the knowledge graph.
 ///
-/// Field semantics (§"Field semantics"):
+/// Field semantics:
 ///
 /// - `id` — immutable; survives renames.
 /// - `entity_type` — the registry entry this entity instantiates;
-///   mutation requires `RETYPE_ENTITY` (phase 18+).
+///   mutation requires `RETYPE_ENTITY`.
 /// - `canonical_name` — primary display name. Mutable; old values
 ///   move into `aliases` on rename.
 /// - `normalized_name` — lowercased + whitespace-collapsed form for
 ///   exact-match lookup (`entity_by_canonical_name` index).
-/// - `aliases` — alternative names that resolve to this entity. Spec
-///   §18/00 caps length at 32 by default; not enforced in the value
-///   type (CRUD layer in 16.2 enforces).
-/// - `attributes` — opaque blob; phase 19 typed accessors.
+/// - `aliases` — alternative names that resolve to this entity. Length
+///   caps at 32 by default; not enforced in the value type (the CRUD
+///   layer enforces).
+/// - `attributes` — opaque blob; typed accessors come with the schema DSL.
 /// - `mention_count` — denormalized count of memories referencing
-///   this entity; maintained by 16.2's `entity_put` paths.
+///   this entity; maintained by the `entity_put` paths.
 /// - `merged_into` — `Some` if this entity has been merged into
-///   another. Queries follow the redirect via 16.7's merge path.
+///   another. Queries follow the redirect via the merge path.
 /// - `embedding_version` — bumped on canonical_name change so the
-///   embedding worker (phase 21) can detect stale vectors.
-/// - `flags` — bitfield; specific bits TBD in 16.2.
+///   embedding worker can detect stale vectors.
+/// - `flags` — bitfield.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entity {
     pub id: EntityId,

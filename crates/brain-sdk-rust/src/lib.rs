@@ -14,7 +14,7 @@
 //!   [`ReasonBuilder`], [`ForgetBuilder`], [`LinkBuilder`],
 //!   [`UnlinkBuilder`], [`SubscribeBuilder`].
 //!
-//! ## Knowledge surface (phase 16.8+)
+//! ## Knowledge surface
 //!
 //! When a schema is declared on the deployment, the SDK exposes a
 //! typed entity API via [`Client::entity`]:
@@ -41,11 +41,8 @@
 //! Covers all 9 entity opcodes (CREATE / GET / UPDATE / RENAME / MERGE
 //! / UNMERGE / RESOLVE / LIST / TOMBSTONE) for the built-in
 //! [`Person`] type. The `#[derive(BrainEntity)]` macro generalising
-//! to user types lands in phase 19 alongside the schema DSL —
+//! to user types lands alongside the schema DSL —
 //! [`BrainEntityType`] is the trait contract.
-//!
-//! Statement / relation / query builders land in phases 17 / 18 /
-//! 22-23. See `spec/29_knowledge_sdk/00_purpose.md` "Phase scope".
 //!
 //! Error inspection helpers for knowledge errors:
 //! [`ClientErrorEntityExt`] + [`EntityErrorKind`] let callers
@@ -54,14 +51,7 @@
 //! ## Layout
 //!
 //! Every concern under `src/` lives in its own folder; only
-//! `lib.rs` sits at the crate root. See
-//! `.claude/plans/phase-10-task-01.md` §3 for the rationale.
-//!
-//! ## Spec reference
-//!
-//! - `spec/06_sdk/` — substrate SDK design.
-//! - `spec/29_knowledge_sdk/00_purpose.md` — knowledge SDK design +
-//!   phase scope.
+//! `lib.rs` sits at the crate root.
 
 #![allow(
     clippy::module_name_repetitions,

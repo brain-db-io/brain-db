@@ -1,5 +1,5 @@
-//! `brain-cli audit {query,export}`;
-//! sub-task 10.11. Both deferred (no audit-log primitive yet).
+//! `brain-cli audit {query,export}`.
+//! Both deferred (no audit-log primitive yet).
 
 pub mod export;
 pub mod query;
@@ -33,8 +33,8 @@ impl AuditAction {
                 agent: flags.agent.clone(),
             }),
             "export" => {
-                // Spec syntax: `audit export --output PATH`. We
-                // reuse `--value` as the destination because the
+                // The canonical syntax is `audit export --output PATH`.
+                // We reuse `--value` as the destination because the
                 // global `--output` already means render-format. v2
                 // will disambiguate when the action is wired.
                 Ok(Self::Export {

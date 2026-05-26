@@ -1,6 +1,6 @@
-//! Connection-layer SUBSCRIBE infrastructure (sub-task 9.11).
+//! Connection-layer SUBSCRIBE infrastructure.
 //!
-//! Implements the audit §8.1 topology:
+//! Implements this topology:
 //!
 //! ```text
 //!   Shard 0 Glommio                  Connection layer Tokio
@@ -9,7 +9,7 @@
 //!   │       │             │ flume    │   per_shard_bus: Vec<broadcast>│
 //!   │       ▼             │ bounded  │       ▲                        │
 //!   │ EventBus (broadcast)├─►        │       │  bridge_task (×shards) │
-//!   │ → fanout_task (9.11)│          │       │  drains flume → bcast  │
+//!   │ → fanout_task       │          │       │  drains flume → bcast  │
 //!   └─────────────────────┘          │                                │
 //!                                     │ SubscriptionRegistry (per-conn)│
 //!                                     │   HashMap<StreamId, State>     │
@@ -33,13 +33,10 @@
 //!   broadcast receivers (one per relevant shard — typically the
 //!   agent's bound shard) and pushes filtered events to the per-conn
 //!   outgoing-frame queue.
-//!
-//! (SUBSCRIBE / UNSUBSCRIBE), §03/09 §3.3 (open-
-//! ended streams), §09/09 (SUBSCRIBE semantics).
 
 #![cfg(target_os = "linux")]
 // `num_shards` + `active_count` are diagnostic / test-only surfaces;
-// production code paths don't call them yet (9.13 admin endpoints
+// production code paths don't call them yet (admin endpoints
 // will). Avoid churning the surface for now.
 #![allow(dead_code)]
 
@@ -319,8 +316,8 @@ impl SubscriptionRegistry {
     /// shard's broadcast Receiver, filters events, and pushes
     /// SUBSCRIPTION_EVENT frames to `frame_tx`.
     ///
-    /// Returns the stream id the client should observe events on. For
-    /// 9.11 we use the client's request `stream_id` directly (so the
+    /// Returns the stream id the client should observe events on. We
+    /// use the client's request `stream_id` directly (so the
     /// returned id == `client_stream_id`); future per-listener stream
     /// allocation may reuse the internal `next_stream_id`.
     pub fn start(
@@ -332,7 +329,7 @@ impl SubscriptionRegistry {
     ) -> Result<u32, OpError> {
         let filter = parse_filter(req).map_err(OpError::Ops)?;
         // Subscribe live FIRST, then replay the WAL — this is the
-        // cutover discipline from plan §"Subscribe replay path":
+        // cutover discipline:
         // taking the broadcast Receiver before we read the WAL
         // guarantees no event in `[from_lsn, current_tail)` slips
         // through the gap between "WAL tail snapshot" and "live
@@ -356,7 +353,7 @@ impl SubscriptionRegistry {
             // task has started streaming.
             //
             // `from_lsn == 0` means "everything still in the WAL" —
-            // not an error per plan §"Locked decisions".
+            // not an error.
             let reader =
                 brain_storage::wal::reader::WalReader::open(&locator.dir, locator.shard_uuid)
                     .map_err(|e| OpError::WalOpen(format!("{e}")))?;
@@ -582,7 +579,7 @@ async fn run_subscription_task(
                     }
                     Err(broadcast::error::RecvError::Lagged(skipped)) => {
                         // Slow subscriber — drop the subscription with
-                        // an ERROR(Overloaded).4 / audit §8.1.
+                        // an ERROR(Overloaded).
                         metrics.record_lag(skipped);
                         warn!(stream_id, target_shard, skipped, "subscription lagged");
                         let f = error_frame(

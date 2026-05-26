@@ -1,39 +1,32 @@
 //! `checkpoints` table: durable record of completed WAL checkpoints.
 //!
-//! Spec references:
-//! - `spec/08_storage/09_checkpointing.md` §2 — full struct + table shape.
-//! - `spec/10_metadata/02_table_layout.md` §1 row 11 — catalog entry.
-//!
 //! ## Why this matters
 //!
-//! without checkpointing, recovery replays the entire
-//! WAL from the first record — recovery time grows unbounded. A
-//! checkpoint marks an LSN below which records are reflected in arena
-//! and metadata, so recovery can skip everything before it.
+//! Without checkpointing, recovery replays the entire WAL from the
+//! first record — recovery time grows unbounded. A checkpoint marks an
+//! LSN below which records are reflected in arena and metadata, so
+//! recovery can skip everything before it.
 //!
-//! Multiple checkpoint rows can exist ("the substrate keeps
-//! the most recent one as the recovery target"); [`latest`] returns
-//! the highest-id row in O(log N).
+//! Multiple checkpoint rows can exist; the substrate keeps the most
+//! recent one as the recovery target. [`latest`] returns the
+//! highest-id row in O(log N).
 //!
 //! ## What lives here
 //!
 //! - [`CHECKPOINTS_TABLE`] — `checkpoint_id: u64` → [`CheckpointMeta`].
-//! - [`CheckpointMeta`] — rkyv-derived row with the six u64 fields
-//!   prescribes.
+//! - [`CheckpointMeta`] — rkyv-derived row with the six u64 fields.
 //! - [`latest`] — read-only "most recent checkpoint" query; the
 //!   recovery target.
 //!
 //! ## What does NOT live here
 //!
 //! - **Composition with `brain_storage::wal::checkpoint::write_checkpoint`**
-//!   — `MetadataSink` in sub-task 3.11 owns the conversion from
-//!   `CheckpointReport` to [`CheckpointMeta`], filling
-//!   `metadata_version_at_checkpoint` from
+//!   — `MetadataSink` owns the conversion from `CheckpointReport` to
+//!   [`CheckpointMeta`], filling `metadata_version_at_checkpoint` from
 //!   [`crate::storage_version::CURRENT_SCHEMA_VERSION`].
-//! - **Retention sweep** (delete old checkpoints);
-//!   Phase 8 maintenance worker.
+//! - **Retention sweep** (delete old checkpoints); maintenance worker.
 //! - **Recovery handshake** (read [`latest`], replay WAL after its
-//!   `durable_lsn`) — 3.11.
+//!   `durable_lsn`).
 
 use redb::{ReadOnlyTable, ReadableTable, TableDefinition};
 
@@ -45,12 +38,11 @@ pub const CHECKPOINTS_TABLE: TableDefinition<'static, u64, CheckpointMeta> =
 
 /// Persisted checkpoint record.
 ///
-/// Field renaming from spec: `started_at` / `completed_at` → suffixed
-/// `_unix_nanos` to match the established 3.x time-field convention.
-/// Not an SD — spec doesn't pin field names.
+/// Time fields `started_at` / `completed_at` are suffixed
+/// `_unix_nanos` to match this crate's time-field convention.
 ///
 /// Named `CheckpointMeta` rather than `Checkpoint` (collides with the
-/// WAL `Checkpoint` opcode) or the spec catalog's `CheckpointInfo`
+/// WAL `Checkpoint` opcode) or `CheckpointInfo`
 /// (inconsistent with this crate's `*Metadata`/`*Info` mix). All other
 /// metadata rows in this crate end in `Metadata` (e.g.
 /// [`crate::tables::memory::MemoryMetadata`]); the `Meta` suffix
@@ -86,7 +78,7 @@ pub struct CheckpointMeta {
 }
 
 impl CheckpointMeta {
-    /// Convenience constructor with the spec's field order.
+    /// Convenience constructor in canonical field order.
     #[must_use]
     pub fn new(
         checkpoint_id: u64,

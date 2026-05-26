@@ -1,5 +1,4 @@
-//! Admin HTTP handler for `rebuild-ann` (
-//! sub-task 10.10).
+//! Admin HTTP handler for `rebuild-ann`.
 //!
 //! Route:
 //! - `POST /v1/rebuild-ann[?shard=N]` → 201 +

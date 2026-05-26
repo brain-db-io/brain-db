@@ -1,7 +1,7 @@
-//! Per-shard write surface describes a channel-fed
-//! writer task that batches encodes, group-commits to the WAL, and
-//! acks via a return channel. Phase 6 ships only the **trait** — the
-//! real writer lands in Phase 8 (workers) / Phase 9 (server).
+//! Per-shard write surface: a channel-fed writer task that batches
+//! encodes, group-commits to the WAL, and acks via a return channel.
+//! This module ships only the **trait** — the real writer lands with
+//! the workers and server.
 //!
 //! Tests use a `FakeWriterHandle` that drives the test `MetadataDb` and
 //! `SharedHnsw` synchronously without WAL — enough to exercise the
@@ -21,8 +21,7 @@ use thiserror::Error;
 /// Rust 1.95 can't yet be used through `dyn`, so we hand-roll the return
 /// type.
 ///
-/// **`!Send + !Sync`** per the audit (`docs/development/phases/phase-09-glommio-port.md`
-/// §4). Phase 9 enforces single-writer-per-shard by living
+/// **`!Send + !Sync`.** Single-writer-per-shard is enforced by living
 /// on one Glommio executor — no cross-thread sharing — so `Send + Sync` on
 /// the trait would be misleading + over-constraining for concrete impls.
 pub trait WriterHandle {
@@ -75,7 +74,7 @@ pub trait WriterHandle {
 /// everything the writer needs to:
 ///
 /// 1. Look up idempotency by `request_id`.
-/// 2. Allocate a slot, append a WAL record, fsync (-§8).
+/// 2. Allocate a slot, append a WAL record, fsync.
 /// 3. Write vector to arena, metadata row to redb, vector to HNSW
 /// 4. Insert edge rows.
 /// 5. Cache the response in the idempotency table (same write txn).
@@ -87,15 +86,15 @@ pub struct EncodeOp {
     pub text: String,
     pub vector: [f32; brain_embed::VECTOR_DIM],
     pub salience_initial: f32,
-    /// Embedding-model fingerprint stamped on the stored row. Phase 7
-    /// wires this from the live dispatcher; for now the executor passes
+    /// Embedding-model fingerprint stamped on the stored row. Wired
+    /// from the live dispatcher later; for now the executor passes
     /// `Dispatcher::fingerprint()` through.
     pub fingerprint: [u8; 16],
     pub edges: Vec<EncodeOpEdge>,
-    /// — when `true`, the writer consults the per-
-    /// shard `fingerprints` table keyed by
-    /// `(agent_id, context_id, content_hash)` and, on a hit, returns
-    /// the existing `MemoryId` without allocating a new slot.
+    /// When `true`, the writer consults the per-shard `fingerprints`
+    /// table keyed by `(agent_id, context_id, content_hash)` and, on a
+    /// hit, returns the existing `MemoryId` without allocating a new
+    /// slot.
     pub deduplicate: bool,
     /// BLAKE3 over the canonical UTF-8 text. Always computed by
     /// the executor (cheap); the writer only reads it when
@@ -131,9 +130,9 @@ pub enum WriterError {
     /// queue over its max length → reject + retry.
     #[error("writer queue overloaded")]
     Overloaded,
-    /// — duplicate `request_id` with a different
-    /// `request_hash`. Client retries should carry the same params;
-    /// a hash mismatch indicates a client bug or RequestId reuse.
+    /// Duplicate `request_id` with a different `request_hash`. Client
+    /// retries should carry the same params; a hash mismatch indicates
+    /// a client bug or RequestId reuse.
     #[error("idempotency conflict: {0}")]
     Conflict(String),
     #[error("writer internal error: {0}")]
@@ -177,7 +176,7 @@ pub struct LinkOp {
     pub agent_id: brain_core::AgentId,
 }
 
-/// UNLINK operation payload-§5.
+/// UNLINK operation payload.
 #[derive(Debug, Clone, Copy)]
 pub struct UnlinkOp {
     pub request_id: RequestId,

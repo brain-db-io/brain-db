@@ -1,4 +1,4 @@
-//! Integration tests for SUBSCRIBE (sub-task 7.10).
+//! Integration tests for SUBSCRIBE.
 //!
 //! Covers:
 //! - **Lifecycle**: register/unregister, NotFound on unknown stream,
@@ -607,13 +607,13 @@ fn filter_null_passes_every_event() {
 // One-shot dispatcher (3).
 // ---------------------------------------------------------------------------
 
-// FIXME(9.11): this test exercises a deliberate race — the dispatcher
+// FIXME: this test exercises a deliberate race — the dispatcher
 // registers a subscription then a concurrent producer publishes an
-// event. After 9.7 (audit §4) the writer is `!Send`, so the original
+// event. Now that the writer is `!Send`, the original
 // `tokio::spawn` pattern won't compile. A sequential rewrite changes
 // the test's semantics (subscribe-after-publish misses the event in
-// broadcast-style buses). 9.11 reworks the EventBus to a per-shard
-// LocalEventBus + connection-layer registry; that's the right
+// broadcast-style buses). Reworking the EventBus to a per-shard
+// LocalEventBus + connection-layer registry is the right
 // time to rewrite this race in a way that holds on a single-threaded
 // executor. Marked ignored to preserve coverage signal until then.
 #[test]
@@ -775,7 +775,7 @@ fn registry_constructable_directly_from_bus() {
 }
 
 // ---------------------------------------------------------------------------
-// from_wal_record — Phase C unified-edge change feed.
+// from_wal_record — unified-edge change feed.
 // ---------------------------------------------------------------------------
 
 mod wal_record_projection {

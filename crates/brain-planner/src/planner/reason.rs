@@ -1,8 +1,6 @@
 //! Planner side for the `REASON` cognitive operation.
 //!
 //! Maps a wire `ReasonRequest` into a [`ReasonPlan`]. Pure.
-//!
-//! See `spec/12_query_optimizer/05_plan_reason_planning.md` §8-§10.
 
 use brain_protocol::envelope::request::{ObservationInput, ReasonRequest};
 

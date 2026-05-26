@@ -1,4 +1,4 @@
-//! Integration tests for the sub-task 9.9 connection layer.
+//! Integration tests for the connection layer.
 //!
 //! Linux-only — `brain-server` only links Tokio + rustls on Linux. Each
 //! test binds a listener to `127.0.0.1:0`, drives a Tokio client task,
@@ -135,7 +135,7 @@ async fn bind_and_accept_succeeds() {
 #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
 async fn ping_works_pre_handshake_and_keeps_connection_alive() {
     // PING is a stream_id=0 control frame doesn't gate it
-    // behind AUTH_OK. The frame dispatcher (9.10) replies with PONG and
+    // behind AUTH_OK. The frame dispatcher replies with PONG and
     // resets the idle timer. After the reply, the connection stays
     // open — the handshake-deadline timer kicks in eventually, but
     // a follow-up PING within the auth_timeout works.
@@ -170,9 +170,9 @@ async fn bad_magic_closes_connection() {
     client.write_all(&junk).await.expect("send");
     client.flush().await.expect("flush");
 
-    // Either we get an ERROR frame back, or the server just closes. Spec
-    // §03/03 §3.1: "MUST close the connection". 9.9 sends an ERROR for
-    // diagnostics; either outcome is acceptable.
+    // Either we get an ERROR frame back, or the server just closes. The
+    // server MUST close the connection; it sends an ERROR for
+    // diagnostics first; either outcome is acceptable.
     let mut buf = vec![0u8; 1024];
     let n = client.read(&mut buf).await.expect("read");
     if n > 0 {

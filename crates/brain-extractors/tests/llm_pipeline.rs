@@ -1,4 +1,4 @@
-//! End-to-end LLM extractor pipeline integration. Phase 21.6.
+//! End-to-end LLM extractor pipeline integration.
 //!
 //! Exercises a fully-wired [`LlmExtractor`] backed by a scripted
 //! mock client and a real on-disk [`LlmCacheDb`]. Covers the

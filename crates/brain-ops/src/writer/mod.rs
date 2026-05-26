@@ -1,14 +1,14 @@
 //! Real per-shard write surface.
 //!
 //! Implements `brain_planner::WriterHandle` against real
-//! `MetadataDb` + `HnswWriter`. Idempotency lives here because spec
-//! §08/04 §4 + §07/06 §3 mandate the lookup-then-act protocol with
-//! the response payload written in the **same redb txn** as the
-//! memory row.
+//! `MetadataDb` + `HnswWriter`. Idempotency lives here: the
+//! lookup-then-act protocol writes the response payload in the
+//! **same redb txn** as the memory row, so a replay can never observe
+//! a committed row without its cached response.
 //!
-//! **No WAL**'s group-commit channel-fed writer
-//! lands in Phase 8 / 9. The trait surface doesn't change; production
-//! swaps the implementation.
+//! **No WAL yet** — the group-commit channel-fed writer lands later.
+//! The trait surface doesn't change; production swaps the
+//! implementation.
 //!
 //! Concurrency: every interior mutable piece is `Mutex`-wrapped.
 //! Concurrent submits serialise on the metadata mutex; throughput is
@@ -22,10 +22,10 @@
 //!   via [`brain_metadata::tables::edge::link`], and the source /
 //!   target memory rows' `edges_out_count` / `edges_in_count` denorms
 //!   are bumped — all inside the same write txn as the memory row.
-//! - **LINK** (-§3): same pattern. `do_link` returns
+//! - **LINK**: same pattern. `do_link` returns
 //!   `already_existed=true` when the canonical `(source, kind, target)`
 //!   was present (overwrite-weight semantics, no count bump).
-//! - **UNLINK** (-§5): non-existent edge is a no-op
+//! - **UNLINK**: non-existent edge is a no-op
 //!   (`removed=false`), not an error. Successful unlink decrements
 //!   both counts.
 
@@ -48,16 +48,16 @@ use uuid::Uuid;
 use crate::subscribe::EventBus;
 
 /// Real per-shard writer backed by `MetadataDb` + `HnswWriter`. No
-/// WAL — Phase 8 / 9 swap this for a WAL-backed implementation
+/// WAL yet — a WAL-backed implementation swaps in later
 /// without changing `WriterHandle`'s public surface.
 pub struct RealWriterHandle {
     metadata: SharedMetadataDb,
     hnsw_writer: Mutex<HnswWriter>,
-    /// In-process slot counter. Phase 8 / 9 will replace with the
+    /// In-process slot counter. Replaced later with the
     /// arena allocator. Starts at 1.
     next_slot: AtomicU64,
-    /// Agent id stamped on every memory metadata row. Phase 9 will
-    /// derive this from the authenticated connection; for now it's
+    /// Agent id stamped on every memory metadata row. Eventually
+    /// derived from the authenticated connection; for now it's
     /// nil. Carried as a field so tests + the future server can pin
     /// it without re-creating the writer.
     agent_id: AgentId,
@@ -69,12 +69,12 @@ pub struct RealWriterHandle {
     /// and surfaces as `NotFound`. Defaults to `0`; production
     /// callers must override via [`Self::with_shard_id`].
     shard_id: ShardId,
-    /// Change-feed publisher (sub-task 7.10). Single-op encode/forget
+    /// Change-feed publisher. Single-op encode/forget
     /// commits and TXN_COMMIT batches publish here *after* the redb
     /// commit() succeeds. Optional so existing callers don't break
     /// (defaults to no publication — events are dropped on the floor).
     events: Option<Arc<EventBus>>,
-    /// WAL append sink (Phase 9 wiring). When `Some`, every write
+    /// WAL append sink. When `Some`, every write
     /// op appends a typed [`brain_storage::wal::payload::WalPayload`]
     /// record to the WAL **before** mutating redb — establishing the
     /// durability barrier. The returned LSN is stamped
@@ -170,7 +170,7 @@ pub struct RealWriterHandle {
     /// Per-writer idempotency cache for the universal `submit(Write)`
     /// path. Distinct from the redb-backed substrate cache (which keys
     /// by `RequestId` and lives in `IDEMPOTENCY_TABLE`). The two will
-    /// merge in P3c when this cache becomes redb-backed and keys by
+    /// merge once this cache becomes redb-backed and keys by
     /// `WriteId`.
     write_idempotency: Arc<submit::WriteIdempotencyCache>,
     /// Writer-level metric family. Bumped per submitted phase, per
@@ -219,10 +219,9 @@ pub type TemporalEdgeEnqueue = (
 /// evidence) without saving any redb work on the worker side.
 pub type CausalEdgeEnqueue = brain_core::StatementId;
 
-/// Soft vs hard FORGET. Both modes enqueue the cascade per spec
-/// §17/03 Rule 3 — readers must not see a statement at full
-/// confidence backed by a memory the user already forgot, even
-/// during the soft-grace window.
+/// Soft vs hard FORGET. Both modes enqueue the cascade — readers must
+/// not see a statement at full confidence backed by a memory the user
+/// already forgot, even during the soft-grace window.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ForgetCascadeMode {
     Soft,

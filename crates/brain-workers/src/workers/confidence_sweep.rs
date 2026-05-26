@@ -66,7 +66,7 @@ use crate::worker::Worker;
 /// non-positive.
 pub const SWEEP_INTERVAL_ENV: &str = "BRAIN_CONFIDENCE_SWEEP_INTERVAL_SECS";
 
-/// Spec default cadence: 1 h.
+/// Default cadence: 1 h.
 pub const DEFAULT_INTERVAL_SECS: u64 = 3600;
 pub const DEFAULT_BATCH_SIZE: usize = 256;
 pub const DEFAULT_MAX_PER_TICK: usize = 4_096;
@@ -137,7 +137,7 @@ pub struct ConfidenceSweepWorker {
 }
 
 impl ConfidenceSweepWorker {
-    /// Construct with the spec-default cadence + knobs.
+    /// Construct with the default cadence + knobs.
     #[must_use]
     pub fn new(metadata: Arc<MetadataDb>) -> Self {
         let mut config = WorkerConfig::defaults_for(WorkerKind::ConfidenceSweep);
@@ -458,7 +458,7 @@ impl Worker for ConfidenceSweepWorker {
 // Helpers — pulled out so unit tests can target them directly.
 // ---------------------------------------------------------------------------
 
-/// `decay(age_seconds, kind)` per spec — the per-kind decay function
+/// `decay(age_seconds, kind)` — the per-kind decay function
 /// used inside `aggregate_confidence`. Exposed here so the worker's
 /// tests can sanity-check the numbers without going through the full
 /// noisy-OR path.

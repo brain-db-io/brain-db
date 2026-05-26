@@ -120,7 +120,7 @@ impl PatternExtractor {
                 Some(ExtractedItem::StatementMention(StatementMention {
                     kind: statement_kind_byte(*kind),
                     subject_text: None,
-                    // §22/07 Q6 — predicate qname inference is out of v1 scope.
+                    // Predicate qname inference is out of v1 scope.
                     predicate_qname: String::new(),
                     object_text: Some(text),
                     confidence: self.confidence,
@@ -310,7 +310,7 @@ mod tests {
 
     #[test]
     fn try_new_resource_limit_is_wired() {
-        // The 1 MiB size cap (§22/01 §2) is plumbed through
+        // The 1 MiB size cap is plumbed through
         // `RegexBuilder::size_limit` / `dfa_size_limit`. We verify
         // the error mapping rather than synthesising a pathological
         // input — the regex crate is efficient enough that the
@@ -487,7 +487,7 @@ mod tests {
         };
         assert_eq!(m.object_text.as_deref(), Some("ship phase 20"));
         assert_eq!(m.kind, StatementKind::Fact.as_u8());
-        // §22/07 Q6: predicate inference is deferred.
+        // Predicate inference is deferred.
         assert!(m.predicate_qname.is_empty());
     }
 }

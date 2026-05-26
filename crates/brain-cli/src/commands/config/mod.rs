@@ -1,5 +1,4 @@
-//! `brain-cli config {get,reload,set}`;
-//! sub-task 10.11. Only `get` is backed today.
+//! `brain-cli config {get,reload,set}`. Only `get` is backed today.
 
 pub mod get;
 pub mod reload;

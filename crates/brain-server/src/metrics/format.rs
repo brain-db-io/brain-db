@@ -42,7 +42,7 @@ pub struct Snapshot<'a> {
     pub shards: &'a [ShardHandle],
     pub connections: &'a ConnectionMetrics,
     pub request_metrics: &'a RequestMetrics,
-    /// 12.1c — read-only borrow of the loaded config, surfaces as
+    /// Read-only borrow of the loaded config, surfaces as
     /// `brain_config_info` labels.
     pub config: &'a Config,
 }
@@ -147,9 +147,8 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         connections.total.load(Ordering::Relaxed),
     );
 
-    // 12.7 (deferred-set burn-down): connection-extended families
-    // `brain_frame_size_bytes` histogram is
-    // still deferred — tracker `phase-12/histogram-unit-agnostic`.
+    // Connection-extended families: `brain_frame_size_bytes` histogram is
+    // still deferred.
     emit_header(
         out,
         "brain_connections_closed_total",
@@ -186,7 +185,7 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         connections.frame_recv_total.load(Ordering::Relaxed),
     );
 
-    // F-7: frame size histograms (raw-mode; `_sum` is the true byte
+    // Frame size histograms (raw-mode; `_sum` is the true byte
     // total).
     emit_header(
         out,
@@ -208,7 +207,7 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
     );
 }
 
-/// 12.1c — `/proc/self`-derived resource metrics.
+/// `/proc/self`-derived resource metrics.
 /// Sampled fresh on every scrape; missing fields are skipped so a
 /// `/proc` access failure doesn't pollute dashboards with zeros.
 fn emit_process_resource(out: &mut String) {
@@ -329,11 +328,10 @@ async fn emit_worker_counters(out: &mut String, shards: &[ShardHandle]) {
     }
 }
 
-/// 12.8: HNSW basic counters (node_count, tombstone_count,
+/// HNSW basic counters (node_count, tombstone_count,
 /// tombstone_ratio). Sampled per-shard via
-/// `ShardHandle::hnsw_snapshot`. The richer §6 families
-/// (search_visits, recall_estimate, rebuild_*) stay deferred —
-/// tracker `phase-12/hnsw-sampling`.
+/// `ShardHandle::hnsw_snapshot`. The richer families
+/// (search_visits, recall_estimate, rebuild_*) stay deferred.
 async fn emit_hnsw_counts(out: &mut String, shards: &[ShardHandle]) {
     emit_header(
         out,
@@ -380,7 +378,7 @@ async fn emit_hnsw_counts(out: &mut String, shards: &[ShardHandle]) {
     }
 }
 
-/// Phase B: per-shard AutoEdgeWorker metric family. Reads through
+/// Per-shard AutoEdgeWorker metric family. Reads through
 /// the metric handle attached to each `ShardHandle`. Shards with the
 /// worker disabled emit no rows for that shard (no `0` placeholder —
 /// PromQL distinguishes `absent()` from `0`).
@@ -456,7 +454,7 @@ fn emit_auto_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
     }
 }
 
-/// Phase T: per-shard TemporalEdgeWorker metric family. Mirrors the
+/// Per-shard TemporalEdgeWorker metric family. Mirrors the
 /// AutoEdge emitter's shape.
 fn emit_temporal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
     emit_header(
@@ -552,7 +550,7 @@ fn emit_temporal_edge_metrics(out: &mut String, shards: &[ShardHandle]) {
     }
 }
 
-/// Phase C: per-shard CausalEdgeWorker metric family. Mirrors the
+/// Per-shard CausalEdgeWorker metric family. Mirrors the
 /// temporal-edge emitter; adds a `predicate_whitelist_resolved` gauge
 /// for operator triage on no-schema deployments where the worker
 /// runs but never finds a causal predicate.
@@ -737,7 +735,7 @@ fn emit_statement_embed_metrics(out: &mut String, shards: &[ShardHandle]) {
     }
 }
 
-/// Phase E: per-shard ExtractorWorker metric family. Same dispatch
+/// Per-shard ExtractorWorker metric family. Same dispatch
 /// shape as [`emit_auto_edge_metrics`].
 fn emit_extractor_metrics(out: &mut String, shards: &[ShardHandle]) {
     emit_header(
@@ -927,7 +925,7 @@ fn escape_label(value: &str) -> String {
     s
 }
 
-/// 12.1b: per-op request counters / in-flight gauge / duration
+/// Per-op request counters / in-flight gauge / duration
 /// histogram. Cross-references `crate::metrics::request`.
 fn emit_request_metrics(out: &mut String, m: &RequestMetrics) {
     emit_header(

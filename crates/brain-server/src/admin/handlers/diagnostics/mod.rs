@@ -1,9 +1,8 @@
-//! Admin HTTP handlers for `profile` + `debug-snapshot`
-//! (sub-task 10.12).
+//! Admin HTTP handlers for `profile` + `debug-snapshot`.
 //!
 //! Routes:
 //! - `POST /v1/diagnostics/profile?shard=N[&duration_secs=D]` → 501.
-//!   Real Glommio profiler is deferred to phase-11; operators today
+//!   The real Glommio profiler is not yet wired; operators today
 //!   can run `perf record` against the server PID.
 //! - `GET /v1/diagnostics/debug-snapshot?shard=N` → 200 + JSON.
 

@@ -1,6 +1,6 @@
 //! Relation sidecar metadata + evidence reverse index.
 //!
-//! After Phase C the `(from, to, type)` pair lives in the unified
+//! The `(from, to, type)` pair lives in the unified
 //! [`crate::tables::edge::EDGES_TABLE`]; this module owns the
 //! per-relation fields that have no substrate analog — confidence,
 //! validity window, supersession chain, evidence pointers,

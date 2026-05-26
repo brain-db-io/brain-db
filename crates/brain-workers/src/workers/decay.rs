@@ -1,9 +1,9 @@
-//! Decay worker (sub-task 8.2).
+//! Decay worker.
 //!
 //! Applies time-based salience decay to memories. The closed-form
 //! `s(t) = s_0 × 2^(-t/h)` is recomputed each cycle from
 //! `salience_initial` and `created_at_unix_nanos`.
-//! Boost (sub-task 8.3) re-asserts its 10 % bump on the next 10 s
+//! Boost re-asserts its 10 % bump on the next 10 s
 //! cycle; decay re-asserts the closed form on the next 1 h cycle.
 //! Decay is therefore idempotent and restart-safe.
 //!
@@ -163,7 +163,7 @@ async fn do_decay_cycle(worker: &DecayWorker, ctx: &WorkerContext) -> Result<usi
             None => [0u8; 16],
         };
 
-        // CLAUDE.md anti-pattern: don't hold a lock across `.await`.
+        // Don't hold a lock across `.await`.
         // The read txn holds `db` (a parking_lot MutexGuard); we keep
         // the entire scan synchronous inside this block. max_runtime
         // still bounds wall-clock; yields happen between phases.

@@ -1,8 +1,7 @@
-//! Query planner (phase 23.6).
+//! Query planner.
 //!
-//! Implements §24/00 §"Plan structure". Takes a `QueryRequest`,
-//! calls the router (23.3), expands the routing decision into a
-//! concrete plan DAG (which retrievers run, with what
+//! Takes a `QueryRequest`, calls the router, expands the routing
+//! decision into a concrete plan DAG (which retrievers run, with what
 //! pre-filters and configs; which filters land post-fusion;
 //! what `k` and weights feed RRF; what limit and cost estimate
 //! the executor should respect).
@@ -10,11 +9,9 @@
 //! The plan is immutable, serialisable-shaped, and consumed by
 //! both:
 //!
-//! - The executor (23.7) — runs each retriever in parallel,
-//!   then fuses (23.4), then applies the filter chain (23.5),
-//!   then truncates to `limit`.
-//! - EXPLAIN / TRACE (23.8) — renders the plan without
-//!   executing.
+//! - The executor — runs each retriever in parallel, then fuses,
+//!   then applies the filter chain, then truncates to `limit`.
+//! - EXPLAIN / TRACE — renders the plan without executing.
 
 use brain_core::StatementKind;
 use brain_core::{AgentId, MemoryKind, PredicateId, RelationTypeId};
@@ -36,15 +33,13 @@ pub const DEFAULT_RESULT_LIMIT: u32 = 20;
 
 /// Minimum per-retriever `top_n` — guarantees fusion has
 /// candidates to work with even when one retriever's top-K
-/// overlaps poorly with another's (§24/00 §"Limits and budgets").
+/// overlaps poorly with another's.
 pub const MIN_TOP_N: usize = 100;
 
-/// Hard cap on per-retriever `top_n` — matches §24/00's
-/// `top_n_per_retriever ≤ 200` limit.
+/// Hard cap on per-retriever `top_n` — `top_n_per_retriever ≤ 200`.
 pub const MAX_TOP_N: usize = 200;
 
-// Retriever-config defaults (mirror §23/02/§23/03/§23/04 §8 +
-// §06/02 substrate HNSW knobs):
+// Retriever-config defaults:
 
 const SEMANTIC_DEFAULT_EF_SEARCH: usize = 64;
 const SEMANTIC_DEFAULT_SIM_THRESHOLD: f32 = 0.0;
@@ -61,8 +56,8 @@ const GRAPH_DEFAULT_MEMORY_ANCHOR_TOP_K: u8 = 3;
 // Public types.
 // ---------------------------------------------------------------------------
 
-/// The output of [`plan`]. Immutable; passed to the executor
-/// (23.7) and surfaced verbatim by EXPLAIN (23.8).
+/// The output of [`plan`]. Immutable; passed to the executor and
+/// surfaced verbatim by EXPLAIN.
 #[derive(Debug, Clone)]
 pub struct QueryPlan {
     pub routing: RoutingDecision,
@@ -91,7 +86,7 @@ pub struct PlannedRetriever {
     pub pre_filter: Option<PreFilter>,
 }
 
-/// Per-retriever knobs. Variants match the 23.1 / 22.5 / 23.2
+/// Per-retriever knobs. Variants match the semantic / lexical / graph
 /// retriever configs.
 #[derive(Debug, Clone)]
 pub enum RetrieverConfig {
@@ -118,10 +113,9 @@ pub enum RetrieverConfig {
         anchor_mode: GraphAnchorMode,
         /// When `anchor_mode == MemoryFromSemantic`, the
         /// executor walks from this many top semantic hits in
-        /// parallel. Defaults to 3 (mirrors the worked-example
-        /// budget in the Phase A design — small enough to keep
+        /// parallel. Defaults to 3 — small enough to keep
         /// graph latency under a millisecond, large enough that
-        /// at least one anchor will have rich neighbourhood).
+        /// at least one anchor will have rich neighbourhood.
         anchor_top_k: u8,
     },
 }

@@ -1,4 +1,4 @@
-//! Entity SDK integration tests. Phase 16.8.5.
+//! Entity SDK integration tests.
 //!
 //! Uses the mock-server harness (`common::spawn_mock_server`) to
 //! verify that:
@@ -244,7 +244,7 @@ async fn update_inherits_unset_canonical_and_aliases() {
     // Attribute *patching* (vs full-replace) is documented as explicit
     // — callers either build a complete PersonAttributes via
     // .attributes(full) or compose .with_*() into a known starting
-    // point. Full attribute-merge semantics are a phase-19 follow-up
+    // point. Full attribute-merge semantics are a follow-up
     // when the derive macro can introspect schema-declared fields.
     let entity_id = [5u8; 16];
 

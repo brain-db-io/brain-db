@@ -1,5 +1,5 @@
 //! Entity wire-op handlers — `ENTITY_CREATE` / `_GET` / `_UPDATE` /
-//! `_RENAME` (phase 16.6c).
+//! `_RENAME`.
 //!
 //! Each handler:
 //!
@@ -8,13 +8,11 @@
 //! 3. Opens a redb write (or read) transaction.
 //! 4. Calls into `brain_metadata::entity::ops::*`.
 //! 5. Commits the transaction.
-//! 6. Maps `EntityOpError` to `OpError` 's error codes
-//!    (mapped through the substrate ErrorCode taxonomy until §28 error
-//!    codes land as first-class — see the module-private
-//!    `map_entity_op_error` helper).
+//! 6. Maps `EntityOpError` to `OpError`'s error codes
+//!    (see the module-private `map_entity_op_error` helper).
 //!
-//! Phase 16.6c handlers do **not** touch the entity HNSW (16.3) or
-//! emit subscription events. Both wire in later sub-tasks.
+//! These handlers do **not** touch the entity HNSW or emit
+//! subscription events. Both wire in later.
 
 use brain_core::{Entity, EntityAttributes, EntityId, EntityTypeId, RequestId};
 use brain_metadata::entity::merge::MergeActor;
@@ -42,7 +40,7 @@ use crate::error::OpError;
 use crate::handlers::link::downcast_writer_pub;
 use crate::write::{Phase, PhaseAck, TombstoneTarget, Write, WriteId};
 
-// Default grace window for ENTITY_MERGE — 7 days. See spec/18/03 §7.
+// Default grace window for ENTITY_MERGE — 7 days.
 const DEFAULT_MERGE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
 
 // ---------------------------------------------------------------------------
@@ -94,7 +92,7 @@ pub async fn handle_entity_create(
         }
     };
 
-    // 16.7.8 — emit ENTITY_CREATED event post-commit.
+    // Emit ENTITY_CREATED event post-commit.
     emit_knowledge_event(
         ctx,
         EventType::EntityCreated,
@@ -263,7 +261,7 @@ pub async fn handle_entity_rename(
 }
 
 // ---------------------------------------------------------------------------
-// ENTITY_MERGE (16.7.5)
+// ENTITY_MERGE
 // ---------------------------------------------------------------------------
 
 pub async fn handle_entity_merge(
@@ -282,7 +280,7 @@ pub async fn handle_entity_merge(
     let request_hash = hash_entity_merge_request(&req);
     // Wire-initiated merges always carry the caller's agent_id (operator
     // merge). The `System` actor is reserved for resolver / background
-    // workers (phase 21+).
+    // workers.
     let actor = MergeActor::Agent(ctx.executor.caller_agent.into());
 
     let phase = Phase::MergeEntities {
@@ -308,7 +306,7 @@ pub async fn handle_entity_merge(
         }
     };
 
-    // 16.7.8 — emit ENTITY_MERGED event.
+    // Emit ENTITY_MERGED event.
     emit_knowledge_event(
         ctx,
         EventType::EntityMerged,
@@ -331,7 +329,7 @@ pub async fn handle_entity_merge(
 }
 
 // ---------------------------------------------------------------------------
-// ENTITY_UNMERGE (16.7.5)
+// ENTITY_UNMERGE
 // ---------------------------------------------------------------------------
 
 pub async fn handle_entity_unmerge(
@@ -385,7 +383,7 @@ pub async fn handle_entity_unmerge(
 }
 
 // ---------------------------------------------------------------------------
-// ENTITY_TOMBSTONE (16.7.5)
+// ENTITY_TOMBSTONE
 // ---------------------------------------------------------------------------
 
 pub async fn handle_entity_tombstone(
@@ -571,8 +569,7 @@ fn map_writer_err(err: WriterError) -> OpError {
 }
 
 // ---------------------------------------------------------------------------
-// ENTITY_LIST (16.7.5; single-frame snapshot — streaming refinement
-// lands in 16.7.6)
+// ENTITY_LIST (single-frame snapshot — streaming refinement lands later)
 // ---------------------------------------------------------------------------
 
 pub async fn handle_entity_list(
@@ -635,7 +632,7 @@ pub async fn handle_entity_list(
         .collect();
 
     let cumulative_count = items.len() as u32;
-    // 16.7.5: single-frame snapshot; 16.7.6 splits into streamed batches.
+    // Single-frame snapshot; streamed batches land later.
     let frame = EntityListResponseFrame {
         items: std::mem::take(&mut items),
         next_cursor: Vec::new(),
@@ -646,8 +643,8 @@ pub async fn handle_entity_list(
 }
 
 // ---------------------------------------------------------------------------
-// ENTITY_RESOLVE (16.7.7; tiers 1+2 only — tier 3 / 4 deferred to phase 21
-// when the entity HNSW + LLM backends are wired into the shard runtime)
+// ENTITY_RESOLVE (tiers 1+2 only — tier 3 / 4 deferred until
+// the entity HNSW + LLM backends are wired into the shard runtime)
 // ---------------------------------------------------------------------------
 //
 // Wire ENTITY_RESOLVE is a read operation: it returns the wire's richer
@@ -670,8 +667,8 @@ pub async fn handle_entity_resolve(
             "candidate_name exceeds 256 bytes".into(),
         ));
     }
-    // Phase 16.7.7: require a type hint. Without one we'd need to scan
-    // every type's index — usable but slow; defer to phase 21 alongside
+    // Require a type hint. Without one we'd need to scan
+    // every type's index — usable but slow; deferred alongside
     // tier-3 embedding lookup.
     if req.entity_type_hint == 0 {
         return Err(OpError::InvalidRequest(
@@ -758,13 +755,13 @@ pub async fn handle_entity_resolve(
     }
 
     // No match at tiers 1+2. Tier 3 (embedding) requires the entity HNSW
-    // wired through ExecutorContext — phase 21. Tier 5 (create) only
+    // wired through ExecutorContext (deferred). Tier 5 (create) only
     // fires if allow_create=true.
     if req.allow_create {
-        // Phase 16.7.7: stub — defer create-fallback to the caller.
+        // Stub — defer create-fallback to the caller.
         // Returning NotFound here so clients explicitly call
         // ENTITY_CREATE if they want creation; auto-create lands when
-        // the resolver's tier 5 wires statement extraction (phase 17+).
+        // the resolver's tier 5 wires statement extraction.
         return Ok(EntityResolveResponse {
             outcome: ResolutionOutcomeWire::NotFound,
             tier: 0,
@@ -812,9 +809,9 @@ fn entity_to_view(e: &Entity) -> EntityView {
     }
 }
 
-/// Map `EntityOpError` to `OpError`. Until §28 error codes get a
-/// first-class slot in the substrate's `ErrorCode`, we surface them as
-/// the closest substrate categories — NotFound for missing rows,
+/// Map `EntityOpError` to `OpError`. Until entity-specific error codes
+/// get a first-class slot in `ErrorCode`, we surface them as
+/// the closest categories — NotFound for missing rows,
 /// Conflict for duplicates, InvalidArgument for type-registry misses,
 /// Internal for redb failures.
 fn map_entity_op_error(err: EntityOpError) -> OpError {

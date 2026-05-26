@@ -1,4 +1,4 @@
-//! HNSW maintenance worker (sub-task 8.5).
+//! HNSW maintenance worker.
 //!
 //! Every 5 min, the worker:
 //!   1. Collects `IndexStats` from `SharedHnsw`.
@@ -11,17 +11,17 @@
 //!
 //! ## v1 deviations (documented)
 //!
-//! - **No `recall_estimate`**: query-sample logging lands in Phase 9.
+//! - **No `recall_estimate`**: query-sample logging is not yet wired.
 //!   The worker stamps `recall_estimate = 1.0` so the recall-based
 //!   thresholds never fire; `decide_action` is still tested for them
 //!   via pure-function tests.
-//! - **No catch-up phase**: wants WAL replay between
-//!   build-start LSN and swap; no WAL is wired yet, so Phase 9.
+//! - **No catch-up phase**: wants WAL replay between build-start LSN
+//!   and swap; no WAL is wired yet.
 //! - **No partial rebuild**: is an open question.
-//! - **No `ann.rebuild_max_memory_gb` cap**: Phase 9 server config.
+//! - **No `ann.rebuild_max_memory_gb` cap**: server config.
 //! - **Default [`DisabledRebuildSource`]**: production deployments
-//!   inject an arena-backed source in Phase 9. Until then, the worker
-//!   collects + logs but doesn't rebuild.
+//!   inject an arena-backed source. Until then, the worker collects +
+//!   logs but doesn't rebuild.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -38,7 +38,7 @@ use crate::error::WorkerError;
 use crate::worker::Worker;
 
 // ---------------------------------------------------------------------------
-// Stats + decision logic, §06/07 §3.
+// Stats + decision logic.
 // ---------------------------------------------------------------------------
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -55,7 +55,7 @@ pub struct IndexStats {
 }
 
 /// — configurable thresholds for the decision
-/// function. Defaults match the spec's literal values.
+/// function.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct RebuildThresholds {
     pub tombstone_full_rebuild: f32,
@@ -99,7 +99,7 @@ pub fn decide_action(stats: IndexStats, t: RebuildThresholds) -> Action {
 }
 
 // ---------------------------------------------------------------------------
-// RebuildSource trait — Phase 9 injects an arena-backed impl here.
+// RebuildSource trait — an arena-backed impl is injected here.
 // ---------------------------------------------------------------------------
 
 #[derive(Debug, Error)]
@@ -113,17 +113,17 @@ pub enum RebuildSourceError {
 
 /// Future returned by [`RebuildSource::snapshot_vectors`].
 ///
-/// `!Send` because real adapters (Phase 9.8 `ArenaRebuildSource`) hold
+/// `!Send` because real adapters (`ArenaRebuildSource`) hold
 /// `Rc<RefCell<ArenaFile>>` and run on the per-shard Glommio executor.
 pub type SnapshotFuture<'a, const D: usize> =
     Pin<Box<dyn Future<Output = Result<Vec<(MemoryId, [f32; D])>, RebuildSourceError>> + 'a>>;
 
 /// Produces a snapshot of active `(MemoryId, vector)` pairs to feed
 /// into `HnswIndex::rebuild`. Production deployments inject an
-/// arena-backed impl (Phase 9.8). Same `Pin<Box<Future>>` pattern as
+/// arena-backed impl. Same `Pin<Box<Future>>` pattern as
 /// the `Summarizer` trait — no `async-trait` dep.
 ///
-/// Post-9.8 the trait is `!Send + !Sync`: the per-shard
+/// The trait is `!Send + !Sync`: the per-shard
 /// `WorkerScheduler` runs on Glommio (`!Send` futures), so the trait
 /// only needs `'static` for `Arc<dyn …>` storage in the worker.
 pub trait RebuildSource<const D: usize>: 'static {
@@ -218,7 +218,7 @@ async fn do_maintenance_cycle(
             Ok(0)
         }
         Action::ScheduleRebuildSoon => {
-            // v1: just log it. Phase 9 will defer the rebuild to a
+            // v1: just log it. The rebuild can later be deferred to a
             // less-busy window.
             trace!(?stats, "hnsw maintenance: schedule rebuild soon");
             Ok(0)

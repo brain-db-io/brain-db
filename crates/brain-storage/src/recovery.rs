@@ -1,9 +1,5 @@
 //! WAL-based recovery driver.
 //!
-//! See `spec/08_storage/08_recovery.md` (algorithm),
-//! `09_checkpointing.md` §2–3 (durable_lsn semantics), and
-//! `spec/19_failure_recovery/02_crash_recovery.md` §§4–6.
-//!
 //! [`recover`] is the entry point. The caller supplies:
 //!
 //! - An already-opened [`ArenaFile`] for the shard.
@@ -47,7 +43,7 @@ use crate::wal::record::WalRecord;
 // ---------------------------------------------------------------------------
 
 /// Boundary between the storage crate and the metadata store
-/// (`brain-metadata` in Phase 3).
+/// (`brain-metadata`).
 ///
 /// The recovery driver feeds every applied record to the sink. The sink
 /// is responsible for idempotency — `apply(lsn, timestamp_ns, payload)`
@@ -80,8 +76,7 @@ pub enum MetadataSinkError {
 }
 
 /// In-process test sink — records every `(lsn, payload)` pair, deduping
-/// by LSN. Useful for unit tests; the real `brain-metadata` impl will
-/// land in Phase 3.
+/// by LSN. Useful for unit tests; the real impl lives in `brain-metadata`.
 pub struct InMemoryMetadataSink {
     by_lsn: BTreeMap<u64, WalPayload>,
     durable_lsn: u64,
@@ -378,8 +373,8 @@ fn mark_slot_tombstoned(
     let slot = arena.slot_mut(slot_idx);
     slot.set_flag(flags::TOMBSTONED, true);
     slot.metadata.last_modified_at_unix_nanos = record.timestamp_ns;
-    // Hard-forget (vector zeroing + HARD_FORGOTTEN flag) is deferred —
-    // separate sub-task. See plan §6.
+    // Hard-forget (vector zeroing + HARD_FORGOTTEN flag) is handled
+    // separately.
     slot.refresh_crc();
     Ok(())
 }
@@ -467,8 +462,8 @@ fn check_vector_dim(vector: &[f32], lsn: u64) -> Result<(), RecoveryError> {
 // Tests.
 // ---------------------------------------------------------------------------
 
-// Tests instantiate `ArenaFile` + `Wal` (full file I/O). Gated under
-// miri; see `.claude/plans/phase-02-miri.md`.
+// Tests instantiate `ArenaFile` + `Wal` (full file I/O). Gated out
+// under miri.
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
@@ -942,7 +937,7 @@ mod tests {
         assert_eq!(reclaim_record(0, 0, 1).kind, WalRecordKind::Reclaim);
     }
 
-    // ----- Knowledge-layer (sub-task 15.2) ------------------------------
+    // ----- Knowledge-layer -----------------------------------------------
 
     /// Build a knowledge-layer record with an arbitrary opaque body. Used
     /// by `recovery_skips_knowledge_records` to interleave knowledge

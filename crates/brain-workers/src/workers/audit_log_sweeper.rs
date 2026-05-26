@@ -1,10 +1,9 @@
-//! Audit log sweeper (sub-task 24.7).
+//! Audit log sweeper.
 //!
 //! Periodic low-priority worker that hard-deletes audit rows
 //! past `retention_seconds` (default 90 d). v1 sweeps the
-//! `EXTRACTOR_AUDIT_TABLE`. Merge / Unmerge audit rows (spec
-//! §25/00: "forever") live on a different table and are
-//! untouched.
+//! `EXTRACTOR_AUDIT_TABLE`. Merge / Unmerge audit rows (kept forever)
+//! live on a different table and are untouched.
 
 use std::future::Future;
 use std::pin::Pin;

@@ -1,12 +1,10 @@
 //! Memory and salience types.
-//!
-//! See `spec/02_data_model/02_memory.md`.
 
 use serde::{Deserialize, Serialize};
 
 use crate::ids::{AgentId, ContextId, MemoryId};
 
-/// Three durable kinds, per `spec/02_data_model/02_memory.md`.
+/// Three durable kinds.
 #[derive(Clone, Copy, Debug, Eq, PartialEq, Hash, Serialize, Deserialize)]
 pub enum MemoryKind {
     /// Default. 30-day half-life. Created by clients via `ENCODE`.
@@ -19,7 +17,7 @@ pub enum MemoryKind {
 
 /// A salience score in `[0.0, 1.0]`. Higher = more important.
 ///
-/// The decay worker reduces salience over time per `spec/16_background_workers/`.
+/// The decay worker reduces salience over time.
 /// Recall ranking blends salience with similarity, recency, and graph proximity.
 #[derive(Clone, Copy, Debug, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct Salience(f32);
@@ -45,8 +43,7 @@ impl Default for Salience {
 
 /// A stored memory, as returned by recall and other read operations.
 ///
-/// This is the "fully hydrated" view. The on-disk slot layout is defined in
-/// `spec/08_storage/02_arena_layout.md`.
+/// This is the "fully hydrated" view.
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct Memory {
     pub id: MemoryId,

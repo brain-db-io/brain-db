@@ -1,18 +1,17 @@
-//! Typed CRUD over the entity tables. Sub-task 16.2.
+//! Typed CRUD over the entity tables.
 //!
 //! Free functions over [`redb::ReadTransaction`] /
 //! [`redb::WriteTransaction`]. Callers compose them inside their own
-//! redb transactions — that matters when later sub-tasks need
-//! multi-table atomicity (16.3 HNSW insert + 16.4 trigram write +
-//! this CRUD in a single txn).
+//! redb transactions — that matters when callers need multi-table
+//! atomicity (HNSW insert + trigram write + this CRUD in a single txn).
 //!
 //! ## Out of scope
 //!
-//! - Trigram index writes — sub-task 16.4.
-//! - Entity HNSW writes — sub-task 16.3.
-//! - Merge / unmerge — sub-task 16.7.
-//! - Wire protocol — sub-task 16.6.
-//! - Resolver — sub-task 16.5 (consumes the read paths here).
+//! - Trigram index writes.
+//! - Entity HNSW writes.
+//! - Merge / unmerge.
+//! - Wire protocol.
+//! - Resolver (consumes the read paths here).
 //!
 //! ## Atomicity
 //!
@@ -64,7 +63,7 @@ pub enum EntityOpError {
         existing: EntityId,
     },
 
-    /// Sub-task 16.4: trigram index write/read failure. Forwarded from
+    /// Trigram index write/read failure. Forwarded from
     /// [`crate::entity::trigram::TrigramOpError`] when entity_put / update /
     /// tombstone touches the trigram index transactionally.
     #[error("trigram op: {0}")]
@@ -147,8 +146,9 @@ pub fn entity_lookup_by_alias(
 }
 
 /// Scan all entities of a given type. O(N) over the primary table;
-/// caller bears the cost. Phase 18+ adds paginated/filtered variants
-/// (`name_prefix`, `mention_count_min`); 16.2 is the simplest form.
+/// caller bears the cost. Paginated/filtered variants (`name_prefix`,
+/// `mention_count_min`) can be layered on later; this is the simplest
+/// form.
 pub fn entity_list_by_type(
     rtxn: &ReadTransaction,
     type_id: EntityTypeId,
@@ -218,10 +218,9 @@ fn bytes_to_vector(bytes: &[u8; ENTITY_VECTOR_BYTES]) -> [f32; 384] {
 /// value enforces the dimensionality. Idempotent: upserts on the
 /// EntityId key, so a re-resolved entity overwrites with the same vector.
 ///
-/// See [`spec/09/06_persistence.md §6`](../../../../../spec/09_indexing/06_persistence.md):
-/// stored vectors let restart skip the synchronous re-embed of canonical
-/// names, turning the entity HNSW rebuild from O(N inferences) into
-/// O(N redb reads).
+/// Stored vectors let restart skip the synchronous re-embed of
+/// canonical names, turning the entity HNSW rebuild from O(N
+/// inferences) into O(N redb reads).
 pub fn entity_vector_put(
     wtxn: &WriteTransaction,
     id: EntityId,
@@ -235,7 +234,7 @@ pub fn entity_vector_put(
 
 /// Read a persisted entity vector. Returns `Ok(None)` when the row is
 /// absent (entity predates the feature, or its vector hasn't been
-/// written yet) — callers fall back to re-embedding per §6.
+/// written yet) — callers fall back to re-embedding.
 pub fn entity_vector_get(
     rtxn: &ReadTransaction,
     id: EntityId,
@@ -260,7 +259,7 @@ pub type EntityRebuildRow = (EntityId, String, Option<[f32; 384]>);
 /// HNSW from durable vectors: rows whose vector is `Some` go straight
 /// into the index without an embedder call; rows whose vector is
 /// `None` (pre-feature data, or a partial write) fall back to
-/// re-embedding the canonical name per §6.
+/// re-embedding the canonical name.
 pub fn entity_iter_all_live_with_vectors(
     rtxn: &ReadTransaction,
 ) -> Result<Vec<EntityRebuildRow>, EntityOpError> {
@@ -304,14 +303,13 @@ pub fn entity_iter_all_live_with_vectors(
 ///   normalize_name(canonical_name))` already maps to an existing
 ///   EntityId.
 ///
-/// Does NOT write trigrams (16.4) or HNSW embedding (16.3).
+/// Does NOT write trigrams or HNSW embedding.
 pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), EntityOpError> {
     require_entity_type_exists(wtxn, entity.entity_type)?;
 
     let normalized = normalize_name(&entity.canonical_name);
-    // Reject duplicate canonical_name within the same type. Spec
-    // §18/02 keys this index single-value; collisions are
-    // almost-always caller bugs.
+    // Reject duplicate canonical_name within the same type. This index
+    // is keyed single-value; collisions are almost-always caller bugs.
     {
         let t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
         let existing: Option<[u8; 16]> = t
@@ -358,8 +356,8 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
         }
     }
 
-    // Sub-task 16.4: trigram index. Union of canonical_name + every
-    // alias contributes to the entity's trigram set.
+    // Trigram index. Union of canonical_name + every alias contributes
+    // to the entity's trigram set.
     let trigrams =
         crate::entity::trigram::trigrams_of_components(&entity.canonical_name, &entity.aliases);
     crate::entity::trigram::index_entity_trigrams(wtxn, entity.entity_type, entity.id, &trigrams)?;
@@ -377,7 +375,7 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
 ///    - Removes the old `entity_by_canonical_name` entry.
 ///    - Adds a new one (errors if collision).
 ///    - Moves the old canonical_name into `aliases` (dedup).
-///    - Bumps `embedding_version` (phase-21 worker re-embeds).
+///    - Bumps `embedding_version` (the re-embed worker picks this up).
 /// 3. Computes the alias delta between `current.aliases` and
 ///    `new_state.aliases`; removes / adds rows in the alias index.
 /// 4. Sets `updated_at_unix_nanos = now_unix_nanos`.
@@ -449,7 +447,7 @@ pub fn entity_update(
         }
     }
 
-    // Sub-task 16.4: trigram delta. The entity's old trigram set is
+    // Trigram delta. The entity's old trigram set is
     // derived from current.canonical_name + current.aliases; the new
     // set from next.canonical_name + next.aliases. Remove `old - new`,
     // add `new - old`.
@@ -534,7 +532,7 @@ pub fn entity_remove_alias(
 
 /// Tombstone an entity. Tears down the secondary indexes so the
 /// resolver never sees the row again, sets `flags::TOMBSTONED`, and
-/// keeps the primary record for audit / unmerge in 16.7.
+/// keeps the primary record for audit / unmerge.
 pub fn entity_tombstone(
     wtxn: &WriteTransaction,
     id: EntityId,
@@ -556,8 +554,8 @@ pub fn entity_tombstone(
             t.remove(&(current.entity_type_id, na.as_str(), current.entity_id_bytes))?;
         }
     }
-    // Sub-task 16.4: tear down trigram index (one row per trigram in
-    // the entity's union set).
+    // Tear down trigram index (one row per trigram in the entity's
+    // union set).
     {
         let trigrams = crate::entity::trigram::trigrams_of_components(
             &current.canonical_name,
@@ -642,7 +640,7 @@ mod tests {
     }
 
     /// Open a fresh `MetadataDb` (which seeds the Person type at id=1
-    /// via 16.1's bootstrap).
+    /// via the system-schema bootstrap).
     fn fresh_db(dir: &TempDir) -> MetadataDb {
         MetadataDb::open(db_path(dir)).expect("open")
     }
@@ -671,8 +669,7 @@ mod tests {
 
     #[test]
     fn normalize_handles_unicode() {
-        // German ß lowercases to ss; the spec's `to_lowercase()` is
-        // Unicode-aware.
+        // German ß lowercases to ss; `to_lowercase()` is Unicode-aware.
         assert_eq!(normalize_name("Straße"), "straße");
         // CJK passes through (no case mapping).
         assert_eq!(normalize_name("田中"), "田中");
@@ -1083,7 +1080,7 @@ mod tests {
         assert_eq!(live[0].1, "Alice");
     }
 
-    // ----- 16.4 trigram integration -------------------------------------
+    // ----- trigram integration -------------------------------------
 
     #[test]
     fn entity_put_writes_trigrams() {
@@ -1154,8 +1151,8 @@ mod tests {
                 .contains(&id)
         );
         // "alp" — old canonical_name moves into aliases on rename, so
-        // its trigrams stay indexed. (See 16.2's rename semantics —
-        // old name preserved as alias for resolver continuity.)
+        // its trigrams stay indexed. (Rename preserves the old name as
+        // an alias for resolver continuity.)
         assert!(
             lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, *b"alp")
                 .unwrap()
@@ -1237,7 +1234,7 @@ mod tests {
 
         let rtxn = db.read_txn().unwrap();
         // Entity exists, but no vector was persisted → caller falls back
-        // to re-embedding per spec/09/06 §6.
+        // to re-embedding.
         assert!(entity_vector_get(&rtxn, id).unwrap().is_none());
     }
 

@@ -1,10 +1,7 @@
 //! Statement creation + primary-row read + shared invariant helpers.
 //!
-//! Spec refs:
-//! - `spec/02_data_model/00_purpose.md` — schema + ops recipe.
-//! - `spec/02_data_model/03_storage.md` — per-op index write paths.
-//! - `spec/02_data_model/05_evidence.md` — inline cap, overflow,
-//!   reverse-index population.
+//! Handles per-op index write paths plus evidence handling: the inline
+//! cap, overflow spill, and reverse-index population.
 
 use brain_core::{EntityId, EvidenceOverflowId, PredicateId, StatementId, StatementKind};
 use brain_core::{EvidenceEntry, EvidenceRef, Predicate, Statement, StatementObject, SubjectRef};
@@ -89,8 +86,8 @@ pub fn statement_create(
 ) -> Result<StatementId, StatementOpError> {
     validate_statement_shape(s)?;
 
-    // Subject must be a resolved entity for v1 (Pending deferred to
-    // phase 22 audits).
+    // Subject must be a resolved entity (Pending subjects are not yet
+    // supported).
     let subject_entity = match s.subject {
         SubjectRef::Entity(e) => e,
         SubjectRef::Pending(_) => {
@@ -142,20 +139,20 @@ pub fn statement_create(
                 new_id = ?s.id,
                 "statement_create: Fact contradicts active facts"
             );
-            // TODO(phase 22): write a dedicated contradiction audit
-            // table row. v1.0 emits the WARN trace and proceeds.
+            // TODO: write a dedicated contradiction audit table row.
+            // For now we emit the WARN trace and proceed.
         }
     }
 
-    // 17.9 confidence aggregation hookup. Recompute the statement's
-    // confidence via noisy-OR iff inline evidence
-    // carries per-entry metadata. Wire callers send
-    // EvidenceRef::Inline with `confidence_milli = 0` (per-evidence
-    // metadata dropped on the wire); in-process
-    // callers (phase 22 extractors / unit tests) populate the field.
+    // Confidence aggregation hookup. Recompute the statement's
+    // confidence via noisy-OR iff inline evidence carries per-entry
+    // metadata. Wire callers send EvidenceRef::Inline with
+    // `confidence_milli = 0` (per-evidence metadata dropped on the
+    // wire); in-process callers (extractors / unit tests) populate the
+    // field.
     //
-    // TODO(phase 21): also re-key the by_predicate confidence bucket
-    // entry when the bucket changes by > 0.05.
+    // TODO: also re-key the by_predicate confidence bucket entry when
+    // the bucket changes by > 0.05.
     let mut to_insert = s.clone();
     if evidence_has_per_entry_metadata(wtxn, &to_insert.evidence)? {
         let entries = resolve_evidence_entries(wtxn, &to_insert.evidence)?;
@@ -380,8 +377,8 @@ fn load_active_facts_for_subject_predicate_wtxn(
 /// True iff any inline evidence entry carries per-entry metadata
 /// (`confidence_milli > 0`). Overflow rows are assumed to carry full
 /// metadata (the four parallel vectors store confidence_milli per
-/// entry). 17.9 gates noisy-OR aggregation on this signal — see the
-/// design note in `statement_create`.
+/// entry). Noisy-OR aggregation gates on this signal — see the design
+/// note in `statement_create`.
 pub(super) fn evidence_has_per_entry_metadata(
     wtxn: &WriteTransaction,
     evidence: &EvidenceRef,
@@ -1133,7 +1130,7 @@ mod tests {
         }
     }
 
-    // ----- 17.9 confidence aggregation hookup -----
+    // ----- confidence aggregation hookup -----
 
     #[test]
     fn create_aggregates_when_evidence_has_metadata() {

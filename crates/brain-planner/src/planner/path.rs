@@ -2,9 +2,7 @@
 //!
 //! Maps a wire `PlanRequest` into a [`PathPlan`]. Pure: no I/O, no
 //! async. The executor side lands later — bidirectional-BFS edge
-//! traversal naturally fits with Phase 7's cognitive-ops scaffolding.
-//!
-//! See `spec/12_query_optimizer/05_plan_reason_planning.md`.
+//! traversal naturally fits with the cognitive-ops scaffolding.
 
 use brain_protocol::envelope::request::{PlanRequest, PlanState, PlanStrategy};
 

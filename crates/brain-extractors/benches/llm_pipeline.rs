@@ -1,7 +1,6 @@
-//! LLM extractor perf bench (sub-task 21.7).
+//! LLM extractor perf bench.
 //!
-//! Spec targets per
-//! `spec/20_benchmarks/02_latency_targets.md` §2.8:
+//! Latency targets:
 //!
 //! - `LlmExtractor::predict` cache hit: p50 1 ms / p99 5 ms.
 //! - Cost-budget skip path (no LLM call): p50 200 µs / p99 1 ms.

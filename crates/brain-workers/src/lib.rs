@@ -1,19 +1,16 @@
 //! # brain-workers
 //!
-//! Background-worker infrastructure plus the 12 concrete workers
-//! (sub-tasks 8.2 – 8.13). v1 runs on the default tokio runtime;
-//! Phase 9 swaps in the Glommio shard executor without changing the
-//! trait surface.
+//! Background-worker infrastructure plus the 12 concrete workers.
+//! v1 runs on the default tokio runtime; the Glommio shard executor
+//! later swaps in without changing the trait surface.
 //!
-//! Sub-task 8.1 ships the infrastructure only:
+//! The infrastructure consists of:
 //! - [`Worker`] trait + [`WorkerKind`].
 //! - [`WorkerConfig`] with defaults.
 //! - [`WorkerContext`] (handle bag + shutdown signal).
 //! - [`WorkerMetrics`].
 //! - [`WorkerScheduler`] + [`WorkerHandle`].
 //! - [`drive_batch`] helper for cycle structure.
-//!
-//! See `spec/16_background_workers/` for the authoritative design.
 
 #![allow(
     clippy::module_name_repetitions,

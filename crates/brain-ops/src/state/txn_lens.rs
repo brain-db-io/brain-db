@@ -2,8 +2,8 @@
 //! reflecting the current state of an active txn's buffer.
 //!
 //! The snapshot is read-only; PLAN/REASON/RECALL consult it to layer
-//! pending writes on committed state without touching redb (spec
-//! §09/08 §5: read-your-writes within a txn).
+//! pending writes on committed state without touching redb
+//! (read-your-writes within a txn).
 
 use std::sync::Arc;
 

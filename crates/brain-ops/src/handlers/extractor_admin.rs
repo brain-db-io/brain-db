@@ -1,5 +1,5 @@
 //! Extractor governance wire-op handlers — `EXTRACTOR_LIST /
-//! _DISABLE / _ENABLE` (-§7, phase 20.8).
+//! _DISABLE / _ENABLE`.
 //!
 //! `LIST` is read-only and stays on the direct-rtxn path. `DISABLE` and
 //! `ENABLE` go through the unified writer (`submit(Write)`), giving

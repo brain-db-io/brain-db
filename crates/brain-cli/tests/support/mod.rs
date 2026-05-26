@@ -1,4 +1,4 @@
-//! Shared mock-admin scaffold for sub-task 10.11 integration
+//! Shared mock-admin scaffold for the admin-command integration
 //! tests. Spawns a tokio-driven HTTP server on 127.0.0.1:0 and
 //! invokes a per-test responder for each accepted connection.
 

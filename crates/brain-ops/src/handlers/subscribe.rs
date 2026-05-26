@@ -1,31 +1,28 @@
 //! SUBSCRIBE — change-feed for new memories matching a filter.
 //!
-//! Spec: `spec/05_operations/09_subscribe.md` and
-//! `spec/04_wire_protocol/07_subscribe.md` (frame shape).
-//!
-//! ## v1 scope (sub-task 7.10)
+//! ## v1 scope
 //!
 //! - **EventBus**: in-process [`tokio::sync::broadcast`] of
 //!   [`EventEnvelope`]. The writer publishes one envelope per
 //!   successful committed mutation (single-op encode/forget +
 //!   each encode/forget inside a TXN_COMMIT batch). The bus owns
-//!   a monotonic LSN allocator — stand-in until Phase 9 wires the
-//!   WAL LSN.
+//!   a monotonic LSN allocator — stand-in until the WAL LSN is
+//!   wired.
 //! - **SubscriptionRegistry**: tracks active subscriptions by
 //!   `target_stream_id`, caches the parsed filter, and remembers the
 //!   `started_at_lsn` and the last-delivered `final_lsn` per stream.
 //! - **Dispatcher**: [`handle_subscribe`] registers + awaits the
 //!   first matching event (bounded poll, default 5s). The wire
 //!   response shape is a single event today; the long-lived push
-//!   path lives in Phase 9, which will call
-//!   [`SubscriptionRegistry::register`] directly and frame events
+//!   path lands later, calling
+//!   [`SubscriptionRegistry::register`] directly and framing events
 //!   out of the returned receiver.
 //! - **Backpressure**: a lagged subscriber returns
 //!   [`broadcast::error::RecvError::Lagged`], which is surfaced as
 //!   `OpError::Overloaded` from the dispatcher path; the registry's
 //!   `final_lsn` for that stream stays frozen.
 //!
-//! ## v1 gaps (Phase 9 closes)
+//! ## v1 gaps
 //!
 //! - No WAL-tail history replay; `from_lsn = Some(_)` is rejected as
 //!   `LsnTooOld`-equivalent (currently surfaced as `NotFound { what:
@@ -33,8 +30,8 @@
 //! - No `EdgeAdded` / `EdgeRemoved` events — wire `EventType` enum
 //!   today is `{Encoded, Forgotten, Reclaimed, KindChanged}`. LINK
 //!   / UNLINK commits write to redb but do **not** emit events.
-//! - `Reclaimed` / `KindChanged` are background-worker concerns
-//!   (Phase 8); the writer never produces them.
+//! - `Reclaimed` / `KindChanged` are background-worker concerns;
+//!   the writer never produces them.
 //! - `SimilarityFilter` is rejected with `NotYetImplemented`.
 //! - `ack_required` flow-control protocol is out of scope.
 //! - `min_salience` filter slot is reserved but not populated — the
@@ -64,9 +61,9 @@ pub const DEFAULT_EVENT_CHANNEL_CAPACITY: usize = 1024;
 // LSN allocator + envelope.
 // ---------------------------------------------------------------------------
 
-/// Strictly-increasing per-process LSN. v1 stand-in until Phase 9
-/// wires the WAL LSN. Single shard ⇒ a single allocator gives spec
-/// §10/4's "delivered in WAL order (per shard)" property by
+/// Strictly-increasing per-process LSN. v1 stand-in until the WAL
+/// LSN is wired. Single shard ⇒ a single allocator gives the
+/// "delivered in WAL order (per shard)" property by
 /// construction.
 #[derive(Debug, Default)]
 pub struct LsnAllocator(AtomicU64);
@@ -119,7 +116,7 @@ pub struct EventEnvelope {
     /// (encode publishes the text; forget does not).
     pub text: Option<String>,
     /// Typed knowledge-layer payload — `None` for substrate events,
-    /// `Some(_)` for the knowledge event variants (phase 16.7+).
+    /// `Some(_)` for the knowledge event variants.
     pub knowledge_payload: Option<brain_protocol::KnowledgeEventPayload>,
     /// Unified-edge change-feed payload — `Some(_)` when `event_type`
     /// is `EdgeAdded`, `EdgeRemoved` or `EdgeSuperseded`.
@@ -512,8 +509,8 @@ impl EventBus {
     /// all active subscribers. Returns the assigned LSN.
     ///
     /// `send` returns `Err` when there are no receivers; that's not
-    /// a failure for us — events are dropped on the floor (spec
-    /// §10/4: "delivered at-least-once" applies only to *active*
+    /// a failure for us — events are dropped on the floor
+    /// ("delivered at-least-once" applies only to *active*
     /// subscribers).
     pub fn publish(&self, mut env: EventEnvelope) -> u64 {
         env.lsn = self.lsn.next_lsn();
@@ -599,7 +596,7 @@ impl ParsedFilter {
 }
 
 /// Parse the wire `SubscribeRequest` into a registry-side
-/// [`ParsedFilter`]. Made public in 9.11 so `brain-server`'s
+/// [`ParsedFilter`]. Public so `brain-server`'s
 /// connection-layer registry can reuse the same shape.
 pub fn parse_filter(req: &SubscribeRequest) -> Result<ParsedFilter, OpError> {
     if req.filter.similar_to.is_some() {
@@ -647,7 +644,7 @@ pub fn parse_filter(req: &SubscribeRequest) -> Result<ParsedFilter, OpError> {
 // ---------------------------------------------------------------------------
 
 struct SubEntry {
-    /// Cached filter — used by Phase 9's pump task. The dispatcher
+    /// Cached filter — used by the long-lived pump task. The dispatcher
     /// path doesn't consult it (it clones the filter onto the
     /// `SubscriptionHandle` instead), so the field is dead for v1.
     #[allow(dead_code)]
@@ -665,7 +662,7 @@ struct RegistryInner {
     streams: HashMap<u32, SubEntry>,
 }
 
-/// Tracks active subscriptions. Phase 9's connection task calls
+/// Tracks active subscriptions. The connection task calls
 /// [`Self::register`] to get a receiver + handle and frames events
 /// directly; the dispatcher path uses the same surface but returns
 /// only the first matching event.
@@ -699,7 +696,7 @@ impl SubscriptionRegistry {
     /// and return a receiver primed at the bus's current tail.
     pub fn register(&self, req: &SubscribeRequest) -> Result<SubscriptionHandle, OpError> {
         if req.from_lsn.is_some() {
-            // — LsnTooOld until Phase 9 wires WAL replay. We
+            // LsnTooOld until WAL replay is wired. We
             // surface it as `NotFound { what: "wal_segment", ... }`
             // which maps to the same wire `NotFound` family.
             return Err(OpError::NotFound {
@@ -755,7 +752,7 @@ impl SubscriptionRegistry {
         }
     }
 
-    /// Advance the recorded `final_lsn` for a stream. Phase 9's pump
+    /// Advance the recorded `final_lsn` for a stream. The pump
     /// task calls this after each event it frames; the v1 dispatcher
     /// calls it once after the first matching event.
     pub fn update_final_lsn(&self, stream_id: u32, lsn: u64) {
@@ -796,13 +793,11 @@ impl SubscriptionRegistry {
 /// 5. On match → update `final_lsn`, return the wire event.
 ///    On `Lagged` → return `Overloaded`.
 ///    On timeout → return `Overloaded` ("retry / use the streaming
-///    path that Phase 9 wires").
+///    path").
 ///
 /// The deadline race uses `glommio::timer::sleep` because this
-/// function runs inside the per-shard Glommio executor
-/// (`crates/brain-server/src/shard/mod.rs:1305` — "brain_ops::dispatch
-/// runs entirely within the per-shard Glommio executor"). Using
-/// `tokio::time` here panicked at the first SUBSCRIBE_REQ in
+/// function runs entirely inside the per-shard Glommio executor.
+/// Using `tokio::time` here panicked at the first SUBSCRIBE_REQ in
 /// production. The non-Linux stub returns `NotYetImplemented` —
 /// Brain is Linux-only at runtime.
 #[cfg(target_os = "linux")]

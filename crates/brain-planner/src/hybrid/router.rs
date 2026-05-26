@@ -1,10 +1,8 @@
-//! Rule-based query router (phase 23.3).
+//! Rule-based query router.
 //!
-//! Implements §24/00 §"Query router". Given a [`QueryRequest`],
-//! classifies the query against a small set of features and
-//! selects retrievers + weights per the 5 routing rules in
-//! §24/00 §"Routing rules". Output is a [`RoutingDecision`]
-//! consumed by the planner (23.6).
+//! Given a [`QueryRequest`], classifies the query against a small set
+//! of features and selects retrievers + weights per the 5 routing
+//! rules. Output is a [`RoutingDecision`] consumed by the planner.
 
 use std::collections::HashMap;
 use std::sync::LazyLock;
@@ -17,8 +15,7 @@ use regex::Regex;
 // Constants.
 // ---------------------------------------------------------------------------
 
-/// Max retrievers selected by the auto router (§24/00
-/// §"Limits and budgets").
+/// Max retrievers selected by the auto router.
 pub const MAX_RETRIEVERS: usize = 3;
 
 /// Words that begin a question. Lowercased. Used to set
@@ -45,7 +42,7 @@ static TEMPORAL_RE: LazyLock<Regex> = LazyLock::new(|| {
 // Public types.
 // ---------------------------------------------------------------------------
 
-/// Structured query request — mirrors §24/00 §"Structured request".
+/// Structured query request.
 #[derive(Debug, Clone, Default)]
 pub struct QueryRequest {
     pub text: Option<String>,
@@ -85,7 +82,7 @@ pub enum RetrieverSelection {
     Explicit(Vec<Retriever>),
 }
 
-/// Per-query fusion config that the planner reads (23.4 / 23.6).
+/// Per-query fusion config that the planner reads.
 #[derive(Debug, Clone, PartialEq)]
 pub struct FusionConfig {
     pub k: u32,
@@ -222,16 +219,16 @@ pub enum Retriever {
     Graph,
 }
 
-/// What the router decided. Consumed by the planner (23.6) to
-/// build the executable plan DAG.
+/// What the router decided. Consumed by the planner to build the
+/// executable plan DAG.
 #[derive(Debug, Clone)]
 pub struct RoutingDecision {
     pub features: ClassificationFeatures,
     pub retrievers: Vec<RetrieverInvocation>,
     pub override_kind: OverrideKind,
-    /// Filter chain (23.5) sees this — if true, push the
-    /// temporal predicate into the retrievers as a pre-filter
-    /// rather than applying it post-fusion.
+    /// The filter chain sees this — if true, push the temporal
+    /// predicate into the retrievers as a pre-filter rather than
+    /// applying it post-fusion.
     pub temporal_pushdown: bool,
     /// How the graph retriever (if any) anchors its walk.
     /// `Entity` is the typed-knowledge mode (relations table);
@@ -275,8 +272,7 @@ pub enum OverrideKind {
 
 /// Features extracted from the request — the router's
 /// transparent decision input. Surfaces in EXPLAIN/TRACE
-/// (23.8) so operators can see why a query routed the way it
-/// did.
+/// so operators can see why a query routed the way it did.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct ClassificationFeatures {
     pub has_text: bool,
@@ -296,19 +292,17 @@ pub struct ClassificationFeatures {
 // Routing entry point.
 // ---------------------------------------------------------------------------
 
-/// Route a [`QueryRequest`] into a [`RoutingDecision`] per
-/// §24/00 §"Routing rules".
+/// Route a [`QueryRequest`] into a [`RoutingDecision`].
 #[must_use]
 pub fn route(req: &QueryRequest) -> RoutingDecision {
     let features = classify(req);
 
     // Explicit override — honour client choice verbatim, flat
     // weight 1.0 per retriever (per-retriever weight tuning
-    // rides in fusion_config; see §23/01).
+    // rides in fusion_config).
     //
-    // §"Limits and budgets": "Max retrievers per
-    // query: 3 (all of semantic, lexical, graph if matched)".
-    // The cap applies uniformly — the explicit override does NOT
+    // Max retrievers per query: 3 (all of semantic, lexical, graph
+    // if matched). The cap applies uniformly — the explicit override does NOT
     // bypass it. The SDK already enforces this at construction
     // (`RetrieverSelection::explicit()`), but a raw wire caller
     // or another-language SDK could submit a longer list. We
@@ -393,8 +387,7 @@ pub fn route(req: &QueryRequest) -> RoutingDecision {
         upsert_max(&mut weights, Retriever::Graph, 0.5);
     }
 
-    // Rules 3 + 4 add no retrievers — they signal the filter
-    // chain (23.5).
+    // Rules 3 + 4 add no retrievers — they signal the filter chain.
     let temporal_pushdown = features.has_time_filter || features.contains_temporal_expression;
 
     // Cap at MAX_RETRIEVERS by weight descending; stable

@@ -1,4 +1,4 @@
-//! Consolidation worker (sub-task 8.4).
+//! Consolidation worker.
 //!
 //! Identifies clusters of recent Episodic memories in the same
 //! context, asks the [`Summarizer`] for a summary, and encodes the
@@ -19,15 +19,15 @@
 //! ## Clustering
 //!
 //! calls for DBSCAN over vector cosine. v1's HNSW backend
-//! doesn't expose `vector_for(memory_id)` (the arena lookup lands in
-//! Phase 9), so the **worker can't run vector-based clustering yet**.
+//! doesn't expose `vector_for(memory_id)` (the arena lookup is not yet
+//! available), so the **worker can't run vector-based clustering yet**.
 //!
 //! The cycle therefore uses **window-based grouping**: within a
 //! (context, recency_window) bucket, the worker treats the candidates
 //! as a single cluster if at least `min_cluster_size` of them aren't
 //! already consolidated. The proper similarity clustering is shipped
-//! as a tested pure helper ([`cluster_by_similarity`]) for Phase 9 to
-//! wire up once vectors become id-accessible. Documented v1 deviation
+//! as a tested pure helper ([`cluster_by_similarity`]) to wire up once
+//! vectors become id-accessible. Documented v1 deviation
 
 use std::collections::{BTreeMap, BTreeSet, HashSet};
 use std::future::Future;
@@ -73,7 +73,7 @@ pub const DEFAULT_INITIAL_SALIENCE: f32 = 0.7;
 // ---------------------------------------------------------------------------
 
 /// Pure-helper input. Carries everything `cluster_by_similarity`
-/// needs; Phase 9 will produce these from the arena.
+/// needs; these are produced from the arena.
 #[derive(Clone, Debug)]
 pub struct ClusterCandidate {
     pub memory_id: MemoryId,
@@ -170,10 +170,10 @@ pub fn cluster_by_similarity(
 // Deterministic request_id (idempotency).
 // ---------------------------------------------------------------------------
 
-/// Hash the sorted source ids to a stable 16-byte `RequestId`. Spec
-/// §07/06 mandates that the same `RequestId` returns the same
-/// `MemoryId`; this lets a partial-crash retry land on the same
-/// Consolidated memory without duplication.
+/// Hash the sorted source ids to a stable 16-byte `RequestId`. The
+/// same `RequestId` must return the same `MemoryId`; this lets a
+/// partial-crash retry land on the same Consolidated memory without
+/// duplication.
 #[must_use]
 pub fn deterministic_request_id(source_ids: &[MemoryId]) -> RequestId {
     let mut sorted: Vec<MemoryId> = source_ids.to_vec();
@@ -303,9 +303,8 @@ async fn do_consolidation_cycle(
         // v1 window-based grouping. Sort by recency and take the
         // oldest `min_cluster_size` ids as "the cluster" — older
         // memories are the ones most likely to benefit from
-        // consolidation. ('s similarity clustering is the
-        // Phase 9 upgrade; `cluster_by_similarity` ships as a pure
-        // helper for that.)
+        // consolidation. (Similarity clustering is the upgrade;
+        // `cluster_by_similarity` ships as a pure helper for that.)
         let mut sorted: Vec<WindowCandidate> = candidates;
         sorted.sort_by_key(|c| c.created_at_unix_nanos);
         if sorted.len() < worker.min_cluster_size {
@@ -497,7 +496,7 @@ fn any_already_consolidated(
 /// we synthesize a stable string ("memory_<id>"). The text fed to
 /// the summarizer is therefore deterministic but synthetic. Real
 /// deployments inject a Summarizer that ignores the placeholder and
-/// fetches text from the arena (Phase 9).
+/// fetches text from the arena.
 fn fetch_texts(
     ctx: &WorkerContext,
     cluster: &[MemoryId],

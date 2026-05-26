@@ -1,22 +1,18 @@
 //! `model_fingerprints` table: per-shard registry of seen embedding-model
 //! fingerprints.
 //!
-//! See `spec/07_embedding/07_fingerprinting.md` §8 (table shape +
-//! purpose) and `spec/10_metadata/02_table_layout.md` §1 row 10.
-//!
 //! ## Why fingerprint
 //!
-//! vectors from different models live in different
-//! geometric spaces; comparing across them is noise. The substrate
-//! tags every memory with the 16-byte fingerprint of the model that
-//! produced its vector (a truncated BLAKE3 over the model's
-//! config/tokenizer/weights — see §04/07 §3) and refuses to compare
-//! across fingerprints.
+//! Vectors from different models live in different geometric spaces;
+//! comparing across them is noise. The substrate tags every memory
+//! with the 16-byte fingerprint of the model that produced its vector
+//! (a truncated BLAKE3 over the model's config/tokenizer/weights) and
+//! refuses to compare across fingerprints.
 //!
 //! This table records every fingerprint the shard has ever seen, plus
 //! the human-readable model name, when it was first seen, and the
 //! memory count for that fingerprint (denormalised; reconciled by the
-//! Phase 8 maintenance worker).
+//! maintenance worker).
 //!
 //! ## What lives here
 //!
@@ -28,10 +24,10 @@
 //! ## What does NOT live here
 //!
 //! - **Auto-registration on first-seen fingerprint**
-//!   — wire layer composes ENCODE → insert-if-absent. Phase 4.
-//! - **`ADMIN_REGISTER_MODEL` opcode** — Phase 9.
-//! - **`memory_count_at_fingerprint` maintenance** — Phase 8 worker
-//!   reconciles by scanning `memories`.
+//!   — wire layer composes ENCODE → insert-if-absent.
+//! - **`ADMIN_REGISTER_MODEL` opcode** — wire layer.
+//! - **`memory_count_at_fingerprint` maintenance** — the maintenance
+//!   worker reconciles by scanning `memories`.
 
 use redb::TableDefinition;
 
@@ -45,14 +41,13 @@ pub const MODEL_FINGERPRINTS_TABLE: TableDefinition<'static, [u8; 16], ModelInfo
 /// Per-fingerprint metadata row.
 ///
 /// - `model_name` — human-readable label (e.g., `"bge-small-en-v1.5"`).
-///   this is *content-addressed* via the fingerprint;
-///   the name is for human convenience (logs, ADMIN_STATS).
+///   The row is *content-addressed* via the fingerprint; the name is
+///   for human convenience (logs, ADMIN_STATS).
 /// - `seen_at_unix_nanos` — when the substrate first inserted this row.
-///   Spec field is `seen_at`; we follow the established 3.x convention
-///   of suffixing time fields with `_unix_nanos`.
+///   Time fields are suffixed with `_unix_nanos` by convention.
 /// - `memory_count_at_fingerprint` — denormalised. The wire layer
 ///   may bump it on each ENCODE; the maintenance worker reconciles by
-///   scanning `memories` (Phase 8).
+///   scanning `memories`.
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct ModelInfo {

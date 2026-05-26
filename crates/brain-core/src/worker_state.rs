@@ -66,7 +66,7 @@ pub enum BackfillRange {
 // WorkerPriority.
 // ---------------------------------------------------------------------------
 
-/// Mirrors §27/00 §"Scheduling priorities and budgets". Backfill
+/// Scheduling priority for background work. Backfill
 /// runs in `Background` by default; operators can bump for one-off
 /// rebuilds.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]

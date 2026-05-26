@@ -1,5 +1,5 @@
-//! `brain-cli agent {list,stats,delete}`;
-//! sub-task 10.11. All deferred (agent_id index not yet present).
+//! `brain-cli agent {list,stats,delete}`.
+//! All deferred (agent_id index not yet present).
 
 pub mod delete;
 pub mod list;

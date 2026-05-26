@@ -1,4 +1,4 @@
-//! Integration test for sub-task 10.1: `Client::connect` against a
+//! Integration test for `Client::connect` against a
 //! hand-rolled mock server that speaks the handshake.
 //!
 //! Why a mock server instead of reaching into brain-server's

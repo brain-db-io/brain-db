@@ -1,4 +1,4 @@
-//! Procedural-memory materialization — request side (W3.1, wire v2).
+//! Procedural-memory materialization — request side (wire v2).
 //!
 //! Procedural memory is a `Statement{ kind: Preference, subject: Agent,
 //! predicate: brain:behavior_*, object: prompt_fragment }`. The

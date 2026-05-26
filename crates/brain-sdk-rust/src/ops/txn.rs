@@ -1,8 +1,8 @@
-//! TXN_BEGIN / TXN_COMMIT / TXN_ABORT (-11 + §13/02 §9).
+//! TXN_BEGIN / TXN_COMMIT / TXN_ABORT.
 //!
-//! 10.5 ships these as plain `Client::txn_*` methods returning the
+//! Ships these as plain `Client::txn_*` methods returning the
 //! TxnId / response. The fluent `let txn = client.txn().begin();`
-//! sugar is a Phase-11 polish — for now the user threads `TxnId`
+//! sugar is a later polish — for now the user threads `TxnId`
 //! into op builders via `.txn(id)`.
 
 use brain_protocol::codec::opcode::Opcode;

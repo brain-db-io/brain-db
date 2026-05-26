@@ -1,4 +1,4 @@
-//! Phase-19 exit integration test (sub-task 19.10a).
+//! Schema lifecycle exit integration test.
 //!
 //! Exercises the full schema lifecycle end-to-end over the wire:
 //! v1 upload → list → get → v2 upload (adds a predicate) → assert

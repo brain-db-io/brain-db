@@ -1,4 +1,4 @@
-//! Unit tests for `BrainSemanticRetriever` (phase 23.1).
+//! Unit tests for `BrainSemanticRetriever`.
 
 use std::sync::Arc;
 

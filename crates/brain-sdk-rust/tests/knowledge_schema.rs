@@ -1,4 +1,4 @@
-//! Schema SDK integration tests. Phase 19.10a.
+//! Schema SDK integration tests.
 //!
 //! Uses the mock-server harness (`common::spawn_mock_server`) to
 //! verify that:

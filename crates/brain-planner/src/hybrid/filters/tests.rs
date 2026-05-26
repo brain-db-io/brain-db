@@ -1,4 +1,4 @@
-//! Unit tests for the post-fusion filter chain (phase 23.5).
+//! Unit tests for the post-fusion filter chain.
 
 use brain_core::{
     AgentId, Cardinality, ContextId, Entity, EntityId, EntityTypeId, ExtractorId, MemoryId,

@@ -90,8 +90,7 @@ impl ContextId {
 
 /// Client-supplied UUIDv7 used for write-side idempotency.
 ///
-/// See `spec/05_operations/` for idempotency semantics and the
-/// 24-hour TTL.
+/// Idempotency entries are retained for a 24-hour TTL.
 #[derive(Clone, Copy, Debug, Eq, Hash, Ord, PartialEq, PartialOrd, Serialize, Deserialize)]
 pub struct RequestId(pub Uuid);
 
@@ -205,8 +204,8 @@ impl MemoryId {
         Self(u128::from_be_bytes(bytes))
     }
 
-    /// Whether this is the null sentinel (`Self::NULL`). Per spec
-    /// §02/03 §2.4, no operation ever returns a null `MemoryId`.
+    /// Whether this is the null sentinel (`Self::NULL`).
+    /// No operation ever returns a null `MemoryId`.
     #[must_use]
     pub const fn is_null(self) -> bool {
         self.0 == 0

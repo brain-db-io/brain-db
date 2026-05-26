@@ -72,8 +72,8 @@ pub enum CheckpointError {
 ///
 /// If step 3 (arena `msync`) fails, `CHECKPOINT_END` is not written and the
 /// caller receives [`CheckpointError::Msync`]. The next recovery sees a
-/// `CHECKPOINT_BEGIN` without a matching `END` and ignores it (spec
-/// §09 §12.1) — the previous checkpoint stays valid.
+/// `CHECKPOINT_BEGIN` without a matching `END` and ignores it —
+/// the previous checkpoint stays valid.
 pub async fn write_checkpoint(
     wal: &Wal,
     arena: &ArenaFile,
@@ -131,8 +131,7 @@ fn unix_nanos_now() -> u64 {
 // Tests.
 // ---------------------------------------------------------------------------
 
-// Tests instantiate `Wal` + `ArenaFile`. Gated under miri; see
-// `.claude/plans/phase-02-miri.md`.
+// Tests instantiate `Wal` + `ArenaFile`. Gated out under miri.
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;

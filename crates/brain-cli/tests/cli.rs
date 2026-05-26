@@ -1,4 +1,4 @@
-//! Integration test for sub-task 10.8.
+//! Integration test for the health / metrics commands.
 //!
 //! Spawns a mock HTTP server bound to `127.0.0.1:0` that returns
 //! the canned `/healthz` + `/metrics` responses, then calls the

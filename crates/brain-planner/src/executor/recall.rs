@@ -15,8 +15,8 @@
 //! 6. Build `RecallResult`.
 //!
 //! No cooperative `.await` yields in this version — the per-shard
-//! pipeline is synchronous from the planner's perspective and 6.7
-//! will introduce yield points when Glommio's runtime arrives.
+//! pipeline is synchronous from the planner's perspective; yield
+//! points are introduced when Glommio's runtime arrives.
 
 use brain_core::{ContextId, MemoryId, MemoryKind};
 use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
@@ -28,19 +28,18 @@ use super::context::ExecutorContext;
 use super::error::ExecError;
 use super::result::{RecallHit, RecallResult};
 
-/// Execute a single-shard `RecallPlan`. Async to match
-/// even though the body has no `.await`; 6.7 wires runtime-specific
-/// yields.
+/// Execute a single-shard `RecallPlan`. Async even though the body
+/// has no `.await`; runtime-specific yields are wired later.
 pub async fn execute_recall(
     plan: RecallPlan,
     ctx: &ExecutorContext,
 ) -> Result<RecallResult, ExecError> {
-    // 1. Embed the cue text as a query (BGE asymmetric retrieval, spec
-    //    07/02 §12a) — the prefix points the vector at "what looks like a
-    //    useful passage for this query" rather than the generic centroid.
+    // 1. Embed the cue text as a query (BGE asymmetric retrieval) —
+    //    the prefix points the vector at "what looks like a useful
+    //    passage for this query" rather than the generic centroid.
     let cue_vector = ctx.embedder.embed_query(&plan.embedding.text)?;
 
-    // 2. ANN search. Single shard for v1 (orientation §4.7).
+    // 2. ANN search. Single shard for v1.
     let shard = plan
         .shards
         .first()
@@ -67,7 +66,7 @@ pub async fn execute_recall(
                 .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
             let Some(access) = row else {
                 // HNSW returned an id the metadata doesn't know about —
-                // says surface, don't swallow.
+                // surface it, don't swallow.
                 return Err(ExecError::MemoryNotFound { memory_id });
             };
             let meta = access.value();

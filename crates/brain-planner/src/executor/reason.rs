@@ -205,9 +205,8 @@ fn resolve_base(
     match &plan.observation {
         ObservationInput::ByMemoryId(raw) => {
             let id = MemoryId::from(*raw);
-            // Sub-task 9.16: — a tombstoned seed
-            // returns an empty base. The downstream BFS short-
-            // circuits to an empty result set, matching
+            // A tombstoned seed returns an empty base. The downstream
+            // BFS short-circuits to an empty result set, matching
             // `search_active`'s silent-filter for ByText seeds.
             if ctx.index.is_tombstoned(id) {
                 return Ok((HashMap::new(), Vec::new()));
@@ -218,7 +217,7 @@ fn resolve_base(
         }
         ObservationInput::ByText(text) => {
             // Caller-supplied observation text — query side of BGE
-            // asymmetric retrieval (spec 07/02 §12a).
+            // asymmetric retrieval.
             let vector = ctx.embedder.embed_query(text)?;
             let k = plan
                 .aggregation
@@ -304,10 +303,9 @@ fn walk_outward(
                 .map(|(k, t, data)| (k, t, data.weight))
                 .collect();
 
-        // Sub-task 9.16: drop committed tombstoned memories from
-        // REASON traversals. Outside an active txn
-        // this is the only filter; inside one, the snap retain below
-        // layers in-flight tombstones on top.
+        // Drop committed tombstoned memories from REASON traversals.
+        // Outside an active txn this is the only filter; inside one,
+        // the snap retain below layers in-flight tombstones on top.
         neighbours.retain(|(_, t, _)| !ctx.index.is_tombstoned(*t));
 
         if let Some(snap) = &ctx.txn {
