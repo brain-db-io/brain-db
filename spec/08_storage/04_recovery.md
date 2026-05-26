@@ -162,19 +162,17 @@ If a check fails, Brain logs the inconsistency. Depending on severity:
 - Minor: log and continue (e.g., a salience field that didn't get its update applied; recovery will re-apply on next checkpoint).
 - Major: refuse to start (e.g., a slot's metadata is internally inconsistent; the operator must investigate).
 
-## 8. Rebuilding the HNSW index
+## 8. Rebuilding the HNSW indexes
 
-The HNSW index is not persisted independently; it's rebuilt on startup from the arena and metadata.
+The three HNSW indexes (memory, statement, entity) are not persisted independently; they are rebuilt on startup from durable source-of-truth. See [09.06 Index Persistence & Recovery](../09_indexing/06_persistence.md) for the per-index rebuild model. Summary:
 
-After WAL replay, Brain:
+- **Memory HNSW** — iterate occupied, non-tombstoned arena slots and insert each `(MemoryId, vector)`. (Equivalent to iterating live memories in the metadata store and reading the arena; Brain iterates the arena directly, since each slot carries its occupancy and tombstone flags.)
+- **Entity HNSW** — iterate live entities in the metadata store and insert `(EntityId, embed(canonical_name))`.
+- **Statement HNSW** — seed the embed queue with every live statement; the per-shard `StatementEmbedWorker` repopulates the index in the background.
 
-1. Iterates over all active (non-tombstoned) memories in the metadata store.
-2. For each, reads the vector from the arena.
-3. Calls `hnsw_index.insert(memory_id, vector)`.
+Memory and entity rebuilds complete before the shard is marked ready (step 8); the statement rebuild proceeds asynchronously after ready.
 
-For a 1M-memory shard, HNSW rebuild takes ~30 seconds (single-threaded) or ~5 seconds (parallel). For larger shards, the time scales linearly. See [09. Indexing](../09_indexing/00_purpose.md) §Rebuild for details.
-
-The rebuild can be parallelized across cores. Each shard's HNSW is owned by that shard's executor; multiple shards rebuild concurrently.
+For a 1M-memory shard, the memory rebuild takes ~30 seconds (single-threaded) or ~5 seconds (parallel); entity rebuild adds its embedding cost. The rebuild can be parallelized across cores. Each shard's indexes are owned by that shard's executor; multiple shards rebuild concurrently.
 
 ## 9. Recovery time
 
