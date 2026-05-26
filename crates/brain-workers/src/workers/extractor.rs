@@ -2269,4 +2269,175 @@ mod tests {
             DEFAULT_EXTRACTOR_BATCH_SIZE
         );
     }
+
+    /// Apply-time axis coercion: a `StatementMention` whose predicate is
+    /// actually a declared *relation_type* becomes a relation (not a
+    /// `brain:fact` sink row), and a `RelationMention` whose relation_type
+    /// is actually a declared *predicate* becomes a statement (not a
+    /// drop). Verified end-to-end through `apply_outcome` against the
+    /// seeded system schema, with the resulting relation/statement read
+    /// back from the metadata store.
+    #[test]
+    #[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send by design
+    fn apply_coerces_misaxised_predicate_and_relation_type() {
+        use std::sync::atomic::AtomicBool;
+        use std::sync::Arc;
+
+        use brain_core::{EntityType, MemoryId, StatementKind};
+        use brain_embed::{Dispatcher, EmbedError, VECTOR_DIM};
+        use brain_index::{IndexParams, SharedHnsw};
+        use brain_metadata::entity::ops::entity_lookup_by_canonical_name;
+        use brain_metadata::relation::ops::{relation_list_from, RelationListFilter};
+        use brain_metadata::relation::types::relation_type_intern_or_get;
+        use brain_metadata::schema::predicate::predicate_intern_or_get;
+        use brain_metadata::statement::{statement_list, StatementListFilter};
+        use brain_metadata::MetadataDb;
+        use brain_ops::RealWriterHandle;
+        use brain_planner::{ExecutorContext, SharedMetadataDb, WriterHandle};
+
+        use brain_extractors::{RelationMention, StatementMention};
+
+        use crate::context::WorkerContext;
+
+        struct ZeroDispatcher;
+        impl Dispatcher for ZeroDispatcher {
+            fn embed(&self, _t: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+                Ok([0.0; VECTOR_DIM])
+            }
+            fn embed_batch(&self, t: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+                Ok(vec![[0.0; VECTOR_DIM]; t.len()])
+            }
+            fn fingerprint(&self) -> [u8; 16] {
+                [0xCD; 16]
+            }
+        }
+
+        // Fixture: temp metadata (seeds the brain: system schema, which
+        // declares reports_to as a relation_type and member_of as a
+        // predicate — the exact axes we're coercing across).
+        let tempdir = tempfile::tempdir().unwrap();
+        let metadata: SharedMetadataDb =
+            Arc::new(MetadataDb::open(tempdir.path().join("md.redb")).unwrap());
+        let (shared, hnsw_writer) = SharedHnsw::new(IndexParams::default_v1()).unwrap();
+        let writer = Arc::new(RealWriterHandle::new(metadata.clone(), hnsw_writer));
+        let executor = ExecutorContext::new(
+            Arc::new(ZeroDispatcher) as Arc<dyn Dispatcher>,
+            shared,
+            metadata.clone(),
+            writer.clone() as Arc<dyn WriterHandle>,
+        );
+        let ops =
+            Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor));
+        let ctx = WorkerContext {
+            ops,
+            shutdown: Arc::new(AtomicBool::new(false)),
+        };
+
+        let (_tx, rx) = flume::unbounded();
+        let worker = ExtractorWorker::new(rx);
+
+        let mention = |text: &str, qn: &str| {
+            ExtractedItem::EntityMention(EntityMention {
+                entity_type_qname: qn.into(),
+                text: text.into(),
+                start: 0,
+                end: text.chars().count(),
+                confidence: 0.95,
+                extractor_id: 2,
+                extractor_version: 1,
+            })
+        };
+        let outcome = PipelineOutcome {
+            items: vec![
+                mention("Priya", "brain:Person"),
+                mention("Dana", "brain:Person"),
+                mention("Acme", "brain:Organization"),
+                // Mis-axised: brain:reports_to is a relation_type, not a
+                // predicate. Apply should coerce to a relation Priya -> Dana,
+                // not flatten to the brain:fact wildcard sink.
+                ExtractedItem::StatementMention(StatementMention {
+                    kind: StatementKind::Fact.as_u8(),
+                    subject_text: Some("Priya".into()),
+                    predicate_qname: "brain:reports_to".into(),
+                    object_text: Some("Dana".into()),
+                    confidence: 0.9,
+                    extractor_id: 3,
+                    extractor_version: 1,
+                    is_stateful: false,
+                }),
+                // Mis-axised: brain:member_of is a predicate, not a
+                // relation_type. Apply should coerce to a statement
+                // Priya member_of Acme, not drop the row.
+                ExtractedItem::RelationMention(RelationMention {
+                    relation_type_qname: "brain:member_of".into(),
+                    subject_text: "Priya".into(),
+                    object_text: "Acme".into(),
+                    confidence: 0.9,
+                    extractor_id: 3,
+                    extractor_version: 1,
+                }),
+            ],
+            pattern: tier_status::ABSENT,
+            classifier: tier_status::ABSENT,
+            llm: tier_status::RAN,
+            failure_reason: None,
+            llm_cost_micro_usd: 0,
+        };
+
+        let memory_id = MemoryId::pack(0, 1, 1);
+        let _ = futures_lite::future::block_on(apply_outcome(&worker, &ctx, memory_id, &outcome))
+            .expect("apply_outcome");
+
+        // Resolve the ids of the concepts we coerced. Both already exist
+        // in the seeded system schema; intern_or_get returns the existing
+        // rows rather than minting new ones.
+        let (reports_to_id, member_of_id) = {
+            let wtxn = metadata.write_txn().unwrap();
+            let r = relation_type_intern_or_get(&wtxn, "brain", "reports_to", 0, 0).unwrap();
+            let p = predicate_intern_or_get(&wtxn, "brain", "member_of", 0, 0).unwrap();
+            wtxn.commit().unwrap();
+            (r, p)
+        };
+
+        let rtxn = metadata.read_txn().unwrap();
+        let priya = entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya")
+            .unwrap()
+            .expect("Priya created during apply pass 1");
+
+        // (a) reports_to became a *relation* Priya -> Dana (not a
+        // brain:fact statement).
+        let rels = relation_list_from(
+            &rtxn,
+            priya,
+            &RelationListFilter {
+                relation_type: Some(reports_to_id),
+                ..RelationListFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            rels.len(),
+            1,
+            "expected one reports_to relation from Priya (coerced from statement)"
+        );
+        assert_eq!(rels[0].relation_type, reports_to_id);
+
+        // (b) member_of became a *statement* with predicate=member_of
+        // (not dropped).
+        let stmts = statement_list(
+            &rtxn,
+            &StatementListFilter {
+                subject: Some(priya),
+                predicate: Some(member_of_id),
+                ..StatementListFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(
+            stmts.len(),
+            1,
+            "expected one member_of statement from Priya (coerced from relation)"
+        );
+        assert_eq!(stmts[0].predicate, member_of_id);
+    }
 }
