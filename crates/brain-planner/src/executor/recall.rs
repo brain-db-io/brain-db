@@ -35,8 +35,10 @@ pub async fn execute_recall(
     plan: RecallPlan,
     ctx: &ExecutorContext,
 ) -> Result<RecallResult, ExecError> {
-    // 1. Embed.
-    let cue_vector = ctx.embedder.embed(&plan.embedding.text)?;
+    // 1. Embed the cue text as a query (BGE asymmetric retrieval, spec
+    //    07/02 §12a) — the prefix points the vector at "what looks like a
+    //    useful passage for this query" rather than the generic centroid.
+    let cue_vector = ctx.embedder.embed_query(&plan.embedding.text)?;
 
     // 2. ANN search. Single shard for v1 (orientation §4.7).
     let shard = plan

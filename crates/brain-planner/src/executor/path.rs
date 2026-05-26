@@ -155,7 +155,9 @@ fn resolve_endpoint(
             Ok(s)
         }
         PlanState::ByText(text) => {
-            let vector = ctx.embedder.embed(text)?;
+            // Caller-supplied query text (PLAN endpoint resolution) —
+            // BGE asymmetric retrieval prefix applies (spec 07/02 §12a).
+            let vector = ctx.embedder.embed_query(text)?;
             let hits =
                 ctx.index
                     .search_active(&vector, ENDPOINT_RECALL_K, Some(ENDPOINT_RECALL_EF));
@@ -619,9 +621,10 @@ fn build_endpoint_centroid(
     }
 
     // ByText: re-embed the cue directly. The dispatcher cache keeps
-    // this sub-µs on repeats.
+    // this sub-µs on repeats. Query side of BGE asymmetric retrieval
+    // (spec 07/02 §12a) — the prefix is applied automatically.
     if let PlanState::ByText(text) = state {
-        return match ctx.embedder.embed(text) {
+        return match ctx.embedder.embed_query(text) {
             Ok(v) => Some(v),
             Err(e) => {
                 tracing::debug!(error = %e, "PLAN goal-centroid: embed of cue failed; skipping");

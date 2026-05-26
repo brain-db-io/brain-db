@@ -36,17 +36,42 @@ use crate::model::{embed_batch, embed_text, VECTOR_DIM};
 /// because that lets one BertModel forward pass amortise across the
 /// rows.
 pub trait Dispatcher: Send + Sync {
-    /// Embed a single text. Returns a 384-dim L2-normalised vector.
+    /// Embed a *passage* (stored vector). Returns a 384-dim L2-normalised
+    /// vector. Use this for ENCODE memory text, entity canonical names,
+    /// statement text, and anywhere else the vector goes *into* the index.
     fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError>;
 
     /// Embed a caller-provided batch in one forward pass.
     fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError>;
+
+    /// Embed a *query* (lookup vector). Returns a 384-dim L2-normalised
+    /// vector with the BGE asymmetric-retrieval prefix
+    /// ([`BGE_QUERY_PREFIX`]) applied. Use this for RECALL / PLAN /
+    /// REASON cues and the hybrid SemanticRetriever's query embed
+    /// (spec `07/02 §12a`).
+    ///
+    /// Default impl concatenates the prefix and delegates to `embed`;
+    /// the prefix is applied *before* the cache lookup so query and
+    /// passage entries for the same surface text are independent rows
+    /// (no collision).
+    fn embed_query(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+        let mut prefixed = String::with_capacity(BGE_QUERY_PREFIX.len() + text.len());
+        prefixed.push_str(BGE_QUERY_PREFIX);
+        prefixed.push_str(text);
+        self.embed(&prefixed)
+    }
 
     /// 16-byte BLAKE3-truncated model fingerprint (spec `04/07 §3`).
     /// Stable for the process lifetime; used by 5.5's cache key and
     /// Phase 7's ENCODE path to stamp stored vectors.
     fn fingerprint(&self) -> [u8; 16];
 }
+
+/// Asymmetric-retrieval prefix for `bge-small-en-v1.5` queries
+/// (spec `07/02 §12a`). Concatenated directly with the query text — no
+/// separator. Skipping this prefix degrades short-query recall badly;
+/// it's what the upstream model card prescribes.
+pub const BGE_QUERY_PREFIX: &str = "Represent this sentence for searching relevant passages: ";
 
 /// CPU dispatcher. Pure pass-through to 5.3's [`embed_text`] /
 /// [`embed_batch`]; no queue, no window, per spec `04/03 §7 + §14`.
@@ -153,5 +178,50 @@ mod tests {
         let dyn_disp: &dyn Dispatcher = &m;
         assert_eq!(dyn_disp.fingerprint(), [0x11; 16]);
         assert_eq!(dyn_disp.embed_batch(&["a", "b"]).unwrap().len(), 2);
+    }
+
+    /// `embed_query` must apply the BGE retrieval prefix before calling
+    /// `embed`. This both verifies the asymmetric pipeline (spec 07/02
+    /// §12a) and proves the cache-collision invariant: query and passage
+    /// for the same surface text route to different cache rows because
+    /// the prefix is part of the lookup key.
+    #[test]
+    fn embed_query_prepends_bge_retrieval_prefix() {
+        use std::sync::Mutex;
+        struct Recorder {
+            seen: Mutex<Vec<String>>,
+        }
+        impl Dispatcher for Recorder {
+            fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+                self.seen.lock().unwrap().push(text.to_string());
+                Ok([0.0; VECTOR_DIM])
+            }
+            fn embed_batch(
+                &self,
+                texts: &[&str],
+            ) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+                Ok(vec![[0.0; VECTOR_DIM]; texts.len()])
+            }
+            fn fingerprint(&self) -> [u8; 16] {
+                [0; 16]
+            }
+        }
+        let r = Recorder {
+            seen: Mutex::new(Vec::new()),
+        };
+        // Passage path: raw text.
+        r.embed("priya works at stripe").unwrap();
+        // Query path: prefix + same text.
+        r.embed_query("priya works at stripe").unwrap();
+        let seen = r.seen.lock().unwrap();
+        assert_eq!(seen.len(), 2);
+        assert_eq!(seen[0], "priya works at stripe");
+        assert_eq!(
+            seen[1],
+            format!("{}priya works at stripe", BGE_QUERY_PREFIX)
+        );
+        // The two strings differ → the dispatcher cache (keyed on
+        // BLAKE3 of input text) treats them as independent entries.
+        assert_ne!(seen[0], seen[1]);
     }
 }

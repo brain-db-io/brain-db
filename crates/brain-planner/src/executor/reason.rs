@@ -217,7 +217,9 @@ fn resolve_base(
             Ok((map, vec![id]))
         }
         ObservationInput::ByText(text) => {
-            let vector = ctx.embedder.embed(text)?;
+            // Caller-supplied observation text — query side of BGE
+            // asymmetric retrieval (spec 07/02 §12a).
+            let vector = ctx.embedder.embed_query(text)?;
             let k = plan
                 .aggregation
                 .max_supporting

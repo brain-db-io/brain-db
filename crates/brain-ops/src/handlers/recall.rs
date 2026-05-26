@@ -118,7 +118,7 @@ fn overlay_txn_buffer(
     let cue_vec = ctx
         .executor
         .embedder
-        .embed(&req.cue_text)
+        .embed_query(&req.cue_text)
         .map_err(|e| OpError::ExecError(brain_planner::ExecError::EmbedFailed(e)))?;
 
     let kind_filter: Option<HashSet<MemoryKindWire>> = req
