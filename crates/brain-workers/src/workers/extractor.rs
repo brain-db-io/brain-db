@@ -1184,6 +1184,55 @@ async fn apply_outcome(
                     let object = statement_object_for(sm, &entity_map);
                     let (ns, name) =
                         split_qname(&sm.predicate_qname).map_err(ApplyError::InvalidQname)?;
+                    let pred_ok = predicate_allowed_by_schema(&wtxn, ns, name)?;
+
+                    // Axis coercion: the LLM occasionally emits a concept on
+                    // the wrong axis. If the proposed predicate is not a
+                    // declared predicate but IS a declared relation_type, and
+                    // the object resolved to an entity, the assertion is really
+                    // an entity↔entity relation — create it as one rather than
+                    // flattening it into the `brain:fact` sink (which would
+                    // lose the typed edge). Falls through to the sink only when
+                    // the object isn't an entity (no second endpoint).
+                    if !pred_ok {
+                        if let StatementObject::Entity(obj) = &object {
+                            let obj = *obj;
+                            if relation_type_allowed_by_schema(&wtxn, ns, name)? {
+                                let rt = relation_type_intern_or_get(&wtxn, ns, name, 0, now)
+                                    .map_err(|e| ApplyError::RelationType(format!("{e}")))?;
+                                let payload = RelationCreatePayload {
+                                    relation_type: rt,
+                                    from_entity: subject,
+                                    to_entity: obj,
+                                    confidence: sm.confidence.clamp(0.0, 1.0),
+                                    evidence_memory_ids: vec![memory_id],
+                                    extractor_id: ExtractorId::from(sm.extractor_id),
+                                    is_symmetric: false,
+                                    extracted_at_unix_nanos: now,
+                                };
+                                match relation_create_internal(&wtxn, &payload) {
+                                    Ok(_) => {
+                                        counts.relations = counts.relations.saturating_add(1);
+                                        worker
+                                            .metrics
+                                            .add_items_written(ExtractorItemKind::Relation, 1);
+                                        tracing::info!(
+                                            target: "brain_workers::extractor",
+                                            memory_id = ?memory_id,
+                                            relation_type = %format!("{ns}:{name}"),
+                                            "predicate emitted on relation_type axis; coerced to relation",
+                                        );
+                                    }
+                                    Err(e) => trace!(
+                                        memory_id = ?memory_id,
+                                        error = %e,
+                                        "coerced relation_create dropped",
+                                    ),
+                                }
+                                continue;
+                            }
+                        }
+                    }
 
                     // Resolve the LLM's proposed predicate against the
                     // schema. Three outcomes:
@@ -1197,7 +1246,7 @@ async fn apply_outcome(
                     //       SCHEMA_UPLOAD can promote these to typed
                     //       predicates without re-extraction.
                     let (pid, original_predicate_qname, used_qname) =
-                        if predicate_allowed_by_schema(&wtxn, ns, name)? {
+                        if pred_ok {
                             let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
                                 .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
                             (pid, None, (ns.to_string(), name.to_string()))
@@ -1283,11 +1332,57 @@ async fn apply_outcome(
                     let (ns, name) =
                         split_qname(&rm.relation_type_qname).map_err(ApplyError::InvalidQname)?;
                     if !relation_type_allowed_by_schema(&wtxn, ns, name)? {
-                        // Unknown relation types are dropped — relation
-                        // graph semantics require a typed relation row,
-                        // and statement-level promotion via brain:fact
-                        // doesn't apply to two-endpoint relations.
-                        // Surface at warn so an operator notices.
+                        // Axis coercion (mirror of the statement branch): the
+                        // LLM emitted a relation, but if the concept is a
+                        // declared *predicate* the assertion is really a
+                        // statement (from -> to). Create it as one rather than
+                        // dropping. Both endpoints are already resolved
+                        // entities here, so the statement's object is an entity.
+                        if predicate_allowed_by_schema(&wtxn, ns, name)? {
+                            let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
+                                .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
+                            let is_stateful =
+                                predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(false);
+                            let payload = StatementCreatePayload {
+                                kind: StatementKind::Fact,
+                                subject: from,
+                                predicate: pid,
+                                object: StatementObject::Entity(to),
+                                confidence: rm.confidence.clamp(0.0, 1.0),
+                                evidence_memory_ids: vec![memory_id],
+                                extractor_id: ExtractorId::from(rm.extractor_id),
+                                schema_version: 0,
+                                extracted_at_unix_nanos: now,
+                                original_predicate_qname: None,
+                                is_stateful,
+                            };
+                            match statement_create_internal(&wtxn, &payload) {
+                                Ok(_) => {
+                                    counts.statements = counts.statements.saturating_add(1);
+                                    worker
+                                        .metrics
+                                        .add_items_written(ExtractorItemKind::Statement, 1);
+                                    tracing::info!(
+                                        target: "brain_workers::extractor",
+                                        memory_id = ?memory_id,
+                                        predicate = %format!("{ns}:{name}"),
+                                        "relation_type emitted on predicate axis; coerced to statement",
+                                    );
+                                }
+                                Err(e) => trace!(
+                                    memory_id = ?memory_id,
+                                    error = %e,
+                                    "coerced statement_create dropped",
+                                ),
+                            }
+                            continue;
+                        }
+
+                        // Neither a relation_type nor a predicate → genuinely
+                        // unknown. Relation graph semantics require a typed
+                        // relation row, and brain:fact promotion doesn't apply
+                        // to two-endpoint relations, so drop. Warn so an
+                        // operator notices.
                         worker.metrics.inc_schema_filtered(&rm.relation_type_qname);
                         warn!(
                             target: "brain_workers::extractor",
