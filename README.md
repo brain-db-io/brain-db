@@ -128,7 +128,7 @@ define extractor preferences {
     kind:                 llm
     target:               statement Preference
     trigger:              on encode where memory.kind = episodic
-    model:                "claude-haiku-4-5"
+    model:                "gpt-4o-mini"
     confidence_threshold: 0.7
     cache:                enabled
 }
@@ -168,6 +168,8 @@ A persistent agent identity is opt-in; by default each connection mints an ephem
 brain agent create work             # named agent persisted to ~/.config/brain/
 brain --agent work encode "..."     # use it
 ```
+
+**Memory is isolated per agent.** `RECALL` returns only the calling agent's own memories by default — one tenant never sees another's. Cross-agent reads are explicit: `--filter-agent <id>` scopes to a named set, `--include-other-agents` opts into the shared view. Each hit carries its owning `agent_id` so provenance is always legible.
 
 Full setup walkthrough: [`docs/tutorials/01-quickstart-docker.md`](docs/tutorials/01-quickstart-docker.md).
 
@@ -260,7 +262,7 @@ Encoding the same content twice is a no-op by default — pass `--allow-duplicat
 | tantivy × 2 | BM25 over memory text + statement text | [`spec/10_metadata/06_tantivy_layout.md`](spec/10_metadata/06_tantivy_layout.md) |
 | LLM cache | Separate redb for extractor responses with TTL | [`spec/11_extractors/06_prompt_caching.md`](spec/11_extractors/06_prompt_caching.md) |
 
-**Seven non-negotiable invariants** (from [`spec/08_storage/00_purpose.md`](spec/08_storage/00_purpose.md) and CLAUDE.md §5):
+**Seven non-negotiable invariants** (from [`spec/08_storage/00_purpose.md`](spec/08_storage/00_purpose.md)):
 
 1. **WAL-before-acknowledge** — no operation returns success until its WAL record is fsynced.
 2. **Single writer per shard** — no locks needed; the discipline enforces it.
@@ -319,9 +321,7 @@ For the high-level phase index, see [`ROADMAP.md`](ROADMAP.md). For per-phase su
 | **Tutorials** | [`docs/tutorials/`](docs/tutorials/) |
 | Setup, CLI tour, SDK tour, troubleshooting | [`docs/development/usage/`](docs/development/usage/) |
 | CLI reference (`brain` shell + `brain-cli` admin) | [`docs/reference/`](docs/reference/) |
-| Roadmap (phase index) | [`ROADMAP.md`](ROADMAP.md) |
-| Project context for AI-assisted dev | [`CLAUDE.md`](CLAUDE.md) |
-| Autonomous-mode operating rules | [`AUTONOMY.md`](AUTONOMY.md) |
+| Roadmap (milestone index) | [`ROADMAP.md`](ROADMAP.md) |
 
 ---
 
@@ -347,9 +347,7 @@ brain/
 │   └── brain-cli/          Admin CLI
 ├── spec/                   The 153-file specification (authoritative)
 ├── docs/                   Tutorials, references, development guides
-├── ROADMAP.md              Implementation phase index
-├── CLAUDE.md               Project context
-└── AUTONOMY.md             Autonomous-mode operating rules
+└── ROADMAP.md              Milestone index
 ```
 
 ---
@@ -392,7 +390,7 @@ CPU: x86_64 with SSE 4.2 **or** ARM64 with the CRC32 extension. AVX2 / NEON used
 Brain is pre-release. The wire protocol, on-disk formats, and schema model still change without back-compat shims. Until v1.0:
 
 - Spec changes go through the project owner. Code disagreements with the spec are fixed by changing the code.
-- The seven invariants in [`spec/08_storage/00_purpose.md`](spec/08_storage/00_purpose.md) and CLAUDE.md §5 are non-negotiable.
+- The seven invariants in [`spec/08_storage/00_purpose.md`](spec/08_storage/00_purpose.md) are non-negotiable.
 - New dependencies require commit-message justification; the approved set is in [`Cargo.toml`](Cargo.toml).
 
 CI (`.github/workflows/ci.yml`) is the authoritative test gate. Run `just verify` locally before pushing — it does `fmt + build + clippy -D warnings + test`.

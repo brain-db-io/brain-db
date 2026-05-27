@@ -2,7 +2,7 @@
 
 Forward-looking plan for Brain's road to v1.0 and beyond.
 
-This file is the **high-level milestone index**. Detailed per-phase task plans live in [`docs/development/phases/`](docs/development/phases/); per-sub-task working notes are in [`.claude/plans/`](.claude/plans/). For autonomous-mode operating rules, see [`AUTONOMY.md`](AUTONOMY.md).
+This file is the **high-level milestone index**. Detailed per-phase task plans live in [`docs/development/phases/`](docs/development/phases/).
 
 ---
 
@@ -33,7 +33,6 @@ What's pending before the acceptance suite can run green:
 | Area | What's needed |
 |---|---|
 | **Acceptance suite execution** | Wire the harness, run on reference hardware, capture wall-time numbers across all 50+ acceptance checks. Many criterion benches are in place; full-suite integration is the missing piece. |
-| **Memory text persistence** | Today `MEMORIES_TABLE` stores `text_size` but not the text — memory text lives only on the WAL frame. This blocks content-aware text-index rebuild, blocks the full FORGET cascade audit, and forces operators to re-ingest in v1. Decide whether to persist memory text (and pay the storage cost) or to ship v1 with the documented limitation. |
 | **Classifier inference (candle BERT)** | The classifier extractor framework ships with the load path validated; the candle forward pass + linear classifier head is parked behind `BRAIN_NER_MODEL_PATH`. Operator-provided model + runtime weights need to light up the inference path. |
 | **Live LLM provider validation** | Anthropic + OpenAI clients are wired through a mock-client integration suite. Live-provider end-to-end runs (real API keys, real cost accounting) need a pass before v1.0. |
 | **Production-scale benches** | Per-shard benches run at 10K corpus scale. Full v1.0 acceptance runs at 1M memories per shard with mixed workloads. |
@@ -100,7 +99,6 @@ Documented up front so the scope is honest:
 - **Linux only.** Glommio + `io_uring` don't run elsewhere.
 - **English text only.** `bge-small-en-v1.5` is English; multilingual support requires a different embedding model and re-embedding. v2.
 - **Single embedding model per deployment.** Hot-swapping the model requires `ADMIN_MIGRATE_EMBEDDINGS` (offline).
-- **Memory text not persisted beyond the WAL.** Live tantivy rebuild produces an empty valid index; operators re-ingest from their source-of-truth.
 - **No query language.** Wire protocol is typed RPC; a SQL-like text language is v2 at earliest.
 - **Fine-grained access control out of scope.** Brain has authentication and shard-level authorization; per-memory ACLs, field-level security, and time-bounded permissions are v2 if at all.
 
@@ -110,9 +108,9 @@ These aren't bugs — they're scope boundaries. Don't accidentally implement the
 
 ## Implementation history
 
-For the detailed phase-by-phase landing record (what each phase delivered, deferrals, bench results, file-level paths), see [`docs/development/phases/`](docs/development/phases/) — the index there links every phase's plan + execution log. Per-sub-task working notes archive to [`.claude/plans/`](.claude/plans/).
+For the detailed phase-by-phase landing record (what each phase delivered, deferrals, bench results, file-level paths), see [`docs/development/phases/`](docs/development/phases/) — the index there links every phase's plan + execution log.
 
-`git log --oneline | grep "^[a-f0-9]* [0-9]*\."` shows all completed sub-tasks. The `/status` slash command summarizes current position.
+`git log --oneline` shows the full landing history.
 
 ---
 
