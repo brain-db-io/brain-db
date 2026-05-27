@@ -76,6 +76,7 @@ fn dispatch_upsert_then_query_returns_hit() {
                 agent: AgentId::new(),
                 kind: MemoryKind::Episodic,
                 created_at_unix_ms: 0,
+                context: 0,
             })
             .await;
 
@@ -110,6 +111,7 @@ fn forget_removes_doc() {
                 agent: AgentId::new(),
                 kind: MemoryKind::Episodic,
                 created_at_unix_ms: 0,
+                context: 0,
             })
             .await;
         dispatcher.dispatch(MemoryTextOp::Forget { id }).await;
@@ -136,6 +138,7 @@ fn commit_by_time_flushes_below_n() {
                 agent: AgentId::new(),
                 kind: MemoryKind::Episodic,
                 created_at_unix_ms: 0,
+                context: 0,
             })
             .await;
 
@@ -163,6 +166,7 @@ fn commit_by_count_flushes_at_n() {
                     agent: AgentId::new(),
                     kind: MemoryKind::Episodic,
                     created_at_unix_ms: 0,
+                    context: 0,
                 })
                 .await;
         }
@@ -201,6 +205,7 @@ fn payload_stamped_on_commit_survives_reopen() {
                     agent: AgentId::new(),
                     kind: MemoryKind::Episodic,
                     created_at_unix_ms: 0,
+                    context: 0,
                 })
                 .await;
             drop(dispatcher);
@@ -234,6 +239,7 @@ fn dispatching_without_drain_eventually_blocks() {
             agent: AgentId::new(),
             kind: MemoryKind::Episodic,
             created_at_unix_ms: 0,
+            context: 0,
         };
         dispatcher.dispatch(op()).await;
         dispatcher.dispatch(op()).await;
@@ -270,6 +276,7 @@ fn upsert_round_trips_metadata_fields() {
                 agent,
                 kind: MemoryKind::Semantic,
                 created_at_unix_ms: 1_700_000_000_000,
+                context: 0,
             })
             .await;
         drop(dispatcher);
@@ -341,6 +348,7 @@ fn end_to_end_indexer_to_retriever() {
                 agent: AgentId::new(),
                 kind: MemoryKind::Episodic,
                 created_at_unix_ms: 0,
+                context: 0,
             })
             .await;
         drop(dispatcher);

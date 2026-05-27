@@ -30,22 +30,12 @@
 //!   (non-current) relations are dropped via the sidecar lookup so
 //!   the walk reflects the live graph.
 //!
-//! ## Anchor existence guard
-//!
-//! Fresh shards may not have created the `entities` / `memories`
-//! tables yet, in which case redb returns `TableError::TableDoesNotExist`
-//! on open. We map that to the matching `*AnchorNotFound` so callers
-//! see a meaningful "anchor missing" error instead of a generic
-//! `IndexUnavailable`. The auto-router relies on this distinction to
-//! drop tombstoned anchors and try the next semantic top-K hit
-//! without aborting the whole retrieval.
-
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::sync::Arc;
 
 use brain_core::SubjectRef;
 use brain_core::{
-    EdgeKindRef, EntityId, MemoryId, NodeRef, RelationId, RelationTypeId, StatementId,
+    EdgeKind, EdgeKindRef, EntityId, MemoryId, NodeRef, RelationId, RelationTypeId, StatementId,
 };
 use brain_index::{
     proximity_score, validate_graph_depth, Direction, GraphError, GraphQuery, GraphRetriever,
@@ -206,6 +196,14 @@ fn walk(
         // already, so the truncation is reproducible across runs.
         let mut count = 0usize;
         for (kind, neighbour, disamb, data) in neighbours {
+            // Temporal edges record session order, not relevance — they
+            // are a filter signal, never candidate-producing. Skip them
+            // (without consuming the per-hop branching budget) so the
+            // graph lane can't propagate the query-independent
+            // FollowedBy session chain into retrieval.
+            if matches!(kind, EdgeKindRef::Builtin(EdgeKind::FollowedBy)) {
+                continue;
+            }
             if count >= max_branching {
                 tracing::warn!(
                     target: "brain_ops::graph_retriever",
@@ -254,22 +252,10 @@ fn collect_neighbours(
     direction: Direction,
 ) -> Result<Vec<EdgeRow>, GraphError> {
     let outgoing = || -> Result<_, GraphError> {
-        match walk_outgoing(rtxn, node, None) {
-            Ok(rows) => Ok(rows),
-            // No edges have ever been written on this shard yet —
-            // return an empty neighbour list rather than tearing
-            // down the BFS. The anchor existence check above already
-            // confirmed the node itself exists.
-            Err(EdgeOpError::Table(redb::TableError::TableDoesNotExist(_))) => Ok(Vec::new()),
-            Err(e) => Err(map_edge_err(e)),
-        }
+        walk_outgoing(rtxn, node, None).map_err(map_edge_err)
     };
     let incoming = || -> Result<_, GraphError> {
-        match walk_incoming(rtxn, node, None) {
-            Ok(rows) => Ok(rows),
-            Err(EdgeOpError::Table(redb::TableError::TableDoesNotExist(_))) => Ok(Vec::new()),
-            Err(e) => Err(map_edge_err(e)),
-        }
+        walk_incoming(rtxn, node, None).map_err(map_edge_err)
     };
 
     let mut out = Vec::new();
@@ -311,15 +297,9 @@ fn kind_matches_filter(kind: EdgeKindRef, filter: Option<&[RelationTypeId]>) -> 
 }
 
 fn typed_edge_is_current(rtxn: &ReadTransaction, rel_id: RelationId) -> Result<bool, GraphError> {
-    let sidecar = match rtxn.open_table(RELATION_METADATA_TABLE) {
-        Ok(t) => t,
-        // No typed relations exist on this shard. If we somehow saw
-        // a Typed edge without a sidecar row the data would be
-        // inconsistent; defer to the per-row lookup below to surface
-        // it as "not current".
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(false),
-        Err(e) => return Err(GraphError::IndexUnavailable(format!("sidecar open: {e}"))),
-    };
+    let sidecar = rtxn
+        .open_table(RELATION_METADATA_TABLE)
+        .map_err(|e| GraphError::IndexUnavailable(format!("sidecar open: {e}")))?;
     let row = sidecar
         .get(&rel_id.to_bytes())
         .map_err(|e| GraphError::IndexUnavailable(format!("sidecar get: {e}")))?;
@@ -334,44 +314,32 @@ fn check_anchor_exists(rtxn: &ReadTransaction, anchor: NodeRef) -> Result<(), Gr
 }
 
 fn check_memory_anchor(rtxn: &ReadTransaction, anchor: MemoryId) -> Result<(), GraphError> {
-    match rtxn.open_table(MEMORIES_TABLE) {
-        Ok(memories) => {
-            let row = memories
-                .get(&anchor.to_be_bytes())
-                .map_err(|e| GraphError::IndexUnavailable(format!("memories.get: {e}")))?;
-            let Some(row) = row else {
-                return Err(GraphError::MemoryAnchorNotFound(anchor));
-            };
-            if row.value().is_tombstoned() {
-                return Err(GraphError::MemoryAnchorNotFound(anchor));
-            }
-            Ok(())
-        }
-        Err(redb::TableError::TableDoesNotExist(_)) => {
-            Err(GraphError::MemoryAnchorNotFound(anchor))
-        }
-        Err(e) => Err(GraphError::IndexUnavailable(format!(
-            "open memories table: {e}"
-        ))),
+    let memories = rtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| GraphError::IndexUnavailable(format!("open memories table: {e}")))?;
+    let row = memories
+        .get(&anchor.to_be_bytes())
+        .map_err(|e| GraphError::IndexUnavailable(format!("memories.get: {e}")))?;
+    let Some(row) = row else {
+        return Err(GraphError::MemoryAnchorNotFound(anchor));
+    };
+    if row.value().is_tombstoned() {
+        return Err(GraphError::MemoryAnchorNotFound(anchor));
     }
+    Ok(())
 }
 
 fn check_entity_anchor(rtxn: &ReadTransaction, anchor: EntityId) -> Result<(), GraphError> {
-    match rtxn.open_table(ENTITIES_TABLE) {
-        Ok(entities) => {
-            let row = entities
-                .get(&anchor.to_bytes())
-                .map_err(|e| GraphError::IndexUnavailable(format!("entities.get: {e}")))?;
-            if row.is_none() {
-                return Err(GraphError::AnchorNotFound(anchor));
-            }
-            Ok(())
-        }
-        Err(redb::TableError::TableDoesNotExist(_)) => Err(GraphError::AnchorNotFound(anchor)),
-        Err(e) => Err(GraphError::IndexUnavailable(format!(
-            "open entities table: {e}"
-        ))),
+    let entities = rtxn
+        .open_table(ENTITIES_TABLE)
+        .map_err(|e| GraphError::IndexUnavailable(format!("open entities table: {e}")))?;
+    let row = entities
+        .get(&anchor.to_bytes())
+        .map_err(|e| GraphError::IndexUnavailable(format!("entities.get: {e}")))?;
+    if row.is_none() {
+        return Err(GraphError::AnchorNotFound(anchor));
     }
+    Ok(())
 }
 
 fn node_to_id(n: NodeRef) -> RankedItemId {
@@ -505,14 +473,7 @@ fn push_statements(
         min_confidence: None,
         limit: cap,
     };
-    let rows = match statement_list(rtxn, &filter) {
-        Ok(rows) => rows,
-        // A shard that has never written any statement yet won't
-        // have the by-subject index. Treat as empty list so the BFS
-        // keeps walking other branches.
-        Err(StatementOpError::Table(redb::TableError::TableDoesNotExist(_))) => Vec::new(),
-        Err(e) => return Err(map_statement_err(e)),
-    };
+    let rows = statement_list(rtxn, &filter).map_err(map_statement_err)?;
     for s in rows {
         if !matches!(s.subject, SubjectRef::Entity(_)) {
             continue;

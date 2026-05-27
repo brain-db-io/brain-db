@@ -3,7 +3,7 @@
 //! Streaming response — 10.5 ships a Vec-collecting `send()`.
 //! 10.6 will add `send_stream()` returning `impl Stream`.
 
-use brain_core::RequestId;
+use brain_core::{AgentId, RequestId};
 use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::envelope::request::{MemoryKindWire, RecallRequest};
 use brain_protocol::envelope::response::{MemoryResult, RecallResponseFrame};
@@ -29,6 +29,8 @@ pub struct RecallBuilder<'a> {
     include_text: bool,
     request_id: Option<RequestId>,
     txn_id: Option<[u8; 16]>,
+    agent_filter: Vec<[u8; 16]>,
+    include_other_agents: bool,
 }
 
 impl<'a> RecallBuilder<'a> {
@@ -47,6 +49,8 @@ impl<'a> RecallBuilder<'a> {
             include_text: false,
             request_id: None,
             txn_id: None,
+            agent_filter: Vec::new(),
+            include_other_agents: false,
         }
     }
 
@@ -128,6 +132,27 @@ impl<'a> RecallBuilder<'a> {
         self
     }
 
+    /// Scope the recall to an explicit set of agents. With a non-empty
+    /// set the server returns only memories owned by those agents,
+    /// regardless of the calling connection's own agent. An empty set
+    /// (the default) leaves caller isolation in the server's hands —
+    /// see [`Self::include_other_agents`].
+    #[must_use]
+    pub fn filter_agent(mut self, agents: Vec<AgentId>) -> Self {
+        self.agent_filter = agents.into_iter().map(Into::into).collect();
+        self
+    }
+
+    /// Drop the implicit caller-agent isolation the server otherwise
+    /// applies. When `true` and no [`Self::filter_agent`] set is given,
+    /// recall spans every agent's memories; when combined with an
+    /// explicit filter it still scopes to that set. Defaults to `false`.
+    #[must_use]
+    pub fn include_other_agents(mut self, yes: bool) -> Self {
+        self.include_other_agents = yes;
+        self
+    }
+
     /// Collect all RECALL frames into a single `Vec<MemoryResult>`,
     /// ordered as the server emitted them.
     pub async fn send(self) -> Result<Vec<MemoryResult>, ClientError> {
@@ -148,6 +173,8 @@ impl<'a> RecallBuilder<'a> {
         let include_graph = self.include_graph;
         let include_text = self.include_text;
         let txn_id = self.txn_id;
+        let agent_filter = self.agent_filter;
+        let include_other_agents = self.include_other_agents;
         let client = self.client.clone();
 
         client
@@ -156,6 +183,7 @@ impl<'a> RecallBuilder<'a> {
                 let cue_text = cue_text.clone();
                 let context_filter = context_filter.clone();
                 let kind_filter = kind_filter.clone();
+                let agent_filter = agent_filter.clone();
                 async move {
                     let body = RequestBody::Recall(RecallRequest {
                         cue_text,
@@ -170,6 +198,8 @@ impl<'a> RecallBuilder<'a> {
                         include_text,
                         request_id: request_id_bytes,
                         txn_id,
+                        agent_filter,
+                        include_other_agents,
                     });
                     let mut guard = client.acquire().await?;
                     let stream_id = guard.next_stream_id();
@@ -234,6 +264,8 @@ impl<'a> RecallBuilder<'a> {
             include_text: self.include_text,
             request_id: request_id_bytes,
             txn_id: self.txn_id,
+            agent_filter: self.agent_filter,
+            include_other_agents: self.include_other_agents,
         });
         let mut guard = self.client.acquire().await?;
         let stream_id = guard.next_stream_id();

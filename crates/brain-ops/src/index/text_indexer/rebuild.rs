@@ -7,15 +7,11 @@
 //!
 //! ## v1 simplifications
 //!
-//! - **Memory text rebuild emits a valid empty index.** The
-//!   substrate's `MEMORIES_TABLE` stores `text_size` but not the
-//!   text itself (which only lives on the ENCODE wire path and
-//!   the WAL frame); rebuild cannot reconstruct text content
-//!   from authoritative storage. v1 produces a fresh empty
-//!   index with the correct schema + payload so subsequent
-//!   writes work; operators re-ingest existing memories from
-//!   their own source-of-truth. Full content-aware rebuild
-//!   lands post-v1.
+//! - **Memory text rebuild is content-complete.** The memory text
+//!   lives in `TEXTS_TABLE` (keyed by memory id); agent / kind /
+//!   created_at come from `MEMORIES_TABLE`. Rebuild reconstructs
+//!   every active memory's lexical doc from authoritative storage,
+//!   so the lexical lane survives a restart without re-ingestion.
 //! - **Statement text rebuild is content-complete** because
 //!   `StatementMetadata.object_blob` carries the encoded
 //!   `StatementObject`, and `subject_name` / `predicate_name`
@@ -34,8 +30,10 @@ use brain_index::{
     BRAIN_TOKENIZER_NAME,
 };
 use brain_metadata::tables::entity::ENTITIES_TABLE;
+use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::tables::predicate::PREDICATES_TABLE;
 use brain_metadata::tables::statement::{decode_object, STATEMENTS_TABLE};
+use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_metadata::MetadataDb;
 use redb::ReadableTable;
 use tantivy::{Index, IndexWriter, TantivyDocument, TantivyError};
@@ -62,23 +60,102 @@ pub enum RebuildError {
     Metadata(String),
 }
 
-/// Rebuild `memory_text.tantivy/` under `shard_dir`. v1 produces
-/// an empty valid index; the substrate path stays unaffected.
+/// Rebuild `memory_text.tantivy/` under `shard_dir`. Iterates
+/// `MEMORIES_TABLE` (active rows only) and joins against
+/// `TEXTS_TABLE` for the text body, projecting each to the
+/// memory-text lexical schema.
 pub fn rebuild_memory_text(
     shard_dir: &Path,
-    _metadata: &MetadataDb,
+    metadata: &MetadataDb,
 ) -> Result<RebuildReport, RebuildError> {
     let live = shard_dir.join("memory_text.tantivy");
     rebuild_with(
         &live,
         memory_text_schema(),
         LexicalScope::MemoryText,
-        |_, _| {
-            // Memory text isn't in redb; rebuild yields
-            // an empty but valid index. Documented above.
-            Ok(0)
-        },
+        |writer, rebuild_index| iterate_memories(writer, rebuild_index, metadata),
     )
+}
+
+/// Iterate `MEMORIES_TABLE`, join `TEXTS_TABLE`, and index every
+/// active memory's lexical doc. Doc shape mirrors the live indexer
+/// (`text_indexer::memory`): `memory_id` (key bytes), `text`,
+/// `agent_id` (bytes), `kind` (u64), `created_at` (unix ms).
+fn iterate_memories(
+    writer: &mut IndexWriter,
+    index: &Index,
+    metadata: &MetadataDb,
+) -> Result<u64, RebuildError> {
+    let schema = index.schema();
+    let memory_id_field = schema
+        .get_field("memory_id")
+        .map_err(|e| RebuildError::Metadata(format!("memory_id: {e}")))?;
+    let text_field = schema
+        .get_field("text")
+        .map_err(|e| RebuildError::Metadata(format!("text: {e}")))?;
+    let agent_id_field = schema
+        .get_field("agent_id")
+        .map_err(|e| RebuildError::Metadata(format!("agent_id: {e}")))?;
+    let kind_field = schema
+        .get_field("kind")
+        .map_err(|e| RebuildError::Metadata(format!("kind: {e}")))?;
+    let created_at_field = schema
+        .get_field("created_at")
+        .map_err(|e| RebuildError::Metadata(format!("created_at: {e}")))?;
+    let context_field = schema
+        .get_field("context")
+        .map_err(|e| RebuildError::Metadata(format!("context: {e}")))?;
+
+    let rtxn = metadata
+        .read_txn()
+        .map_err(|e| RebuildError::Metadata(format!("read_txn: {e}")))?;
+    let memories = rtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| RebuildError::Metadata(format!("open MEMORIES_TABLE: {e}")))?;
+    let texts = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| RebuildError::Metadata(format!("open TEXTS_TABLE: {e}")))?;
+
+    let mut count: u64 = 0;
+    let mut chunk: usize = 0;
+    for entry in memories
+        .iter()
+        .map_err(|e| RebuildError::Metadata(format!("memories iter: {e}")))?
+    {
+        let (key, value) = entry.map_err(|e| RebuildError::Metadata(format!("row read: {e}")))?;
+        let meta = value.value();
+        if !meta.is_active() {
+            continue;
+        }
+        let key_bytes = key.value();
+        let text_guard = texts
+            .get(&key_bytes)
+            .map_err(|e| RebuildError::Metadata(format!("text get: {e}")))?;
+        let Some(text_guard) = text_guard else {
+            // Active memory with no text row — shouldn't happen, but
+            // skip rather than fail the whole rebuild.
+            continue;
+        };
+        let text = String::from_utf8_lossy(text_guard.value()).into_owned();
+
+        let mut doc = TantivyDocument::default();
+        doc.add_bytes(memory_id_field, &key_bytes);
+        doc.add_text(text_field, &text);
+        doc.add_bytes(agent_id_field, &meta.agent_id_bytes);
+        doc.add_u64(kind_field, u64::from(meta.kind));
+        doc.add_u64(created_at_field, meta.created_at_unix_nanos / 1_000_000);
+        doc.add_u64(context_field, meta.context_id);
+        writer.add_document(doc)?;
+
+        count += 1;
+        chunk += 1;
+        if chunk >= COMMIT_CHUNK {
+            writer.commit()?;
+            chunk = 0;
+        }
+    }
+
+    Ok(count)
 }
 
 /// Rebuild `statements.tantivy/` under `shard_dir`. Iterates
@@ -195,32 +272,15 @@ fn iterate_statements(
     let rtxn = metadata
         .read_txn()
         .map_err(|e| RebuildError::Metadata(format!("read_txn: {e}")))?;
-    // Tables are created lazily on first write. If any of the three
-    // joined tables has never been opened (e.g. fresh DB with no
-    // statements yet), the rebuild trivially has nothing to do.
-    let stmts = match rtxn.open_table(STATEMENTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => {
-            return Err(RebuildError::Metadata(format!(
-                "open STATEMENTS_TABLE: {e}"
-            )))
-        }
-    };
-    let entities = match rtxn.open_table(ENTITIES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => return Err(RebuildError::Metadata(format!("open ENTITIES_TABLE: {e}"))),
-    };
-    let predicates = match rtxn.open_table(PREDICATES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => {
-            return Err(RebuildError::Metadata(format!(
-                "open PREDICATES_TABLE: {e}"
-            )))
-        }
-    };
+    let stmts = rtxn
+        .open_table(STATEMENTS_TABLE)
+        .map_err(|e| RebuildError::Metadata(format!("open STATEMENTS_TABLE: {e}")))?;
+    let entities = rtxn
+        .open_table(ENTITIES_TABLE)
+        .map_err(|e| RebuildError::Metadata(format!("open ENTITIES_TABLE: {e}")))?;
+    let predicates = rtxn
+        .open_table(PREDICATES_TABLE)
+        .map_err(|e| RebuildError::Metadata(format!("open PREDICATES_TABLE: {e}")))?;
 
     let mut count: u64 = 0;
     let mut chunk: usize = 0;

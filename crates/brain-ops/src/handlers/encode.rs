@@ -195,18 +195,11 @@ fn lookup_fingerprint(
     let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
-    // `TableDoesNotExist` on a fresh shard means no prior encode opted
-    // into dedup yet — the lookup is a miss, not an error. Same pattern
-    // as the knowledge/filters and recall read paths.
-    let t = match rtxn.open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => {
-            return Err(OpError::ExecError(
-                brain_planner::ExecError::MetadataReadFailed(e.to_string()),
-            ))
-        }
-    };
+    let t = rtxn
+        .open_table(brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
     let key = brain_metadata::tables::fingerprint::fingerprint_key(
         ctx.executor.caller_agent,
         context_id,
@@ -229,19 +222,11 @@ fn compute_edge_outcomes(
     let rtxn = ctx.executor.metadata.read_txn().map_err(|e| {
         OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
     })?;
-    // Fresh shard with no memories yet → every edge target is missing
-    // by definition; degrade gracefully rather than 500-ing.
-    let mems_table = match rtxn.open_table(brain_metadata::tables::memory::MEMORIES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => {
-            return Ok(vec![EdgeOutcome::TargetMissing; req.edges.len()]);
-        }
-        Err(e) => {
-            return Err(OpError::ExecError(
-                brain_planner::ExecError::MetadataReadFailed(e.to_string()),
-            ))
-        }
-    };
+    let mems_table = rtxn
+        .open_table(brain_metadata::tables::memory::MEMORIES_TABLE)
+        .map_err(|e| {
+            OpError::ExecError(brain_planner::ExecError::MetadataReadFailed(e.to_string()))
+        })?;
     Ok(req
         .edges
         .iter()

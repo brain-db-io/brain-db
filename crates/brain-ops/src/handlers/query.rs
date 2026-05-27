@@ -210,6 +210,12 @@ pub async fn handle_recall_hybrid(
         entity_anchor: None,
         kind_filter: Vec::new(),
         predicate_filter: Vec::new(),
+        context_filter: Vec::new(),
+        // Wire-level QUERY/RECALL_HYBRID is the low-level hybrid API
+        // used by explore/admin tooling — no implicit caller-agent
+        // isolation. Callers that want agent scope pass it through the
+        // higher-level RECALL path.
+        agent_filter: Vec::new(),
         time_filter: None,
         confidence_min: None,
         include_tombstoned: false,
@@ -270,6 +276,12 @@ fn wire_to_planner_request(
         kind_filter,
         predicate_filter,
         time_filter,
+        // Wire-level QUERY does not yet expose a context filter — the
+        // funnel will pick it up once the wire shape gains the field.
+        context_filter: Vec::new(),
+        // Low-level QUERY API: no implicit caller-agent isolation
+        // (the RECALL path owns that default).
+        agent_filter: Vec::new(),
         confidence_min: req.confidence_min,
         include_tombstoned: req.include_tombstoned,
         include_superseded: req.include_superseded,

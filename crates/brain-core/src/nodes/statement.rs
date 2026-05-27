@@ -358,19 +358,9 @@ pub struct Statement {
     /// date X" without resurrecting tombstones.
     pub record_invalidated_at_unix_nanos: Option<u64>,
 
-    /// LLM-coined predicate qname when this row landed on the
-    /// `brain:fact` wildcard sink. `None` for statements whose
-    /// `predicate` resolves to a schema-declared row — the wildcard
-    /// sink preserves the model's original intent so a later schema
-    /// upload can promote `(brain:fact, original_predicate_qname)` rows
-    /// into typed predicates without re-extraction.
-    pub original_predicate_qname: Option<String>,
-
     /// Per-statement statefulness flag. Copied from
     /// `PredicateDefinition.is_stateful` at write time for schema-
-    /// declared predicates; carries the LLM's per-extraction signal
-    /// for `brain:fact` wildcard rows (where the predicate registry
-    /// row is generic and can't speak for the individual fact).
+    /// declared predicates.
     pub is_stateful: bool,
 }
 
@@ -417,7 +407,6 @@ impl Statement {
             tombstoned_at_unix_nanos: None,
             tombstone_reason: None,
             record_invalidated_at_unix_nanos: None,
-            original_predicate_qname: None,
             is_stateful: false,
         }
     }

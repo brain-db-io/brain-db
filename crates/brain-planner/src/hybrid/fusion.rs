@@ -20,6 +20,26 @@ use super::router::{PerRetrieverWeights, Retriever};
 /// RRF smoothing-constant default (from Cormack et al. 2009).
 pub const DEFAULT_K: u32 = 60;
 
+/// Which fusion strategy combines the per-retriever ranked lists.
+///
+/// `Rrf` is pure rank-based reciprocal rank fusion: it ignores score
+/// magnitude, so a near-perfect single-retriever match that is absent
+/// from the other lanes loses to documents that are middling in every
+/// lane (the coverage-bias pathology).
+///
+/// `RelativeScore` normalizes each retriever's raw scores per query
+/// (min-max) and fuses as a weighted convex sum, so a strong single
+/// signal carries its magnitude through and is not buried by coverage.
+/// `RelativeScoreZScore` is the distribution-based variant (mean/std),
+/// more robust when score scales differ widely or have outliers.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FusionMethod {
+    Rrf,
+    #[default]
+    RelativeScore,
+    RelativeScoreZScore,
+}
+
 /// One fused result.
 #[derive(Debug, Clone)]
 pub struct FusedItem {
@@ -97,6 +117,122 @@ pub fn fuse_rrf(
             .then_with(|| id_sort_key(&a.id).cmp(&id_sort_key(&b.id)))
     });
     out
+}
+
+/// Dispatch to the configured fusion strategy.
+#[must_use]
+pub fn fuse(
+    outputs: &[(Retriever, Vec<RankedItem>)],
+    k: u32,
+    weights: &PerRetrieverWeights,
+    method: FusionMethod,
+) -> Vec<FusedItem> {
+    match method {
+        FusionMethod::Rrf => fuse_rrf(outputs, k, weights),
+        FusionMethod::RelativeScore => {
+            fuse_relative_score(outputs, weights, Normalization::MinMax)
+        }
+        FusionMethod::RelativeScoreZScore => {
+            fuse_relative_score(outputs, weights, Normalization::ZScore)
+        }
+    }
+}
+
+/// Per-query score normalization applied before a weighted sum.
+#[derive(Debug, Clone, Copy)]
+enum Normalization {
+    /// Map each retriever's scores to `[0, 1]` by `(s - min)/(max - min)`.
+    MinMax,
+    /// Map to standard scores `(s - mean)/std` (distribution-based).
+    ZScore,
+}
+
+/// Score-aware fusion. Each retriever's raw scores are normalized per
+/// query, then `fused_score(d) = Σ_i w_i · norm_i(d)` over the
+/// retrievers that returned `d`. Unlike RRF this preserves the
+/// magnitude of a strong single-retriever signal, so a rank-1 cosine
+/// match is not buried just because it is missing from another lane.
+#[must_use]
+fn fuse_relative_score(
+    outputs: &[(Retriever, Vec<RankedItem>)],
+    weights: &PerRetrieverWeights,
+    norm: Normalization,
+) -> Vec<FusedItem> {
+    let mut accum: HashMap<RankedItemId, FusedItem> = HashMap::new();
+
+    for (retriever, items) in outputs {
+        if items.is_empty() {
+            continue;
+        }
+        let w = f64::from(weight_for(*retriever, weights));
+        let normalized = normalize_scores(items, norm);
+        for (item, norm_score) in items.iter().zip(normalized) {
+            let entry = accum.entry(item.id).or_insert_with(|| FusedItem {
+                id: item.id,
+                fused_score: 0.0,
+                contributing: Vec::new(),
+                rerank_score: None,
+            });
+            entry.fused_score += w * norm_score;
+            entry.contributing.push(RetrieverContribution {
+                retriever: *retriever,
+                rank: item.rank,
+                raw_score: item.score,
+            });
+        }
+    }
+
+    let mut out: Vec<FusedItem> = accum.into_values().collect();
+    out.sort_by(|a, b| {
+        b.fused_score
+            .partial_cmp(&a.fused_score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| id_sort_key(&a.id).cmp(&id_sort_key(&b.id)))
+    });
+    out
+}
+
+/// Normalize one retriever's raw scores into comparable per-query units.
+fn normalize_scores(items: &[RankedItem], norm: Normalization) -> Vec<f64> {
+    match norm {
+        Normalization::MinMax => {
+            let (mut min, mut max) = (f64::INFINITY, f64::NEG_INFINITY);
+            for it in items {
+                let s = f64::from(it.score);
+                min = min.min(s);
+                max = max.max(s);
+            }
+            let span = max - min;
+            if span <= f64::EPSILON {
+                // Single item or all-equal scores: uniform full signal.
+                return vec![1.0; items.len()];
+            }
+            items
+                .iter()
+                .map(|it| (f64::from(it.score) - min) / span)
+                .collect()
+        }
+        Normalization::ZScore => {
+            let n = items.len() as f64;
+            let mean = items.iter().map(|it| f64::from(it.score)).sum::<f64>() / n;
+            let var = items
+                .iter()
+                .map(|it| {
+                    let d = f64::from(it.score) - mean;
+                    d * d
+                })
+                .sum::<f64>()
+                / n;
+            let std = var.sqrt();
+            if std <= f64::EPSILON {
+                return vec![0.0; items.len()];
+            }
+            items
+                .iter()
+                .map(|it| (f64::from(it.score) - mean) / std)
+                .collect()
+        }
+    }
 }
 
 fn weight_for(r: Retriever, w: &PerRetrieverWeights) -> f32 {

@@ -36,11 +36,6 @@ use std::sync::Arc;
 
 use brain_core::{AgentId, MemoryId, ShardId};
 use brain_index::Writer as HnswWriter;
-use brain_metadata::tables::edge::{EDGES_REVERSE_TABLE, EDGES_TABLE};
-use brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE;
-use brain_metadata::tables::idempotency::IDEMPOTENCY_TABLE;
-use brain_metadata::tables::memory::{MEMORIES_BY_AGENT_TIMELINE_TABLE, MEMORIES_TABLE};
-use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_planner::{SharedMetadataDb, WriterError, WriterHandle};
 use parking_lot::Mutex;
 use uuid::Uuid;
@@ -273,27 +268,6 @@ pub struct SchemaFlagSweepJob {
 impl RealWriterHandle {
     #[must_use]
     pub fn new(metadata: SharedMetadataDb, hnsw_writer: HnswWriter) -> Self {
-        // Materialise the tables we read from. redb creates tables
-        // on first write_txn().open_table(), but read_txn() on a
-        // never-opened table returns `TableDoesNotExist`. We do a
-        // one-time empty write txn at construction so subsequent
-        // idempotency + metadata reads succeed even before the
-        // first submit. Every substrate table that any reader path
-        // touches (dedup lookup, timeline walks, edge planner reads)
-        // must be listed here, otherwise the first read on a fresh
-        // shard explodes.
-        {
-            if let Ok(wtxn) = metadata.write_txn() {
-                let _ = wtxn.open_table(MEMORIES_TABLE);
-                let _ = wtxn.open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE);
-                let _ = wtxn.open_table(IDEMPOTENCY_TABLE);
-                let _ = wtxn.open_table(EDGES_TABLE);
-                let _ = wtxn.open_table(EDGES_REVERSE_TABLE);
-                let _ = wtxn.open_table(FINGERPRINTS_TABLE);
-                let _ = wtxn.open_table(TEXTS_TABLE);
-                let _ = wtxn.commit();
-            }
-        }
         Self {
             metadata,
             hnsw_writer: Mutex::new(hnsw_writer),
@@ -620,18 +594,13 @@ impl WriterHandle for RealWriterHandle {
                     .metadata
                     .read_txn()
                     .map_err(|e| WriterError::Internal(format!("reserve slot ver read: {e:?}")))?;
-                match rtxn.open_table(brain_metadata::tables::slot_version::SLOT_VERSIONS_TABLE) {
-                    Ok(table) => table
-                        .get(&slot)
-                        .map_err(|e| WriterError::Internal(format!("reserve slot ver get: {e:?}")))?
-                        .map_or(1, |a| a.value()),
-                    Err(redb::TableError::TableDoesNotExist(_)) => 1,
-                    Err(e) => {
-                        return Err(WriterError::Internal(format!(
-                            "reserve slot ver open: {e:?}"
-                        )))
-                    }
-                }
+                let table = rtxn
+                    .open_table(brain_metadata::tables::slot_version::SLOT_VERSIONS_TABLE)
+                    .map_err(|e| WriterError::Internal(format!("reserve slot ver open: {e:?}")))?;
+                table
+                    .get(&slot)
+                    .map_err(|e| WriterError::Internal(format!("reserve slot ver get: {e:?}")))?
+                    .map_or(1, |a| a.value())
             };
             Ok(MemoryId::pack(self.shard_id, slot, version))
         })

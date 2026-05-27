@@ -188,7 +188,7 @@ pub fn encode_entity_type_id(t: Option<EntityTypeId>) -> u32 {
 
 impl_redb_rkyv_value!(
     RelationTypeDefinition,
-    "brain_metadata::RelationTypeDefinition::v3"
+    "brain_metadata::RelationTypeDefinition"
 );
 
 #[cfg(all(test, not(miri)))]

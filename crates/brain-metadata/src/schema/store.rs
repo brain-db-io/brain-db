@@ -132,18 +132,13 @@ fn next_version_in(wtxn: &WriteTransaction, namespace: &str) -> Result<u32, Sche
 // ---------------------------------------------------------------------------
 
 /// Fetch a specific version of a namespace's schema. Returns
-/// `Ok(None)` if the row doesn't exist (or the table itself hasn't
-/// been initialised — `redb` opens lazily on first write).
+/// `Ok(None)` if the row doesn't exist.
 pub fn schema_get(
     rtxn: &ReadTransaction,
     namespace: &str,
     version: u32,
 ) -> Result<Option<SchemaVersionRow>, SchemaStoreError> {
-    let versions = match rtxn.open_table(SCHEMA_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let versions = rtxn.open_table(SCHEMA_VERSIONS_TABLE)?;
     let guard = versions.get(&(namespace, version))?;
     Ok(guard.map(|g| g.value()))
 }
@@ -153,11 +148,7 @@ pub fn schema_active(
     rtxn: &ReadTransaction,
     namespace: &str,
 ) -> Result<Option<u32>, SchemaStoreError> {
-    let active = match rtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let active = rtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE)?;
     let guard = active.get(&namespace)?;
     Ok(guard.map(|g| g.value()))
 }
@@ -178,11 +169,7 @@ pub fn schema_list(
     rtxn: &ReadTransaction,
     namespace: &str,
 ) -> Result<Vec<SchemaVersionRow>, SchemaStoreError> {
-    let versions = match rtxn.open_table(SCHEMA_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let versions = rtxn.open_table(SCHEMA_VERSIONS_TABLE)?;
     let lo = (namespace, 0u32);
     let hi = (namespace, u32::MAX);
     let mut out = Vec::new();
@@ -196,11 +183,7 @@ pub fn schema_list(
 
 /// All namespaces with at least one active schema.
 pub fn schema_namespaces(rtxn: &ReadTransaction) -> Result<Vec<String>, SchemaStoreError> {
-    let active = match rtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let active = rtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE)?;
     let mut out = Vec::new();
     for entry in active.iter()? {
         let (k, _v) = entry?;

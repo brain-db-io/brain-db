@@ -144,7 +144,7 @@ impl MergeReviewProposal {
 
 impl_redb_rkyv_value!(
     MergeReviewProposal,
-    "brain_metadata::MergeReviewProposal::v1"
+    "brain_metadata::MergeReviewProposal"
 );
 
 // ---------------------------------------------------------------------------

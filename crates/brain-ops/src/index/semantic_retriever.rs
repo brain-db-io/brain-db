@@ -13,6 +13,7 @@
 //! - `brain-metadata::MetadataDb` — for HNSW filter push-down
 //!   over `MemoryMetadata` rows.
 
+use std::collections::HashSet;
 use std::sync::Arc;
 
 use brain_core::MemoryId;
@@ -26,7 +27,6 @@ use brain_index::{
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::MetadataDb;
 use parking_lot::RwLock;
-use redb::TableError;
 
 /// Production `SemanticRetriever` impl.
 ///
@@ -83,19 +83,15 @@ impl BrainSemanticRetriever {
             .metadata
             .read_txn()
             .map_err(|e| SemanticError::Internal(format!("read_txn: {e}")))?;
-        // MEMORIES_TABLE is created lazily on first ENCODE. A query
-        // against a freshly opened shard with no memories yet
-        // should silently return an empty result, not surface an
-        // internal error.
-        let table = match rtxn.open_table(MEMORIES_TABLE) {
-            Ok(t) => t,
-            Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(e) => return Err(SemanticError::Internal(format!("open MEMORIES_TABLE: {e}"))),
-        };
+        let table = rtxn
+            .open_table(MEMORIES_TABLE)
+            .map_err(|e| SemanticError::Internal(format!("open MEMORIES_TABLE: {e}")))?;
 
-        let agent_filter = filters.agent_id.map(|a| -> [u8; 16] { a.into() });
+        let agent_filter: HashSet<[u8; 16]> =
+            filters.agent_ids.iter().map(|a| (*a).into()).collect();
         let kind_filter = filters.memory_kind.map(memory_kind_to_u8);
         let created_range = filters.created_at_ms.clone();
+        let context_filter = filters.context_ids.clone();
 
         let filter = |id: MemoryId| -> bool {
             let key = id.raw().to_be_bytes();
@@ -103,10 +99,8 @@ impl BrainSemanticRetriever {
                 return false;
             };
             let row = row_guard.value();
-            if let Some(agent) = agent_filter.as_ref() {
-                if row.agent_id_bytes != *agent {
-                    return false;
-                }
+            if !agent_filter.is_empty() && !agent_filter.contains(&row.agent_id_bytes) {
+                return false;
             }
             if let Some(kind) = kind_filter {
                 if row.kind != kind {
@@ -118,6 +112,9 @@ impl BrainSemanticRetriever {
                 if !range.contains(&ms) {
                     return false;
                 }
+            }
+            if !context_filter.is_empty() && !context_filter.contains(&row.context_id) {
+                return false;
             }
             true
         };
@@ -185,8 +182,12 @@ impl SemanticRetriever for BrainSemanticRetriever {
                 config.ef_search
             )));
         }
+        let t_embed = std::time::Instant::now();
         let vector = self.embed(query)?;
-        match scope {
+        let embed_us = t_embed.elapsed().as_micros();
+
+        let t_search = std::time::Instant::now();
+        let result = match scope {
             SemanticScope::Memory => self.search_memory(&vector, config, &config.filters.0),
             SemanticScope::Statement => self.search_statement(&vector, config, &config.filters.0),
             SemanticScope::Both => {
@@ -194,7 +195,21 @@ impl SemanticRetriever for BrainSemanticRetriever {
                 let statement = self.search_statement(&vector, config, &config.filters.0)?;
                 Ok(self.merge_and_rerank(memory, statement, config))
             }
-        }
+        };
+        let search_us = t_search.elapsed().as_micros();
+
+        // Surface the embed/search split. The 50→1000 ms budget bump
+        // hides the embed cost from the WARN; this debug line lets an
+        // operator confirm whether a slow recall is embedder-bound,
+        // index-bound, or filter-bound.
+        tracing::debug!(
+            target: "brain_ops::semantic_retriever",
+            ?scope,
+            embed_us = embed_us as u64,
+            search_us = search_us as u64,
+            "semantic retrieve timing",
+        );
+        result
     }
 }
 

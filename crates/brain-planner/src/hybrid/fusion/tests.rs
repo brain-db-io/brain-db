@@ -3,7 +3,7 @@
 use brain_core::{EntityId, MemoryId, StatementId};
 use brain_index::{RankedItem, RankedItemId};
 
-use super::{fuse_rrf, FusedItem, DEFAULT_K};
+use super::{fuse, fuse_rrf, FusedItem, FusionMethod, DEFAULT_K};
 use crate::hybrid::router::{PerRetrieverWeights, Retriever};
 
 // ---------------------------------------------------------------------------
@@ -43,6 +43,41 @@ fn find<'a>(out: &'a [FusedItem], id: &RankedItemId) -> Option<&'a FusedItem> {
 
 fn approx_eq(a: f64, b: f64) -> bool {
     (a - b).abs() < 1e-9
+}
+
+// ---------------------------------------------------------------------------
+// Score-aware fusion — magnitude is preserved (RRF's blind spot).
+// ---------------------------------------------------------------------------
+
+#[test]
+fn relative_score_preserves_magnitude_unlike_rrf() {
+    // One retriever, three hits with a sharp score gap between #1 and
+    // the rest. Rank-only RRF flattens that gap (ranks 1/2/3 differ by
+    // ~1/61 vs 1/62); relative-score fusion keeps it (norm 1.0 vs 0.1).
+    let items = vec![
+        memory_item(1, 1, 0.95),
+        memory_item(2, 2, 0.50),
+        memory_item(3, 3, 0.45),
+    ];
+    let outputs = vec![(Retriever::Semantic, items)];
+    let weights = PerRetrieverWeights::default(); // all 1.0
+
+    let rrf = fuse_rrf(&outputs, DEFAULT_K, &weights);
+    let rel = fuse(&outputs, DEFAULT_K, &weights, FusionMethod::RelativeScore);
+
+    // Both rank the strong hit first.
+    let strong = RankedItemId::Memory(MemoryId::pack(0, 1, 0));
+    let mid = RankedItemId::Memory(MemoryId::pack(0, 2, 0));
+    assert_eq!(rrf[0].id, strong);
+    assert_eq!(rel[0].id, strong);
+
+    // RRF gap #1 vs #2 is tiny (rank-driven); relative-score gap is
+    // large (score-driven): min-max maps 0.95->1.0 and 0.50->0.1.
+    let rrf_gap = find(&rrf, &strong).unwrap().fused_score - find(&rrf, &mid).unwrap().fused_score;
+    let rel_gap = find(&rel, &strong).unwrap().fused_score - find(&rel, &mid).unwrap().fused_score;
+    assert!(rrf_gap < 0.001, "rrf gap should be negligible, got {rrf_gap}");
+    assert!(rel_gap > 0.85, "relative-score gap should reflect the score gap, got {rel_gap}");
+    assert!(approx_eq(find(&rel, &strong).unwrap().fused_score, 1.0));
 }
 
 // ---------------------------------------------------------------------------

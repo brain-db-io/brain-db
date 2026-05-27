@@ -357,17 +357,8 @@ pub struct StatementMetadata {
     ///   version. Allows readers to surface "pre-schema" data while
     ///   schema-strict queries can opt to filter it out.
     pub flags: u32,
-    /// LLM-coined predicate qname when this row landed on the
-    /// `brain:fact` wildcard sink. Empty string means the predicate
-    /// row at `predicate_id` is the LLM's actual intent. Empty rather
-    /// than `Option<String>` because rkyv-archived `Option<String>`
-    /// adds a discriminant byte the layout doesn't need — the empty
-    /// string is a natural sentinel.
-    pub original_predicate_qname: String,
     /// `1` if the row is stateful (per-statement signal), `0` otherwise.
-    /// For declared predicates this is copied from
-    /// `PredicateDefinition.is_stateful`; for `brain:fact` rows it's
-    /// the LLM's per-extraction signal.
+    /// Copied from `PredicateDefinition.is_stateful` at write time.
     pub is_stateful: u8,
 }
 
@@ -438,7 +429,7 @@ impl StatementMetadata {
     }
 }
 
-impl_redb_rkyv_value!(StatementMetadata, "brain_metadata::StatementMetadata::v5");
+impl_redb_rkyv_value!(StatementMetadata, "brain_metadata::StatementMetadata");
 
 /// Overflow row for statements whose inline evidence list outgrew the
 /// `INLINE_EVIDENCE_CAP = 8` inline budget. Four parallel vectors per
@@ -513,7 +504,7 @@ impl EvidenceOverflow {
     }
 }
 
-impl_redb_rkyv_value!(EvidenceOverflow, "brain_metadata::EvidenceOverflow::v2");
+impl_redb_rkyv_value!(EvidenceOverflow, "brain_metadata::EvidenceOverflow");
 
 // ---------------------------------------------------------------------------
 // Projections — Statement (brain-core) ↔ StatementMetadata (rkyv row).
@@ -581,7 +572,6 @@ pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
         // STATEMENT_CREATE handler / SCHEMA_UPLOAD will OR in the
         // right bits after `metadata_from_statement` returns.
         flags: 0,
-        original_predicate_qname: s.original_predicate_qname.clone().unwrap_or_default(),
         is_stateful: u8::from(s.is_stateful),
     }
 }
@@ -636,11 +626,6 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
         tombstoned_at_unix_nanos: m.tombstoned_at_unix_nanos,
         tombstone_reason,
         record_invalidated_at_unix_nanos: m.record_invalidated_at_unix_nanos,
-        original_predicate_qname: if m.original_predicate_qname.is_empty() {
-            None
-        } else {
-            Some(m.original_predicate_qname.clone())
-        },
         is_stateful: m.is_stateful != 0,
     })
 }
@@ -710,14 +695,12 @@ mod tests {
     }
 
     #[test]
-    fn statements_round_trip_with_original_qname_and_is_stateful() {
+    fn statements_round_trip_with_is_stateful() {
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let mut s = sample_statement();
-        s.original_predicate_qname = Some("works_at".into());
         s.is_stateful = true;
         let row = metadata_from_statement(&s);
-        assert_eq!(row.original_predicate_qname, "works_at");
         assert_eq!(row.is_stateful, 1);
         let key = row.statement_id_bytes;
 
@@ -732,22 +715,8 @@ mod tests {
         let t = rtxn.open_table(STATEMENTS_TABLE).unwrap();
         let got = t.get(&key).unwrap().unwrap().value();
         let s2 = statement_from_metadata(&got).unwrap();
-        assert_eq!(s2.original_predicate_qname.as_deref(), Some("works_at"));
         assert!(s2.is_stateful);
         assert_eq!(s2, s);
-    }
-
-    #[test]
-    fn empty_original_predicate_qname_decodes_to_none() {
-        let s = sample_statement();
-        let row = metadata_from_statement(&s);
-        // Default-constructed statement has neither field set; empty
-        // string is the on-disk sentinel that decodes back to None.
-        assert!(row.original_predicate_qname.is_empty());
-        assert_eq!(row.is_stateful, 0);
-        let s2 = statement_from_metadata(&row).unwrap();
-        assert_eq!(s2.original_predicate_qname, None);
-        assert!(!s2.is_stateful);
     }
 
     #[test]

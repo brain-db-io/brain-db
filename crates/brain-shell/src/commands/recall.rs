@@ -6,7 +6,7 @@
 //! brain-explore consumes the wire shape directly — no parallel
 //! enrichment vector or wrapper type is needed.
 
-use brain_core::MemoryId;
+use brain_core::{AgentId, MemoryId};
 use brain_explore::RecallResults;
 use brain_sdk_rust::{Client, ClientError};
 
@@ -39,6 +39,15 @@ pub async fn run(
     if !args.filter_context.is_empty() {
         b = b.context_filter(args.filter_context);
     }
+    if !args.filter_agent.is_empty() {
+        let agents = args
+            .filter_agent
+            .iter()
+            .map(|s| parse_agent_id(s))
+            .collect::<Result<Vec<_>, _>>()?;
+        b = b.filter_agent(agents);
+    }
+    b = b.include_other_agents(args.include_other_agents);
     if !args.filter_kind.is_empty() {
         let kinds = args
             .filter_kind
@@ -67,4 +76,14 @@ pub async fn run(
     }
 
     Ok(Box::new(RecallResults(results)))
+}
+
+/// Parse an agent-id string into an [`AgentId`]. Accepts the hyphenated
+/// UUID form (`0191b6f0-1234-7890-abcd-ef0123456789`) and the bare
+/// 32-hex form (`0191b6f012347890abcdef0123456789`).
+fn parse_agent_id(s: &str) -> Result<AgentId, ClientError> {
+    let s = s.trim();
+    uuid::Uuid::parse_str(s)
+        .map(AgentId)
+        .map_err(|e| ClientError::Internal(format!("invalid --filter-agent value `{s}`: {e}")))
 }

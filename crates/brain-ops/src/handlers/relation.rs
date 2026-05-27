@@ -812,11 +812,9 @@ fn schema_active_in_wtxn_rel(
     namespace: &str,
 ) -> Result<Option<u32>, OpError> {
     use brain_metadata::tables::schema_version::SCHEMA_ACTIVE_VERSIONS_TABLE;
-    let active = match wtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(OpError::Internal(format!("open schema_active: {e}"))),
-    };
+    let active = wtxn
+        .open_table(SCHEMA_ACTIVE_VERSIONS_TABLE)
+        .map_err(|e| OpError::Internal(format!("open schema_active: {e}")))?;
     let g = active
         .get(&namespace)
         .map_err(|e| OpError::Internal(format!("schema_active lookup: {e}")))?;
@@ -867,11 +865,9 @@ fn rt_active_for_schema_rtxn(
     use brain_metadata::tables::relation_type::{
         RelationTypeDefinition, RelationTypeOrigin, RELATION_TYPES_TABLE,
     };
-    let t = match rtxn.open_table(RELATION_TYPES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(std::collections::HashSet::new()),
-        Err(e) => return Err(OpError::Internal(format!("open relation_types: {e}"))),
-    };
+    let t = rtxn
+        .open_table(RELATION_TYPES_TABLE)
+        .map_err(|e| OpError::Internal(format!("open relation_types: {e}")))?;
     let mut out = std::collections::HashSet::new();
     for entry in t
         .iter()

@@ -128,10 +128,10 @@ fn train_subspace(
         out[centroid_start..centroid_start + sub_dim].copy_from_slice(chunk_of(pick));
         // Refresh the running minimum: each point now compares against
         // the new centroid too.
-        for i in 0..n {
+        for (i, nearest) in nearest_d2.iter_mut().enumerate() {
             let d2 = squared_distance(chunk_of(i), &out[centroid_start..centroid_start + sub_dim]);
-            if d2 < nearest_d2[i] {
-                nearest_d2[i] = d2;
+            if d2 < *nearest {
+                *nearest = d2;
             }
         }
     }
@@ -143,15 +143,15 @@ fn train_subspace(
 
     for _iter in 0..iters {
         // Assignment step.
-        for i in 0..n {
-            assignments[i] = argmin_centroid(chunk_of(i), out, sub_dim, k);
+        for (i, assignment) in assignments.iter_mut().enumerate() {
+            *assignment = argmin_centroid(chunk_of(i), out, sub_dim, k);
         }
 
         // Update step.
         new_centroids.iter_mut().for_each(|c| *c = 0.0);
         counts.iter_mut().for_each(|c| *c = 0);
-        for i in 0..n {
-            let cluster = assignments[i] as usize;
+        for (i, &assignment) in assignments.iter().enumerate() {
+            let cluster = assignment as usize;
             let dst = &mut new_centroids[cluster * sub_dim..(cluster + 1) * sub_dim];
             let src = chunk_of(i);
             for j in 0..sub_dim {
@@ -246,8 +246,8 @@ fn furthest_point(
 ) -> usize {
     let mut best_idx = 0;
     let mut best_d2 = -1.0_f32;
-    for i in 0..n {
-        let chunk = &sample[i][s * sub_dim..(s + 1) * sub_dim];
+    for (i, sample_i) in sample.iter().enumerate().take(n) {
+        let chunk = &sample_i[s * sub_dim..(s + 1) * sub_dim];
         let mut min_d2 = f32::INFINITY;
         for c in 0..k {
             let cs = c * sub_dim;
@@ -312,12 +312,12 @@ mod tests {
             for _ in 0..per_cluster {
                 let mut v = [0.0_f32; VECTOR_DIM];
                 // Subspace 0: centre + small jitter.
-                for d in 0..48 {
-                    v[d] = centre + (rng.next_f32_unit() - 0.5) * 0.5;
+                for v_d in v.iter_mut().take(48) {
+                    *v_d = centre + (rng.next_f32_unit() - 0.5) * 0.5;
                 }
                 // Rest: low-amplitude noise.
-                for d in 48..VECTOR_DIM {
-                    v[d] = (rng.next_f32_unit() - 0.5) * 0.1;
+                for v_d in v.iter_mut().skip(48) {
+                    *v_d = (rng.next_f32_unit() - 0.5) * 0.1;
                 }
                 out.push(v);
             }

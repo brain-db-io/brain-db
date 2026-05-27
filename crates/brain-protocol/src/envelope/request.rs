@@ -481,6 +481,28 @@ mod tests {
             include_text: true,
             request_id: Some(sample_uuid(7)),
             txn_id: None,
+            agent_filter: Vec::new(),
+            include_other_agents: false,
+        }));
+    }
+
+    #[test]
+    fn recall_round_trips_with_agent_scope() {
+        round_trip(RequestBody::Recall(RecallRequest {
+            cue_text: "cross-agent budgets".into(),
+            top_k: 10,
+            confidence_threshold: 0.3,
+            context_filter: None,
+            age_bound_unix_nanos: None,
+            kind_filter: None,
+            salience_floor: 0.0,
+            include_edges: false,
+            include_graph: false,
+            include_text: false,
+            request_id: Some(sample_uuid(7)),
+            txn_id: None,
+            agent_filter: vec![sample_uuid(11), sample_uuid(22)],
+            include_other_agents: true,
         }));
     }
 

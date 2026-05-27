@@ -80,10 +80,6 @@ pub struct StatementHandle {
     pub tombstoned: bool,
     pub tombstoned_at_unix_nanos: Option<u64>,
     pub tombstone_reason: Option<TombstoneReason>,
-    /// LLM-coined predicate qname when this row landed on the
-    /// `brain:fact` wildcard sink. Renderers should prefer this over
-    /// the literal `predicate` string when surfacing the triple.
-    pub original_predicate_qname: Option<String>,
     /// Per-statement statefulness flag.
     pub is_stateful: bool,
 }
@@ -127,7 +123,6 @@ impl StatementHandle {
             tombstoned: s.tombstoned,
             tombstoned_at_unix_nanos: s.tombstoned_at_unix_nanos,
             tombstone_reason: s.tombstone_reason,
-            original_predicate_qname: s.original_predicate_qname,
             is_stateful: s.is_stateful,
         })
     }
@@ -893,7 +888,6 @@ mod tests {
             tombstoned_at_unix_nanos: 0,
             tombstone_reason: 0,
             flags: 0,
-            original_predicate_qname: String::new(),
             is_stateful: false,
         }
     }

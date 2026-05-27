@@ -83,7 +83,7 @@ impl redb::Value for AgentMetadata {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("brain_metadata::AgentMetadata::v1")
+        redb::TypeName::new("brain_metadata::AgentMetadata")
     }
 }
 

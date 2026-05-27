@@ -273,19 +273,10 @@ fn filter_tombstone(
     if chain.include_tombstoned {
         return Ok(items);
     }
-    // A redb table that's never been written to doesn't exist
-    // yet. "No memory row at all" can't be tombstoned (no rows
-    // exist), so keep the item — flipping these to drop would
-    // make every query on a fresh shard return empty before
-    // the first write.
-    let memories_present = table_exists(rtxn, MEMORIES_TABLE)?;
-    let relations_present = table_exists(rtxn, RELATION_METADATA_TABLE)?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         let keep = match item.id {
-            RankedItemId::Memory(id) => {
-                !memories_present || memory_active(rtxn, id)?.unwrap_or(false)
-            }
+            RankedItemId::Memory(id) => memory_active(rtxn, id)?.unwrap_or(false),
             RankedItemId::Statement(id) => {
                 let Some(stmt) = statement_get(rtxn, id)
                     .map_err(|e| FilterError::Metadata(format!("statement_get: {e}")))?
@@ -294,9 +285,7 @@ fn filter_tombstone(
                 };
                 !stmt.tombstoned
             }
-            RankedItemId::Relation(id) => {
-                !relations_present || relation_tombstoned(rtxn, id)?.is_some_and(|t| !t)
-            }
+            RankedItemId::Relation(id) => relation_tombstoned(rtxn, id)?.is_some_and(|t| !t),
             RankedItemId::Entity(_) => true,
         };
         if keep {
@@ -314,7 +303,6 @@ fn filter_supersession(
     if chain.include_superseded {
         return Ok(items);
     }
-    let relations_present = table_exists(rtxn, RELATION_METADATA_TABLE)?;
     let mut out = Vec::with_capacity(items.len());
     for item in items {
         let keep = match item.id {
@@ -326,9 +314,7 @@ fn filter_supersession(
                 };
                 stmt.superseded_by.is_none()
             }
-            RankedItemId::Relation(id) => {
-                !relations_present || relation_superseded(rtxn, id)?.is_some_and(|x| !x)
-            }
+            RankedItemId::Relation(id) => relation_superseded(rtxn, id)?.is_some_and(|x| !x),
             // Memory / Entity have no supersession concept.
             RankedItemId::Memory(_) | RankedItemId::Entity(_) => true,
         };
@@ -386,21 +372,6 @@ pub fn as_of_matches(stmt: &Statement, record_time_unix_nanos: u64) -> bool {
     }
 }
 
-fn table_exists<K, V>(
-    rtxn: &ReadTransaction,
-    def: redb::TableDefinition<'_, K, V>,
-) -> Result<bool, FilterError>
-where
-    K: redb::Key + 'static,
-    V: redb::Value + 'static,
-{
-    match rtxn.open_table(def) {
-        Ok(_) => Ok(true),
-        Err(redb::TableError::TableDoesNotExist(_)) => Ok(false),
-        Err(e) => Err(FilterError::Metadata(format!("open_table: {e}"))),
-    }
-}
-
 // ---------------------------------------------------------------------------
 // Redb readers.
 // ---------------------------------------------------------------------------
@@ -446,15 +417,9 @@ fn open_memory_row(
     rtxn: &ReadTransaction,
     id: brain_core::MemoryId,
 ) -> Result<Option<brain_metadata::tables::memory::MemoryMetadata>, FilterError> {
-    // `TableDoesNotExist` = a fresh shard has never had a memory
-    // written, so the redb table hasn't been materialised. Treat
-    // as "no such row" — same defensive pattern audit_ops.rs and
-    // sweeper_ops.rs use for read paths on empty DBs.
-    let table = match rtxn.open_table(MEMORIES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(FilterError::Metadata(format!("open MEMORIES_TABLE: {e}"))),
-    };
+    let table = rtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| FilterError::Metadata(format!("open MEMORIES_TABLE: {e}")))?;
     let key = id.raw().to_be_bytes();
     let row = table
         .get(&key)
@@ -511,18 +476,9 @@ fn open_relation_row(
     rtxn: &ReadTransaction,
     id: brain_core::RelationId,
 ) -> Result<Option<brain_metadata::tables::relation::RelationMetadata>, FilterError> {
-    // Same defensive pattern as `open_memory_row`: a fresh shard
-    // with no relations written has no on-disk RELATION_METADATA_TABLE;
-    // treat as "no such row" rather than panicking.
-    let table = match rtxn.open_table(RELATION_METADATA_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => {
-            return Err(FilterError::Metadata(format!(
-                "open RELATION_METADATA_TABLE: {e}"
-            )))
-        }
-    };
+    let table = rtxn
+        .open_table(RELATION_METADATA_TABLE)
+        .map_err(|e| FilterError::Metadata(format!("open RELATION_METADATA_TABLE: {e}")))?;
     let key = id.to_bytes();
     let row = table
         .get(&key)

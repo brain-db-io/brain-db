@@ -68,13 +68,19 @@ pub enum SemanticScope {
 /// or post-search.
 #[derive(Debug, Clone, Default)]
 pub struct SemanticFilters {
-    pub agent_id: Option<AgentId>,
+    pub agent_ids: Vec<AgentId>,
     pub memory_kind: Option<MemoryKind>,
     pub statement_kind: Option<StatementKind>,
     pub predicate_id: Option<PredicateId>,
     pub confidence_bucket: Option<RangeInclusive<u8>>,
     pub created_at_ms: Option<RangeInclusive<u64>>,
     pub extracted_at_ms: Option<RangeInclusive<u64>>,
+    /// Front-gate scope tag: when non-empty, the closure restricts
+    /// HNSW visits to memories whose `context_id` is in this set. The
+    /// closure already reads `MemoryMetadata` per visit (for agent /
+    /// kind / created_at), so checking context costs nothing extra and
+    /// stays bounded by HNSW visits — sublinear in the corpus size.
+    pub context_ids: Vec<u64>,
 }
 
 /// HNSW search config + post-search cuts.
@@ -154,7 +160,7 @@ pub fn validate_filters_for_scope(
             }
         }
         SemanticScope::Statement => {
-            if filters.agent_id.is_some() {
+            if !filters.agent_ids.is_empty() {
                 return Err(SemanticError::QueryParseFailed(
                     "agent_id filter applies only to Memory / Both".into(),
                 ));

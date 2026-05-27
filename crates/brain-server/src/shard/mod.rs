@@ -1965,10 +1965,8 @@ pub fn spawn_shard(
                                         combined.push((entry.memory_id, entry.vector));
                                     }
                                 }
-                                let codebook = brain_index::bootstrap_codebook();
-                                let (idx, _) = brain_index::rebuild::rebuild_impl::<8, _>(
-                                    params, codebook, combined,
-                                )?;
+                                let (idx, _) =
+                                    brain_index::rebuild::rebuild_impl(params, combined)?;
                                 Ok(idx)
                             });
                         match outcome {
@@ -2053,7 +2051,12 @@ pub fn spawn_shard(
                             ),
                         }
                     }
-                    Ok(_) => {}
+                    Ok(_) => {
+                        info!(
+                            shard_id,
+                            "no entities to rebuild; entity HNSW starts empty"
+                        );
+                    }
                     Err(e) => error!(
                         shard_id,
                         error = ?e,
@@ -2524,8 +2527,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 let result = match shard.rebuild_source.snapshot_vectors().await {
                     Ok(vectors) => {
                         let params = shard.hnsw_shared.params();
-                        let codebook = brain_index::bootstrap_codebook();
-                        match brain_index::rebuild::rebuild_impl::<8, _>(params, codebook, vectors)
+                        match brain_index::rebuild::rebuild_impl(params, vectors)
                         {
                             Ok((new_idx, _report)) => {
                                 let entries = new_idx.len();

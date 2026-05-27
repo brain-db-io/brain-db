@@ -108,7 +108,7 @@ impl LlmResponse {
     }
 }
 
-impl_redb_rkyv_value!(LlmResponse, "brain_metadata::LlmResponse::v1");
+impl_redb_rkyv_value!(LlmResponse, "brain_metadata::LlmResponse");
 
 // ---------------------------------------------------------------------------
 // Errors.

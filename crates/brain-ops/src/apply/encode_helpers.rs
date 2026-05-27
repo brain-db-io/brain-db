@@ -30,7 +30,6 @@ use brain_index::{
 };
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::tables::text::TEXTS_TABLE;
-use redb::TableError;
 
 use crate::context::OpsContext;
 
@@ -122,17 +121,9 @@ pub async fn fetch_extractor_context(
         let rtxn = metadata
             .read_txn()
             .map_err(|e| ExtractorContextError::Metadata(format!("read_txn: {e}")))?;
-        let table = match rtxn.open_table(MEMORIES_TABLE) {
-            Ok(t) => t,
-            Err(TableError::TableDoesNotExist(_)) => {
-                return Err(ExtractorContextError::MemoryNotFound(memory_id));
-            }
-            Err(e) => {
-                return Err(ExtractorContextError::Metadata(format!(
-                    "open MEMORIES_TABLE: {e}"
-                )));
-            }
-        };
+        let table = rtxn
+            .open_table(MEMORIES_TABLE)
+            .map_err(|e| ExtractorContextError::Metadata(format!("open MEMORIES_TABLE: {e}")))?;
         let key = memory_id.raw().to_be_bytes();
         let row = table
             .get(&key)
@@ -168,24 +159,12 @@ pub async fn fetch_extractor_context(
     let rtxn = metadata
         .read_txn()
         .map_err(|e| ExtractorContextError::Metadata(format!("read_txn (neighbors): {e}")))?;
-    let memories_t = match rtxn.open_table(MEMORIES_TABLE) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(ExtractorContext::empty()),
-        Err(e) => {
-            return Err(ExtractorContextError::Metadata(format!(
-                "open MEMORIES_TABLE: {e}"
-            )));
-        }
-    };
-    let texts_t = match rtxn.open_table(TEXTS_TABLE) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(ExtractorContext::empty()),
-        Err(e) => {
-            return Err(ExtractorContextError::Metadata(format!(
-                "open TEXTS_TABLE: {e}"
-            )));
-        }
-    };
+    let memories_t = rtxn
+        .open_table(MEMORIES_TABLE)
+        .map_err(|e| ExtractorContextError::Metadata(format!("open MEMORIES_TABLE: {e}")))?;
+    let texts_t = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| ExtractorContextError::Metadata(format!("open TEXTS_TABLE: {e}")))?;
 
     let mut neighbors: Vec<NeighborMemory> = Vec::with_capacity(config.top_m);
     for hit in hits {

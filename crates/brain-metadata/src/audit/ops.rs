@@ -3,10 +3,6 @@
 //! Single-writer-per-shard discipline applies — `audit_write` takes
 //! the caller's `wtxn`. Reads via
 //! `audit_by_*` / `audit_recent_*` are MVCC-safe (`&ReadTransaction`).
-//!
-//! All read paths treat `TableDoesNotExist` as `Ok(empty)` so
-//! fresh DBs respond to queries before any audit row has been
-//! written.
 
 use brain_core::{AuditId, MemoryId};
 use redb::{ReadTransaction, WriteTransaction};
@@ -76,11 +72,7 @@ pub fn audit_get(
     rtxn: &ReadTransaction,
     audit_id: AuditId,
 ) -> Result<Option<ExtractionAudit>, AuditOpError> {
-    let t = match rtxn.open_table(EXTRACTOR_AUDIT_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(EXTRACTOR_AUDIT_TABLE)?;
     let guard = t.get(&audit_id.to_bytes())?;
     Ok(guard.map(|g| g.value()))
 }
@@ -91,11 +83,7 @@ pub fn audit_by_memory(
     memory_id: MemoryId,
     limit: usize,
 ) -> Result<Vec<ExtractionAudit>, AuditOpError> {
-    let idx = match rtxn.open_table(EXTRACTOR_AUDIT_BY_MEMORY_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let idx = rtxn.open_table(EXTRACTOR_AUDIT_BY_MEMORY_TABLE)?;
     let mid = memory_id.to_be_bytes();
     let lo = (mid, [0u8; 16]);
     let hi = (mid, [0xffu8; 16]);
@@ -116,11 +104,7 @@ pub fn audit_by_extractor(
     extractor_id: u32,
     limit: usize,
 ) -> Result<Vec<ExtractionAudit>, AuditOpError> {
-    let idx = match rtxn.open_table(EXTRACTOR_AUDIT_BY_EXTRACTOR_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let idx = rtxn.open_table(EXTRACTOR_AUDIT_BY_EXTRACTOR_TABLE)?;
     let lo = (extractor_id, [0u8; 16]);
     let hi = (extractor_id, [0xffu8; 16]);
     let mut ids: Vec<[u8; 16]> = Vec::new();
@@ -140,11 +124,7 @@ pub fn audit_recent(
     since_unix_nanos: u64,
     limit: usize,
 ) -> Result<Vec<ExtractionAudit>, AuditOpError> {
-    let idx = match rtxn.open_table(EXTRACTOR_AUDIT_BY_TIME_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let idx = rtxn.open_table(EXTRACTOR_AUDIT_BY_TIME_TABLE)?;
     let lo = (since_unix_nanos, [0u8; 16]);
     let hi = (u64::MAX, [0xffu8; 16]);
     let mut ids: Vec<[u8; 16]> = Vec::new();
@@ -186,11 +166,7 @@ fn fetch_rows(
     ids: &[[u8; 16]],
     limit: usize,
 ) -> Result<Vec<ExtractionAudit>, AuditOpError> {
-    let primary = match rtxn.open_table(EXTRACTOR_AUDIT_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let primary = rtxn.open_table(EXTRACTOR_AUDIT_TABLE)?;
     let mut out = Vec::with_capacity(limit.min(ids.len()));
     for id in ids.iter().take(limit) {
         if let Some(g) = primary.get(id)? {

@@ -1,18 +1,14 @@
-//! Two-tier lock-free wrapper for the PQ-flavour HNSW.
+//! Two-tier lock-free wrapper for the memory HNSW.
 //!
-//! Mirrors [`crate::shared::SharedHnswImpl`]'s shape — immutable
-//! [`MainEpochImpl`] swapped via `ArcSwap`, mutable [`PendingBufferImpl`]
-//! protected by `RwLock`. Differences:
+//! - An immutable [`MainEpoch`] swapped via `ArcSwap` holds the
+//!   published full-precision graph.
+//! - A mutable [`PendingBuffer`] protected by `RwLock` holds recent
+//!   inserts and tombstones that haven't been folded into main yet.
 //!
-//! - Vector dim is fixed at [`VECTOR_DIM`] (the PQ codebook is trained
-//!   for one shape). The const generic is `M` (subquantiser count)
-//!   instead of `D`.
-//! - Search composes ADC against main with exact cosine against
-//!   pending, then re-ranks the merged candidate set against the
-//!   full-precision arena via a caller-supplied closure.
-//! - The pending buffer holds full-precision `f32` vectors so pending
-//!   inserts are visible at exact cosine immediately; the closure
-//!   isn't called for them.
+//! Both tiers score with exact cosine similarity: main via the
+//! full-precision HNSW graph, pending via brute-force over the
+//! buffered vectors. Search merges the two, deduping by `MemoryId`
+//! with pending winning on collision (its vector is the latest write).
 
 use std::collections::HashSet;
 use std::sync::Arc;
@@ -21,56 +17,26 @@ use arc_swap::ArcSwap;
 use brain_core::MemoryId;
 use parking_lot::RwLock;
 
-use crate::hnsw::{HnswError, HnswIndexImpl};
+use crate::hnsw::{HnswError, HnswIndex};
 use crate::params::{IndexParams, VECTOR_DIM};
-use crate::pq::{rerank, BOOTSTRAP_M};
 
-/// Public alias: the production shared HNSW handle, fixed at the
-/// bootstrap PQ shape. Callers reach for [`SharedHnsw`] without
-/// thinking about `M` — the alias keeps the PQ implementation
-/// detail off the public surface.
-pub type SharedHnsw = SharedHnswImpl<{ BOOTSTRAP_M }>;
-
-/// Public alias for the single-writer handle that pairs with
-/// [`SharedHnsw`].
-pub type Writer = WriterImpl<{ BOOTSTRAP_M }>;
-
-impl SharedHnswImpl<{ BOOTSTRAP_M }> {
-    /// Convenience constructor: build an empty [`SharedHnsw`] backed
-    /// by the [`crate::pq::bootstrap_codebook`] and a null arena
-    /// reader. Production shards replace the arena via
-    /// [`Self::with_arena`] before serving search traffic; tests
-    /// stay on the null reader (search results come back ADC-ranked,
-    /// no re-rank).
+impl SharedHnsw {
+    /// Build an empty [`SharedHnsw`] / [`Writer`] pair.
     ///
     /// Errors:
     /// - [`HnswError::InvalidParams`] if `params` doesn't validate.
     pub fn new(params: IndexParams) -> Result<(Self, Writer), HnswError> {
-        let codebook = crate::pq::bootstrap_codebook();
-        let idx = crate::hnsw::HnswIndex::new(params, (*codebook).clone())?;
-        Ok(Self::from_index(
-            idx,
-            crate::arena_reader::null_arena_reader(),
-        ))
-    }
-
-    /// Return a clone of this handle with `arena` swapped in as the
-    /// re-rank reader. Production shards call this after constructing
-    /// the arena to wire it in; the writer half is unchanged because
-    /// writes don't consult the arena.
-    #[must_use]
-    pub fn with_arena(mut self, arena: Arc<dyn crate::arena_reader::ArenaReader>) -> Self {
-        self.arena = arena;
-        self
+        let idx = HnswIndex::new(params)?;
+        Ok(Self::from_index(idx))
     }
 
     /// Persist the published main to a directory at the given basename.
-    /// Writes four files:
-    /// `<basename>.hnsw.graph`, `<basename>.hnsw.data`,
-    /// `<basename>.codebook`, and `<basename>.brain` (the wrapper, written
-    /// **last** so its presence marks "snapshot complete"). The wrapper
-    /// carries BLAKE3 hashes of the three sibling files so cross-file
-    /// integrity is verifiable from the wrapper alone.
+    /// Writes three files:
+    /// `<basename>.hnsw.graph`, `<basename>.hnsw.data`, and
+    /// `<basename>.brain` (the wrapper, written **last** so its presence
+    /// marks "snapshot complete"). The wrapper carries BLAKE3 hashes of
+    /// the two sibling files so cross-file integrity is verifiable from
+    /// the wrapper alone.
     ///
     /// `taken_at_lsn` is recorded in the wrapper header so recovery
     /// knows the WAL position to replay past. Pending-buffer state is
@@ -107,17 +73,11 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
         //    <basename>.hnsw.graph + <basename>.hnsw.data into `dir`.
         let _basename_used = idx.file_dump(dir, basename)?;
 
-        // 3. Write the codebook sidecar.
-        let codebook_bytes = (**idx.codebook()).clone().serialize();
-        let codebook_path = dir.join(format!("{basename}.codebook"));
-        std::fs::write(&codebook_path, &codebook_bytes)?;
-
         // 4. BLAKE3 each sibling file. Read-once, no streaming — the
         //    largest will be the graph file; load time will repeat the
         //    same hash before trusting the load (see load_snapshot).
         let graph_hash = blake3_file(&dir.join(format!("{basename}.hnsw.graph")))?;
         let data_hash = blake3_file(&dir.join(format!("{basename}.hnsw.data")))?;
-        let codebook_hash = *blake3::hash(&codebook_bytes).as_bytes();
 
         // 5. Build the wrapper. Header.encode → 64 bytes; Body.encode →
         //    variable; Footer = BLAKE3(header || body) truncated.
@@ -133,10 +93,11 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
             idx.tombstones(),
             graph_hash,
             data_hash,
-            codebook_hash,
         );
 
-        let mut wrapper = Vec::with_capacity(crate::persistence::HEADER_LEN + body.bytes.len() + crate::persistence::FOOTER_LEN);
+        let mut wrapper = Vec::with_capacity(
+            crate::persistence::HEADER_LEN + body.bytes.len() + crate::persistence::FOOTER_LEN,
+        );
         wrapper.extend_from_slice(&header.encode());
         wrapper.extend_from_slice(&body.bytes);
         let footer = compute_footer(&wrapper);
@@ -150,14 +111,14 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
         Ok(())
     }
 
-    /// Reload a snapshot triple+wrapper into `(HnswIndexImpl, taken_at_lsn)`.
+    /// Reload a snapshot triple+wrapper into `(HnswIndex, taken_at_lsn)`.
     /// Verifies the wrapper's magic + version + header CRC + footer
     /// BLAKE3, refuses on a `shard_uuid` mismatch, then verifies each
     /// sibling file's BLAKE3 matches the wrapper body. Any failure
     /// returns a clear error so the caller can fall back to a fresh
     /// rebuild.
     ///
-    /// Returns the bare index rather than a wrapped `(Self, Writer, _)`
+    /// Returns the bare index rather than a wrapped `(Self, Writer)`
     /// so the caller (`spawn_shard`) can `swap()` the loaded index into
     /// an already-constructed `SharedHnsw` without disturbing the
     /// writer it has already wired into the rest of the stack.
@@ -165,24 +126,27 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
         dir: &std::path::Path,
         basename: &str,
         expected_shard_uuid: [u8; 16],
-    ) -> Result<(crate::hnsw::HnswIndexImpl<{ crate::pq::BOOTSTRAP_M }>, u64), HnswError> {
+    ) -> Result<(HnswIndex, u64), HnswError> {
         use crate::persistence::{
-            read_brain_file, verify_footer, BodyError, Header, HeaderError, ParsedBody,
-            FOOTER_LEN, HEADER_LEN,
+            read_brain_file, verify_footer, BodyError, Header, HeaderError, ParsedBody, FOOTER_LEN,
+            HEADER_LEN,
         };
 
         // 1. Wrapper.
         let wrapper_path = dir.join(format!("{basename}.brain"));
         let wrapper = read_brain_file(&wrapper_path)?;
         if !verify_footer(&wrapper) {
-            return Err(HnswError::SnapshotCorrupt("wrapper footer BLAKE3 mismatch".into()));
+            return Err(HnswError::SnapshotCorrupt(
+                "wrapper footer BLAKE3 mismatch".into(),
+            ));
         }
         if wrapper.len() < HEADER_LEN + FOOTER_LEN {
-            return Err(HnswError::SnapshotCorrupt("wrapper smaller than header+footer".into()));
+            return Err(HnswError::SnapshotCorrupt(
+                "wrapper smaller than header+footer".into(),
+            ));
         }
-        let header = Header::parse(&wrapper[..HEADER_LEN]).map_err(|e: HeaderError| {
-            HnswError::SnapshotCorrupt(format!("wrapper header: {e:?}"))
-        })?;
+        let header = Header::parse(&wrapper[..HEADER_LEN])
+            .map_err(|e: HeaderError| HnswError::SnapshotCorrupt(format!("wrapper header: {e:?}")))?;
         if header.shard_uuid != expected_shard_uuid {
             return Err(HnswError::SnapshotCorrupt(format!(
                 "shard_uuid mismatch: expected {:?}, got {:?}",
@@ -190,23 +154,10 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
             )));
         }
         let body_bytes = &wrapper[HEADER_LEN..wrapper.len() - FOOTER_LEN];
-        let body = ParsedBody::parse(body_bytes).map_err(|e: BodyError| {
-            HnswError::SnapshotCorrupt(format!("wrapper body: {e:?}"))
-        })?;
+        let body = ParsedBody::parse(body_bytes)
+            .map_err(|e: BodyError| HnswError::SnapshotCorrupt(format!("wrapper body: {e:?}")))?;
 
-        // 2. Codebook sidecar.
-        let codebook_path = dir.join(format!("{basename}.codebook"));
-        let codebook_bytes = std::fs::read(&codebook_path)?;
-        let computed_codebook_hash = *blake3::hash(&codebook_bytes).as_bytes();
-        if computed_codebook_hash != body.codebook_hash {
-            return Err(HnswError::SnapshotCorrupt("codebook BLAKE3 mismatch".into()));
-        }
-        let codebook = crate::pq::Codebook::<{ crate::pq::BOOTSTRAP_M }>::deserialize(
-            &codebook_bytes,
-        )
-        .map_err(|e| HnswError::SnapshotCorrupt(format!("codebook deserialize: {e}")))?;
-
-        // 3. Graph + data sibling-hash verification.
+        // 2. Graph + data sibling-hash verification.
         let graph_path = dir.join(format!("{basename}.hnsw.graph"));
         let data_path = dir.join(format!("{basename}.hnsw.data"));
         let graph_hash = blake3_file(&graph_path)?;
@@ -218,24 +169,21 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
             return Err(HnswError::SnapshotCorrupt("data BLAKE3 mismatch".into()));
         }
 
-        // 4. hnsw_rs reload with the deserialised codebook's PqDist.
-        //    `load_hnsw_with_dist` returns `Hnsw<'b, ...>` where `'b`
-        //    is bounded by the `HnswIo`'s lifetime. Brain stores the
-        //    inner Hnsw as `'static` (the existing `HnswIndexImpl<M>`
-        //    contract), so we leak the io. The leaked struct is small —
-        //    `PathBuf + String + bool + Option<DataMap>` with DataMap
-        //    unpopulated by `HnswIo::new` — and the leak is bounded by
+        // 3. hnsw_rs reload as the full-precision cosine graph.
+        //    `load_hnsw` returns `Hnsw<'b, ...>` where `'b` is bounded by
+        //    the `HnswIo`'s lifetime. Brain stores the inner Hnsw as
+        //    `'static` (the `HnswIndex` contract), so we leak the io. The
+        //    leaked struct is small and the leak is bounded by
         //    `O(shard restarts)`, freed at process exit. The graph itself
-        //    is owned by `Hnsw` after `load_hnsw_with_dist` returns, so
-        //    we're not leaking the graph bytes — only the small handle.
-        let pq_dist = crate::pq::PqDist::<{ crate::pq::BOOTSTRAP_M }>::new(&codebook);
+        //    is owned by `Hnsw` after `load_hnsw` returns, so we're not
+        //    leaking the graph bytes — only the small handle.
         let io_ref: &'static mut hnsw_rs::hnswio::HnswIo =
             Box::leak(Box::new(hnsw_rs::hnswio::HnswIo::new(dir, basename)));
         let inner = io_ref
-            .load_hnsw_with_dist::<u8, _>(pq_dist)
+            .load_hnsw::<f32, hnsw_rs::prelude::DistCosine>()
             .map_err(|e| HnswError::SnapshotCorrupt(format!("hnsw_rs load: {e}")))?;
 
-        // 5. Rebuild IdMap + TombstoneBitmap + params.
+        // 4. Rebuild IdMap + TombstoneBitmap + params.
         let id_map = crate::idmap::IdMap::from_snapshot(body.id_map_entries, body.next_internal_id);
         let tombstones = crate::tombstones::TombstoneBitmap::from_snapshot(
             body.tombstone_words,
@@ -243,12 +191,10 @@ impl SharedHnswImpl<{ BOOTSTRAP_M }> {
         );
         let params = crate::params::IndexParams::default_v1();
 
-        // 6. Assemble. Caller decides whether to wrap with `from_index`
+        // 5. Assemble. Caller decides whether to wrap with `from_index`
         //    (standalone usage / tests) or `swap` into an existing
         //    SharedHnsw (recovery in spawn_shard).
-        let idx = crate::hnsw::HnswIndexImpl::<{ crate::pq::BOOTSTRAP_M }>::from_persisted_parts(
-            params, codebook, inner, id_map, tombstones,
-        );
+        let idx = HnswIndex::from_persisted_parts(params, inner, id_map, tombstones);
         Ok((idx, header.taken_at_lsn))
     }
 }
@@ -270,26 +216,21 @@ fn blake3_file(path: &std::path::Path) -> Result<[u8; 32], HnswError> {
     Ok(*hasher.finalize().as_bytes())
 }
 
-/// Search-time over-fetch factor: pull `K * RERANK_FACTOR` ADC
-/// candidates from the HNSW, re-rank against full-precision arena
-/// vectors, keep the top `K` (the default).
-const RERANK_FACTOR: usize = 4;
-
-/// An immutable PQ-HNSW snapshot for a single published epoch.
-struct MainEpochImpl<const M: usize> {
-    index: HnswIndexImpl<M>,
+/// An immutable HNSW snapshot for a single published epoch.
+struct MainEpoch {
+    index: HnswIndex,
     epoch_id: u64,
 }
 
 /// Recent inserts and tombstones that haven't yet been folded into
-/// the main PQ-HNSW. Full-precision vectors live here — encoding
-/// happens during the flush rebuild.
-struct PendingBufferImpl {
+/// the main HNSW. Full-precision vectors live here so pending inserts
+/// are visible at exact cosine immediately.
+struct PendingBuffer {
     entries: Vec<PendingEntry>,
     tombstoned: HashSet<MemoryId>,
 }
 
-impl PendingBufferImpl {
+impl PendingBuffer {
     fn new() -> Self {
         Self {
             entries: Vec::new(),
@@ -298,9 +239,9 @@ impl PendingBufferImpl {
     }
 }
 
-/// A full-precision vector waiting to be PQ-encoded and folded into
-/// the main HNSW. The `vector` field is kept verbatim so pending
-/// search uses exact cosine.
+/// A full-precision vector buffered until the next flush rebuild folds
+/// it into the main HNSW. The `vector` field is kept verbatim so
+/// pending search uses exact cosine.
 #[derive(Clone, Debug)]
 pub struct PendingEntry {
     pub memory_id: MemoryId,
@@ -308,9 +249,7 @@ pub struct PendingEntry {
     pub tombstoned: bool,
 }
 
-/// Report returned by [`SharedHnswImpl::flush_with_rebuild`]. Same shape
-/// as the pure-HNSW flush report so the maintenance worker can branch
-/// on the flavour once and emit consistent metrics either way.
+/// Report returned by [`SharedHnsw::flush_with_rebuild`].
 #[derive(Debug, Clone)]
 pub struct FlushReport {
     pub entries_flushed: usize,
@@ -318,46 +257,37 @@ pub struct FlushReport {
     pub main_len_after: usize,
 }
 
-/// Cloneable reader handle for a PQ-flavour shared index.
+/// Cloneable reader handle for the shared memory index.
 #[derive(Clone)]
-pub struct SharedHnswImpl<const M: usize> {
-    main: Arc<ArcSwap<MainEpochImpl<M>>>,
-    pending: Arc<RwLock<PendingBufferImpl>>,
-    arena: Arc<dyn crate::arena_reader::ArenaReader>,
+pub struct SharedHnsw {
+    main: Arc<ArcSwap<MainEpoch>>,
+    pending: Arc<RwLock<PendingBuffer>>,
 }
 
 /// Single-writer handle. Not `Clone` — enforces single-writer-per-shard
-/// at the type level, matching [`crate::shared::WriterImpl`].
-pub struct WriterImpl<const M: usize> {
+/// at the type level.
+pub struct Writer {
     /// Kept so the published main outlives the writer regardless of
     /// reader cloning patterns; never read directly.
-    _main: Arc<ArcSwap<MainEpochImpl<M>>>,
-    pending: Arc<RwLock<PendingBufferImpl>>,
+    _main: Arc<ArcSwap<MainEpoch>>,
+    pending: Arc<RwLock<PendingBuffer>>,
 }
 
-impl<const M: usize> SharedHnswImpl<M> {
-    /// Wrap an existing [`HnswIndex`] with an injected
-    /// [`crate::ArenaReader`], returning the reader/writer pair.
-    /// The arena reader is consulted for the PQ re-rank pass on every
-    /// search — production callers pass a real arena handle; tests
-    /// pass [`crate::arena_reader::null_arena_reader`].
+impl SharedHnsw {
+    /// Wrap an existing [`HnswIndex`], returning the reader/writer pair.
     #[must_use]
-    pub fn from_index(
-        idx: HnswIndexImpl<M>,
-        arena: Arc<dyn crate::arena_reader::ArenaReader>,
-    ) -> (Self, WriterImpl<M>) {
-        let epoch = Arc::new(MainEpochImpl {
+    pub fn from_index(idx: HnswIndex) -> (Self, Writer) {
+        let epoch = Arc::new(MainEpoch {
             index: idx,
             epoch_id: 0,
         });
         let main = Arc::new(ArcSwap::new(epoch));
-        let pending = Arc::new(RwLock::new(PendingBufferImpl::new()));
+        let pending = Arc::new(RwLock::new(PendingBuffer::new()));
         let reader = Self {
             main: main.clone(),
             pending: pending.clone(),
-            arena,
         };
-        let writer = WriterImpl {
+        let writer = Writer {
             _main: main,
             pending,
         };
@@ -366,14 +296,12 @@ impl<const M: usize> SharedHnswImpl<M> {
 
     // ----- Reader methods --------------------------------------------------
 
-    /// Top-`k` nearest neighbours of `query`, with the PQ re-rank pass
-    /// applied. Returns `(MemoryId, cosine_similarity)` pairs sorted
-    /// descending by similarity.
-    ///
-    /// Arena lookup goes through the [`crate::ArenaReader`] injected
-    /// at construction; tombstoned-during-search candidates are
-    /// silently dropped. `filter` runs as an extra predicate alongside
-    /// the always-on tombstone filter.
+    /// Top-`k` nearest neighbours of `query`. Returns
+    /// `(MemoryId, cosine_similarity)` pairs sorted descending by
+    /// similarity. The main graph scores exact cosine directly; the
+    /// pending buffer is brute-forced at exact cosine. Tombstoned
+    /// candidates (in either tier) are dropped; `filter` runs as an
+    /// extra predicate alongside the always-on tombstone filter.
     #[must_use]
     pub fn search<F>(
         &self,
@@ -392,25 +320,20 @@ impl<const M: usize> SharedHnswImpl<M> {
         // Pending tombstone overlay wins everywhere.
         let pending_tombstones: HashSet<MemoryId> = self.pending.read().tombstoned.clone();
 
-        // 1. Main: PQ-ADC top-K' where K' = k * RERANK_FACTOR.
+        // 1. Main: exact-cosine top-k from the full-precision graph.
         let epoch = self.main.load();
-        let inflated_k = k.saturating_mul(RERANK_FACTOR);
-        let main_candidates = epoch.index.search(query, inflated_k, ef, |id| {
+        let main_hits = epoch.index.search(query, k, ef, |id| {
             !pending_tombstones.contains(&id) && filter(id)
         });
 
-        // Re-rank main candidates against the arena. Pending hits are
-        // handled separately because their vectors live in memory.
-        let arena = self.arena.clone();
-        let main_reranked = rerank::<_>(&main_candidates, query, inflated_k, |id| arena.read(id));
-
         // 2. Pending: brute-force exact cosine. Tombstoned overlay
         //    already excluded above.
-        let pending_hits = self.pending_search(query, inflated_k, &filter);
+        let pending_hits = self.pending_search(query, k, &filter);
 
         // 3. Merge + dedupe by MemoryId, prefer pending's score on
-        //    collision (latest vector wins).
-        merge_dedupe_descending(main_reranked, pending_hits, k)
+        //    collision (latest vector wins). Both tiers are cosine
+        //    similarity, so the merge is a plain descending sort.
+        merge_dedupe_descending(main_hits, pending_hits, k)
     }
 
     /// Top-`k` nearest neighbours, excluding tombstoned memories.
@@ -498,7 +421,7 @@ impl<const M: usize> SharedHnswImpl<M> {
     }
 
     /// Recovery-only: insert a `(memory_id, vector)` pair directly
-    /// into the pending buffer, bypassing the [`WriterImpl`].
+    /// into the pending buffer, bypassing the [`Writer`].
     ///
     /// Used by `spawn_shard`'s snapshot-load → tail-replay path. The
     /// snapshot captures the memory HNSW at `taken_at_lsn`; arena
@@ -511,7 +434,7 @@ impl<const M: usize> SharedHnswImpl<M> {
     /// two writers. Boot is single-threaded, so this is safe.
     ///
     /// Production write paths must continue to go through
-    /// [`WriterImpl::insert`].
+    /// [`Writer::insert`].
     pub fn insert_recovery(
         &self,
         memory_id: MemoryId,
@@ -519,11 +442,7 @@ impl<const M: usize> SharedHnswImpl<M> {
     ) {
         let mut pending = self.pending.write();
         pending.tombstoned.remove(&memory_id);
-        if let Some(slot) = pending
-            .entries
-            .iter_mut()
-            .find(|e| e.memory_id == memory_id)
-        {
+        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
             slot.vector = *vector;
             slot.tombstoned = false;
         } else {
@@ -539,9 +458,9 @@ impl<const M: usize> SharedHnswImpl<M> {
     /// clear pending. Used for bootstrap and snapshot-load paths
     /// where main was rebuilt from a source of truth that already
     /// reflects all writes.
-    pub fn swap(&self, new_index: HnswIndexImpl<M>) {
+    pub fn swap(&self, new_index: HnswIndex) {
         let prev = self.main.load();
-        let next = Arc::new(MainEpochImpl {
+        let next = Arc::new(MainEpoch {
             index: new_index,
             epoch_id: prev.epoch_id.wrapping_add(1),
         });
@@ -552,11 +471,10 @@ impl<const M: usize> SharedHnswImpl<M> {
     }
 
     /// Snapshot pending entries, pass them to `build` to produce a new
-    /// main, then atomically publish + drain the flushed ids. Same
-    /// shape as [`crate::shared::SharedHnswImpl::flush_with_rebuild`].
+    /// main, then atomically publish + drain the flushed ids.
     pub fn flush_with_rebuild<F>(&self, build: F) -> Result<FlushReport, HnswError>
     where
-        F: FnOnce(&[PendingEntry]) -> Result<HnswIndexImpl<M>, HnswError>,
+        F: FnOnce(&[PendingEntry]) -> Result<HnswIndex, HnswError>,
     {
         let snapshot: Vec<PendingEntry> = self.pending.read().entries.clone();
         let snapshot_count = snapshot.len();
@@ -567,7 +485,7 @@ impl<const M: usize> SharedHnswImpl<M> {
         let prev_epoch = self.main.load();
         let new_epoch_id = prev_epoch.epoch_id.wrapping_add(1);
         let main_len_after = new_index.len();
-        let new_epoch = Arc::new(MainEpochImpl {
+        let new_epoch = Arc::new(MainEpoch {
             index: new_index,
             epoch_id: new_epoch_id,
         });
@@ -605,7 +523,7 @@ impl<const M: usize> SharedHnswImpl<M> {
     // ----- Private helpers -------------------------------------------------
 
     /// Brute-force exact-cosine over the pending buffer. Pending holds
-    /// full-precision vectors, so no re-rank needed.
+    /// full-precision vectors, so the score matches main's scale.
     fn pending_search<F>(
         &self,
         query: &[f32; VECTOR_DIM],
@@ -631,10 +549,9 @@ impl<const M: usize> SharedHnswImpl<M> {
     }
 }
 
-impl<const M: usize> WriterImpl<M> {
-    /// Insert a full-precision vector. The PQ encode happens at flush
-    /// time inside the build closure; until then the vector lives in
-    /// pending and reads at exact cosine.
+impl Writer {
+    /// Insert a full-precision vector. It lives in pending and reads
+    /// at exact cosine until the next flush folds it into main.
     pub fn insert(
         &mut self,
         memory_id: MemoryId,
@@ -643,11 +560,7 @@ impl<const M: usize> WriterImpl<M> {
         let mut pending = self.pending.write();
         // Re-insert after tombstone resurrects the entry.
         pending.tombstoned.remove(&memory_id);
-        if let Some(slot) = pending
-            .entries
-            .iter_mut()
-            .find(|e| e.memory_id == memory_id)
-        {
+        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
             slot.vector = *vector;
             slot.tombstoned = false;
         } else {
@@ -661,15 +574,11 @@ impl<const M: usize> WriterImpl<M> {
     }
 
     /// Mark a memory tombstoned. Visible immediately via
-    /// [`SharedHnswImpl::is_tombstoned`].
+    /// [`SharedHnsw::is_tombstoned`].
     pub fn mark_tombstoned(&mut self, memory_id: MemoryId) -> Result<(), HnswError> {
         let mut pending = self.pending.write();
         pending.tombstoned.insert(memory_id);
-        if let Some(slot) = pending
-            .entries
-            .iter_mut()
-            .find(|e| e.memory_id == memory_id)
-        {
+        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
             slot.tombstoned = true;
         }
         Ok(())
@@ -679,8 +588,7 @@ impl<const M: usize> WriterImpl<M> {
 // ===== Helpers =============================================================
 
 /// Dot product of two equal-length `f32` vectors. With L2-normalised
-/// inputs (BGE-small output) this equals cosine
-/// similarity.
+/// inputs (BGE-small output) this equals cosine similarity.
 fn dot(a: &[f32; VECTOR_DIM], b: &[f32; VECTOR_DIM]) -> f32 {
     let mut sum = 0.0_f32;
     for i in 0..VECTOR_DIM {
@@ -714,22 +622,9 @@ fn merge_dedupe_descending(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pq::{Codebook, PQ_CENTROIDS_PER_SUBSPACE};
 
     fn mid(slot: u8) -> MemoryId {
         MemoryId::pack(1, slot as u64, 1)
-    }
-
-    fn arithmetic_codebook<const M: usize>() -> Codebook<M> {
-        let sub_dim = VECTOR_DIM / M;
-        let mut centroids = vec![0.0_f32; M * PQ_CENTROIDS_PER_SUBSPACE * sub_dim];
-        for s in 0..M {
-            for k in 0..PQ_CENTROIDS_PER_SUBSPACE {
-                let offset = (s * PQ_CENTROIDS_PER_SUBSPACE + k) * sub_dim;
-                centroids[offset] = k as f32;
-            }
-        }
-        Codebook::<M>::from_trained(centroids, sub_dim).unwrap()
     }
 
     fn unit_at_angle(angle_radians: f32) -> [f32; VECTOR_DIM] {
@@ -739,13 +634,9 @@ mod tests {
         v
     }
 
-    fn pq_params_default() -> IndexParams {
-        IndexParams::default_v1()
-    }
-
-    fn build_shared() -> (SharedHnswImpl<8>, WriterImpl<8>) {
-        let idx = HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
-        SharedHnswImpl::<8>::from_index(idx, crate::null_arena_reader())
+    fn build_shared() -> (SharedHnsw, Writer) {
+        let idx = HnswIndex::new(IndexParams::default_v1()).unwrap();
+        SharedHnsw::from_index(idx)
     }
 
     #[test]
@@ -790,8 +681,7 @@ mod tests {
         assert_eq!(reader.pending_len(), 1);
         let before = reader.epoch();
 
-        let replacement =
-            HnswIndexImpl::<8>::new(pq_params_default(), arithmetic_codebook::<8>()).unwrap();
+        let replacement = HnswIndex::new(IndexParams::default_v1()).unwrap();
         reader.swap(replacement);
 
         assert_eq!(reader.epoch(), before.wrapping_add(1));
@@ -808,11 +698,9 @@ mod tests {
         writer.insert(mid(2), &v).unwrap();
         assert_eq!(reader.pending_len(), 2);
 
-        let codebook_for_build = arithmetic_codebook::<8>();
         let report = reader
             .flush_with_rebuild(|snapshot| {
-                let mut new_idx =
-                    HnswIndexImpl::<8>::new(pq_params_default(), codebook_for_build).unwrap();
+                let mut new_idx = HnswIndex::new(IndexParams::default_v1()).unwrap();
                 for entry in snapshot {
                     if !entry.tombstoned {
                         new_idx.insert(entry.memory_id, &entry.vector).unwrap();
@@ -847,13 +735,15 @@ mod tests {
 
     fn unit_vec(seed: u64) -> [f32; crate::params::VECTOR_DIM] {
         // Build a deterministic non-zero vector so the HNSW has actual
-        // structure to dump. L2-normalise so PQ distances behave.
+        // structure to dump. L2-normalise so cosine distances behave.
         use crate::params::VECTOR_DIM;
         let mut v = [0.0_f32; VECTOR_DIM];
         let mut x = seed.wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let mut norm_sq = 0.0_f32;
         for slot in &mut v {
-            x = x.wrapping_mul(6364136223846793005).wrapping_add(1442695040888963407);
+            x = x
+                .wrapping_mul(6364136223846793005)
+                .wrapping_add(1442695040888963407);
             let f = (((x >> 33) as u32) as f32 / u32::MAX as f32) - 0.5;
             *slot = f;
             norm_sq += f * f;
@@ -878,33 +768,13 @@ mod tests {
         shared
             .flush_with_rebuild(|pending| {
                 let params = shared.params();
-                let codebook = crate::pq::bootstrap_codebook();
-                let pairs: Vec<(MemoryId, [f32; crate::params::VECTOR_DIM])> = pending
-                    .iter()
-                    .map(|e| (e.memory_id, e.vector))
-                    .collect();
-                let (idx, _) = crate::rebuild::rebuild_impl::<{ crate::pq::BOOTSTRAP_M }, _>(
-                    params, codebook, pairs,
-                )?;
+                let pairs: Vec<(MemoryId, [f32; crate::params::VECTOR_DIM])> =
+                    pending.iter().map(|e| (e.memory_id, e.vector)).collect();
+                let (idx, _) = crate::rebuild::rebuild_impl(params, pairs)?;
                 Ok(idx)
             })
             .unwrap();
         (shared, writer, ids)
-    }
-
-    /// Stub ArenaReader for round-trip search tests: returns the
-    /// fixture vectors so `search_active`'s rerank step has something
-    /// to read. (The production reader serves from the mmap'd arena.)
-    struct StubArenaReader {
-        vectors: std::collections::HashMap<MemoryId, [f32; crate::params::VECTOR_DIM]>,
-    }
-    impl crate::arena_reader::ArenaReader for StubArenaReader {
-        fn read(
-            &self,
-            memory_id: MemoryId,
-        ) -> Option<[f32; crate::params::VECTOR_DIM]> {
-            self.vectors.get(&memory_id).copied()
-        }
     }
 
     #[test]
@@ -914,26 +784,13 @@ mod tests {
         let shard_uuid: [u8; 16] = [0xAA; 16];
         let taken_at_lsn = 12345_u64;
 
-        let (shared_no_arena, _writer, ids) = fixture_with_writes(5);
-        let len_before = shared_no_arena.len();
-
-        // Wire a stub arena reader that returns the same fixture
-        // vectors so search's rerank pass has something to read.
-        let arena_vecs: std::collections::HashMap<_, _> = ids
-            .iter()
-            .enumerate()
-            .map(|(i, id)| (*id, unit_vec(i as u64 + 1)))
-            .collect();
-        let stub_reader: std::sync::Arc<dyn crate::arena_reader::ArenaReader> =
-            std::sync::Arc::new(StubArenaReader {
-                vectors: arena_vecs.clone(),
-            });
-        let shared = shared_no_arena.with_arena(stub_reader);
+        let (shared, _writer, ids) = fixture_with_writes(5);
+        let len_before = shared.len();
 
         // Pre-snapshot search baseline. Query against one of the inserted
         // vectors so the expected top-1 is deterministic: the inserted
         // memory itself. We compare against this baseline post-load to
-        // prove the PQ codes round-tripped *semantically*, not just that
+        // prove the graph round-tripped semantically, not just that
         // node_count matches.
         let query = unit_vec(1);
         let pre_results = shared.search_active(&query, 5, None);
@@ -951,28 +808,25 @@ mod tests {
         assert_eq!(loaded_idx.len(), len_before);
         // Every inserted id is in the rehydrated index.
         for id in &ids {
-            assert!(loaded_idx.contains(*id), "memory {:?} missing after reload", id);
+            assert!(
+                loaded_idx.contains(*id),
+                "memory {:?} missing after reload",
+                id
+            );
         }
 
-        // Wrap the loaded index in a SharedHnsw with the same stub
-        // arena so search runs through the same rerank machinery.
-        let stub_reader2: std::sync::Arc<dyn crate::arena_reader::ArenaReader> =
-            std::sync::Arc::new(StubArenaReader { vectors: arena_vecs });
-        let (loaded_shared, _loaded_writer) =
-            SharedHnsw::from_index(loaded_idx, stub_reader2);
+        let (loaded_shared, _loaded_writer) = SharedHnsw::from_index(loaded_idx);
         let post_results = loaded_shared.search_active(&query, 5, None);
         let post_top1 = *post_results
             .first()
             .expect("post-load search returned no results");
 
-        // The top-1 memory id must match. Score may drift slightly (PQ
-        // ADC tables are reconstructed from the deserialised codebook —
-        // identical bits → identical scores in this fixture), but
-        // identity is the semantic-correctness check.
+        // The top-1 memory id and its exact-cosine score must match
+        // across the round-trip: full-precision vectors round-trip
+        // losslessly through the graph dump.
         assert_eq!(
             pre_top1.0, post_top1.0,
-            "top-1 id changed across snapshot round-trip: \
-             pre={:?} post={:?}",
+            "top-1 id changed across snapshot round-trip: pre={:?} post={:?}",
             pre_top1.0, post_top1.0
         );
         assert!(
@@ -1001,7 +855,9 @@ mod tests {
     fn load_rejects_corrupted_graph_file() {
         let dir = tempfile::tempdir().unwrap();
         let (shared, _w, _) = fixture_with_writes(2);
-        shared.save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16]).unwrap();
+        shared
+            .save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16])
+            .unwrap();
 
         // Flip a byte in the graph file. The wrapper's BLAKE3 over the
         // graph won't match → SnapshotCorrupt.
@@ -1046,11 +902,13 @@ mod tests {
         // the footer or trailing body fields are missing.
         let dir = tempfile::tempdir().unwrap();
         let (shared, _w, _) = fixture_with_writes(2);
-        shared.save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16]).unwrap();
+        shared
+            .save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16])
+            .unwrap();
         let wrapper_path = dir.path().join("hnsw.brain");
         let mut bytes = std::fs::read(&wrapper_path).unwrap();
         // Chop the last 16 bytes — strips the footer and bites into the
-        // trailing codebook_hash field.
+        // trailing data_hash field.
         bytes.truncate(bytes.len() - 16);
         std::fs::write(&wrapper_path, bytes).unwrap();
         match SharedHnsw::load_snapshot(dir.path(), "hnsw", [0xAA; 16]) {
@@ -1061,44 +919,22 @@ mod tests {
     }
 
     #[test]
-    fn load_rejects_missing_codebook() {
-        // Crash between graph-dump and codebook write: graph+data on
-        // disk, .brain present (we simulate by writing then removing
-        // the codebook). The wrapper's BLAKE3 over the (now-missing)
-        // codebook can't match, but the I/O error fires first.
+    fn load_rejects_missing_data_file() {
+        // Crash between graph-dump and wrapper write leaves a sibling
+        // file missing; .brain present (we simulate by writing then
+        // removing the data file). The I/O error fires when the missing
+        // sibling is hashed.
         let dir = tempfile::tempdir().unwrap();
         let (shared, _w, _) = fixture_with_writes(2);
-        shared.save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16]).unwrap();
-        std::fs::remove_file(dir.path().join("hnsw.codebook")).unwrap();
+        shared
+            .save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16])
+            .unwrap();
+        std::fs::remove_file(dir.path().join("hnsw.hnsw.data")).unwrap();
         match SharedHnsw::load_snapshot(dir.path(), "hnsw", [0xAA; 16]) {
             Err(HnswError::SnapshotIo(_)) => {}
             Err(HnswError::SnapshotCorrupt(_)) => {} // also acceptable
             Err(other) => panic!("expected SnapshotIo|SnapshotCorrupt, got {other:?}"),
-            Ok(_) => panic!("missing codebook must not load"),
-        }
-    }
-
-    #[test]
-    fn load_rejects_corrupted_codebook_bytes() {
-        // Codebook bytes flipped (e.g., disk bit-rot or partial write).
-        // Cross-file BLAKE3 in the wrapper catches it.
-        let dir = tempfile::tempdir().unwrap();
-        let (shared, _w, _) = fixture_with_writes(2);
-        shared.save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16]).unwrap();
-        let cb_path = dir.path().join("hnsw.codebook");
-        let mut bytes = std::fs::read(&cb_path).unwrap();
-        let mid = bytes.len() / 2;
-        bytes[mid] ^= 0xFF;
-        std::fs::write(&cb_path, bytes).unwrap();
-        match SharedHnsw::load_snapshot(dir.path(), "hnsw", [0xAA; 16]) {
-            Err(HnswError::SnapshotCorrupt(msg)) => {
-                assert!(
-                    msg.contains("codebook") || msg.contains("BLAKE3"),
-                    "msg: {msg}"
-                );
-            }
-            Err(other) => panic!("expected SnapshotCorrupt(codebook), got {other:?}"),
-            Ok(_) => panic!("corrupted codebook must not load"),
+            Ok(_) => panic!("missing data file must not load"),
         }
     }
 
@@ -1108,7 +944,9 @@ mod tests {
         // a byte well past hnsw_rs's own magic prefix.
         let dir = tempfile::tempdir().unwrap();
         let (shared, _w, _) = fixture_with_writes(2);
-        shared.save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16]).unwrap();
+        shared
+            .save_snapshot(dir.path(), "hnsw", 1, [0xAA; 16])
+            .unwrap();
         let data_path = dir.path().join("hnsw.hnsw.data");
         let mut bytes = std::fs::read(&data_path).unwrap();
         let mid = bytes.len() / 2;

@@ -80,15 +80,41 @@ pub enum EntityOpError {
 /// 2. `to_lowercase()` — Unicode-aware via the Rust stdlib.
 /// 3. Collapse any internal whitespace run (spaces / tabs / newlines)
 ///    to a single ASCII space.
+/// 4. Strip a leading English determiner (`the / a / an / this /
+///    that`). LLM extractors routinely emit `"the customer support
+///    team"`, `"the Phoenix project"`, etc.; stripping the article
+///    folds those into the same canonical key as the bare form so
+///    repeated extractions converge on one EntityId.
 ///
 /// Idempotent: `normalize_name(normalize_name(s)) == normalize_name(s)`.
 #[must_use]
 pub fn normalize_name(s: &str) -> String {
-    s.trim()
+    let collapsed: String = s
+        .trim()
         .to_lowercase()
         .split_whitespace()
         .collect::<Vec<_>>()
-        .join(" ")
+        .join(" ");
+    strip_leading_determiner(&collapsed).to_string()
+}
+
+/// Strip a leading English determiner from a lowercase normalized
+/// name. Returns the input unchanged when no determiner matches or
+/// when the residue would be empty (a bare `"the"` stays as
+/// `"the"` rather than collapsing to an empty key).
+fn strip_leading_determiner(s: &str) -> &str {
+    const ARTICLES: &[&str] = &["the ", "a ", "an ", "this ", "that "];
+    for art in ARTICLES {
+        if let Some(rest) = s.strip_prefix(art) {
+            // Don't return an empty key — `normalize_name` must
+            // remain a total function whose output is non-empty
+            // whenever the input has any non-whitespace content.
+            if !rest.is_empty() {
+                return rest;
+            }
+        }
+    }
+    s
 }
 
 // ---------------------------------------------------------------------------
@@ -239,12 +265,7 @@ pub fn entity_vector_get(
     rtxn: &ReadTransaction,
     id: EntityId,
 ) -> Result<Option<[f32; 384]>, EntityOpError> {
-    let t = match rtxn.open_table(ENTITY_VECTORS_TABLE) {
-        Ok(t) => t,
-        // Fresh shard / no entity yet → no table → no vector.
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(ENTITY_VECTORS_TABLE)?;
     let row = t.get(&id.to_bytes())?;
     Ok(row.map(|g| bytes_to_vector(&g.value())))
 }
@@ -264,13 +285,7 @@ pub fn entity_iter_all_live_with_vectors(
     rtxn: &ReadTransaction,
 ) -> Result<Vec<EntityRebuildRow>, EntityOpError> {
     let entities = rtxn.open_table(ENTITIES_TABLE)?;
-    let vectors = match rtxn.open_table(ENTITY_VECTORS_TABLE) {
-        Ok(t) => Some(t),
-        // Pre-feature shard: no vectors table yet → every entry returns
-        // None, and the caller re-embeds.
-        Err(redb::TableError::TableDoesNotExist(_)) => None,
-        Err(e) => return Err(e.into()),
-    };
+    let vectors = rtxn.open_table(ENTITY_VECTORS_TABLE)?;
     let mut out = Vec::new();
     for entry in entities.iter()? {
         let (k, v) = entry?;
@@ -279,11 +294,7 @@ pub fn entity_iter_all_live_with_vectors(
             continue;
         }
         let id_bytes = k.value();
-        let vector = if let Some(vt) = vectors.as_ref() {
-            vt.get(&id_bytes)?.map(|g| bytes_to_vector(&g.value()))
-        } else {
-            None
-        };
+        let vector = vectors.get(&id_bytes)?.map(|g| bytes_to_vector(&g.value()));
         out.push((EntityId::from(id_bytes), m.canonical_name, vector));
     }
     Ok(out)

@@ -480,14 +480,9 @@ fn hydrate_paths(
     let table = rtxn
         .open_table(MEMORIES_TABLE)
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-    // A shard that hasn't received an encode yet won't have a texts
-    // table — treat that as "no texts available" rather than failing
-    // the whole PLAN.
-    let texts_table = match rtxn.open_table(TEXTS_TABLE) {
-        Ok(t) => Some(t),
-        Err(redb::TableError::TableDoesNotExist(_)) => None,
-        Err(e) => return Err(ExecError::MetadataReadFailed(e.to_string())),
-    };
+    let texts_table = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
 
     let mut out = Vec::with_capacity(raw.len());
     for (nodes, edges, edge_weights) in raw {
@@ -517,8 +512,8 @@ fn hydrate_paths(
             // text today, and surfacing empty is honest.
             let node_text = if is_pending {
                 String::new()
-            } else if let Some(tbl) = texts_table.as_ref() {
-                match tbl.get(id.to_be_bytes()) {
+            } else {
+                match texts_table.get(id.to_be_bytes()) {
                     Ok(Some(g)) => std::str::from_utf8(g.value())
                         .map_err(|e| {
                             ExecError::Internal(format!("texts row for {id:?} is not UTF-8: {e}"))
@@ -527,8 +522,6 @@ fn hydrate_paths(
                     Ok(None) => String::new(),
                     Err(e) => return Err(ExecError::MetadataReadFailed(e.to_string())),
                 }
-            } else {
-                String::new()
             };
             text.push(node_text);
         }
@@ -667,11 +660,9 @@ fn collect_endpoint_text_vectors(
         .metadata
         .read_txn()
         .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-    let table = match rtxn.open_table(TEXTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(ExecError::MetadataReadFailed(e.to_string())),
-    };
+    let table = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
 
     let mut out = Vec::with_capacity(endpoints.len());
     for &id in endpoints {
@@ -749,15 +740,9 @@ fn neighbour_alignment_scores(
     rtxn: &redb::ReadTransaction,
     ctx: &ExecutorContext,
 ) -> Result<Vec<f32>, ExecError> {
-    let table = match rtxn.open_table(TEXTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => {
-            // No texts table → no signal to sort on; return all-zero
-            // so the original order is preserved by the stable sort.
-            return Ok(vec![0.0; neighbours.len()]);
-        }
-        Err(e) => return Err(ExecError::MetadataReadFailed(e.to_string())),
-    };
+    let table = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
 
     let mut scores = Vec::with_capacity(neighbours.len());
     for (_, id, _) in neighbours {

@@ -504,6 +504,7 @@ mod tests {
                 confidence: 0.85,
                 salience: 0.5,
                 kind: MemoryKindWire::Episodic,
+                agent_id: sample_uuid(42),
                 context_id: 1_u64,
                 created_at_unix_nanos: 1_700_000_000_000_000_000,
                 last_accessed_at_unix_nanos: 1_700_000_001_000_000_000,

@@ -123,7 +123,18 @@ pub async fn run(
         // in the card, making clear the flag was a no-op (no
         // workers wired, dedup hit, or no schema declared so the
         // extractor lane never fired).
-        let stages: Vec<brain_protocol::StageKind> = resp.pending_stages.to_vec();
+        // The LLM extractor tier is external-API-bound (multi-second
+        // round-trips) and the spec runs it in the background, so a
+        // synchronous wait on it would routinely blow the interactive
+        // budget and surface a false "timed out" line. Block only on
+        // the fast, local edge stages (auto_edge, temporal_edge);
+        // extraction lands asynchronously after the card prints.
+        let stages: Vec<brain_protocol::StageKind> = resp
+            .pending_stages
+            .iter()
+            .copied()
+            .filter(|k| !matches!(k, brain_protocol::StageKind::Extractor))
+            .collect();
         Some(
             wait_for_stages(
                 pre_subscribe_stream,

@@ -80,53 +80,69 @@ pub enum SchemaError {
 /// See the module docs for behavior across the four cases (fresh, same,
 /// older, newer).
 pub fn open_or_init_schema(db: &Database) -> Result<u32, SchemaError> {
-    // Peek with a read transaction first.
-    {
+    // Peek with a read transaction first to decide fresh vs existing.
+    let mut fresh = false;
+    let stored_version = {
         let rtxn = db.begin_read()?;
         match rtxn.open_table(SCHEMA_META_TABLE) {
-            Ok(table) => {
-                if let Some(stored) = table.get(SCHEMA_VERSION_KEY)? {
-                    let v = stored.value();
-                    if v > CURRENT_SCHEMA_VERSION {
-                        return Err(SchemaError::SchemaVersionTooNew {
-                            found: v,
-                            supported: CURRENT_SCHEMA_VERSION,
-                        });
-                    }
-                    if v < CURRENT_SCHEMA_VERSION {
-                        // No in-place migration and no migration tool:
-                        // Brain is pre-user, fresh-start is acceptable.
-                        return Err(SchemaError::SchemaTooOld {
-                            found: v,
-                            current: CURRENT_SCHEMA_VERSION,
-                        });
-                    }
-                    tracing::info!(
-                        schema_version = v,
-                        "opened brain-metadata at existing schema"
-                    );
-                    return Ok(v);
+            Ok(table) => match table.get(SCHEMA_VERSION_KEY)? {
+                Some(stored) => Some(stored.value()),
+                // Meta table exists but key is missing — treat as fresh.
+                None => {
+                    fresh = true;
+                    None
                 }
-                // Table exists but the key is missing — treat as fresh.
-            }
+            },
             Err(redb::TableError::TableDoesNotExist(_)) => {
-                // Fresh DB; fall through to init.
+                fresh = true;
+                None
             }
             Err(e) => return Err(e.into()),
         }
+    };
+
+    if let Some(v) = stored_version {
+        if v > CURRENT_SCHEMA_VERSION {
+            return Err(SchemaError::SchemaVersionTooNew {
+                found: v,
+                supported: CURRENT_SCHEMA_VERSION,
+            });
+        }
+        if v < CURRENT_SCHEMA_VERSION {
+            // No in-place migration and no migration tool: Brain is
+            // pre-user, fresh-start is acceptable.
+            return Err(SchemaError::SchemaTooOld {
+                found: v,
+                current: CURRENT_SCHEMA_VERSION,
+            });
+        }
     }
 
-    // Initialize.
+    // Single write-txn does both jobs: stamp the version (if fresh) and
+    // materialize every catalog table. Running this on every open keeps
+    // the invariant "every table this binary knows about exists" in one
+    // place — read paths can drop their `TableDoesNotExist` arms.
     let wtxn = db.begin_write()?;
     {
         let mut table = wtxn.open_table(SCHEMA_META_TABLE)?;
-        table.insert(SCHEMA_VERSION_KEY, &CURRENT_SCHEMA_VERSION)?;
+        if fresh {
+            table.insert(SCHEMA_VERSION_KEY, &CURRENT_SCHEMA_VERSION)?;
+        }
     }
+    crate::tables::materialize_all_tables(&wtxn)?;
     wtxn.commit()?;
-    tracing::info!(
-        schema_version = CURRENT_SCHEMA_VERSION,
-        "initialized brain-metadata schema"
-    );
+
+    if fresh {
+        tracing::info!(
+            schema_version = CURRENT_SCHEMA_VERSION,
+            "initialized brain-metadata schema"
+        );
+    } else {
+        tracing::info!(
+            schema_version = CURRENT_SCHEMA_VERSION,
+            "opened brain-metadata at existing schema"
+        );
+    }
     Ok(CURRENT_SCHEMA_VERSION)
 }
 

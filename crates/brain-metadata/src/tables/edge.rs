@@ -62,10 +62,10 @@ use redb::{ReadOnlyTable, ReadTransaction, Table, TableDefinition};
 // Tables.
 // ---------------------------------------------------------------------------
 
-pub const EDGES_TABLE: TableDefinition<'static, &[u8], EdgeData> = TableDefinition::new("edges_v2");
+pub const EDGES_TABLE: TableDefinition<'static, &[u8], EdgeData> = TableDefinition::new("edges");
 
 pub const EDGES_REVERSE_TABLE: TableDefinition<'static, &[u8], EdgeData> =
-    TableDefinition::new("edges_reverse_v2");
+    TableDefinition::new("edges_reverse");
 
 // ---------------------------------------------------------------------------
 // origin / derived_by byte mappings.
@@ -148,7 +148,7 @@ impl redb::Value for EdgeData {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("brain_metadata::EdgeData::v2")
+        redb::TypeName::new("brain_metadata::EdgeData")
     }
 }
 

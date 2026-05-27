@@ -175,7 +175,7 @@ impl EntityMetadata {
     }
 }
 
-impl_redb_rkyv_value!(EntityMetadata, "brain_metadata::EntityMetadata::v2");
+impl_redb_rkyv_value!(EntityMetadata, "brain_metadata::EntityMetadata");
 
 // ---------------------------------------------------------------------------
 // brain-core ↔ brain-metadata boundary conversions.
@@ -245,7 +245,7 @@ impl MentionMetadata {
     }
 }
 
-impl_redb_rkyv_value!(MentionMetadata, "brain_metadata::MentionMetadata::v1");
+impl_redb_rkyv_value!(MentionMetadata, "brain_metadata::MentionMetadata");
 
 // ---------------------------------------------------------------------------
 // Tests.

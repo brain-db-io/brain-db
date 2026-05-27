@@ -11,9 +11,7 @@
 
 use std::path::{Path, PathBuf};
 
-use redb::{
-    Database, ReadTransaction, ReadableDatabase, ReadableTable, TableError, WriteTransaction,
-};
+use redb::{Database, ReadTransaction, ReadableDatabase, ReadableTable, WriteTransaction};
 
 use crate::tables::api_keys::{permissions, ApiKeyRow, API_KEYS_BY_AGENT_TABLE, API_KEYS_TABLE};
 
@@ -155,11 +153,7 @@ pub fn api_key_lookup_by_hash(
     rtxn: &ReadTransaction,
     key_hash: &[u8; 32],
 ) -> Result<Option<ApiKeyRow>, ApiKeyError> {
-    let table = match rtxn.open_table(API_KEYS_TABLE) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let table = rtxn.open_table(API_KEYS_TABLE)?;
     Ok(table.get(key_hash)?.map(|g| g.value()))
 }
 
@@ -205,16 +199,8 @@ pub fn api_key_list_for_agent(
     rtxn: &ReadTransaction,
     agent_id: &[u8; 16],
 ) -> Result<Vec<ApiKeyRow>, ApiKeyError> {
-    let index = match rtxn.open_table(API_KEYS_BY_AGENT_TABLE) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
-    let primary = match rtxn.open_table(API_KEYS_TABLE) {
-        Ok(t) => t,
-        Err(TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let index = rtxn.open_table(API_KEYS_BY_AGENT_TABLE)?;
+    let primary = rtxn.open_table(API_KEYS_TABLE)?;
 
     let lo = (*agent_id, [0u8; 32]);
     let hi = (*agent_id, [0xFFu8; 32]);

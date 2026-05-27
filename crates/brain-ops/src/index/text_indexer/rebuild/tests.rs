@@ -3,11 +3,16 @@
 use std::fs;
 use std::path::Path;
 
-use brain_core::{Entity, EntityId, EntityTypeId, ExtractorId, PredicateId, StatementId};
+use brain_core::{
+    AgentId, ContextId, Entity, EntityId, EntityTypeId, ExtractorId, MemoryId, MemoryKind,
+    PredicateId, StatementId,
+};
 use brain_core::{
     EvidenceRef, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
 };
-use brain_index::{IndexStatus, LexicalScope, TantivyShard};
+use brain_index::{build_analyzer, IndexStatus, LexicalScope, TantivyShard, BRAIN_TOKENIZER_NAME};
+use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_metadata::entity::ops::entity_put;
 use brain_metadata::entity::types::entity_type_intern;
 use brain_metadata::schema::predicate::predicate_intern_or_get;
@@ -40,6 +45,33 @@ fn put_entity(metadata: &mut MetadataDb, name: &str, type_id: EntityTypeId) -> E
     let entity = Entity::new_active(id, type_id, name.into(), name.to_lowercase(), 0);
     let wtxn = metadata.write_txn().expect("wtxn");
     entity_put(&wtxn, &entity).expect("entity_put");
+    wtxn.commit().expect("commit");
+    id
+}
+
+/// Seed an active memory row in `MEMORIES_TABLE` + its text in
+/// `TEXTS_TABLE`, mirroring what the apply layer writes at ENCODE.
+fn put_memory(metadata: &mut MetadataDb, slot: u64, text: &str, kind: MemoryKind) -> MemoryId {
+    let id = MemoryId::pack(0, slot, 1);
+    let meta = MemoryMetadata::new_active(
+        id,
+        AgentId::from([7u8; 16]),
+        ContextId::from(42),
+        slot,
+        1,
+        kind,
+        [0u8; 16],
+        0.5,
+        text.len() as u32,
+        1_700_000_000_000_000_000,
+    );
+    let wtxn = metadata.write_txn().expect("wtxn");
+    {
+        let mut m = wtxn.open_table(MEMORIES_TABLE).expect("open MEMORIES");
+        m.insert(&id.to_be_bytes(), &meta).expect("insert mem");
+        let mut t = wtxn.open_table(TEXTS_TABLE).expect("open TEXTS");
+        t.insert(&id.to_be_bytes(), text.as_bytes()).expect("insert text");
+    }
     wtxn.commit().expect("commit");
     id
 }
@@ -96,24 +128,54 @@ fn count_text_hits(index: &Index, field_name: &str, query_text: &str) -> usize {
 }
 
 // ---------------------------------------------------------------------------
-// Memory text rebuild — v1 emits an empty valid index.
+// Memory text rebuild — content-complete from MEMORIES_TABLE + TEXTS_TABLE.
 // ---------------------------------------------------------------------------
 
 #[test]
-fn rebuild_memory_text_produces_empty_valid_index() {
+fn rebuild_memory_text_empty_db_yields_empty_index() {
     let dir = TempDir::new().expect("tempdir");
-    let mut metadata = fresh_metadata(dir.path());
+    let metadata = fresh_metadata(dir.path());
 
+    // No memories seeded → zero rows, but a valid index + Ready status.
     let report = rebuild_memory_text(dir.path(), &metadata).expect("rebuild");
     assert_eq!(report.scope, LexicalScope::MemoryText);
     assert_eq!(report.rows_processed, 0);
 
-    // Re-open via TantivyShard to confirm Ready status.
     let startup = TantivyShard::open(dir.path()).expect("open after rebuild");
     assert!(matches!(startup.memory_status, IndexStatus::Ready));
     assert!(matches!(startup.statements_status, IndexStatus::Ready));
+}
 
-    let _ = &mut metadata;
+#[test]
+fn rebuild_memory_text_round_trip() {
+    let dir = TempDir::new().expect("tempdir");
+    let mut metadata = fresh_metadata(dir.path());
+
+    put_memory(
+        &mut metadata,
+        1,
+        "Sarah leads the payments platform team at Aurora",
+        MemoryKind::Semantic,
+    );
+    put_memory(
+        &mut metadata,
+        2,
+        "Cello practice happens every morning before work",
+        MemoryKind::Episodic,
+    );
+
+    let report = rebuild_memory_text(dir.path(), &metadata).expect("rebuild");
+    assert_eq!(report.scope, LexicalScope::MemoryText);
+    assert_eq!(report.rows_processed, 2, "both active memories indexed");
+
+    // Re-open the rebuilt index and confirm each is lexically findable.
+    let index = Index::open_in_dir(dir.path().join("memory_text.tantivy")).expect("open index");
+    index
+        .tokenizers()
+        .register(BRAIN_TOKENIZER_NAME, build_analyzer());
+    assert_eq!(count_text_hits(&index, "text", "payments"), 1);
+    assert_eq!(count_text_hits(&index, "text", "cello"), 1);
+    assert_eq!(count_text_hits(&index, "text", "Aurora"), 1);
 }
 
 // ---------------------------------------------------------------------------

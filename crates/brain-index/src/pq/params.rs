@@ -87,7 +87,7 @@ impl PqParams {
         if self.m == 0 {
             return Err(PqParamsError::MZero);
         }
-        if VECTOR_DIM % self.m != 0 {
+        if !VECTOR_DIM.is_multiple_of(self.m) {
             return Err(PqParamsError::MDoesNotDivideDim {
                 m: self.m,
                 d: VECTOR_DIM,

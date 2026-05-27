@@ -45,7 +45,7 @@ impl EntityTypeDefinition {
 
 impl_redb_rkyv_value!(
     EntityTypeDefinition,
-    "brain_metadata::EntityTypeDefinition::v1"
+    "brain_metadata::EntityTypeDefinition"
 );
 
 #[cfg(all(test, not(miri)))]

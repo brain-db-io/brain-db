@@ -257,10 +257,7 @@ async fn do_maintenance_cycle(
                                     combined.push((entry.memory_id, entry.vector));
                                 }
                             }
-                            let codebook = brain_index::bootstrap_codebook();
-                            let (idx, _) = brain_index::rebuild::rebuild_impl::<8, _>(
-                                params, codebook, combined,
-                            )?;
+                            let (idx, _) = brain_index::rebuild::rebuild_impl(params, combined)?;
                             Ok(idx)
                         })
                         .map_err(|e| WorkerError::Ops(format!("rebuild: {e:?}")))?;

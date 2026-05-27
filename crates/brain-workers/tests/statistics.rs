@@ -170,9 +170,8 @@ fn tombstone_count_reflects_hnsw_state() {
                 (make_id(slot), v)
             })
             .collect();
-        let cb = brain_index::bootstrap_codebook();
         let (mut new_idx, _r) =
-            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source).unwrap();
+            brain_index::rebuild::rebuild_impl(fix.index.params(), source).unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);

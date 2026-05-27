@@ -51,7 +51,7 @@ pub const MEMORIES_TABLE: TableDefinition<'static, [u8; 16], MemoryMetadata> =
 /// tombstone the writer must delete it so a tombstoned memory never
 /// surfaces as a temporal predecessor.
 pub const MEMORIES_BY_AGENT_TIMELINE_TABLE: TableDefinition<'static, &[u8], ()> =
-    TableDefinition::new("memories_by_agent_timeline_v1");
+    TableDefinition::new("memories_by_agent_timeline");
 
 /// Encoded length: `agent(16) + created_at(8) + context(8) + memory_id(16)`.
 pub const AGENT_TIMELINE_KEY_LEN: usize = 16 + 8 + 8 + 16;
@@ -376,7 +376,7 @@ impl redb::Value for MemoryMetadata {
 
     fn type_name() -> redb::TypeName {
         // Embed schema version so type-confused mismatches surface early.
-        redb::TypeName::new("brain_metadata::MemoryMetadata::v1")
+        redb::TypeName::new("brain_metadata::MemoryMetadata")
     }
 }
 

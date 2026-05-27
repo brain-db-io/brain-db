@@ -10,7 +10,7 @@ use std::io::{self, Write};
 use brain_protocol::envelope::response::MemoryResult;
 use serde_json::{json, Value};
 
-use crate::render::{fmt_hex_16, fmt_id, fmt_kind, fmt_short_id};
+use crate::render::{fmt_hex_16, fmt_hex_16_bare, fmt_id, fmt_kind, fmt_short_id, fmt_uuid};
 use crate::table::middle_truncate;
 use crate::theme::Token;
 use crate::{Render, RenderCtx};
@@ -72,6 +72,14 @@ impl Render for RecallResults {
                 score_painted,
                 format!("sem={:.4}", r.similarity_score),
             ];
+            // Owning agent — first 8 hex of the agent uuid. Only shown
+            // when known (non-zero); on a cross-agent recall this is
+            // how the reader tells whose memory each hit is. The zero
+            // agent is the anonymous owner and adds only noise.
+            if r.agent_id != [0u8; 16] {
+                let short_agent: String = fmt_hex_16_bare(&r.agent_id).chars().take(8).collect();
+                meta.push(format!("agent={short_agent}"));
+            }
             // Cross-encoder relevance, only present when rerank scored
             // this hit. Surfacing it makes the re-sort auditable.
             if let Some(rr) = r.rerank_score {
@@ -232,6 +240,7 @@ impl Render for RecallResults {
                     "lsn": r.lsn,
                     "flags": r.flags,
                     "kind": fmt_kind(r.kind),
+                    "agent_id": fmt_uuid(&r.agent_id),
                     "context_id": r.context_id,
                     "created_at_unix_nanos": r.created_at_unix_nanos,
                     "last_accessed_at_unix_nanos": r.last_accessed_at_unix_nanos,
@@ -289,6 +298,7 @@ mod tests {
             confidence: score,
             salience: 0.5,
             kind: MemoryKindWire::Episodic,
+            agent_id: [0u8; 16],
             context_id: 0,
             created_at_unix_nanos: 0,
             last_accessed_at_unix_nanos: 0,
@@ -357,6 +367,25 @@ mod tests {
         assert!(s.contains("score=0.0164"), "fused primary column: {s}");
         assert!(s.contains("sem=0.4000"), "secondary cosine column: {s}");
         assert!(s.contains("rr=7.2500"), "rerank column: {s}");
+    }
+
+    #[test]
+    fn shows_agent_token_only_when_known() {
+        // Zero agent (anonymous) → no agent= token.
+        let r = RecallResults(vec![make_hit("anon", 0.9)]);
+        let mut buf = Vec::new();
+        r.render_table(&ctx(), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(!s.contains("agent="), "zero agent should not render token: {s}");
+
+        // Known agent → first 8 hex of the uuid rides on the line.
+        let mut hit = make_hit("owned", 0.9);
+        hit.agent_id = [0xab, 0xcd, 0xef, 0x01, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+        let r = RecallResults(vec![hit]);
+        let mut buf = Vec::new();
+        r.render_table(&ctx(), &mut buf).unwrap();
+        let s = String::from_utf8(buf).unwrap();
+        assert!(s.contains("agent=abcdef01"), "expected agent token: {s}");
     }
 
     #[test]

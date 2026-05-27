@@ -370,13 +370,8 @@ fn render_embed_text(rtxn: &redb::ReadTransaction, s: &Statement) -> Result<Stri
         .ok_or("predicate missing")?;
     // The qname's namespace prefix carries no semantic signal for an
     // embedding model — "brain:" or "user_ns:" are bookkeeping. Use
-    // only the predicate name (and the original qname if the row
-    // landed on a wildcard sink).
-    let predicate_text = s
-        .original_predicate_qname
-        .as_deref()
-        .map(|qn| qn.rsplit(':').next().unwrap_or(qn))
-        .unwrap_or(&predicate.name);
+    // only the predicate name.
+    let predicate_text = predicate.name.as_str();
 
     let object_text = match &s.object {
         StatementObject::Entity(eid) => {
@@ -611,11 +606,7 @@ mod tests {
 
     fn queue_len(metadata: &Arc<MetadataDb>) -> u64 {
         let rtxn = metadata.read_txn().unwrap();
-        let t = match rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE) {
-            Ok(t) => t,
-            Err(redb::TableError::TableDoesNotExist(_)) => return 0,
-            Err(e) => panic!("open queue: {e}"),
-        };
+        let t = rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE).unwrap();
         t.len().unwrap()
     }
 

@@ -40,7 +40,7 @@ fn success_row(memory: MemoryId, extractor_id: u32, started_at: u64) -> Extracti
 
 fn build_seeded_fixture() -> (TempDir, MetadataDb, MemoryId, u32) {
     let dir = TempDir::new().expect("tmp");
-    let mut db = open_db(&dir);
+    let db = open_db(&dir);
     let target_memory = MemoryId::pack(1, 0, 42);
     let target_extractor: u32 = 1;
     let wtxn = db.write_txn().expect("wtxn");
@@ -70,7 +70,7 @@ fn bench_audit_write(c: &mut Criterion) {
                 let db = open_db(&dir);
                 (dir, db)
             },
-            |(dir, mut db)| {
+            |(dir, db)| {
                 let row = success_row(MemoryId::pack(1, 0, 0), 1, 1_000);
                 let wtxn = db.write_txn().expect("wtxn");
                 audit_write(&wtxn, &row).expect("write");

@@ -44,7 +44,7 @@ pub async fn handle_recall(
     if req.top_k == 0 {
         return Err(OpError::InvalidRequest("recall: top_k must be > 0".into()));
     }
-    let planner_req = build_planner_request(&req);
+    let planner_req = build_planner_request(&req, ctx.executor.caller_agent);
 
     let plan = hybrid_plan(&planner_req).map_err(map_plan_error)?;
     let exec_ctx = HybridExecutorContext {
@@ -188,6 +188,7 @@ fn pending_to_memory_result(p: &BufferedEncode, req: &RecallRequest, score: f32)
         confidence: score,
         salience: p.salience_initial,
         kind: MemoryKindWire::from(p.kind),
+        agent_id: p.agent_id.into(),
         context_id: p.context_id.into(),
         created_at_unix_nanos: p.created_at_unix_nanos,
         last_accessed_at_unix_nanos: p.created_at_unix_nanos,
@@ -245,7 +246,7 @@ fn cosine(a: &[f32; brain_embed::VECTOR_DIM], b: &[f32; brain_embed::VECTOR_DIM]
 fn fetch_enrichment_for(
     memory_ids: &[MemoryId],
     rtxn: &redb::ReadTransaction,
-) -> Result<Vec<Option<brain_protocol::envelope::response::GraphEnrichment>>, OpError> {
+) -> Result<Vec<brain_protocol::envelope::response::GraphEnrichment>, OpError> {
     use brain_core::{EdgeKindRef, NodeRef};
     use brain_core::{EntityId, StatementId, SubjectRef};
     use brain_metadata::entity::ops::entity_get;
@@ -263,17 +264,13 @@ fn fetch_enrichment_for(
     const STATEMENT_CAP: usize = 5;
     const RELATION_CAP: usize = 5;
     let entity_types = rtxn.open_table(ENTITY_TYPES_TABLE).ok();
-    let evidence_table = match rtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE) {
-        Ok(t) => Some(t),
-        Err(redb::TableError::TableDoesNotExist(_)) => None,
-        Err(e) => {
-            return Err(OpError::Internal(format!(
-                "include_graph: open STATEMENTS_BY_EVIDENCE_TABLE: {e}"
-            )));
-        }
-    };
+    let evidence_table = rtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE).map_err(|e| {
+        OpError::Internal(format!(
+            "include_graph: open STATEMENTS_BY_EVIDENCE_TABLE: {e}"
+        ))
+    })?;
 
-    let mut out: Vec<Option<GraphEnrichment>> = Vec::with_capacity(memory_ids.len());
+    let mut out: Vec<GraphEnrichment> = Vec::with_capacity(memory_ids.len());
     for &memory_id in memory_ids {
         // 1. Mentioned entities (walk Mentions edges from memory).
         let mention_rows = walk_outgoing(
@@ -289,14 +286,6 @@ fn fetch_enrichment_for(
                 _ => None,
             })
             .collect();
-
-        // Hard schema gate: no mentions AND no statements infra → the
-        // memory never went through extractors. Distinguish from
-        // "extracted but no entities" (Some(empty)) below.
-        if entity_ids.is_empty() && evidence_table.is_none() {
-            out.push(None);
-            continue;
-        }
 
         let mut enriched_entities: Vec<EnrichedEntity> =
             Vec::with_capacity(entity_ids.len().min(ENTITY_CAP));
@@ -321,12 +310,12 @@ fn fetch_enrichment_for(
         // 2. Statements sourced by this memory. STATEMENTS_BY_EVIDENCE
         // keys are `(MemoryId.to_be_bytes(), StatementId.to_bytes())`.
         let mut enriched_statements: Vec<EnrichedStatement> = Vec::new();
-        if let Some(et) = &evidence_table {
+        {
             let mid = memory_id.to_be_bytes();
             let lo = (mid, [0u8; 16]);
             let hi = (mid, [0xFFu8; 16]);
             let mut stmts: Vec<brain_core::Statement> = Vec::new();
-            for entry in et
+            for entry in evidence_table
                 .range(lo..=hi)
                 .map_err(|e| OpError::Internal(format!("include_graph: evidence range: {e}")))?
             {
@@ -445,16 +434,36 @@ fn fetch_enrichment_for(
             .map(|(_, r)| r)
             .collect();
 
-        out.push(Some(GraphEnrichment {
+        out.push(GraphEnrichment {
             entities: enriched_entities,
             statements: enriched_statements,
             relations: enriched_relations,
-        }));
+        });
     }
     Ok(out)
 }
 
-fn build_planner_request(req: &RecallRequest) -> PlannerQueryRequest {
+fn build_planner_request(
+    req: &RecallRequest,
+    caller_agent: brain_core::AgentId,
+) -> PlannerQueryRequest {
+    // Agent-scope resolution. Recall isolates to the calling agent by
+    // default so one tenant never sees another's memories without
+    // asking. Three cases, in precedence:
+    //   1. explicit `agent_filter` → scope to exactly that set.
+    //   2. `include_other_agents` → no agent filter (across-agents).
+    //   3. neither → implicit `[caller_agent]` isolation.
+    let agent_filter: Vec<brain_core::AgentId> = if !req.agent_filter.is_empty() {
+        req.agent_filter
+            .iter()
+            .map(|bytes| brain_core::AgentId::from(*bytes))
+            .collect()
+    } else if req.include_other_agents {
+        Vec::new()
+    } else {
+        vec![caller_agent]
+    };
+
     PlannerQueryRequest {
         text: Some(req.cue_text.clone()),
         entity_anchor: None,
@@ -464,6 +473,15 @@ fn build_planner_request(req: &RecallRequest) -> PlannerQueryRequest {
         kind_filter: Vec::new(),
         predicate_filter: Vec::new(),
         time_filter: None,
+        // Push the memory-context scope into the front gate so the
+        // retrievers run on the eligible universe instead of pruning
+        // post-projection (the historical gap this turn closes).
+        context_filter: req
+            .context_filter
+            .as_ref()
+            .cloned()
+            .unwrap_or_default(),
+        agent_filter,
         confidence_min: if req.confidence_threshold > 0.0 {
             Some(req.confidence_threshold)
         } else {
@@ -509,18 +527,10 @@ fn project_memory_results(
         .map_err(|e| OpError::Internal(format!("hybrid recall open MEMORIES_TABLE: {e}")))?;
     // Opening the texts table costs a redb seek; only do it when the
     // caller asked for text, so the common ids-only path stays cheap.
-    // A shard that hasn't received an encode yet won't have a texts
-    // table — treat that as "no texts available" rather than 500.
     let texts_table = if req.include_text {
-        match rtxn.open_table(TEXTS_TABLE) {
-            Ok(t) => Some(t),
-            Err(redb::TableError::TableDoesNotExist(_)) => None,
-            Err(e) => {
-                return Err(OpError::Internal(format!(
-                    "hybrid recall open TEXTS_TABLE: {e}"
-                )));
-            }
-        }
+        Some(rtxn.open_table(TEXTS_TABLE).map_err(|e| {
+            OpError::Internal(format!("hybrid recall open TEXTS_TABLE: {e}"))
+        })?)
     } else {
         None
     };
@@ -540,12 +550,7 @@ fn project_memory_results(
             })
             .collect();
         let enriched = fetch_enrichment_for(&ids, &rtxn)?;
-        Some(
-            ids.into_iter()
-                .zip(enriched)
-                .filter_map(|(id, e)| e.map(|g| (id, g)))
-                .collect(),
-        )
+        Some(ids.into_iter().zip(enriched).collect())
     } else {
         None
     };
@@ -675,6 +680,7 @@ fn project_memory_results(
             confidence: fused.fused_score as f32,
             salience: row.salience,
             kind: wire_kind,
+            agent_id: row.agent_id_bytes,
             context_id: ContextId(row.context_id).into(),
             created_at_unix_nanos: row.created_at_unix_nanos,
             last_accessed_at_unix_nanos: row.last_accessed_at_unix_nanos,

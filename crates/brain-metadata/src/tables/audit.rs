@@ -190,8 +190,8 @@ impl ExtractionAudit {
     }
 }
 
-impl_redb_rkyv_value!(ExtractionAudit, "brain_metadata::ExtractionAudit::v2");
-impl_redb_rkyv_value!(OutputRef, "brain_metadata::OutputRef::v1");
+impl_redb_rkyv_value!(ExtractionAudit, "brain_metadata::ExtractionAudit");
+impl_redb_rkyv_value!(OutputRef, "brain_metadata::OutputRef");
 
 // ---------------------------------------------------------------------------
 // entity_resolution_audit
@@ -261,7 +261,7 @@ impl ResolutionAudit {
     }
 }
 
-impl_redb_rkyv_value!(ResolutionAudit, "brain_metadata::ResolutionAudit::v1");
+impl_redb_rkyv_value!(ResolutionAudit, "brain_metadata::ResolutionAudit");
 
 #[cfg(all(test, not(miri)))]
 mod tests {

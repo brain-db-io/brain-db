@@ -52,7 +52,6 @@ pub async fn run(
         object,
         confidence: handle.confidence,
         evidence_memories: Vec::new(),
-        original_predicate_qname: handle.original_predicate_qname.clone(),
         // Bi-temporal record-time invalidation isn't exposed on the
         // wire in v1.0 (would require an additive rkyv archive bump on
         // `StatementView`). The shell renders the field when it lands

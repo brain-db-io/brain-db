@@ -38,7 +38,7 @@ struct Fixture {
 
 fn build_fixture(n: usize) -> Fixture {
     let dir = TempDir::new().expect("tempdir");
-    let mut db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
+    let db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
     let now = 1_700_000_000_000_000_000u64;
 
     // Resolve the built-in `brain:related_to` relation type id
@@ -110,7 +110,7 @@ fn build_fixture(n: usize) -> Fixture {
 // ---------------------------------------------------------------------------
 
 fn bench_relation_create(c: &mut Criterion) {
-    let mut fixture = build_fixture(N_RELATIONS);
+    let fixture = build_fixture(N_RELATIONS);
     let now = 1_700_000_000_000_000_001u64;
 
     // Pre-allocate fresh entity pairs so each create has unique

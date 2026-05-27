@@ -1040,6 +1040,51 @@ fn normalize_surface(text: &str) -> String {
     text.trim().to_lowercase()
 }
 
+/// Reject obvious non-entity extractor proposals up front so they
+/// never reach resolution. The LLM tier occasionally emits long
+/// descriptive phrases ("the sharp spike in complaints about failed
+/// payments and duplicate charges") and pure quantity tokens
+/// ("180 people", "40 million dollars") as entity surfaces; these
+/// are prose / quantities, not entities, and accepting them pollutes
+/// the entity table + the entity HNSW. The three guards:
+///
+/// 1. **Non-empty after trim.** Pure-whitespace surfaces always
+///    drop.
+/// 2. **At most 6 whitespace-separated words** AND at most 50
+///    characters. Real entity names are short.
+/// 3. **Not a bare `<number> <word>` shape.** `180 people`,
+///    `40 million` etc. are quantities.
+fn entity_mention_is_acceptable(text: &str) -> bool {
+    let t = text.trim();
+    if t.is_empty() {
+        return false;
+    }
+    if t.chars().count() > 50 {
+        return false;
+    }
+    let words: Vec<&str> = t.split_whitespace().collect();
+    if words.len() > 6 {
+        return false;
+    }
+    // Pure number-led shapes: first token is all digits (optionally
+    // grouped with `,`), and the surface has no later capital letter
+    // suggesting it's actually a code like `"R2D2 Robotics"`. The
+    // simpler heuristic — first token all-digit AND total ≤ 3 words —
+    // captures `"180 people"`, `"40 million dollars"`, `"2019 Boston"`
+    // without misfiring on `"Aurora Robotics 2019"` (Title-Case first
+    // token survives).
+    if let Some(first) = words.first() {
+        let only_digits_or_separator = !first.is_empty()
+            && first
+                .chars()
+                .all(|c| c.is_ascii_digit() || c == ',' || c == '.');
+        if only_digits_or_separator && words.len() <= 3 {
+            return false;
+        }
+    }
+    true
+}
+
 /// True if `candidate` is the better mention to keep for a surface
 /// than `current`: a typed mention (non-empty `entity_type_qname`)
 /// always beats an untyped one; among equally-typed mentions, higher
@@ -1129,6 +1174,14 @@ async fn apply_outcome(
     let mut surface_order: Vec<String> = Vec::new();
     for item in &outcome.items {
         if let ExtractedItem::EntityMention(em) = item {
+            if !entity_mention_is_acceptable(&em.text) {
+                trace!(
+                    memory_id = ?memory_id,
+                    text = %em.text,
+                    "extractor entity mention rejected by surface guards",
+                );
+                continue;
+            }
             let key = normalize_surface(&em.text);
             match best_by_surface.get(key.as_str()) {
                 None => {
@@ -1235,55 +1288,36 @@ async fn apply_outcome(
                     }
 
                     // Resolve the LLM's proposed predicate against the
-                    // schema. Three outcomes:
-                    //   (a) qname is admissible (declared in active
-                    //       schema, or schemaless namespace) → intern
-                    //       the real predicate id; statement carries
-                    //       the predicate's own qname (no override).
-                    //   (b) qname is unknown → route to the
-                    //       `brain:fact` wildcard sink. The original
-                    //       qname is preserved on the row so a later
-                    //       SCHEMA_UPLOAD can promote these to typed
-                    //       predicates without re-extraction.
-                    let (pid, original_predicate_qname, used_qname) =
-                        if pred_ok {
-                            let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
-                                .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
-                            (pid, None, (ns.to_string(), name.to_string()))
-                        } else {
-                            let original = format!("{ns}:{name}");
-                            worker.metrics.inc_schema_filtered(&sm.predicate_qname);
-                            tracing::info!(
-                                target: "brain_workers::extractor",
-                                memory_id = ?memory_id,
-                                predicate = %original,
-                                "predicate outside active schema; routing to brain:fact wildcard sink",
-                            );
-                            let pid =
-                                predicate_lookup_by_qname_in_write_txn(&wtxn, "brain", "fact")?
-                                    .ok_or_else(|| {
-                                        ApplyError::Predicate(
-                                            "system schema must declare brain:fact".into(),
-                                        )
-                                    })?;
-                            (
-                                pid,
-                                Some(original),
-                                ("brain".to_string(), "fact".to_string()),
-                            )
-                        };
+                    // schema. Only declared predicates pass; an
+                    // undeclared qname is dropped silently with a
+                    // metric. The prior `brain:fact` wildcard-sink
+                    // path collapsed semantically distinct relations
+                    // (mentors, owns, located_in, …) onto a single
+                    // `(subject, brain:fact)` key, which then tripped
+                    // the supersession rule for every new emission —
+                    // producing a steady stream of "Fact contradicts
+                    // active facts" WARNs that were entirely an
+                    // artifact of the sink, not of real conflicts.
+                    if !pred_ok {
+                        worker.metrics.inc_schema_filtered(&sm.predicate_qname);
+                        trace!(
+                            memory_id = ?memory_id,
+                            predicate = %sm.predicate_qname,
+                            "predicate outside active schema; dropping",
+                        );
+                        continue;
+                    }
+                    let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
+                        .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
+                    let used_qname = (ns.to_string(), name.to_string());
 
-                    // Per-statement statefulness: for the wildcard sink the
-                    // LLM's per-mention signal is authoritative (brain:fact's
-                    // registry row is the cumulative default by design). For
-                    // declared predicates the schema-registered flag wins —
-                    // it's what the operator committed to when uploading the
-                    // schema and what supersession logic keys off.
-                    let is_stateful = if original_predicate_qname.is_some() {
-                        sm.is_stateful
-                    } else {
-                        predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(sm.is_stateful)
-                    };
+                    // Schema-registered statefulness wins for declared
+                    // predicates — it's what the operator committed to
+                    // when uploading the schema and what supersession
+                    // logic keys off. Fall back to the extractor's hint
+                    // when the registry row is silent.
+                    let is_stateful = predicate_is_stateful_in_write_txn(&wtxn, pid)?
+                        .unwrap_or(sm.is_stateful);
 
                     let kind = statement_kind_from_byte(sm.kind);
                     let payload = StatementCreatePayload {
@@ -1296,7 +1330,6 @@ async fn apply_outcome(
                         extractor_id: ExtractorId::from(sm.extractor_id),
                         schema_version: 0,
                         extracted_at_unix_nanos: now,
-                        original_predicate_qname,
                         is_stateful,
                     };
                     match statement_create_internal(&wtxn, &payload) {
@@ -1353,7 +1386,6 @@ async fn apply_outcome(
                                 extractor_id: ExtractorId::from(rm.extractor_id),
                                 schema_version: 0,
                                 extracted_at_unix_nanos: now,
-                                original_predicate_qname: None,
                                 is_stateful,
                             };
                             match statement_create_internal(&wtxn, &payload) {
@@ -1688,11 +1720,9 @@ fn schema_active_for_namespace(
     wtxn: &redb::WriteTransaction,
     namespace: &str,
 ) -> Result<Option<u32>, ApplyError> {
-    let table = match wtxn.open_table(SCHEMA_ACTIVE_VERSIONS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(ApplyError::Storage(format!("schema_active open: {e}"))),
-    };
+    let table = wtxn
+        .open_table(SCHEMA_ACTIVE_VERSIONS_TABLE)
+        .map_err(|e| ApplyError::Storage(format!("schema_active open: {e}")))?;
     let value: Option<u32> = table
         .get(&namespace)
         .map_err(|e| ApplyError::Storage(format!("schema_active get: {e}")))?
@@ -1732,33 +1762,6 @@ fn predicate_allowed_by_schema(
         }
     }
     Ok(false)
-}
-
-/// Look up a predicate by qname inside an active write transaction.
-/// `predicate_lookup_by_qname` takes a `&ReadTransaction`; the
-/// extractor pipeline holds a `&WriteTransaction` and needs to see
-/// its own pending writes (e.g. when `brain:fact` was just interned
-/// in the same txn during system-schema seeding). Iterates the
-/// primary table — predicate count is small (< 100s typical).
-fn predicate_lookup_by_qname_in_write_txn(
-    wtxn: &redb::WriteTransaction,
-    namespace: &str,
-    name: &str,
-) -> Result<Option<brain_core::PredicateId>, ApplyError> {
-    let t = wtxn
-        .open_table(PREDICATES_TABLE)
-        .map_err(|e| ApplyError::Storage(format!("predicates open: {e}")))?;
-    for entry in t
-        .iter()
-        .map_err(|e| ApplyError::Storage(format!("predicates iter: {e}")))?
-    {
-        let (_k, v) = entry.map_err(|e| ApplyError::Storage(format!("predicates entry: {e}")))?;
-        let row: PredicateDefinition = v.value();
-        if row.namespace == namespace && row.name == name {
-            return Ok(Some(brain_core::PredicateId::from(row.predicate_id)));
-        }
-    }
-    Ok(None)
 }
 
 /// Read the `is_stateful` flag from the predicate registry for an interned

@@ -798,6 +798,17 @@ pub struct RecallArgs {
     /// Repeatable: keep only these context ids.
     #[arg(long = "filter-context")]
     pub filter_context: Vec<u64>,
+    /// Repeatable: scope recall to these agent ids (UUID form). When
+    /// given, only memories owned by these agents are returned,
+    /// regardless of the connected agent. Empty (the default) leaves
+    /// caller isolation to the server.
+    #[arg(long = "filter-agent")]
+    pub filter_agent: Vec<String>,
+    /// Drop the default caller-agent isolation. With no
+    /// `--filter-agent` this recalls across every agent's memories;
+    /// with one it still scopes to that explicit set. Off by default.
+    #[arg(long = "include-other-agents", default_value_t = false)]
+    pub include_other_agents: bool,
     /// Repeatable: keep only these memory kinds.
     #[arg(long = "filter-kind", value_enum)]
     pub filter_kind: Vec<KindArg>,
@@ -1049,6 +1060,40 @@ mod tests {
                 assert_eq!(args.top_k, 5);
                 assert_eq!(args.filter_context, vec![1, 2]);
                 assert_eq!(args.filter_kind, vec![KindArg::Episodic, KindArg::Semantic]);
+                // Agent scoping defaults to caller isolation.
+                assert!(args.filter_agent.is_empty());
+                assert!(!args.include_other_agents);
+            }
+            other => panic!("expected Recall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recall_agent_scope_flags() {
+        let uuid = "0191b6f0-1234-7890-abcd-ef0123456789";
+        let cli = parse(&[
+            "recall",
+            "auth",
+            "--filter-agent",
+            uuid,
+            "--include-other-agents",
+        ]);
+        match cli.subcommand {
+            Some(Command::Recall(args)) => {
+                assert_eq!(args.filter_agent, vec![uuid.to_string()]);
+                assert!(args.include_other_agents);
+            }
+            other => panic!("expected Recall, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn recall_bare_leaves_agent_scope_default() {
+        let cli = parse(&["recall", "foo"]);
+        match cli.subcommand {
+            Some(Command::Recall(args)) => {
+                assert!(args.filter_agent.is_empty());
+                assert!(!args.include_other_agents);
             }
             other => panic!("expected Recall, got {other:?}"),
         }

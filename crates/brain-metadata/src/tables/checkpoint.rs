@@ -130,7 +130,7 @@ impl redb::Value for CheckpointMeta {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("brain_metadata::CheckpointMeta::v1")
+        redb::TypeName::new("brain_metadata::CheckpointMeta")
     }
 }
 

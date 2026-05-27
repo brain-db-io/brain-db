@@ -222,7 +222,7 @@ fn agent_id_filter_includes_matches() {
             &LexicalQuery {
                 terms: vec!["common".into()],
                 filters: LexicalFilters {
-                    agent_id: Some(a),
+                    agent_ids: vec![a],
                     ..Default::default()
                 },
                 ..Default::default()
@@ -240,6 +240,68 @@ fn agent_id_filter_includes_matches() {
     } else {
         panic!("expected Memory id");
     }
+}
+
+#[test]
+fn agent_ids_filter_or_groups_match_any() {
+    let (_dir, shard, retriever) = fresh();
+    let a1 = AgentId::new();
+    let a2 = AgentId::new();
+    let a3 = AgentId::new();
+    write_memory(
+        &shard,
+        MemoryId::pack(0, 1, 0),
+        "common term one",
+        a1,
+        MemoryKind::Episodic,
+        0,
+    );
+    write_memory(
+        &shard,
+        MemoryId::pack(0, 2, 0),
+        "common term two",
+        a2,
+        MemoryKind::Episodic,
+        0,
+    );
+    write_memory(
+        &shard,
+        MemoryId::pack(0, 3, 0),
+        "common term three",
+        a3,
+        MemoryKind::Episodic,
+        0,
+    );
+
+    let result = retriever
+        .retrieve(
+            &LexicalQuery {
+                terms: vec!["common".into()],
+                filters: LexicalFilters {
+                    agent_ids: vec![a1, a2],
+                    ..Default::default()
+                },
+                ..Default::default()
+            },
+            LexicalScope::MemoryText,
+            &LexicalRetrieverConfig {
+                top_k: 10,
+                ..Default::default()
+            },
+        )
+        .expect("retrieve");
+
+    assert_eq!(result.len(), 2, "OR-group must match a1 or a2 but not a3");
+    let slots: std::collections::HashSet<u64> = result
+        .iter()
+        .map(|item| match item.id {
+            RankedItemId::Memory(id) => id.slot(),
+            _ => panic!("expected Memory id"),
+        })
+        .collect();
+    assert!(slots.contains(&1));
+    assert!(slots.contains(&2));
+    assert!(!slots.contains(&3));
 }
 
 #[test]
@@ -449,7 +511,7 @@ fn agent_id_filter_on_statement_scope_errors() {
             &LexicalQuery {
                 terms: vec!["x".into()],
                 filters: LexicalFilters {
-                    agent_id: Some(AgentId::new()),
+                    agent_ids: vec![AgentId::new()],
                     ..Default::default()
                 },
                 ..Default::default()

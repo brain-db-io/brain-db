@@ -142,6 +142,11 @@ pub fn memory_text_schema() -> Schema {
     sb.add_bytes_field("agent_id", INDEXED | STORED);
     sb.add_u64_field("kind", INDEXED);
     sb.add_u64_field("created_at", INDEXED | FAST);
+    // Context (session/conversation) id — the read-path scope tag that
+    // lets the front filter narrow a query to a single context before
+    // any expensive stage runs. INDEXED for exact term filter, FAST
+    // for selectivity-driven set ops.
+    sb.add_u64_field("context", INDEXED | FAST);
     sb.build()
 }
 

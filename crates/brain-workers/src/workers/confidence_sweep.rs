@@ -310,13 +310,9 @@ impl ConfidenceSweepWorker {
             .metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("confidence sweep rtxn: {e}")))?;
-        let table = match rtxn.open_table(STATEMENTS_TABLE) {
-            Ok(t) => t,
-            // No statements have ever been written — table doesn't
-            // exist yet. Treat as empty.
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-            Err(e) => return Err(WorkerError::Internal(format!("open STATEMENTS: {e}"))),
-        };
+        let table = rtxn
+            .open_table(STATEMENTS_TABLE)
+            .map_err(|e| WorkerError::Internal(format!("open STATEMENTS: {e}")))?;
 
         let mut out: Vec<Candidate> = Vec::new();
         let iter = table
@@ -653,7 +649,6 @@ mod tests {
             record_invalidated_at_unix_nanos: None,
             is_current: 1,
             flags: 0,
-            original_predicate_qname: String::new(),
             is_stateful: 0,
         };
         assert!(is_eligible(&meta, cutoff));

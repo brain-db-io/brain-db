@@ -10,8 +10,8 @@
 //!
 //! - [`IndexParams`] — HNSW knobs with defaults
 //!   (`M=16, ef_construction=200, ef_search=64, ef_search_max=500`).
-//! - [`HnswIndex<D>`] — const-generic over vector dim. Production use
-//!   pins `D = `[`VECTOR_DIM`] (= 384 for BGE-small).
+//! - [`HnswIndex`] — full-precision HNSW over the [`VECTOR_DIM`]-dim
+//!   (= 384 for BGE-small) memory embeddings, scoring exact cosine.
 
 #![allow(
     clippy::module_name_repetitions,

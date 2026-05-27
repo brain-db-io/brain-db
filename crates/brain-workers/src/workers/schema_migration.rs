@@ -239,29 +239,25 @@ fn count_flagged_in_namespace(
     use std::collections::HashSet;
 
     let mut in_ns: HashSet<PredicateId> = HashSet::new();
-    if let Ok(t) = rtxn.open_table(PREDICATES_TABLE) {
-        for entry in t
-            .iter()
-            .map_err(|e| WorkerError::Internal(format!("flag_sweep predicates iter: {e}")))?
-        {
-            let (k, v) = entry
-                .map_err(|e| WorkerError::Internal(format!("flag_sweep predicates entry: {e}")))?;
-            let row: PredicateDefinition = v.value();
-            if row.namespace == namespace {
-                in_ns.insert(PredicateId::from(k.value()));
-            }
+    let t = rtxn
+        .open_table(PREDICATES_TABLE)
+        .map_err(|e| WorkerError::Internal(format!("flag_sweep predicates open: {e}")))?;
+    for entry in t
+        .iter()
+        .map_err(|e| WorkerError::Internal(format!("flag_sweep predicates iter: {e}")))?
+    {
+        let (k, v) = entry
+            .map_err(|e| WorkerError::Internal(format!("flag_sweep predicates entry: {e}")))?;
+        let row: PredicateDefinition = v.value();
+        if row.namespace == namespace {
+            in_ns.insert(PredicateId::from(k.value()));
         }
-    } else {
-        // No predicates table → nothing to count.
-        return Ok(0);
     }
 
     let mut count = 0usize;
-    let stmts = match rtxn.open_table(STATEMENTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => return Err(WorkerError::Internal(format!("flag_sweep stmts open: {e}"))),
-    };
+    let stmts = rtxn
+        .open_table(STATEMENTS_TABLE)
+        .map_err(|e| WorkerError::Internal(format!("flag_sweep stmts open: {e}")))?;
     for entry in stmts
         .iter()
         .map_err(|e| WorkerError::Internal(format!("flag_sweep stmts iter: {e}")))?

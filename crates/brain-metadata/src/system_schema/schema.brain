@@ -102,10 +102,9 @@ define entity_type Concept {
 # --- Predicates ---------------------------------------------------
 #
 # The first six are the original generic substrate predicates kept
-# for back-compat with seeded callers (statement / relation wire
-# layers, `brain:fact` wildcard sink). The remaining fifteen are the
-# declared vocabulary the extractor pipeline can promote LLM-coined
-# predicates into. Statefulness follows the kind-derived default
+# as catch-all fallbacks for direct STATEMENT_CREATE callers. The
+# remaining fifteen are the declared vocabulary the extractor
+# pipeline is constrained to. Statefulness follows the kind-derived default
 # (Preference → stateful, Fact / Event → cumulative) unless the
 # predicate is single-valued at a point in time — in which case
 # `stateful: true` makes the new observation supersede the prior.
@@ -396,7 +395,7 @@ Output STRICT JSON matching this shape, and nothing else:
 }
 
 Rules:
-- Only emit a statement whose `predicate` is in the declared list above. If the most natural predicate is not listed, set `predicate` to `brain:fact` so the wildcard sink keeps the original assertion.
+- Only emit a statement whose `predicate` is in the declared list above. If no declared predicate fits the assertion, omit the statement entirely — do not invent or substitute a near-fit predicate.
 - Only emit a relation whose `relation_type` is in the declared list above. If no declared type fits, omit the relation entirely.
 - Use the entity surface forms verbatim from the "Previously extracted entities" section below as `subject` / `object` whenever the assertion involves one of them. Do not invent new entity surface forms for those concepts.
 - If there are no statements or relations, return `{ "statements": [], "relations": [] }`.

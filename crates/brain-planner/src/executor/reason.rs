@@ -447,7 +447,6 @@ fn build_base_centroid(
     };
     let table = match rtxn.open_table(TEXTS_TABLE) {
         Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return None,
         Err(e) => {
             tracing::debug!(error = %e, "REASON base-centroid: texts table open failed; skipping");
             return None;

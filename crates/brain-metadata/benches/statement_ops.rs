@@ -45,7 +45,7 @@ struct Fixture {
 
 fn build_fixture(n: usize) -> Fixture {
     let dir = TempDir::new().expect("tempdir");
-    let mut db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
+    let db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
     let now = 1_700_000_000_000_000_000u64;
 
     // Resolve the built-in `brain:related_to` predicate id (seeded
@@ -129,7 +129,7 @@ fn build_fixture(n: usize) -> Fixture {
 // ---------------------------------------------------------------------------
 
 fn bench_statement_create_fact(c: &mut Criterion) {
-    let mut fixture = build_fixture(N_STATEMENTS);
+    let fixture = build_fixture(N_STATEMENTS);
     let now = 1_700_000_000_000_000_001u64;
     // Pre-allocate two pools of unused entities so each create has
     // valid subject/object.
@@ -225,7 +225,7 @@ fn bench_statement_list_subject_predicate(c: &mut Criterion) {
 // ---------------------------------------------------------------------------
 
 fn bench_statement_supersede(c: &mut Criterion) {
-    let mut fixture = build_fixture(N_STATEMENTS);
+    let fixture = build_fixture(N_STATEMENTS);
     let related_to = fixture.seeded[0].1;
     let now = 1_700_000_000_000_000_002u64;
     let mut idx = 0usize;

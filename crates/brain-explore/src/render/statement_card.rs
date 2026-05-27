@@ -45,11 +45,6 @@ pub struct StatementCard {
     pub object: ObjectRef,
     pub confidence: f32,
     pub evidence_memories: Vec<MemorySummary>,
-    /// Set when the statement landed on the `brain:fact` wildcard
-    /// sink: the renderer displays this in place of `predicate_qname`
-    /// and appends an "(auto-coined)" hint so the user knows the
-    /// predicate isn't in the schema yet.
-    pub original_predicate_qname: Option<String>,
     /// Record-time invalidation. When set, the substrate no longer
     /// believes this statement (superseded / tombstoned / FORGET
     /// cascade). The renderer surfaces this with a warning line so the
@@ -65,26 +60,14 @@ impl Render for StatementCard {
         let body_width = policy.width.saturating_sub(2);
 
         let subject = theme.paint(Token::Accent, &self.subject_canonical, policy);
-        // Auto-coined rows surface the LLM's original predicate name
-        // instead of the literal `brain:fact` so the user sees the
-        // intent; the suffix tells them the predicate isn't declared
-        // in the schema yet (a declare-this hint).
-        let (predicate_label, auto_coined) = match &self.original_predicate_qname {
-            Some(orig) => (orig.clone(), true),
-            None => (self.predicate_qname.clone(), false),
-        };
+        let predicate_label = self.predicate_qname.clone();
         let predicate = theme.paint(Token::Predicate, &predicate_label, policy);
         let object = match &self.object {
             ObjectRef::Entity { name, .. } => theme.paint(Token::EntityId, name, policy),
             ObjectRef::Literal(s) => theme.paint(Token::Value, s, policy),
         };
         let kind = theme.paint(Token::Muted, &self.kind, policy);
-        if auto_coined {
-            let hint = theme.paint(Token::Muted, "(auto-coined)", policy);
-            writeln!(w, "[{kind}] {subject} {predicate} {object}  {hint}")?;
-        } else {
-            writeln!(w, "[{kind}] {subject} {predicate} {object}")?;
-        }
+        writeln!(w, "[{kind}] {subject} {predicate} {object}")?;
 
         let id_painted = theme.paint(Token::StatementId, &self.id, policy);
         let conf_str = format!("{:.2}", self.confidence);
@@ -128,8 +111,6 @@ impl Render for StatementCard {
             "statement_kind": self.kind,
             "subject_canonical": self.subject_canonical,
             "predicate": self.predicate_qname,
-            "original_predicate_qname": self.original_predicate_qname,
-            "auto_coined": self.original_predicate_qname.is_some(),
             "object": object,
             "confidence": self.confidence,
             "evidence_memories": self.evidence_memories.iter().map(|m| json!({
@@ -178,7 +159,6 @@ mod tests {
                 short_id: "s2/m17/v1".into(),
                 text: "Priya works at Acme Corp".into(),
             }],
-            original_predicate_qname: None,
             record_invalidated_at_unix_nanos: None,
         }
     }
@@ -216,30 +196,6 @@ mod tests {
     }
 
     #[test]
-    fn auto_coined_predicate_shows_original_and_hint() {
-        let mut c = sample();
-        c.predicate_qname = "brain:fact".into();
-        c.original_predicate_qname = Some("works_at".into());
-        c.object = ObjectRef::Literal("billing rewrite".into());
-
-        let mut buf = Vec::new();
-        c.render_table(&ctx(), &mut buf).unwrap();
-        let s = String::from_utf8(buf).unwrap();
-        // Renderer shows the LLM's qname, not the literal sink name.
-        assert!(s.contains("works_at"));
-        assert!(!s.contains("brain:fact"));
-        assert!(s.contains("(auto-coined)"));
-    }
-
-    #[test]
-    fn declared_predicate_omits_auto_coined_hint() {
-        let mut buf = Vec::new();
-        sample().render_table(&ctx(), &mut buf).unwrap();
-        let s = String::from_utf8(buf).unwrap();
-        assert!(!s.contains("(auto-coined)"));
-    }
-
-    #[test]
     fn record_invalidated_renders_warning_line() {
         let mut c = sample();
         c.record_invalidated_at_unix_nanos = Some(1);
@@ -273,18 +229,5 @@ mod tests {
 
         let v2 = sample().render_json(&ctx());
         assert_eq!(v2["record_invalidated"], false);
-    }
-
-    #[test]
-    fn json_carries_auto_coined_metadata() {
-        let mut c = sample();
-        c.predicate_qname = "brain:fact".into();
-        c.original_predicate_qname = Some("works_at".into());
-        let v = c.render_json(&ctx());
-        assert_eq!(v["original_predicate_qname"], "works_at");
-        assert_eq!(v["auto_coined"], true);
-
-        let v2 = sample().render_json(&ctx());
-        assert_eq!(v2["auto_coined"], false);
     }
 }

@@ -18,7 +18,7 @@ use brain_core::{AgentId, MemoryKind, PredicateId, RelationTypeId};
 use brain_index::Direction as GraphDirection;
 
 use super::filters::FilterChain;
-use super::fusion::DEFAULT_K;
+use super::fusion::{FusionMethod, DEFAULT_K};
 use super::router::{
     route, GraphAnchorMode, PerRetrieverWeights, QueryRequest, RetrievalProfile, Retriever,
     RoutingDecision, TimeRange,
@@ -47,7 +47,17 @@ const LEXICAL_DEFAULT_BM25_K1: f32 = 1.2;
 const LEXICAL_DEFAULT_BM25_B: f32 = 0.75;
 const GRAPH_DEFAULT_MAX_DEPTH: u8 = 3;
 const GRAPH_DEFAULT_MAX_BRANCHING: u32 = 200;
-const PER_RETRIEVER_TIMEOUT_MS: u32 = 50;
+// Soft timeout per retriever — emits a WARN and treats the
+// retriever's outcome as Timeout when exceeded, but does NOT
+// kill in-flight work; results still flow through fusion if
+// they arrive late. 50 ms is fine for HNSW + tantivy lookups
+// in isolation, but the semantic retriever's CPU embed step
+// (BGE-small via candle) takes 200–500 ms cold and 100–300 ms
+// hot — and several hundred more when an LLM extractor worker
+// is contending for the same core. 1 s gives the whole
+// pipeline headroom without making genuinely stuck retrievers
+// invisible.
+const PER_RETRIEVER_TIMEOUT_MS: u32 = 1_000;
 /// Memory-from-semantic anchor count. Small budget for the
 /// per-anchor walk fan-out so total graph cost stays sub-ms.
 const GRAPH_DEFAULT_MEMORY_ANCHOR_TOP_K: u8 = 3;
@@ -125,7 +135,11 @@ pub enum RetrieverConfig {
 /// filters apply post-fusion via [`FilterChain`].
 #[derive(Debug, Clone)]
 pub enum PreFilter {
-    AgentId(AgentId),
+    /// Restrict the retriever's candidate universe to memories
+    /// owned by any of these agent ids. Empty `Vec` is invalid —
+    /// the planner only emits this variant when the caller asked
+    /// for an agent scope.
+    AgentIds(Vec<AgentId>),
     MemoryKind(Vec<MemoryKind>),
     StatementKind(Vec<StatementKind>),
     PredicateId(Vec<PredicateId>),
@@ -137,6 +151,7 @@ pub enum PreFilter {
 pub struct FusionStep {
     pub k: u32,
     pub weights: PerRetrieverWeights,
+    pub method: FusionMethod,
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -260,13 +275,27 @@ fn retriever_config_for(
 }
 
 /// Decide the single push-down pre-filter for this retriever,
-/// per the v1 precedence: temporal > predicate > kind.
+/// per the v1 precedence: agent > temporal > predicate > kind.
+///
+/// Agent scope is the most-selective, identity-based axis — it
+/// defines *which memories are even visible* to this caller, so
+/// every other filter (temporal, predicate, kind) is a refinement
+/// inside the already-isolated agent universe. We push it first so
+/// the retriever's candidate set is bounded by ownership before any
+/// of the type / time / predicate refinements have to run.
 fn pre_filter_for(
     req: &QueryRequest,
     retriever: Retriever,
     routing: &RoutingDecision,
 ) -> Option<PreFilter> {
-    // Temporal first — works on every retriever.
+    // Agent scope first — most selective, identity-based axis.
+    // Applies to every retriever; the rest are refinements inside
+    // the already-isolated agent universe.
+    if !req.agent_filter.is_empty() {
+        return Some(PreFilter::AgentIds(req.agent_filter.clone()));
+    }
+
+    // Temporal — works on every retriever.
     if routing.temporal_pushdown {
         if let Some(range) = req.time_filter {
             return Some(PreFilter::Temporal(range));
@@ -330,7 +359,27 @@ fn build_fusion_step(
         },
     };
 
-    FusionStep { k, weights }
+    FusionStep {
+        k,
+        weights,
+        method: fusion_method_from_env(),
+    }
+}
+
+/// Deploy-time fusion-method selector. Defaults to score-aware
+/// (`RelativeScore`); `BRAIN_FUSION_METHOD=rrf|zscore` switches it
+/// without a recompile so the strategies can be A/B'd on a fixed
+/// corpus.
+fn fusion_method_from_env() -> FusionMethod {
+    match std::env::var("BRAIN_FUSION_METHOD")
+        .ok()
+        .as_deref()
+        .map(str::trim)
+    {
+        Some("rrf") => FusionMethod::Rrf,
+        Some("zscore" | "relative_zscore") => FusionMethod::RelativeScoreZScore,
+        _ => FusionMethod::RelativeScore,
+    }
 }
 
 fn router_weights_from(retrievers: &[PlannedRetriever]) -> PerRetrieverWeights {

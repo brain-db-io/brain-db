@@ -218,15 +218,9 @@ impl BackfillWorker {
         let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("backfill read_txn: {e}")))?;
-        let table = match rtxn.open_table(MEMORIES_TABLE) {
-            Ok(t) => t,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-            Err(e) => {
-                return Err(WorkerError::Internal(format!(
-                    "backfill open MEMORIES_TABLE: {e}",
-                )));
-            }
-        };
+        let table = rtxn
+            .open_table(MEMORIES_TABLE)
+            .map_err(|e| WorkerError::Internal(format!("backfill open MEMORIES_TABLE: {e}")))?;
         let mut iter = table
             .range(memory_key_from(lo)..=memory_key_from(hi))
             .map_err(|e| WorkerError::Internal(format!("backfill range: {e}")))?;

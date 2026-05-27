@@ -227,7 +227,7 @@ fn agent_id_filter_narrows() {
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
-            agent_id: Some(agent_a),
+            agent_ids: vec![agent_a],
             ..Default::default()
         }),
         top_k: 10,

@@ -784,12 +784,10 @@ mod tests {
         .unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        // memories table should be absent (no domain writes).
-        match rtxn.open_table(MEMORIES_TABLE) {
-            Ok(t) => assert_eq!(t.iter().unwrap().count(), 0),
-            Err(redb::TableError::TableDoesNotExist(_)) => {}
-            Err(e) => panic!("unexpected: {e:?}"),
-        }
+        // memories table is materialized at MetadataDb::open but empty
+        // (no domain writes happened).
+        let t = rtxn.open_table(MEMORIES_TABLE).unwrap();
+        assert_eq!(t.iter().unwrap().count(), 0);
         // next_lsn should be 2.
         assert_eq!(
             rtxn.open_table(NEXT_LSN_TABLE)

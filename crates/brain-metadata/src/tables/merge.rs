@@ -213,12 +213,12 @@ pub struct MergeAuditOverflow {
     pub rerouted_relation_ids: Vec<[u8; 16]>,
 }
 
-impl_redb_rkyv_value!(MergeRecord, "brain_metadata::MergeRecord::v2");
+impl_redb_rkyv_value!(MergeRecord, "brain_metadata::MergeRecord");
 impl_redb_rkyv_value!(
     AttributeConflictRecord,
-    "brain_metadata::AttributeConflictRecord::v1"
+    "brain_metadata::AttributeConflictRecord"
 );
-impl_redb_rkyv_value!(MergeAuditOverflow, "brain_metadata::MergeAuditOverflow::v1");
+impl_redb_rkyv_value!(MergeAuditOverflow, "brain_metadata::MergeAuditOverflow");
 
 // ---------------------------------------------------------------------------
 // Tests.

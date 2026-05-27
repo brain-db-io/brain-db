@@ -588,7 +588,9 @@ mod memory_anchor {
             put_memory(&metadata, m);
         }
         link_memories(&metadata, a, EdgeKind::Caused, b, 1.0);
-        link_memories(&metadata, b, EdgeKind::FollowedBy, c, 1.0);
+        // Relevance-bearing edge (not temporal): the walk traverses
+        // SimilarTo/Caused/DerivedFrom, never FollowedBy.
+        link_memories(&metadata, b, EdgeKind::DerivedFrom, c, 1.0);
 
         let retriever = make_retriever_with_db(metadata);
         let depth_1 = retriever
@@ -641,6 +643,48 @@ mod memory_anchor {
         let b_pos = depth_2_ids.iter().position(|x| *x == b).expect("b present");
         let c_pos = depth_2_ids.iter().position(|x| *x == c).expect("c present");
         assert!(b_pos < c_pos);
+    }
+
+    #[test]
+    fn walk_excludes_followed_by_temporal_edges() {
+        // FollowedBy records session order, not relevance, so the
+        // graph walk must never traverse or emit it — otherwise the
+        // query-independent session chain floods retrieval.
+        let (_dir, metadata) = fresh_with_metadata();
+        let a = mid(20);
+        let temporal = mid(21);
+        let similar = mid(22);
+        for m in [a, temporal, similar] {
+            put_memory(&metadata, m);
+        }
+        link_memories(&metadata, a, EdgeKind::FollowedBy, temporal, 1.0);
+        link_memories(&metadata, a, EdgeKind::SimilarTo, similar, 1.0);
+
+        let retriever = make_retriever_with_db(metadata);
+        let hits = retriever
+            .retrieve(
+                &GraphQuery::Star {
+                    anchor: GraphAnchor::Memory(a),
+                    depth: 1,
+                    direction: Direction::Both,
+                    relation_types: None,
+                    include_statements: false,
+                },
+                &GraphRetrieverConfig::default(),
+            )
+            .expect("retrieve");
+        let ids: Vec<MemoryId> = hits
+            .iter()
+            .filter_map(|i| match i.id {
+                RankedItemId::Memory(m) => Some(m),
+                _ => None,
+            })
+            .collect();
+        assert!(ids.contains(&similar), "SimilarTo neighbour is retrieved");
+        assert!(
+            !ids.contains(&temporal),
+            "FollowedBy neighbour must be excluded, got {ids:?}"
+        );
     }
 
     #[test]

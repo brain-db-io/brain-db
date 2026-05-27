@@ -46,12 +46,7 @@ pub struct StatementCreatePayload {
     /// mode); the predicate row's `SchemaOrigin` tracks provenance.
     pub schema_version: u32,
     pub extracted_at_unix_nanos: u64,
-    /// LLM-coined predicate qname when this row is being routed to the
-    /// `brain:fact` wildcard sink. `None` means `predicate` is the
-    /// actual interned predicate, not the sink.
-    pub original_predicate_qname: Option<String>,
-    /// Per-statement statefulness flag (verbatim from the extractor
-    /// proposal for `brain:fact` rows; copied from the predicate
+    /// Per-statement statefulness flag (copied from the predicate
     /// registry for schema-declared rows by the caller).
     pub is_stateful: bool,
 }
@@ -97,7 +92,6 @@ pub fn statement_create_internal(
         payload.schema_version.max(1),
     );
     s.valid_from_unix_nanos = Some(payload.extracted_at_unix_nanos);
-    s.original_predicate_qname = payload.original_predicate_qname.clone();
     s.is_stateful = payload.is_stateful;
     statement_create(wtxn, &s, payload.extracted_at_unix_nanos)
 }
@@ -179,7 +173,6 @@ mod tests {
                 extractor_id: ExtractorId::from(11),
                 schema_version: 0,
                 extracted_at_unix_nanos: NOW,
-                original_predicate_qname: None,
                 is_stateful: false,
             };
             let sid = statement_create_internal(&wtxn, &payload).unwrap();

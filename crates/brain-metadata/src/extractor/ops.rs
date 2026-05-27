@@ -159,11 +159,7 @@ pub fn extractor_get(
     rtxn: &ReadTransaction,
     id: ExtractorId,
 ) -> Result<Option<ExtractorDefinition>, ExtractorOpError> {
-    let t = match rtxn.open_table(EXTRACTORS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(EXTRACTORS_TABLE)?;
     let guard = t.get(&id.raw())?;
     Ok(guard.map(|g| g.value()))
 }
@@ -174,11 +170,7 @@ pub fn extractor_lookup_by_qname(
     name: &str,
 ) -> Result<Option<ExtractorDefinition>, ExtractorOpError> {
     let q = qname(namespace, name);
-    let idx = match rtxn.open_table(EXTRACTORS_BY_QNAME_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let idx = rtxn.open_table(EXTRACTORS_BY_QNAME_TABLE)?;
     let id_raw: Option<u32> = idx.get(q.as_str())?.map(|g| g.value());
     drop(idx);
     let Some(id_raw) = id_raw else {
@@ -193,11 +185,7 @@ pub fn extractor_lookup_by_qname(
 pub fn extractor_list(
     rtxn: &ReadTransaction,
 ) -> Result<Vec<ExtractorDefinition>, ExtractorOpError> {
-    let t = match rtxn.open_table(EXTRACTORS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(EXTRACTORS_TABLE)?;
     let mut out = Vec::new();
     for entry in t.iter()? {
         let (_, v) = entry?;

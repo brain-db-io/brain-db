@@ -25,6 +25,9 @@ pub enum MemoryTextOp {
         agent: AgentId,
         kind: MemoryKind,
         created_at_unix_ms: u64,
+        /// Session/conversation scope tag indexed as a tantivy fast
+        /// field so the read funnel can pre-filter on it.
+        context: u64,
     },
     Forget {
         id: MemoryId,
@@ -85,6 +88,7 @@ struct MemoryFields {
     agent_id: Field,
     kind: Field,
     created_at: Field,
+    context: Field,
 }
 
 impl MemoryFields {
@@ -101,6 +105,7 @@ impl MemoryFields {
             agent_id: get("agent_id")?,
             kind: get("kind")?,
             created_at: get("created_at")?,
+            context: get("context")?,
         })
     }
 }
@@ -260,6 +265,7 @@ fn apply_op(
         agent,
         kind,
         created_at_unix_ms,
+        context,
         ..
     } = op
     {
@@ -269,6 +275,7 @@ fn apply_op(
         doc.add_bytes(fields.agent_id, &agent_bytes(*agent));
         doc.add_u64(fields.kind, kind_to_u64(*kind));
         doc.add_u64(fields.created_at, *created_at_unix_ms);
+        doc.add_u64(fields.context, *context);
         writer.add_document(doc)?;
     }
     Ok(())

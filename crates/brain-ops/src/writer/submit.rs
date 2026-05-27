@@ -391,6 +391,7 @@ impl RealWriterHandle {
                 id,
                 text,
                 vector,
+                kind,
                 context,
                 created_at_unix_nanos,
                 ..
@@ -427,6 +428,24 @@ impl RealWriterHandle {
                         memory_id: *id,
                         stage_kind: brain_protocol::StageKind::Extractor,
                     });
+                }
+                // Index the memory text into tantivy so the lexical
+                // retriever can find it. Backpressures (awaits) rather
+                // than dropping on a full queue: lexical indexing is a
+                // primary recall lane, not best-effort enrichment, so a
+                // silently-dropped doc would make the memory permanently
+                // unsearchable by keyword.
+                if let Some(dispatcher) = &self.memory_text_dispatcher {
+                    dispatcher
+                        .dispatch(crate::index::text_indexer::MemoryTextOp::Upsert {
+                            id: *id,
+                            text: text.clone(),
+                            agent: write.agent_id,
+                            kind: *kind,
+                            created_at_unix_ms: *created_at_unix_nanos / 1_000_000,
+                            context: context.raw(),
+                        })
+                        .await;
                 }
             }
             // Tombstone(Memory) fans out to the FORGET cascade. Both

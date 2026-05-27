@@ -35,11 +35,7 @@ pub fn statement_embed_queue_peek(
     if limit == 0 {
         return Ok(Vec::new());
     }
-    let t = match rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(StatementOpError::Table(e)),
-    };
+    let t = rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE)?;
     let mut out = Vec::with_capacity(limit.min(1024));
     for entry in t.iter()? {
         let (k, v) = entry?;
@@ -54,11 +50,7 @@ pub fn statement_embed_queue_peek(
 /// Total queued statement count. Used by metrics + the worker's
 /// "is there work?" check.
 pub fn statement_embed_queue_len(rtxn: &ReadTransaction) -> Result<u64, StatementOpError> {
-    let t = match rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => return Err(StatementOpError::Table(e)),
-    };
+    let t = rtxn.open_table(STATEMENT_EMBED_QUEUE_TABLE)?;
     Ok(t.len()?)
 }
 
@@ -111,12 +103,7 @@ pub fn statement_embed_queue_seed_all_live(
     // Collect live (id, extracted_at) first so the STATEMENTS_TABLE read
     // borrow is released before the queue table is opened for writes.
     let seeds: Vec<([u8; 16], u64)> = {
-        let s = match wtxn.open_table(STATEMENTS_TABLE) {
-            Ok(t) => t,
-            // No statements table yet (fresh shard) → nothing to seed.
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-            Err(e) => return Err(e.into()),
-        };
+        let s = wtxn.open_table(STATEMENTS_TABLE)?;
         let mut v = Vec::new();
         for entry in s.iter()? {
             let (k, val) = entry?;

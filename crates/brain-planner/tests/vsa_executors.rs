@@ -172,10 +172,8 @@ fn build_fixture(
     wtxn.commit().unwrap();
 
     let (shared, _hnsw_writer) = {
-        let codebook = brain_index::bootstrap_codebook();
-        let idx =
-            brain_index::HnswIndex::new(IndexParams::default_v1(), (*codebook).clone()).unwrap();
-        brain_index::SharedHnsw::from_index(idx, brain_index::null_arena_reader())
+        let idx = brain_index::HnswIndex::new(IndexParams::default_v1()).unwrap();
+        brain_index::SharedHnsw::from_index(idx)
     };
     let metadata: SharedMetadataDb = Arc::new(metadata);
     let writer = Arc::new(NopWriter) as Arc<dyn WriterHandle>;

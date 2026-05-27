@@ -44,7 +44,7 @@ use brain_rerank::RerankService;
 use futures_lite::future::poll_fn;
 
 use super::filters::{apply_filter_chain, FilterChainStats, FilterError};
-use super::fusion::{fuse_rrf, FusedItem};
+use super::fusion::{fuse, FusedItem};
 use super::planner::{PreFilter, QueryPlan, RetrieverConfig};
 use super::rerank::{rerank_top_n, RerankCandidate, RERANK_TOP_N};
 use super::router::{GraphAnchorMode, QueryRequest, Retriever};
@@ -296,7 +296,33 @@ pub async fn execute(
         }
     }
 
-    let fused = fuse_rrf(&outputs, plan.fusion.k, &plan.fusion.weights);
+    let fused = fuse(
+        &outputs,
+        plan.fusion.k,
+        &plan.fusion.weights,
+        plan.fusion.method,
+    );
+    let fused_len = fused.len();
+
+    // Per-candidate fusion breakdown for deep diagnosis: which
+    // retrievers brought each top hit in, at what rank and raw score.
+    if tracing::enabled!(tracing::Level::DEBUG) {
+        for (i, f) in fused.iter().take(8).enumerate() {
+            let contribs: Vec<String> = f
+                .contributing
+                .iter()
+                .map(|c| format!("{:?}#{}={:.3}", c.retriever, c.rank, c.raw_score))
+                .collect();
+            tracing::debug!(
+                target: "brain_planner::executor",
+                rank = i + 1,
+                id = ?f.id,
+                fused_score = f.fused_score,
+                contributions = %contribs.join(" "),
+                "fused candidate",
+            );
+        }
+    }
 
     // Rerank is always-on: the stage fires whenever the shard has a
     // cross-encoder loaded, regardless of any request field. When
@@ -316,6 +342,33 @@ pub async fn execute(
     )?;
 
     let total_latency_ms = total_started.elapsed().as_secs_f64() * 1000.0;
+
+    // One-line recall summary. Counts where candidates came from and
+    // where they survived to, so an empty/odd result is attributable
+    // to a specific stage (retriever returned 0, fusion, or a filter).
+    tracing::info!(
+        target: "brain_planner::executor",
+        query = request.text.as_deref().unwrap_or(""),
+        class = ?plan.routing.query_class,
+        fusion = ?plan.fusion.method,
+        per_retriever = ?totals,
+        outcomes = ?outcomes,
+        fused = fused_len,
+        filter = %format!(
+            "before={} type={} temporal={} conf={} tomb={} sup={} limit={}",
+            filter_stats.before,
+            filter_stats.after_type,
+            filter_stats.after_temporal,
+            filter_stats.after_confidence,
+            filter_stats.after_tombstone,
+            filter_stats.after_supersession,
+            filter_stats.after_limit,
+        ),
+        returned = items.len(),
+        latency_ms = total_latency_ms,
+        "recall executed",
+    );
+
     Ok(QueryResult {
         items,
         metadata: QueryMetadata {
@@ -425,13 +478,9 @@ fn fetch_texts(
         .metadata
         .read_txn()
         .map_err(|e| format!("rerank read_txn: {e}"))?;
-    let table = match rtxn.open_table(TEXTS_TABLE) {
-        Ok(t) => t,
-        // A shard that hasn't received any encode yet won't have a
-        // texts table — treat as "no candidates" rather than fail.
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(format!("rerank open TEXTS_TABLE: {e}")),
-    };
+    let table = rtxn
+        .open_table(TEXTS_TABLE)
+        .map_err(|e| format!("rerank open TEXTS_TABLE: {e}"))?;
 
     let mut out: Vec<RerankCandidate> = Vec::with_capacity(ids.len());
     for id in ids {
@@ -499,6 +548,25 @@ fn invoke_semantic(
 
     let mut filters = SemanticFilters::default();
     apply_pre_filter_to_semantic(&planned.pre_filter, &mut filters);
+    // Front-gate scope: when the caller specified a context filter,
+    // restrict every HNSW visit to that context set. The semantic
+    // closure already reads MemoryMetadata per visit, so adding the
+    // check is free; cost stays bounded by HNSW visits, not corpus N.
+    filters.context_ids = req.context_filter.clone();
+
+    // Adaptive `ef` for filtered ANN. When a structural filter is
+    // active the graph traversal can land on ineligible nodes and
+    // exhaust the default beam before finding `k` eligible
+    // neighbours. Widen `ef` modestly (4×) so the beam escapes
+    // sparsity without over-expanding the candidate set (which would
+    // cause graph rider hits to outrank semantic on near-ties). 500
+    // is the spec-range hard ceiling for `ef_search`, so clamp.
+    const FILTERED_EF_CEILING: usize = 500;
+    let ef_search_effective = if filters.context_ids.is_empty() {
+        ef_search
+    } else {
+        ef_search.saturating_mul(4).min(FILTERED_EF_CEILING)
+    };
 
     // Scope: Both when both text and entity_anchor present
     // (statement HNSW may be empty in v1 → silent Ok([]));
@@ -511,7 +579,7 @@ fn invoke_semantic(
 
     let config = SemanticRetrieverConfig {
         top_k: planned.top_n,
-        ef_search,
+        ef_search: ef_search_effective,
         similarity_threshold,
         timeout_ms,
         filters: SemanticFiltersConfigSlot(filters),
@@ -528,7 +596,7 @@ fn apply_pre_filter_to_semantic(pre: &Option<PreFilter>, filters: &mut SemanticF
         return;
     };
     match pf {
-        PreFilter::AgentId(a) => filters.agent_id = Some(*a),
+        PreFilter::AgentIds(ids) => filters.agent_ids = ids.clone(),
         PreFilter::MemoryKind(ks) => filters.memory_kind = ks.first().copied(),
         PreFilter::StatementKind(ks) => filters.statement_kind = ks.first().copied(),
         PreFilter::PredicateId(ps) => filters.predicate_id = ps.first().copied(),
@@ -561,6 +629,9 @@ fn invoke_lexical(
 
     let mut filters = LexicalFilters::default();
     apply_pre_filter_to_lexical(&planned.pre_filter, &mut filters);
+    // Same front gate as the semantic invocation — BM25 ranks within
+    // the requested context universe only.
+    filters.context_ids = req.context_filter.clone();
 
     let terms: Vec<String> = text.split_whitespace().map(str::to_owned).collect();
     let query = LexicalQuery {
@@ -587,7 +658,7 @@ fn apply_pre_filter_to_lexical(pre: &Option<PreFilter>, filters: &mut LexicalFil
         return;
     };
     match pf {
-        PreFilter::AgentId(a) => filters.agent_id = Some(*a),
+        PreFilter::AgentIds(ids) => filters.agent_ids = ids.clone(),
         PreFilter::MemoryKind(ks) => filters.memory_kind = ks.first().copied(),
         PreFilter::StatementKind(ks) => filters.statement_kind = ks.first().copied(),
         PreFilter::PredicateId(ps) => filters.predicate_id = ps.first().map(|p| p.raw()),
@@ -674,9 +745,23 @@ fn invoke_graph(
             // (fusion only cares about the per-retriever rank).
             let mut merged: Vec<RankedItem> = Vec::new();
             for anchor in anchors {
+                // The memory-anchor rider surfaces only DIRECT
+                // similar/causal neighbours of the semantic top hits.
+                // We tried depth=2 to pivot Memory → Entity → Memory,
+                // but on a topically diverse corpus the entity table
+                // densely connects everything ("Sarah", "Aurora",
+                // "Phoenix" appear in many memories), and a depth-2
+                // walk from a high-mention seed memory floods fusion
+                // with query-independent neighbours that then take
+                // rank 1 with arbitrary inter-tie scores. Until
+                // cue→anchor resolution lets us seed the entity-mode
+                // walk from the actual subject in the query, keep the
+                // memory-anchor walk at depth 1: a quiet graph lane
+                // beats a noisy one.
+                const MEMORY_ANCHOR_GRAPH_DEPTH: u8 = 1;
                 let query = GraphQuery::Star {
                     anchor: GraphAnchor::Memory(anchor),
-                    depth: *max_depth,
+                    depth: MEMORY_ANCHOR_GRAPH_DEPTH,
                     direction: *direction,
                     relation_types: None,
                     include_statements: false,
@@ -700,6 +785,15 @@ fn invoke_graph(
                     }
                 }
             }
+            // The memory-anchor rider exists to surface MEMORY
+            // candidates similar to the semantic top-K. Entity nodes
+            // reached during the walk (via `Mentions` edges) are
+            // useful for enrichment but not for the recall result —
+            // they'd otherwise dominate the fused top-K with high
+            // proximity scores and then get dropped at projection,
+            // leaving the user with `(no results)`. Keep only Memory
+            // variants here.
+            merged.retain(|item| matches!(item.id, RankedItemId::Memory(_)));
             // Re-sort + re-rank the merged set so the per-
             // retriever rank-1 spot is the strongest hit
             // overall.

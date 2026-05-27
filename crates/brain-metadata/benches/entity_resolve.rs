@@ -48,7 +48,7 @@ struct Fixture {
 
 fn build_fixture(n: usize) -> Fixture {
     let dir = TempDir::new().expect("tempdir");
-    let mut db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
+    let db = MetadataDb::open(dir.path().join("metadata.redb")).expect("open db");
 
     let mut ids = Vec::with_capacity(n);
     let now = 1_700_000_000_000_000_000u64;

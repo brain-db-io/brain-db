@@ -8,7 +8,7 @@ use std::collections::HashMap;
 use std::sync::LazyLock;
 
 use brain_core::StatementKind;
-use brain_core::{EntityId, PredicateId};
+use brain_core::{AgentId, EntityId, PredicateId};
 use regex::Regex;
 
 // ---------------------------------------------------------------------------
@@ -53,6 +53,19 @@ pub struct QueryRequest {
     pub confidence_min: Option<f32>,
     pub include_tombstoned: bool,
     pub include_superseded: bool,
+    /// Memory-context scope. When non-empty the front gate restricts
+    /// every retriever to memories with `context_id` in this set —
+    /// pushed into the semantic closure and the lexical query's
+    /// boolean MUST clause so the filter scopes the search universe
+    /// before any expensive stage, not as a post-projection prune.
+    pub context_filter: Vec<u64>,
+    /// Agent-scope filter. When non-empty the front gate restricts
+    /// every retriever to memories whose `agent_id` is in this set.
+    /// The recall handler defaults this to `[caller_agent]` so each
+    /// agent sees only its own memories without any explicit flag —
+    /// `--include-other-agents` on the wire side empties the list to
+    /// recover the across-agents view.
+    pub agent_filter: Vec<AgentId>,
     /// Bi-temporal time-travel — return only statements the substrate
     /// believed at this record-time unix-nanos. `None` is the default
     /// "current state" query. Server-internal in v1.0: not exposed on
@@ -178,7 +191,10 @@ impl RetrievalProfile {
                 weights: PerRetrieverWeights {
                     semantic: 1.5,
                     lexical: 1.0,
-                    graph: 0.7,
+                    // The unanchored memory-rider is a weak,
+                    // lower-precision signal; keep it from swaying the
+                    // semantic-led ordering on free-text queries.
+                    graph: 0.5,
                     temporal: 0.5,
                 },
                 per_retriever_top_n: 200,

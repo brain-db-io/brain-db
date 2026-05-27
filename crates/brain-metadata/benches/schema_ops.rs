@@ -77,7 +77,7 @@ struct UploadedFixture {
 fn build_uploaded_fixture() -> UploadedFixture {
     let dir = TempDir::new().expect("tempdir");
     let path: PathBuf = dir.path().join("metadata.redb");
-    let mut db = MetadataDb::open(&path).expect("open");
+    let db = MetadataDb::open(&path).expect("open");
     let text = fixture_text();
     let parsed = parse_schema(&text).expect("parse fixture");
     let validated = validate(&parsed).expect("validate fixture");
@@ -116,7 +116,7 @@ fn bench_upload(c: &mut Criterion) {
                 let db = MetadataDb::open(&path).expect("open");
                 (dir, db)
             },
-            |(dir, mut db)| {
+            |(dir, db)| {
                 let parsed = parse_schema(black_box(&text)).expect("parse");
                 let validated = validate(&parsed).expect("validate");
                 let wtxn = db.write_txn().expect("wtxn");

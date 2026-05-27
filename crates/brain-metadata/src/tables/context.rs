@@ -123,7 +123,7 @@ impl redb::Value for ContextMetadata {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("brain_metadata::ContextMetadata::v1")
+        redb::TypeName::new("brain_metadata::ContextMetadata")
     }
 }
 

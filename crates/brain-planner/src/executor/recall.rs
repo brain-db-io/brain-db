@@ -112,38 +112,27 @@ pub async fn execute_recall(
             .metadata
             .read_txn()
             .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-        // A shard that hasn't received an encode yet won't have a
-        // texts table — treat that as "no texts available" rather
-        // than failing the recall.
-        let table = match txn.open_table(TEXTS_TABLE) {
-            Ok(t) => Some(t),
-            Err(redb::TableError::TableDoesNotExist(_)) => None,
-            Err(e) => return Err(ExecError::MetadataReadFailed(e.to_string())),
-        };
+        let table = txn
+            .open_table(TEXTS_TABLE)
+            .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
         for hit in &mut hits {
-            hit.text = if let Some(tbl) = table.as_ref() {
-                let row = tbl
-                    .get(hit.memory_id.to_be_bytes())
-                    .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
-                match row {
-                    Some(guard) => Some(
-                        std::str::from_utf8(guard.value())
-                            .map_err(|e| {
-                                ExecError::Internal(format!(
-                                    "texts row for {:?} is not UTF-8: {e}",
-                                    hit.memory_id
-                                ))
-                            })?
-                            .to_owned(),
-                    ),
-                    // Hit survived the memories-table read but the
-                    // texts row is gone — a hard-FORGET landed in
-                    // between. Return empty rather than failing.
-                    None => Some(String::new()),
-                }
-            } else {
-                Some(String::new())
-            };
+            let row = table
+                .get(hit.memory_id.to_be_bytes())
+                .map_err(|e| ExecError::MetadataReadFailed(e.to_string()))?;
+            hit.text = Some(match row {
+                Some(guard) => std::str::from_utf8(guard.value())
+                    .map_err(|e| {
+                        ExecError::Internal(format!(
+                            "texts row for {:?} is not UTF-8: {e}",
+                            hit.memory_id
+                        ))
+                    })?
+                    .to_owned(),
+                // Hit survived the memories-table read but the
+                // texts row is gone — a hard-FORGET landed in
+                // between. Return empty rather than failing.
+                None => String::new(),
+            });
         }
     }
 

@@ -111,7 +111,7 @@ impl ApiKeyRow {
     }
 }
 
-impl_redb_rkyv_value!(ApiKeyRow, "brain_metadata::ApiKeyRow::v1");
+impl_redb_rkyv_value!(ApiKeyRow, "brain_metadata::ApiKeyRow");
 
 #[cfg(all(test, not(miri)))]
 mod tests {

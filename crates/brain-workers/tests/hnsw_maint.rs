@@ -216,11 +216,7 @@ fn cycle_reports_tombstone_after_forget_and_attempts_rebuild() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) = {
-            let cb = brain_index::bootstrap_codebook();
-            brain_index::rebuild::rebuild_impl::<8, _>(params, cb, source)
-        }
-        .unwrap();
+        let (mut new_idx, _r) = brain_index::rebuild::rebuild_impl(params, source).unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -277,11 +273,8 @@ fn failed_source_propagates_error_as_worker_error() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) = {
-            let cb = brain_index::bootstrap_codebook();
-            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
-        }
-        .unwrap();
+        let (mut new_idx, _r) =
+            brain_index::rebuild::rebuild_impl(fix.index.params(), source).unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -316,11 +309,8 @@ fn full_rebuild_via_stub_source_swaps_index_and_returns_one() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) = {
-            let cb = brain_index::bootstrap_codebook();
-            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
-        }
-        .unwrap();
+        let (mut new_idx, _r) =
+            brain_index::rebuild::rebuild_impl(fix.index.params(), source).unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);
@@ -350,11 +340,8 @@ fn disabled_source_with_rebuild_needed_returns_zero_no_swap() {
         let source: Vec<_> = (1..=4u64)
             .map(|slot| (make_id(slot), make_vector(slot)))
             .collect();
-        let (mut new_idx, _r) = {
-            let cb = brain_index::bootstrap_codebook();
-            brain_index::rebuild::rebuild_impl::<8, _>(fix.index.params(), cb, source)
-        }
-        .unwrap();
+        let (mut new_idx, _r) =
+            brain_index::rebuild::rebuild_impl(fix.index.params(), source).unwrap();
         new_idx.mark_tombstoned(make_id(1)).unwrap();
         new_idx.mark_tombstoned(make_id(2)).unwrap();
         fix.index.swap(new_idx);

@@ -53,17 +53,11 @@ pub fn entity_type_lookup_by_name(
 /// Read-only counterpart to [`entity_type_lookup_by_name`]. Used by
 /// the schema-upload pre-flight to classify each declared entity_type
 /// as new/idempotent/conflict without opening a write transaction.
-/// Returns `Ok(None)` if the underlying table hasn't been initialised
-/// yet (fresh shard) — same fall-through pattern as other read paths.
 pub fn entity_type_lookup_by_name_rtxn(
     rtxn: &ReadTransaction,
     name: &str,
 ) -> Result<Option<EntityTypeDefinition>, EntityTypeOpError> {
-    let t = match rtxn.open_table(ENTITY_TYPES_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(ENTITY_TYPES_TABLE)?;
     for entry in t.iter()? {
         let (_k, v) = entry?;
         let row = v.value();

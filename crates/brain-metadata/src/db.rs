@@ -114,19 +114,18 @@ impl MetadataDb {
         let db = Database::create(&path)?;
         let schema_version = open_or_init_schema(&db)?;
 
-        // Seed `durable_lsn` from the latest checkpoint, if any. Missing
-        // or empty checkpoints table → 0 (fresh shard or no checkpoint
-        // has completed yet): "the substrate keeps the
-        // most recent one as the recovery target."
+        // Seed `durable_lsn` from the latest checkpoint, if any. Empty
+        // checkpoints table → 0 (fresh shard or no checkpoint has
+        // completed yet): "the substrate keeps the most recent one as
+        // the recovery target."
         let durable_lsn = {
             let rtxn = db.begin_read()?;
-            match rtxn.open_table(CHECKPOINTS_TABLE) {
-                Ok(t) => latest_checkpoint(&t)
-                    .map_err(|e| MetadataDbError::Schema(SchemaError::Storage(e)))?
-                    .map_or(0, |c| c.durable_lsn),
-                Err(redb::TableError::TableDoesNotExist(_)) => 0,
-                Err(e) => return Err(MetadataDbError::Schema(SchemaError::from(e))),
-            }
+            let t = rtxn
+                .open_table(CHECKPOINTS_TABLE)
+                .map_err(|e| MetadataDbError::Schema(SchemaError::from(e)))?;
+            latest_checkpoint(&t)
+                .map_err(|e| MetadataDbError::Schema(SchemaError::Storage(e)))?
+                .map_or(0, |c| c.durable_lsn)
         };
 
         // Single parse-validate-apply over the embedded

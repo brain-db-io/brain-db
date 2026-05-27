@@ -116,11 +116,7 @@ pub fn sweep_audit_log(
     let cutoff_ns = now_unix_nanos.saturating_sub(retention_seconds * 1_000_000_000);
 
     let victims: Vec<[u8; 16]> = {
-        let table = match wtxn.open_table(EXTRACTOR_AUDIT_TABLE) {
-            Ok(t) => t,
-            Err(redb::TableError::TableDoesNotExist(_)) => return Ok(summary),
-            Err(e) => return Err(e.into()),
-        };
+        let table = wtxn.open_table(EXTRACTOR_AUDIT_TABLE)?;
         let mut out = Vec::new();
         for entry in table.iter()? {
             let (k, v) = entry?;
@@ -168,11 +164,7 @@ pub fn scan_stale_statements(
     batch_cap: usize,
 ) -> Result<SweepSummary, StatementOpError> {
     let mut summary = SweepSummary::default();
-    let table = match rtxn.open_table(STATEMENTS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(summary),
-        Err(e) => return Err(StatementOpError::from(e)),
-    };
+    let table = rtxn.open_table(STATEMENTS_TABLE)?;
     for entry in table.iter()? {
         let (_, v) = entry?;
         let row = v.value();

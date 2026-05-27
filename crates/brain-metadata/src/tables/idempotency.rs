@@ -165,7 +165,7 @@ impl redb::Value for IdempotencyEntry {
     }
 
     fn type_name() -> redb::TypeName {
-        redb::TypeName::new("brain_metadata::IdempotencyEntry::v1")
+        redb::TypeName::new("brain_metadata::IdempotencyEntry")
     }
 }
 
@@ -627,15 +627,4 @@ mod tests {
         assert!(scanned_to_end);
     }
 
-    // ----- Type-name guard ----------------------------------------------
-
-    #[test]
-    fn type_name_includes_v1() {
-        // The type_name must include "::v1" so a future schema bump
-        // that changes the field layout fails fast on mismatched-type
-        // open instead of silently corrupting reads.
-        let name = <IdempotencyEntry as redb::Value>::type_name();
-        let s = format!("{name:?}");
-        assert!(s.contains("v1"), "type_name missing v1 marker: {s}");
-    }
 }

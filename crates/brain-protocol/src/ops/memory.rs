@@ -100,6 +100,22 @@ pub struct RecallRequest {
     /// When set, RECALL reads against a snapshot that includes the
     /// txn's pending writes (read-your-writes).
     pub txn_id: Option<WireUuid>,
+    /// Explicit agent-id scope for the recall. Controls cross-agent
+    /// isolation together with `include_other_agents`:
+    ///   * empty + `include_other_agents == false` (the default) —
+    ///     the server fills in the calling connection's agent, so
+    ///     recall is isolated to the caller's own memories.
+    ///   * non-empty — recall is scoped to exactly this set of agents,
+    ///     regardless of who the caller is.
+    ///   * any value + `include_other_agents == true` — see that flag;
+    ///     no implicit caller filter is applied.
+    pub agent_filter: Vec<WireUuid>,
+    /// When true, the server does NOT inject the implicit
+    /// caller-agent filter, yielding the across-agents view. Combined
+    /// with an empty `agent_filter` this returns hits from every
+    /// agent; combined with a non-empty `agent_filter` it still scopes
+    /// to that explicit set. Defaults to false (caller-isolated).
+    pub include_other_agents: bool,
 }
 
 #[derive(Archive, Serialize, Deserialize, Clone, Debug, PartialEq)]
@@ -228,6 +244,10 @@ pub struct MemoryResult {
     pub confidence: f32,
     pub salience: f32,
     pub kind: MemoryKindWire,
+    /// Agent that owns this memory row. Lets the client see provenance
+    /// and, on a cross-agent recall (`include_other_agents == true` or
+    /// an explicit `agent_filter`), tell whose memory each hit is.
+    pub agent_id: WireUuid,
     pub context_id: WireContextId,
     pub created_at_unix_nanos: u64,
     pub last_accessed_at_unix_nanos: u64,

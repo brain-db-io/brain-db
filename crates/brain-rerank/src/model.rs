@@ -319,4 +319,5 @@ mod tests {
             "relevant candidate must outscore irrelevant: {scores:?}",
         );
     }
+
 }

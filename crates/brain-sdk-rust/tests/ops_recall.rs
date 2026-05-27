@@ -16,6 +16,7 @@ fn mock_result(idx: u32, kind: MemoryKindWire) -> MemoryResult {
         confidence: 0.9,
         salience: 0.5,
         kind,
+        agent_id: [0u8; 16],
         context_id: 0,
         created_at_unix_nanos: 0,
         last_accessed_at_unix_nanos: 0,

@@ -76,11 +76,7 @@ pub fn proposal_get(
     rtxn: &ReadTransaction,
     proposal_id: MergeId,
 ) -> Result<Option<MergeReviewProposal>, MergeReviewError> {
-    let t = match rtxn.open_table(MERGE_REVIEW_QUEUE_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = rtxn.open_table(MERGE_REVIEW_QUEUE_TABLE)?;
     let row = t.get(&proposal_id.to_bytes())?.map(|g| g.value());
     Ok(row)
 }
@@ -91,11 +87,7 @@ pub fn proposal_get_inside_wtxn(
     wtxn: &WriteTransaction,
     proposal_id: MergeId,
 ) -> Result<Option<MergeReviewProposal>, MergeReviewError> {
-    let t = match wtxn.open_table(MERGE_REVIEW_QUEUE_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(None),
-        Err(e) => return Err(e.into()),
-    };
+    let t = wtxn.open_table(MERGE_REVIEW_QUEUE_TABLE)?;
     let row = t.get(&proposal_id.to_bytes())?.map(|g| g.value());
     Ok(row)
 }
@@ -110,16 +102,8 @@ pub fn list_proposals_by_status(
     if limit == 0 {
         return Ok(Vec::new());
     }
-    let s = match rtxn.open_table(MERGE_REVIEW_BY_STATUS_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
-    let q = match rtxn.open_table(MERGE_REVIEW_QUEUE_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
-        Err(e) => return Err(e.into()),
-    };
+    let s = rtxn.open_table(MERGE_REVIEW_BY_STATUS_TABLE)?;
+    let q = rtxn.open_table(MERGE_REVIEW_QUEUE_TABLE)?;
     let lo = (status, [0u8; 16]);
     let hi = (status, [0xFFu8; 16]);
     let mut out: Vec<MergeReviewProposal> = Vec::new();

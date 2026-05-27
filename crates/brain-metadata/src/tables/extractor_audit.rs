@@ -29,7 +29,7 @@ pub const EXTRACTOR_PIPELINE_AUDIT_TABLE: TableDefinition<
     'static,
     [u8; 16],
     ExtractorPipelineAuditEntry,
-> = TableDefinition::new("extractor_pipeline_audit_v1");
+> = TableDefinition::new("extractor_pipeline_audit");
 
 // ---------------------------------------------------------------------------
 // Status discriminants.
@@ -156,7 +156,7 @@ impl ExtractorPipelineAuditEntry {
 
 impl_redb_rkyv_value!(
     ExtractorPipelineAuditEntry,
-    "brain_metadata::ExtractorPipelineAuditEntry::v1"
+    "brain_metadata::ExtractorPipelineAuditEntry"
 );
 
 // ---------------------------------------------------------------------------
@@ -179,13 +179,7 @@ pub fn has_extracted(
     rtxn: &ReadTransaction,
     memory_id: MemoryId,
 ) -> Result<bool, ExtractorPipelineAuditError> {
-    let table = match rtxn.open_table(EXTRACTOR_PIPELINE_AUDIT_TABLE) {
-        Ok(t) => t,
-        // Table not yet materialised (no extraction has ever run on
-        // this shard). That's a definitive "not extracted".
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(false),
-        Err(e) => return Err(ExtractorPipelineAuditError::Table(e)),
-    };
+    let table = rtxn.open_table(EXTRACTOR_PIPELINE_AUDIT_TABLE)?;
     Ok(table.get(&memory_id.to_be_bytes())?.is_some())
 }
 
@@ -203,11 +197,7 @@ pub fn record_extracted(
 /// Total number of pipeline audit rows present in the shard. Used by
 /// observability + tests.
 pub fn audit_count(rtxn: &ReadTransaction) -> Result<u64, ExtractorPipelineAuditError> {
-    let table = match rtxn.open_table(EXTRACTOR_PIPELINE_AUDIT_TABLE) {
-        Ok(t) => t,
-        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(0),
-        Err(e) => return Err(ExtractorPipelineAuditError::Table(e)),
-    };
+    let table = rtxn.open_table(EXTRACTOR_PIPELINE_AUDIT_TABLE)?;
     Ok(table.len()?)
 }
 

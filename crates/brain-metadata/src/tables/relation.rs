@@ -31,12 +31,12 @@ use redb::TableDefinition;
 // ---------------------------------------------------------------------------
 
 pub const RELATION_METADATA_TABLE: TableDefinition<'static, [u8; 16], RelationMetadata> =
-    TableDefinition::new("relation_metadata_v2");
+    TableDefinition::new("relation_metadata");
 
 /// `(MemoryId.to_be_bytes(), RelationId.to_bytes())` → `()`. FORGET
 /// cascade lookup index.
 pub const RELATION_BY_EVIDENCE_TABLE: TableDefinition<'static, ([u8; 16], [u8; 16]), ()> =
-    TableDefinition::new("relation_by_evidence_v2");
+    TableDefinition::new("relation_by_evidence");
 
 // ---------------------------------------------------------------------------
 // Sidecar value type.
@@ -143,7 +143,7 @@ impl RelationMetadata {
     }
 }
 
-impl_redb_rkyv_value!(RelationMetadata, "brain_metadata::RelationMetadata::v2");
+impl_redb_rkyv_value!(RelationMetadata, "brain_metadata::RelationMetadata");
 
 // ---------------------------------------------------------------------------
 // Projections — Relation (brain-core) ↔ RelationMetadata (rkyv row).

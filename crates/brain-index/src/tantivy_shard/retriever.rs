@@ -46,13 +46,17 @@ pub struct LexicalQuery {
 
 #[derive(Debug, Clone, Default)]
 pub struct LexicalFilters {
-    pub agent_id: Option<AgentId>,
+    pub agent_ids: Vec<AgentId>,
     pub memory_kind: Option<MemoryKind>,
     pub statement_kind: Option<StatementKind>,
     pub predicate_id: Option<u32>,
     pub confidence_bucket: Option<RangeInclusive<u8>>,
     pub created_at_ms: Option<RangeInclusive<u64>>,
     pub extracted_at_ms: Option<RangeInclusive<u64>>,
+    /// Front-gate scope tag for memory text. When non-empty, the
+    /// boolean query adds a MUST clause matching any `context` in the
+    /// list — BM25 ranks within that universe only.
+    pub context_ids: Vec<u64>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -204,9 +208,9 @@ fn validate_filters_for_scope(
             }
         }
         LexicalScope::StatementText => {
-            if filters.agent_id.is_some() {
+            if !filters.agent_ids.is_empty() {
                 return Err(LexicalError::QueryParseFailed(
-                    "agent_id filter applies only to MemoryText".into(),
+                    "agent_id filter applies only to MemoryText scope".into(),
                 ));
             }
             if filters.memory_kind.is_some() {
@@ -260,16 +264,26 @@ fn build_query(
     let f = &query.filters;
     match scope {
         LexicalScope::MemoryText => {
-            if let Some(agent) = f.agent_id {
+            if !f.agent_ids.is_empty() {
                 let field = schema
                     .get_field("agent_id")
                     .map_err(|e| LexicalError::Internal(format!("agent_id field: {e}")))?;
-                let bytes: [u8; 16] = agent.into();
-                let term = Term::from_field_bytes(field, &bytes);
-                clauses.push((
-                    Occur::Must,
-                    Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
-                ));
+                // `agent_id IN [..]` = OR-group of TermQuery, wrapped as
+                // a single MUST so the BM25 scoring stays inside the
+                // requested agent universe.
+                let inner: Vec<(Occur, Box<dyn tantivy::query::Query>)> = f
+                    .agent_ids
+                    .iter()
+                    .map(|agent| -> (Occur, Box<dyn tantivy::query::Query>) {
+                        let bytes: [u8; 16] = (*agent).into();
+                        let term = Term::from_field_bytes(field, &bytes);
+                        (
+                            Occur::Should,
+                            Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+                        )
+                    })
+                    .collect();
+                clauses.push((Occur::Must, Box::new(BooleanQuery::new(inner))));
             }
             if let Some(kind) = f.memory_kind {
                 let field = schema
@@ -286,6 +300,26 @@ fn build_query(
                     .get_field("created_at")
                     .map_err(|e| LexicalError::Internal(format!("created_at field: {e}")))?;
                 clauses.push((Occur::Must, range_query_u64(field, range)));
+            }
+            if !f.context_ids.is_empty() {
+                let field = schema
+                    .get_field("context")
+                    .map_err(|e| LexicalError::Internal(format!("context field: {e}")))?;
+                // `context IN [..]` = OR-group of TermQuery, wrapped as
+                // a single MUST so the BM25 scoring stays inside the
+                // requested context universe.
+                let inner: Vec<(Occur, Box<dyn tantivy::query::Query>)> = f
+                    .context_ids
+                    .iter()
+                    .map(|cid| -> (Occur, Box<dyn tantivy::query::Query>) {
+                        let term = Term::from_field_u64(field, *cid);
+                        (
+                            Occur::Should,
+                            Box::new(TermQuery::new(term, IndexRecordOption::Basic)),
+                        )
+                    })
+                    .collect();
+                clauses.push((Occur::Must, Box::new(BooleanQuery::new(inner))));
             }
         }
         LexicalScope::StatementText => {
