@@ -11,12 +11,12 @@ use brain_core::{
     EvidenceRef, Statement, StatementKind, StatementObject, StatementValue, SubjectRef,
 };
 use brain_index::{build_analyzer, IndexStatus, LexicalScope, TantivyShard, BRAIN_TOKENIZER_NAME};
-use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
-use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_metadata::entity::ops::entity_put;
 use brain_metadata::entity::types::entity_type_intern;
 use brain_metadata::schema::predicate::predicate_intern_or_get;
 use brain_metadata::statement::{statement_create, statement_tombstone};
+use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+use brain_metadata::tables::text::TEXTS_TABLE;
 use brain_metadata::MetadataDb;
 use tantivy::collector::TopDocs;
 use tantivy::query::QueryParser;
@@ -70,7 +70,8 @@ fn put_memory(metadata: &mut MetadataDb, slot: u64, text: &str, kind: MemoryKind
         let mut m = wtxn.open_table(MEMORIES_TABLE).expect("open MEMORIES");
         m.insert(&id.to_be_bytes(), &meta).expect("insert mem");
         let mut t = wtxn.open_table(TEXTS_TABLE).expect("open TEXTS");
-        t.insert(&id.to_be_bytes(), text.as_bytes()).expect("insert text");
+        t.insert(&id.to_be_bytes(), text.as_bytes())
+            .expect("insert text");
     }
     wtxn.commit().expect("commit");
     id

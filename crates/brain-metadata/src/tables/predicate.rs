@@ -202,10 +202,7 @@ pub fn encode_kind_constraint(k: Option<StatementKind>) -> u8 {
     }
 }
 
-impl_redb_rkyv_value!(
-    PredicateDefinition,
-    "brain_metadata::PredicateDefinition"
-);
+impl_redb_rkyv_value!(PredicateDefinition, "brain_metadata::PredicateDefinition");
 
 #[cfg(all(test, not(miri)))]
 mod tests {

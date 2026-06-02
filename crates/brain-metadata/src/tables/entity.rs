@@ -51,11 +51,8 @@ pub const ENTITY_VECTOR_BYTES: usize = 384 * 4;
 /// re-embedding canonical names. A missing row (a pre-feature entity,
 /// or a write that landed before the vector existed) falls back to
 /// re-embed at startup.
-pub const ENTITY_VECTORS_TABLE: TableDefinition<
-    'static,
-    [u8; 16],
-    [u8; ENTITY_VECTOR_BYTES],
-> = TableDefinition::new("entity_vectors");
+pub const ENTITY_VECTORS_TABLE: TableDefinition<'static, [u8; 16], [u8; ENTITY_VECTOR_BYTES]> =
+    TableDefinition::new("entity_vectors");
 
 // ---------------------------------------------------------------------------
 // Status flags.

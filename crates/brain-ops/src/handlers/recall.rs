@@ -476,11 +476,7 @@ fn build_planner_request(
         // Push the memory-context scope into the front gate so the
         // retrievers run on the eligible universe instead of pruning
         // post-projection (the historical gap this turn closes).
-        context_filter: req
-            .context_filter
-            .as_ref()
-            .cloned()
-            .unwrap_or_default(),
+        context_filter: req.context_filter.as_ref().cloned().unwrap_or_default(),
         agent_filter,
         confidence_min: if req.confidence_threshold > 0.0 {
             Some(req.confidence_threshold)
@@ -528,9 +524,10 @@ fn project_memory_results(
     // Opening the texts table costs a redb seek; only do it when the
     // caller asked for text, so the common ids-only path stays cheap.
     let texts_table = if req.include_text {
-        Some(rtxn.open_table(TEXTS_TABLE).map_err(|e| {
-            OpError::Internal(format!("hybrid recall open TEXTS_TABLE: {e}"))
-        })?)
+        Some(
+            rtxn.open_table(TEXTS_TABLE)
+                .map_err(|e| OpError::Internal(format!("hybrid recall open TEXTS_TABLE: {e}")))?,
+        )
     } else {
         None
     };

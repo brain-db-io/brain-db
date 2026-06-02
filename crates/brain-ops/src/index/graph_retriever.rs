@@ -251,12 +251,10 @@ fn collect_neighbours(
     node: NodeRef,
     direction: Direction,
 ) -> Result<Vec<EdgeRow>, GraphError> {
-    let outgoing = || -> Result<_, GraphError> {
-        walk_outgoing(rtxn, node, None).map_err(map_edge_err)
-    };
-    let incoming = || -> Result<_, GraphError> {
-        walk_incoming(rtxn, node, None).map_err(map_edge_err)
-    };
+    let outgoing =
+        || -> Result<_, GraphError> { walk_outgoing(rtxn, node, None).map_err(map_edge_err) };
+    let incoming =
+        || -> Result<_, GraphError> { walk_incoming(rtxn, node, None).map_err(map_edge_err) };
 
     let mut out = Vec::new();
     match direction {

@@ -43,10 +43,7 @@ impl EntityTypeDefinition {
     }
 }
 
-impl_redb_rkyv_value!(
-    EntityTypeDefinition,
-    "brain_metadata::EntityTypeDefinition"
-);
+impl_redb_rkyv_value!(EntityTypeDefinition, "brain_metadata::EntityTypeDefinition");
 
 #[cfg(all(test, not(miri)))]
 mod tests {

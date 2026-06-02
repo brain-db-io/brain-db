@@ -142,10 +142,7 @@ impl MergeReviewProposal {
     }
 }
 
-impl_redb_rkyv_value!(
-    MergeReviewProposal,
-    "brain_metadata::MergeReviewProposal"
-);
+impl_redb_rkyv_value!(MergeReviewProposal, "brain_metadata::MergeReviewProposal");
 
 // ---------------------------------------------------------------------------
 // Tests.

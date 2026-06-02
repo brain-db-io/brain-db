@@ -1316,8 +1316,8 @@ async fn apply_outcome(
                     // when uploading the schema and what supersession
                     // logic keys off. Fall back to the extractor's hint
                     // when the registry row is silent.
-                    let is_stateful = predicate_is_stateful_in_write_txn(&wtxn, pid)?
-                        .unwrap_or(sm.is_stateful);
+                    let is_stateful =
+                        predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(sm.is_stateful);
 
                     let kind = statement_kind_from_byte(sm.kind);
                     let payload = StatementCreatePayload {
@@ -2329,8 +2329,7 @@ mod tests {
             metadata.clone(),
             writer.clone() as Arc<dyn WriterHandle>,
         );
-        let ops =
-            Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor));
+        let ops = Arc::new(brain_ops::test_support::ops_context_for_tests_owning_tempdir(executor));
         let ctx = WorkerContext {
             ops,
             shutdown: Arc::new(AtomicBool::new(false)),

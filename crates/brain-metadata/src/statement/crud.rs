@@ -1234,7 +1234,10 @@ mod tests {
         }
         {
             let rtxn = db.read_txn().unwrap();
-            assert_eq!(crate::statement::statement_embed_queue_len(&rtxn).unwrap(), 0);
+            assert_eq!(
+                crate::statement::statement_embed_queue_len(&rtxn).unwrap(),
+                0
+            );
         }
 
         // Restart rebuild source: re-enqueue every live statement.
@@ -1247,6 +1250,9 @@ mod tests {
         assert_eq!(seeded, 2);
 
         let rtxn = db.read_txn().unwrap();
-        assert_eq!(crate::statement::statement_embed_queue_len(&rtxn).unwrap(), 2);
+        assert_eq!(
+            crate::statement::statement_embed_queue_len(&rtxn).unwrap(),
+            2
+        );
     }
 }

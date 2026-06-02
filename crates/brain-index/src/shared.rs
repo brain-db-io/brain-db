@@ -145,8 +145,9 @@ impl SharedHnsw {
                 "wrapper smaller than header+footer".into(),
             ));
         }
-        let header = Header::parse(&wrapper[..HEADER_LEN])
-            .map_err(|e: HeaderError| HnswError::SnapshotCorrupt(format!("wrapper header: {e:?}")))?;
+        let header = Header::parse(&wrapper[..HEADER_LEN]).map_err(|e: HeaderError| {
+            HnswError::SnapshotCorrupt(format!("wrapper header: {e:?}"))
+        })?;
         if header.shard_uuid != expected_shard_uuid {
             return Err(HnswError::SnapshotCorrupt(format!(
                 "shard_uuid mismatch: expected {:?}, got {:?}",
@@ -435,14 +436,14 @@ impl SharedHnsw {
     ///
     /// Production write paths must continue to go through
     /// [`Writer::insert`].
-    pub fn insert_recovery(
-        &self,
-        memory_id: MemoryId,
-        vector: &[f32; crate::params::VECTOR_DIM],
-    ) {
+    pub fn insert_recovery(&self, memory_id: MemoryId, vector: &[f32; crate::params::VECTOR_DIM]) {
         let mut pending = self.pending.write();
         pending.tombstoned.remove(&memory_id);
-        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
+        if let Some(slot) = pending
+            .entries
+            .iter_mut()
+            .find(|e| e.memory_id == memory_id)
+        {
             slot.vector = *vector;
             slot.tombstoned = false;
         } else {
@@ -560,7 +561,11 @@ impl Writer {
         let mut pending = self.pending.write();
         // Re-insert after tombstone resurrects the entry.
         pending.tombstoned.remove(&memory_id);
-        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
+        if let Some(slot) = pending
+            .entries
+            .iter_mut()
+            .find(|e| e.memory_id == memory_id)
+        {
             slot.vector = *vector;
             slot.tombstoned = false;
         } else {
@@ -578,7 +583,11 @@ impl Writer {
     pub fn mark_tombstoned(&mut self, memory_id: MemoryId) -> Result<(), HnswError> {
         let mut pending = self.pending.write();
         pending.tombstoned.insert(memory_id);
-        if let Some(slot) = pending.entries.iter_mut().find(|e| e.memory_id == memory_id) {
+        if let Some(slot) = pending
+            .entries
+            .iter_mut()
+            .find(|e| e.memory_id == memory_id)
+        {
             slot.tombstoned = true;
         }
         Ok(())
@@ -802,8 +811,8 @@ mod tests {
             .save_snapshot(dir.path(), basename, taken_at_lsn, shard_uuid)
             .expect("save_snapshot");
 
-        let (loaded_idx, lsn) = SharedHnsw::load_snapshot(dir.path(), basename, shard_uuid)
-            .expect("load_snapshot");
+        let (loaded_idx, lsn) =
+            SharedHnsw::load_snapshot(dir.path(), basename, shard_uuid).expect("load_snapshot");
         assert_eq!(lsn, taken_at_lsn);
         assert_eq!(loaded_idx.len(), len_before);
         // Every inserted id is in the rehydrated index.
@@ -869,7 +878,10 @@ mod tests {
 
         match SharedHnsw::load_snapshot(dir.path(), "hnsw", [0xAA; 16]) {
             Err(HnswError::SnapshotCorrupt(msg)) => {
-                assert!(msg.contains("graph") || msg.contains("BLAKE3"), "msg: {msg}");
+                assert!(
+                    msg.contains("graph") || msg.contains("BLAKE3"),
+                    "msg: {msg}"
+                );
             }
             Err(other) => panic!("expected SnapshotCorrupt(graph), got {other:?}"),
             Ok(_) => panic!("expected error on graph corruption"),

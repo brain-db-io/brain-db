@@ -31,13 +31,13 @@ use crate::recovery::phase_bodies::{
     decode_entity_unmerge, decode_entity_update, decode_extractor_toggle, decode_schema_update,
     decode_statement_create, decode_statement_supersede, decode_statement_tombstone,
 };
-use crate::schema::store::{schema_get, schema_upload};
-use brain_protocol::schema::{parse_schema, validate};
 use crate::schema::predicate::predicate_intern_or_get;
+use crate::schema::store::{schema_get, schema_upload};
 use crate::statement::{statement_create, statement_supersede, statement_tombstone};
 use crate::tables::statement::{
     statement_flags, statement_from_metadata, StatementMetadata, STATEMENTS_TABLE,
 };
+use brain_protocol::schema::{parse_schema, validate};
 
 use super::transient;
 
@@ -159,8 +159,9 @@ impl MetadataDb {
             .map_err(|e| MetadataSinkError::Corruption(format!("schema blob not UTF-8: {e}")))?;
         let parsed = parse_schema(source)
             .map_err(|e| MetadataSinkError::Corruption(format!("schema re-parse: {e:?}")))?;
-        let validated = validate(&parsed)
-            .map_err(|errs| MetadataSinkError::Corruption(format!("schema re-validate: {errs:?}")))?;
+        let validated = validate(&parsed).map_err(|errs| {
+            MetadataSinkError::Corruption(format!("schema re-validate: {errs:?}"))
+        })?;
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
             schema_upload(&wtxn, &validated, b.created_at_unix_nanos)
@@ -256,8 +257,9 @@ impl MetadataDb {
             .map_err(|e| MetadataSinkError::Corruption(format!("extractor_toggle decode: {e}")))?;
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
-            extractor_set_enabled(&wtxn, brain_core::ExtractorId::from(b.id), b.enabled)
-                .map_err(|e| MetadataSinkError::Corruption(format!("extractor_set_enabled: {e}")))?;
+            extractor_set_enabled(&wtxn, brain_core::ExtractorId::from(b.id), b.enabled).map_err(
+                |e| MetadataSinkError::Corruption(format!("extractor_set_enabled: {e}")),
+            )?;
             self.bump_next_lsn_in_txn(&wtxn, lsn)?;
         }
         wtxn.commit().map_err(transient)?;
@@ -330,9 +332,8 @@ impl MetadataDb {
                     })?;
                     s.predicate = pid;
                 }
-                statement_create(&wtxn, &s, s.extracted_at_unix_nanos).map_err(|e| {
-                    MetadataSinkError::Corruption(format!("statement_create: {e}"))
-                })?;
+                statement_create(&wtxn, &s, s.extracted_at_unix_nanos)
+                    .map_err(|e| MetadataSinkError::Corruption(format!("statement_create: {e}")))?;
                 if b.predicate_intern_hint.is_some() {
                     stamp_implicit_predicate(&wtxn, s.id)?;
                 }
@@ -393,9 +394,8 @@ impl MetadataDb {
         let reason = TombstoneReason::from_u8(b.reason).unwrap_or(TombstoneReason::UserRequest);
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
-            statement_tombstone(&wtxn, id, reason, b.at_unix_nanos).map_err(|e| {
-                MetadataSinkError::Corruption(format!("statement_tombstone: {e}"))
-            })?;
+            statement_tombstone(&wtxn, id, reason, b.at_unix_nanos)
+                .map_err(|e| MetadataSinkError::Corruption(format!("statement_tombstone: {e}")))?;
             self.bump_next_lsn_in_txn(&wtxn, lsn)?;
         }
         wtxn.commit().map_err(transient)?;
@@ -729,7 +729,9 @@ mod tests {
     fn statement_create_schemaless_replays_interns_and_is_idempotent() {
         use crate::recovery::phase_bodies::{encode_statement_create, StatementCreateBody};
         use crate::statement::statement_get;
-        use crate::tables::statement::{metadata_from_statement, statement_flags, STATEMENTS_TABLE};
+        use crate::tables::statement::{
+            metadata_from_statement, statement_flags, STATEMENTS_TABLE,
+        };
 
         let dir = TempDir::new().unwrap();
         let db = fresh_db(&dir);
@@ -746,7 +748,9 @@ mod tests {
         db.apply_statement_create(20, &body).unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let got = statement_get(&rtxn, sid).unwrap().expect("statement present");
+        let got = statement_get(&rtxn, sid)
+            .unwrap()
+            .expect("statement present");
         // Predicate was re-interned away from the PredicateId(0) placeholder.
         assert_ne!(got.predicate, brain_core::PredicateId::from(0));
         // IMPLICIT_PREDICATE was stamped (schemaless write).
@@ -761,7 +765,9 @@ mod tests {
             encode_statement_create, encode_statement_tombstone, StatementCreateBody,
             StatementTombstoneBody,
         };
-        use crate::tables::statement::{metadata_from_statement, tombstone_reason, STATEMENTS_TABLE};
+        use crate::tables::statement::{
+            metadata_from_statement, tombstone_reason, STATEMENTS_TABLE,
+        };
 
         let dir = TempDir::new().unwrap();
         let db = fresh_db(&dir);

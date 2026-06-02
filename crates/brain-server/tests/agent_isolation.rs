@@ -23,7 +23,9 @@ use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, RequestBody};
+use brain_protocol::envelope::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, RequestBody,
+};
 use brain_protocol::envelope::response::ResponseBody;
 use brain_protocol::Frame;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
@@ -83,8 +85,8 @@ where
             .await
             .expect("payload read");
     }
-    let (frame, rest) = Frame::decode_with_max(&buf, brain_protocol::MAX_PAYLOAD_BYTES as u32)
-        .expect("decode");
+    let (frame, rest) =
+        Frame::decode_with_max(&buf, brain_protocol::MAX_PAYLOAD_BYTES as u32).expect("decode");
     debug_assert!(rest.is_empty());
     frame
 }
@@ -94,9 +96,17 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn round_trip(client: &mut TcpStream, stream_id: u32, req: RequestBody) -> (u16, ResponseBody) {
+async fn round_trip(
+    client: &mut TcpStream,
+    stream_id: u32,
+    req: RequestBody,
+) -> (u16, ResponseBody) {
     let opcode = req.opcode().as_u16();
-    send_frame(client, Frame::new(opcode, FLAG_EOS, stream_id, req.encode())).await;
+    send_frame(
+        client,
+        Frame::new(opcode, FLAG_EOS, stream_id, req.encode()),
+    )
+    .await;
     let resp = read_one_frame(client).await;
     let resp_opcode = resp.header.opcode_u16();
     let body = ResponseBody::decode(
@@ -122,7 +132,12 @@ async fn handshake_as(client: &mut TcpStream, agent_id: [u8; 16]) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Hello.as_u16(), FLAG_EOS, 0, RequestBody::Hello(hello).encode()),
+        Frame::new(
+            Opcode::Hello.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Hello(hello).encode(),
+        ),
     )
     .await;
     let welcome = read_one_frame(client).await;
@@ -135,7 +150,12 @@ async fn handshake_as(client: &mut TcpStream, agent_id: [u8; 16]) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Auth.as_u16(), FLAG_EOS, 0, RequestBody::Auth(auth).encode()),
+        Frame::new(
+            Opcode::Auth.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Auth(auth).encode(),
+        ),
     )
     .await;
     let auth_ok = read_one_frame(client).await;
@@ -215,8 +235,12 @@ async fn default_recall_does_not_leak_other_agents_memories() {
     let agent_a = [0xAAu8; 16];
     let agent_b = [0xBBu8; 16];
 
-    let mut a = TcpStream::connect(server.data_plane_addr).await.expect("connect a");
-    let mut b = TcpStream::connect(server.data_plane_addr).await.expect("connect b");
+    let mut a = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect a");
+    let mut b = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect b");
     handshake_as(&mut a, agent_a).await;
     handshake_as(&mut b, agent_b).await;
 
@@ -263,8 +287,12 @@ async fn include_other_agents_opt_in_widens_scope() {
     let agent_a = [0x11u8; 16];
     let agent_b = [0x22u8; 16];
 
-    let mut a = TcpStream::connect(server.data_plane_addr).await.expect("connect a");
-    let mut b = TcpStream::connect(server.data_plane_addr).await.expect("connect b");
+    let mut a = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect a");
+    let mut b = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect b");
     handshake_as(&mut a, agent_a).await;
     handshake_as(&mut b, agent_b).await;
 

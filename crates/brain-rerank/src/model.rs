@@ -150,9 +150,10 @@ impl CrossEncoder {
         // The classifier wraps the backbone (`roberta.*`) and the
         // relevance head (`classifier.dense` / `classifier.out_proj`)
         // from the root `vb`; `num_labels = 1` for binary relevance.
-        let model = XLMRobertaForSequenceClassification::new(1, &model_config, vb).map_err(|e| {
-            RerankError::WeightsLoad(format!("XLMRobertaForSequenceClassification::new: {e}"))
-        })?;
+        let model =
+            XLMRobertaForSequenceClassification::new(1, &model_config, vb).map_err(|e| {
+                RerankError::WeightsLoad(format!("XLMRobertaForSequenceClassification::new: {e}"))
+            })?;
 
         tracing::info!(
             target: "brain_rerank",
@@ -319,5 +320,4 @@ mod tests {
             "relevant candidate must outscore irrelevant: {scores:?}",
         );
     }
-
 }

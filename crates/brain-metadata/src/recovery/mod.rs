@@ -46,9 +46,9 @@ use crate::tables::next_lsn::NEXT_LSN_TABLE;
 
 pub mod checkpoint;
 pub mod edge;
-pub mod phases;
-pub mod phase_bodies;
 pub mod memory;
+pub mod phase_bodies;
+pub mod phases;
 pub mod reclaim;
 pub mod relation;
 

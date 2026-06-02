@@ -25,9 +25,8 @@ use brain_protocol::envelope::request::RequestBody;
 use brain_protocol::envelope::response::ResponseBody;
 use brain_protocol::Frame;
 use brain_protocol::{
-    EncodeRequest, EntityCreateRequest, EvidenceRefWire, ForgetMode, ForgetRequest,
-    MemoryKindWire, StatementCreateRequest, StatementGetRequest, StatementKindWire,
-    StatementObjectWire,
+    EncodeRequest, EntityCreateRequest, EvidenceRefWire, ForgetMode, ForgetRequest, MemoryKindWire,
+    StatementCreateRequest, StatementGetRequest, StatementKindWire, StatementObjectWire,
 };
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::TcpStream;
@@ -94,13 +93,24 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn round_trip(client: &mut TcpStream, stream_id: u32, req: RequestBody) -> (u16, ResponseBody) {
+async fn round_trip(
+    client: &mut TcpStream,
+    stream_id: u32,
+    req: RequestBody,
+) -> (u16, ResponseBody) {
     let opcode = req.opcode().as_u16();
-    send_frame(client, Frame::new(opcode, FLAG_EOS, stream_id, req.encode())).await;
+    send_frame(
+        client,
+        Frame::new(opcode, FLAG_EOS, stream_id, req.encode()),
+    )
+    .await;
     let resp = read_one_frame(client).await;
     let resp_opcode = resp.header.opcode_u16();
-    let body = ResponseBody::decode(Opcode::from_u16(resp_opcode).expect("opcode"), &resp.payload)
-        .expect("decode resp");
+    let body = ResponseBody::decode(
+        Opcode::from_u16(resp_opcode).expect("opcode"),
+        &resp.payload,
+    )
+    .expect("decode resp");
     (resp_opcode, body)
 }
 
@@ -121,10 +131,18 @@ async fn handshake(client: &mut TcpStream) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Hello.as_u16(), FLAG_EOS, 0, RequestBody::Hello(hello).encode()),
+        Frame::new(
+            Opcode::Hello.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Hello(hello).encode(),
+        ),
     )
     .await;
-    assert_eq!(read_one_frame(client).await.header.opcode_u16(), Opcode::Welcome.as_u16());
+    assert_eq!(
+        read_one_frame(client).await.header.opcode_u16(),
+        Opcode::Welcome.as_u16()
+    );
 
     let auth = AuthPayload {
         method: AuthMethod::None,
@@ -133,10 +151,18 @@ async fn handshake(client: &mut TcpStream) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Auth.as_u16(), FLAG_EOS, 0, RequestBody::Auth(auth).encode()),
+        Frame::new(
+            Opcode::Auth.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Auth(auth).encode(),
+        ),
     )
     .await;
-    assert_eq!(read_one_frame(client).await.header.opcode_u16(), Opcode::AuthOk.as_u16());
+    assert_eq!(
+        read_one_frame(client).await.header.opcode_u16(),
+        Opcode::AuthOk.as_u16()
+    );
 }
 
 async fn encode(client: &mut TcpStream, stream_id: u32, text: &str) -> u128 {
@@ -166,7 +192,11 @@ async fn create_entity(client: &mut TcpStream, stream_id: u32, name: &str) -> [u
         request_id: rid(),
     };
     let (op, body) = round_trip(client, stream_id, RequestBody::EntityCreate(req)).await;
-    assert_eq!(op, Opcode::EntityCreateResp.as_u16(), "entity create failed: {body:?}");
+    assert_eq!(
+        op,
+        Opcode::EntityCreateResp.as_u16(),
+        "entity create failed: {body:?}"
+    );
     match body {
         ResponseBody::EntityCreate(r) => r.entity_id,
         other => panic!("expected EntityCreate, got {other:?}"),
@@ -196,7 +226,11 @@ async fn create_statement_citing(
         request_id: rid(),
     };
     let (op, body) = round_trip(client, stream_id, RequestBody::StatementCreate(req)).await;
-    assert_eq!(op, Opcode::StatementCreateResp.as_u16(), "statement create failed: {body:?}");
+    assert_eq!(
+        op,
+        Opcode::StatementCreateResp.as_u16(),
+        "statement create failed: {body:?}"
+    );
     match body {
         ResponseBody::StatementCreate(r) => r.statement_id,
         other => panic!("expected StatementCreate, got {other:?}"),
@@ -221,7 +255,11 @@ async fn statement_tombstoned(client: &mut TcpStream, stream_id: u32, stmt_id: [
         follow_supersession: false,
     };
     let (op, body) = round_trip(client, stream_id, RequestBody::StatementGet(req)).await;
-    assert_eq!(op, Opcode::StatementGetResp.as_u16(), "statement get failed: {body:?}");
+    assert_eq!(
+        op,
+        Opcode::StatementGetResp.as_u16(),
+        "statement get failed: {body:?}"
+    );
     match body {
         ResponseBody::StatementGet(r) => r.statement.tombstoned,
         other => panic!("expected StatementGet, got {other:?}"),
@@ -239,7 +277,9 @@ async fn statement_tombstoned(client: &mut TcpStream, stream_id: u32, stmt_id: [
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
 async fn forget_cascades_tombstone_to_orphaned_statement() {
     let server = start(1).await;
-    let mut client = TcpStream::connect(server.data_plane_addr).await.expect("connect");
+    let mut client = TcpStream::connect(server.data_plane_addr)
+        .await
+        .expect("connect");
     handshake(&mut client).await;
 
     // The memory that will back the statement's only evidence.

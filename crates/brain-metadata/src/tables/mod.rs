@@ -87,9 +87,7 @@ macro_rules! impl_redb_rkyv_value {
 /// Tables that live in their own redb files (api_keys, llm_cache)
 /// self-init inside their own `open()` constructors and are NOT listed
 /// here.
-pub fn materialize_all_tables(
-    wtxn: &::redb::WriteTransaction,
-) -> Result<(), ::redb::TableError> {
+pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::redb::TableError> {
     use agent::AGENTS_TABLE;
     use audit::{
         ENTITY_RESOLUTION_AUDIT_TABLE, EXTRACTOR_AUDIT_BY_EXTRACTOR_TABLE,
@@ -118,10 +116,10 @@ pub fn materialize_all_tables(
     use schema_version::{SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE};
     use slot_version::SLOT_VERSIONS_TABLE;
     use statement::{
-        EVIDENCE_OVERFLOW_TABLE, STATEMENTS_BY_EVENT_TIME_TABLE,
-        STATEMENTS_BY_EVIDENCE_TABLE, STATEMENTS_BY_OBJECT_ENTITY_TABLE,
-        STATEMENTS_BY_PREDICATE_TABLE, STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE,
-        STATEMENT_CHAIN_TABLE, STATEMENT_EMBED_QUEUE_TABLE,
+        EVIDENCE_OVERFLOW_TABLE, STATEMENTS_BY_EVENT_TIME_TABLE, STATEMENTS_BY_EVIDENCE_TABLE,
+        STATEMENTS_BY_OBJECT_ENTITY_TABLE, STATEMENTS_BY_PREDICATE_TABLE,
+        STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE, STATEMENT_CHAIN_TABLE,
+        STATEMENT_EMBED_QUEUE_TABLE,
     };
     use text::TEXTS_TABLE;
     use worker_checkpoints::WORKER_CHECKPOINTS_TABLE;

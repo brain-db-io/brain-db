@@ -28,9 +28,9 @@ use brain_protocol::schema::{
     CardinalityAst, ExtractorKindAst, ObjectTypeDecl, SchemaItem, StatementKindAst, ValidatedSchema,
 };
 use brain_protocol::{
-    GraphEventPayload, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire,
-    SchemaListRequest, SchemaListResponseFrame, SchemaUpdatedEvent, SchemaUploadRequest,
-    SchemaUploadResponse, SchemaValidateRequest, SchemaValidateResponse, SchemaValidationErrorWire,
+    GraphEventPayload, SchemaGetRequest, SchemaGetResponse, SchemaListItemWire, SchemaListRequest,
+    SchemaListResponseFrame, SchemaUpdatedEvent, SchemaUploadRequest, SchemaUploadResponse,
+    SchemaValidateRequest, SchemaValidateResponse, SchemaValidationErrorWire,
 };
 
 use crate::context::OpsContext;

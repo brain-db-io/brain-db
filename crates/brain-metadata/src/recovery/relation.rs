@@ -148,9 +148,7 @@ fn write_relation_link(
             /* first_seen_lsn */ 0,
             now_unix_nanos,
         )
-        .map_err(|e| {
-            MetadataSinkError::Corruption(format!("relation_type_intern_or_get: {e}"))
-        })?,
+        .map_err(|e| MetadataSinkError::Corruption(format!("relation_type_intern_or_get: {e}")))?,
     };
 
     // Edge row(s). The auto-mirror split mirrors `relation_ops`:

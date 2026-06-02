@@ -129,9 +129,7 @@ pub fn fuse(
 ) -> Vec<FusedItem> {
     match method {
         FusionMethod::Rrf => fuse_rrf(outputs, k, weights),
-        FusionMethod::RelativeScore => {
-            fuse_relative_score(outputs, weights, Normalization::MinMax)
-        }
+        FusionMethod::RelativeScore => fuse_relative_score(outputs, weights, Normalization::MinMax),
         FusionMethod::RelativeScoreZScore => {
             fuse_relative_score(outputs, weights, Normalization::ZScore)
         }

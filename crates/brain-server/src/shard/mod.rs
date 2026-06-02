@@ -1287,9 +1287,9 @@ pub fn spawn_shard(
                 // Move the encoder onto its own thread: the forward
                 // pass is heavy CPU work that must not block the shard
                 // core. The shard awaits scores over a channel instead.
-                brain_ops::CrossEncoderSlot::Enabled(Arc::new(
-                    brain_rerank::RerankService::spawn(encoder),
-                ))
+                brain_ops::CrossEncoderSlot::Enabled(Arc::new(brain_rerank::RerankService::spawn(
+                    encoder,
+                )))
             }
             Ok(None) => {
                 // Operator left `rerank.enabled = true` but no model
@@ -2564,8 +2564,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 let result = match shard.rebuild_source.snapshot_vectors().await {
                     Ok(vectors) => {
                         let params = shard.hnsw_shared.params();
-                        match brain_index::rebuild::rebuild_impl(params, vectors)
-                        {
+                        match brain_index::rebuild::rebuild_impl(params, vectors) {
                             Ok((new_idx, _report)) => {
                                 let entries = new_idx.len();
                                 shard.hnsw_shared.swap(new_idx);
@@ -2891,7 +2890,11 @@ fn find_latest_snapshot_dir(root: &Path) -> Option<PathBuf> {
         if !path.is_dir() {
             continue;
         }
-        let id: u64 = match path.file_name().and_then(|n| n.to_str()).and_then(|s| s.parse().ok()) {
+        let id: u64 = match path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|s| s.parse().ok())
+        {
             Some(v) => v,
             None => continue,
         };

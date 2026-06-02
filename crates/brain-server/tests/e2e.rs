@@ -90,8 +90,7 @@ where
         .read_exact(&mut header)
         .await
         .map_err(|e| format!("header read: {e}"))?;
-    let payload_len =
-        u32::from_be_bytes([0, header[16], header[17], header[18]]) as usize;
+    let payload_len = u32::from_be_bytes([0, header[16], header[17], header[18]]) as usize;
     let mut buf = Vec::with_capacity(brain_protocol::HEADER_SIZE + payload_len);
     buf.extend_from_slice(&header);
     if payload_len > 0 {
@@ -419,7 +418,8 @@ async fn metrics_endpoint_reflects_traffic() {
     );
     // The admission-gate rejection counter is surfaced (0 here — no caps hit).
     assert!(
-        body.lines().any(|l| l.starts_with("brain_connections_rejected_total ")),
+        body.lines()
+            .any(|l| l.starts_with("brain_connections_rejected_total ")),
         "missing brain_connections_rejected_total; body:\n{body}"
     );
 

@@ -41,7 +41,7 @@ use brain_metadata::tables::entity::EntityMetadata;
 use brain_metadata::tables::statement::metadata_from_statement;
 use brain_storage::wal::kinds::WalRecordKind;
 use brain_storage::wal::payload::{
-    EncodePayload, ForgetPayload, ForgetReason, PhaseBodyRecord, LinkPayload, RelationLinkPayload,
+    EncodePayload, ForgetPayload, ForgetReason, LinkPayload, PhaseBodyRecord, RelationLinkPayload,
     RelationSupersedePayload, RelationTombstonePayload, SalienceReason, SalienceUpdate,
     UnlinkPayload, UpdateContextPayload, UpdateKindPayload, UpdateSaliencePayload, WalPayload,
 };
@@ -486,9 +486,7 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
         // ApproveMerge / RejectMerge resolve a merge proposal at apply
         // time, so they need a handler-side pre-resolution before they can
         // be WAL-mapped — durability still rides the redb commit for now.
-        Phase::Supersede { .. }
-        | Phase::ApproveMerge { .. }
-        | Phase::RejectMerge { .. } => None,
+        Phase::Supersede { .. } | Phase::ApproveMerge { .. } | Phase::RejectMerge { .. } => None,
 
         // No wire-replay semantic — UpdateEmbedding rewrites a vector
         // the HNSW already absorbed pre-commit; ReclaimSlots is derivable
@@ -535,7 +533,8 @@ mod tests {
             created_at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityCreate);
@@ -550,7 +549,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityTombstone);
@@ -566,7 +566,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityUpdate);
@@ -580,7 +581,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityRename);
@@ -600,7 +602,8 @@ mod tests {
             grace_seconds: 0,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityMerge);
@@ -618,7 +621,8 @@ mod tests {
             created_at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::SchemaUpdate);
@@ -632,7 +636,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::EntityUnmerge);
@@ -645,7 +650,8 @@ mod tests {
             enabled: false,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::ExtractorToggle);
@@ -672,7 +678,8 @@ mod tests {
             predicate_intern_hint: Some(("brain".into(), "likes".into())),
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::StatementCreate);
@@ -687,7 +694,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map") else {
+        let WalPayload::PhaseBody(rec) = phase_to_wal_payload(&phase, &w).expect("should map")
+        else {
             panic!("expected PhaseBody payload")
         };
         assert_eq!(rec.kind, WalRecordKind::StatementTombstone);
@@ -732,7 +740,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_000,
         };
         let w = write_for(phase.clone());
-        let WalPayload::RelationTombstone(rt) = phase_to_wal_payload(&phase, &w).expect("should map")
+        let WalPayload::RelationTombstone(rt) =
+            phase_to_wal_payload(&phase, &w).expect("should map")
         else {
             panic!("expected RelationTombstone payload")
         };
@@ -770,7 +779,8 @@ mod tests {
             at_unix_nanos: 1_700_000_000_001,
         };
         let w = write_for(phase.clone());
-        let WalPayload::RelationSupersede(rs) = phase_to_wal_payload(&phase, &w).expect("should map")
+        let WalPayload::RelationSupersede(rs) =
+            phase_to_wal_payload(&phase, &w).expect("should map")
         else {
             panic!("expected RelationSupersede payload")
         };

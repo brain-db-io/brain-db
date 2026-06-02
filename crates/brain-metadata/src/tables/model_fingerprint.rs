@@ -236,5 +236,4 @@ mod tests {
         assert_eq!(t.get(&fp(10)).unwrap().unwrap().value(), info_a);
         assert_eq!(t.get(&fp(20)).unwrap().unwrap().value(), info_b);
     }
-
 }

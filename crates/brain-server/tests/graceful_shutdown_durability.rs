@@ -27,7 +27,9 @@ use brain_protocol::codec::opcode::Opcode;
 use brain_protocol::connection::handshake::{
     AuthCredentials, AuthMethod, AuthPayload, HelloCapabilities, HelloPayload,
 };
-use brain_protocol::envelope::request::{EncodeRequest, MemoryKindWire, RecallRequest, RequestBody};
+use brain_protocol::envelope::request::{
+    EncodeRequest, MemoryKindWire, RecallRequest, RequestBody,
+};
 use brain_protocol::envelope::response::ResponseBody;
 use brain_protocol::Frame;
 use tempfile::TempDir;
@@ -95,9 +97,17 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn round_trip(client: &mut TcpStream, stream_id: u32, req: RequestBody) -> (u16, ResponseBody) {
+async fn round_trip(
+    client: &mut TcpStream,
+    stream_id: u32,
+    req: RequestBody,
+) -> (u16, ResponseBody) {
     let opcode = req.opcode().as_u16();
-    send_frame(client, Frame::new(opcode, FLAG_EOS, stream_id, req.encode())).await;
+    send_frame(
+        client,
+        Frame::new(opcode, FLAG_EOS, stream_id, req.encode()),
+    )
+    .await;
     let resp = read_one_frame(client).await;
     let resp_opcode = resp.header.opcode_u16();
     let body = ResponseBody::decode(
@@ -121,7 +131,12 @@ async fn handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Hello.as_u16(), FLAG_EOS, 0, RequestBody::Hello(hello).encode()),
+        Frame::new(
+            Opcode::Hello.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Hello(hello).encode(),
+        ),
     )
     .await;
     let welcome = read_one_frame(client).await;
@@ -134,7 +149,12 @@ async fn handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     };
     send_frame(
         client,
-        Frame::new(Opcode::Auth.as_u16(), FLAG_EOS, 0, RequestBody::Auth(auth).encode()),
+        Frame::new(
+            Opcode::Auth.as_u16(),
+            FLAG_EOS,
+            0,
+            RequestBody::Auth(auth).encode(),
+        ),
     )
     .await;
     let auth_ok = read_one_frame(client).await;
@@ -157,7 +177,9 @@ async fn encode(client: &mut TcpStream, stream_id: u32, text: &str) -> u128 {
     let (opcode, body) = round_trip(client, stream_id, RequestBody::Encode(req)).await;
     match body {
         ResponseBody::Encode(r) if opcode == Opcode::EncodeResp.as_u16() => r.memory_id,
-        other => panic!("encode must succeed to be a durable write: opcode={opcode} body={other:?}"),
+        other => {
+            panic!("encode must succeed to be a durable write: opcode={opcode} body={other:?}")
+        }
     }
 }
 
@@ -180,7 +202,11 @@ async fn recall_ids(client: &mut TcpStream, stream_id: u32, cue: &str) -> Vec<u1
         include_other_agents: false,
     };
     let (opcode, body) = round_trip(client, stream_id, RequestBody::Recall(req)).await;
-    assert_eq!(opcode, Opcode::RecallResp.as_u16(), "expected RecallResp, got 0x{opcode:02x}");
+    assert_eq!(
+        opcode,
+        Opcode::RecallResp.as_u16(),
+        "expected RecallResp, got 0x{opcode:02x}"
+    );
     match body {
         ResponseBody::Recall(r) => r.results.iter().map(|h| h.memory_id).collect(),
         other => panic!("expected RecallResp, got {other:?}"),
@@ -217,7 +243,9 @@ async fn acknowledged_writes_survive_graceful_shutdown_and_restart() {
     let mut ids = Vec::new();
     {
         let server = start_in(dir.path(), 1).await;
-        let mut client = TcpStream::connect(server.data_plane_addr).await.expect("connect 1");
+        let mut client = TcpStream::connect(server.data_plane_addr)
+            .await
+            .expect("connect 1");
         handshake(&mut client, agent_id).await;
 
         for (i, text) in memories.iter().enumerate() {
@@ -235,7 +263,9 @@ async fn acknowledged_writes_survive_graceful_shutdown_and_restart() {
     // --- Server instance 2: same dir, must recover every write ---
     {
         let server = start_in(dir.path(), 1).await;
-        let mut client = TcpStream::connect(server.data_plane_addr).await.expect("connect 2");
+        let mut client = TcpStream::connect(server.data_plane_addr)
+            .await
+            .expect("connect 2");
         handshake(&mut client, agent_id).await;
 
         for (i, cue) in cues.iter().enumerate() {
@@ -265,7 +295,9 @@ async fn graceful_shutdown_with_no_writes_restarts_clean() {
 
     {
         let server = start_in(dir.path(), 1).await;
-        let mut client = TcpStream::connect(server.data_plane_addr).await.expect("connect 1");
+        let mut client = TcpStream::connect(server.data_plane_addr)
+            .await
+            .expect("connect 1");
         handshake(&mut client, agent_id).await;
         drop(client);
         server.stop().await;
@@ -273,11 +305,16 @@ async fn graceful_shutdown_with_no_writes_restarts_clean() {
 
     {
         let server = start_in(dir.path(), 1).await;
-        let mut client = TcpStream::connect(server.data_plane_addr).await.expect("connect 2");
+        let mut client = TcpStream::connect(server.data_plane_addr)
+            .await
+            .expect("connect 2");
         handshake(&mut client, agent_id).await;
         // The shard recovered to an empty, queryable state.
         let got = recall_ids(&mut client, 1, "anything at all").await;
-        assert!(got.is_empty(), "expected empty recall on a fresh dir, got {got:?}");
+        assert!(
+            got.is_empty(),
+            "expected empty recall on a fresh dir, got {got:?}"
+        );
         drop(client);
         server.stop().await;
     }

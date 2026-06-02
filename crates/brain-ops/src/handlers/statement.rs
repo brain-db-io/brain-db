@@ -18,6 +18,15 @@
 //! These handlers do **not** touch the statement HNSW; the embedding
 //! worker that populates it lives elsewhere.
 
+use crate::context::OpsContext;
+use crate::error::OpError;
+use crate::handlers::entity::emit_graph_event;
+use crate::handlers::link::downcast_writer_pub;
+use crate::index::text_indexer::{statement::upsert_op_from_statement, StatementTextOp};
+use crate::write::{
+    EvidenceRefPhase, Phase, PhaseAck, SupersedeReplacement, SupersedeReplacementId,
+    SupersedeTarget, TombstoneTarget, Write, WriteId,
+};
 use brain_core::{EntityId, PredicateId, RequestId, StatementId, StatementKind};
 use brain_core::{EvidenceEntry, Statement, TombstoneReason};
 use brain_metadata::schema::predicate::{
@@ -32,21 +41,12 @@ use brain_metadata::statement::{
 use brain_planner::WriterError;
 use brain_protocol::envelope::response::EventType;
 use brain_protocol::{
-    statement_kind_from_wire, GraphEventPayload, StatementCreateRequest,
-    StatementCreateResponse, StatementCreatedEvent, StatementGetRequest, StatementGetResponse,
-    StatementHistoryRequest, StatementHistoryResponseFrame, StatementListRequest,
-    StatementListResponseFrame, StatementRetractRequest, StatementRetractResponse,
-    StatementSupersedeRequest, StatementSupersedeResponse, StatementSupersededEvent,
-    StatementTombstoneRequest, StatementTombstoneResponse, StatementTombstonedEvent, StatementView,
-};
-use crate::context::OpsContext;
-use crate::error::OpError;
-use crate::handlers::entity::emit_graph_event;
-use crate::handlers::link::downcast_writer_pub;
-use crate::index::text_indexer::{statement::upsert_op_from_statement, StatementTextOp};
-use crate::write::{
-    EvidenceRefPhase, Phase, PhaseAck, SupersedeReplacement, SupersedeReplacementId,
-    SupersedeTarget, TombstoneTarget, Write, WriteId,
+    statement_kind_from_wire, GraphEventPayload, StatementCreateRequest, StatementCreateResponse,
+    StatementCreatedEvent, StatementGetRequest, StatementGetResponse, StatementHistoryRequest,
+    StatementHistoryResponseFrame, StatementListRequest, StatementListResponseFrame,
+    StatementRetractRequest, StatementRetractResponse, StatementSupersedeRequest,
+    StatementSupersedeResponse, StatementSupersededEvent, StatementTombstoneRequest,
+    StatementTombstoneResponse, StatementTombstonedEvent, StatementView,
 };
 
 // 30 days. Used by STATEMENT_RETRACT for the

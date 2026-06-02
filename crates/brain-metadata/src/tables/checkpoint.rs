@@ -359,5 +359,4 @@ mod tests {
         assert_eq!(got.checkpoint_id, id);
         assert_eq!(got.durable_lsn, 7_777_777);
     }
-
 }

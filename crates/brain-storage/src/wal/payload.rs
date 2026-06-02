@@ -1239,7 +1239,8 @@ fn decode_relation_link(r: &mut Reader<'_>) -> Result<RelationLinkPayload, WalPa
     let relation_type_intern_hint = match r.u8()? {
         0 => None,
         1 => {
-            let namespace = String::from_utf8(read_blob(r)?).map_err(|_| WalPayloadError::BadUtf8)?;
+            let namespace =
+                String::from_utf8(read_blob(r)?).map_err(|_| WalPayloadError::BadUtf8)?;
             let name = String::from_utf8(read_blob(r)?).map_err(|_| WalPayloadError::BadUtf8)?;
             Some((namespace, name))
         }
