@@ -147,6 +147,18 @@ fn emit_connection_basic(out: &mut String, connections: &ConnectionMetrics) {
         connections.total.load(Ordering::Relaxed),
     );
 
+    emit_header(
+        out,
+        "brain_connections_rejected_total",
+        "Connections shed at accept time by the admission gate (global or per-IP cap).",
+        "counter",
+    );
+    let _ = writeln!(
+        out,
+        "brain_connections_rejected_total {}",
+        connections.rejected.load(Ordering::Relaxed),
+    );
+
     // Connection-extended families: `brain_frame_size_bytes` histogram is
     // still deferred.
     emit_header(

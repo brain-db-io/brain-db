@@ -417,6 +417,11 @@ async fn metrics_endpoint_reflects_traffic() {
         body.contains("brain_shards_total 1"),
         "expected brain_shards_total 1 with one shard; body:\n{body}"
     );
+    // The admission-gate rejection counter is surfaced (0 here — no caps hit).
+    assert!(
+        body.lines().any(|l| l.starts_with("brain_connections_rejected_total ")),
+        "missing brain_connections_rejected_total; body:\n{body}"
+    );
 
     drop(c1);
     drop(c2);

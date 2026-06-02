@@ -166,6 +166,9 @@ impl Default for ConnectionLimits {
 pub struct ConnectionMetrics {
     pub active: AtomicU64,
     pub total: AtomicU64,
+    /// Connections shed at accept time by the admission gate (global or
+    /// per-IP cap), before any TLS/handshake work.
+    pub rejected: AtomicU64,
     /// Per-reason close counters; indexed by [`CloseReason::idx`].
     pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
     pub frame_send_total: AtomicU64,
@@ -199,6 +202,7 @@ impl Default for ConnectionMetrics {
         Self {
             active: AtomicU64::new(0),
             total: AtomicU64::new(0),
+            rejected: AtomicU64::new(0),
             closed_by_reason: Default::default(),
             frame_send_total: AtomicU64::new(0),
             frame_recv_total: AtomicU64::new(0),
@@ -419,6 +423,7 @@ impl BoundConnectionListener {
                     let admission = match gate.try_admit(peer.ip()) {
                         Some(guard) => guard,
                         None => {
+                            self.metrics.rejected.fetch_add(1, Ordering::Relaxed);
                             debug!(peer = %peer, "connection rejected: admission cap reached");
                             continue;
                         }

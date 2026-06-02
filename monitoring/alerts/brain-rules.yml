@@ -1,0 +1,117 @@
+# Prometheus alerting rules for Brain.
+#
+# Validated in CI by crates/brain-server/tests/alerts.rs (shape + required
+# alerts + severity set). `promtool check rules monitoring/alerts/brain-rules.yml`
+# is the authoritative check when the Prometheus toolchain is available.
+#
+# Severities: critical (page now), high (page in hours), medium (ticket),
+# low (informational). Thresholds are starting points — tune per deployment.
+groups:
+  - name: brain-critical
+    rules:
+      - alert: BrainSubstrateDown
+        expr: up{job="brain-server"} == 0
+        for: 1m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Brain server is unreachable"
+          description: "No successful scrape of {{ $labels.instance }} for 1m — the server is down or the metrics port is unreachable."
+
+      - alert: BrainHighErrorRate
+        expr: |
+          sum(rate(brain_frame_send_total{opcode="error"}[5m]))
+            / clamp_min(sum(rate(brain_frame_recv_total[5m])), 1) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Brain error-response rate above 5%"
+          description: "Over 5% of requests are returning ERROR frames over the last 5m."
+
+      - alert: BrainCheckpointFailing
+        expr: increase(brain_snapshot_failures_total[1h]) > 0
+        for: 5m
+        labels:
+          severity: critical
+        annotations:
+          summary: "Brain snapshot/checkpoint is failing"
+          description: "At least one snapshot has failed in the last hour — durability/recovery posture is degraded."
+
+  - name: brain-high
+    rules:
+      - alert: BrainHighLatency
+        expr: histogram_quantile(0.99, sum by (le) (rate(brain_request_duration_ms_bucket[5m]))) > 50
+        for: 10m
+        labels:
+          severity: high
+        annotations:
+          summary: "Brain p99 request latency above 50ms"
+          description: "p99 request latency has exceeded the 50ms target for 10m."
+
+      - alert: BrainWorkerStuck
+        expr: sum without (worker) (rate(brain_extractor_cycle_duration_seconds_count[15m])) == 0
+        for: 15m
+        labels:
+          severity: high
+        annotations:
+          summary: "A Brain background worker has stalled"
+          description: "No worker cycles completed in the last 15m — decay/consolidation/extraction may be wedged."
+
+  - name: brain-medium
+    rules:
+      - alert: BrainHighTombstoneRatio
+        expr: brain_hnsw_tombstone_ratio > 0.3
+        for: 30m
+        labels:
+          severity: medium
+        annotations:
+          summary: "HNSW tombstone ratio above 30%"
+          description: "Index is accumulating tombstones — recall latency/quality will degrade until maintenance compacts it."
+
+      - alert: BrainRecallQualityDegraded
+        expr: brain_hnsw_recall_estimate < 0.9
+        for: 30m
+        labels:
+          severity: medium
+        annotations:
+          summary: "HNSW recall estimate below 0.9"
+          description: "Estimated approximate-recall has dropped below 0.9 — consider raising ef_search or rebuilding the index."
+
+      - alert: BrainEmbedderSlow
+        expr: histogram_quantile(0.99, sum by (le) (rate(brain_embedder_duration_ms_bucket[5m]))) > 100
+        for: 15m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Embedder p99 above 100ms"
+          description: "Embedding the query/text is slow — encode and recall throughput will suffer."
+
+      - alert: BrainConnectionsChurning
+        expr: rate(brain_connections_closed_total[5m]) > 20
+        for: 10m
+        labels:
+          severity: medium
+        annotations:
+          summary: "Connections are churning"
+          description: "Clients are opening and closing connections rapidly (>20/s) — check client pooling and admission limits."
+
+  - name: brain-low
+    rules:
+      - alert: BrainConfigChanged
+        expr: changes(brain_config_info[1h]) > 0
+        for: 0m
+        labels:
+          severity: low
+        annotations:
+          summary: "Brain configuration changed"
+          description: "The running config fingerprint changed in the last hour — confirm the change was intentional."
+
+      - alert: BrainWorkerErrorsWarning
+        expr: increase(brain_extractor_drops_total[1h]) > 0
+        for: 0m
+        labels:
+          severity: low
+        annotations:
+          summary: "Background worker dropped items"
+          description: "An extractor/edge worker dropped items from its queue in the last hour (back-pressure or transient error)."

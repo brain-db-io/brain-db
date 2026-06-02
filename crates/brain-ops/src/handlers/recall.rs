@@ -672,12 +672,13 @@ fn project_memory_results(
             memory_id: memory_id.raw(),
             text,
             similarity_score: semantic_score,
-            // `confidence` carries the score the --confidence threshold
-            // is compared against. On hybrid that's the RRF-fused
-            // score (matching the server-side filter in
-            // brain-planner::recall). On substrate it equals
-            // similarity_score (set in hit_to_wire).
-            confidence: fused.fused_score as f32,
+            // `confidence` is the cosine similarity of the hit — a [0,1]
+            // quantity, identical to `similarity_score`, consistent across
+            // the hybrid and substrate paths. The raw RRF rank-fusion sum
+            // is unbounded (it grows with the number of contributing
+            // retrievers) and is exposed separately as `fused_score`; it is
+            // a ranking diagnostic, not a confidence.
+            confidence: semantic_score,
             salience: row.salience,
             kind: wire_kind,
             agent_id: row.agent_id_bytes,
