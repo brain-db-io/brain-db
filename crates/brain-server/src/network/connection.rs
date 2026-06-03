@@ -51,6 +51,14 @@ use crate::subscribe::{
     SubscriptionRegistry,
 };
 
+// Declared as a child module here (rather than a sibling under `network`) so the
+// relative `#[path]` resolves identically whether this file is compiled as
+// `network::connection` in the binary or root-mounted as `connection` by each
+// integration-test binary's `#[path]` mount.
+#[path = "gate.rs"]
+mod gate;
+use gate::ConnectionGate;
+
 // ---------------------------------------------------------------------------
 // Shutdown signal
 // ---------------------------------------------------------------------------
@@ -116,7 +124,7 @@ pub struct ConnectionLimits {
     /// Inter-frame idle (the wait BETWEEN frames, while no bytes
     /// are on the wire) is governed by `idle_timeout` + the
     /// SERVER_PING path instead; bounding it here too closes idle
-    /// REPLs / SDKs before the application-level keepalive can fire.
+    /// connections before the application-level keepalive can fire.
     pub read_timeout: Duration,
     /// — interval before AUTH must arrive after WELCOME.
     pub auth_timeout: Duration,
@@ -128,6 +136,13 @@ pub struct ConnectionLimits {
     /// load; if the writer can't keep up, sub-tasks back-pressure on
     /// `send_async` and the read loop naturally slows down.
     pub outgoing_capacity: usize,
+    /// Maximum concurrent connections accepted process-wide; `0` disables
+    /// the cap. Excess connections are dropped at accept time, before any
+    /// TLS or handshake work.
+    pub max_connections: usize,
+    /// Maximum concurrent connections accepted from a single peer IP; `0`
+    /// disables the cap. Bounds the blast radius of a single noisy source.
+    pub max_connections_per_ip: usize,
 }
 
 impl Default for ConnectionLimits {
@@ -139,6 +154,8 @@ impl Default for ConnectionLimits {
             idle_timeout: Duration::from_secs(300),
             ping_timeout: Duration::from_secs(30),
             outgoing_capacity: 256,
+            max_connections: 4096,
+            max_connections_per_ip: 64,
         }
     }
 }
@@ -149,6 +166,9 @@ impl Default for ConnectionLimits {
 pub struct ConnectionMetrics {
     pub active: AtomicU64,
     pub total: AtomicU64,
+    /// Connections shed at accept time by the admission gate (global or
+    /// per-IP cap), before any TLS/handshake work.
+    pub rejected: AtomicU64,
     /// Per-reason close counters; indexed by [`CloseReason::idx`].
     pub closed_by_reason: [AtomicU64; CloseReason::COUNT],
     pub frame_send_total: AtomicU64,
@@ -182,6 +202,7 @@ impl Default for ConnectionMetrics {
         Self {
             active: AtomicU64::new(0),
             total: AtomicU64::new(0),
+            rejected: AtomicU64::new(0),
             closed_by_reason: Default::default(),
             frame_send_total: AtomicU64::new(0),
             frame_recv_total: AtomicU64::new(0),
@@ -372,6 +393,10 @@ impl BoundConnectionListener {
         info!(addr = %local_addr, "connection listener accepting");
 
         let acceptor = self.tls.clone().map(TlsAcceptor::from);
+        let gate = ConnectionGate::new(
+            self.limits.max_connections,
+            self.limits.max_connections_per_ip,
+        );
 
         loop {
             tokio::select! {
@@ -391,6 +416,18 @@ impl BoundConnectionListener {
                     if let Err(e) = configure_tcp(&stream) {
                         warn!(peer = %peer, error = %e, "TCP option setup failed");
                     }
+                    // Admission caps, enforced before any TLS or handshake work
+                    // so a connection flood is shed as cheaply as possible. The
+                    // guard rides with the per-connection task and frees its
+                    // global + per-IP slot when that task ends, however it ends.
+                    let admission = match gate.try_admit(peer.ip()) {
+                        Some(guard) => guard,
+                        None => {
+                            self.metrics.rejected.fetch_add(1, Ordering::Relaxed);
+                            debug!(peer = %peer, "connection rejected: admission cap reached");
+                            continue;
+                        }
+                    };
                     let acceptor = acceptor.clone();
                     let shutdown = self.shutdown.clone();
                     let limits = self.limits.clone();
@@ -406,6 +443,8 @@ impl BoundConnectionListener {
                         let _guard = ConnectionGuard {
                             metrics: metrics.clone(),
                         };
+                        // Released when this task ends, freeing the gate slots.
+                        let _admission = admission;
                         let result = match acceptor {
                             Some(acceptor) => match acceptor.accept(stream).await {
                                 Ok(tls_stream) => {

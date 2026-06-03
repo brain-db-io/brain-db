@@ -75,8 +75,14 @@ fn relative_score_preserves_magnitude_unlike_rrf() {
     // large (score-driven): min-max maps 0.95->1.0 and 0.50->0.1.
     let rrf_gap = find(&rrf, &strong).unwrap().fused_score - find(&rrf, &mid).unwrap().fused_score;
     let rel_gap = find(&rel, &strong).unwrap().fused_score - find(&rel, &mid).unwrap().fused_score;
-    assert!(rrf_gap < 0.001, "rrf gap should be negligible, got {rrf_gap}");
-    assert!(rel_gap > 0.85, "relative-score gap should reflect the score gap, got {rel_gap}");
+    assert!(
+        rrf_gap < 0.001,
+        "rrf gap should be negligible, got {rrf_gap}"
+    );
+    assert!(
+        rel_gap > 0.85,
+        "relative-score gap should reflect the score gap, got {rel_gap}"
+    );
     assert!(approx_eq(find(&rel, &strong).unwrap().fused_score, 1.0));
 }
 

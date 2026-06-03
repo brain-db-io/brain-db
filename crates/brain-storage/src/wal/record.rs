@@ -67,6 +67,23 @@ pub const FOOTER_LEN: usize = 8;
 /// Maximum payload size (default 16 MiB).
 pub const MAX_PAYLOAD: u32 = 16 * 1024 * 1024;
 
+/// `flags` bit marking a record as a **subscribe-replay change-feed
+/// event**, not a state mutation.
+///
+/// Typed-graph ops are WAL-logged twice: once as the durable write
+/// record (rkyv-encoded row / first-class payload, the source of truth
+/// recovery replays into the metadata store) and once as a CBOR-encoded
+/// `GraphEventPayload` so subscribe-replay can reconstruct the change
+/// feed after a restart. Both records carry the same `WalRecordKind`
+/// (e.g. `EntityCreate`), so the kind byte alone can't tell them apart.
+///
+/// The event record sets this flag. Recovery skips flagged records (the
+/// durable record already carries the state; replaying the CBOR body as
+/// a row would fail decode and, if it didn't, would duplicate the row).
+/// Subscribe-replay does the inverse — it projects flagged records into
+/// change-feed events and ignores the unflagged durable records.
+pub const FLAG_SUBSCRIBE_EVENT: u8 = 0x01;
+
 /// In-memory representation of one WAL record.
 ///
 /// Holds every header field so encode/decode is a lossless round-trip.
@@ -521,17 +538,17 @@ mod tests {
     }
 
     #[test]
-    fn knowledge_payload_round_trips_through_framing() {
-        // Sub-task 15.2: a knowledge-layer record carries an opaque body
+    fn graph_payload_round_trips_through_framing() {
+        // Sub-task 15.2: a opaque-body record carries an opaque body
         // through the full framing layer (header + payload + footer +
         // CRC). The framing is byte-identical to substrate records; only
         // the `record_type` byte and body interpretation differ.
-        use crate::wal::payload::{KnowledgeRecord, WalPayload};
+        use crate::wal::payload::{PhaseBodyRecord, WalPayload};
 
-        // One example per discriminant boundary in the knowledge block.
+        // One example per discriminant boundary in the typed-graph block.
         // RelationCreate / RelationSupersede / RelationTombstone are
         // first-class typed payloads, so they are no longer
-        // valid kinds for an opaque-body KnowledgeRecord.
+        // valid kinds for an opaque-body PhaseBodyRecord.
         for kind in [
             WalRecordKind::EntityCreate,
             WalRecordKind::StatementCreate,
@@ -539,7 +556,7 @@ mod tests {
             WalRecordKind::Audit,
         ] {
             let body: Vec<u8> = (0..48u8).map(|i| i.wrapping_mul(kind.as_u8())).collect();
-            let payload = WalPayload::Knowledge(KnowledgeRecord::new(
+            let payload = WalPayload::PhaseBody(PhaseBodyRecord::new(
                 kind,
                 brain_core::AgentId::default(),
                 body.clone(),
@@ -554,11 +571,11 @@ mod tests {
             };
             assert_eq!(back, record);
             match back.typed_payload().unwrap() {
-                WalPayload::Knowledge(r) => {
+                WalPayload::PhaseBody(r) => {
                     assert_eq!(r.kind, kind);
                     assert_eq!(r.body, body);
                 }
-                other => panic!("expected Knowledge, got {other:?}"),
+                other => panic!("expected PhaseBody, got {other:?}"),
             }
         }
     }

@@ -159,9 +159,9 @@ pub(crate) enum ShardRequest {
         reply_tx: Sender<bool>,
     },
     /// `EXTRACT_BACKFILL`: enqueue existing memories onto the
-    /// per-shard ExtractorWorker channel for re-extraction. Used by
-    /// `brain-cli extract --backfill` after a fresh schema upload or
-    /// after enabling the worker on a populated shard.
+    /// per-shard ExtractorWorker channel for re-extraction. Operators
+    /// drive this after a fresh schema upload or after enabling the
+    /// worker on a populated shard.
     ExtractBackfill {
         selector: brain_protocol::BackfillSelector,
         reply_tx: Sender<Result<ExtractBackfillReport, String>>,
@@ -1159,9 +1159,9 @@ pub fn spawn_shard(
     // ---- 1. Directory layout ------------------------------------------------
     //
     // `ensure_dirs` mkdir-p's the shard root, `wal/`, and
-    // the knowledge-layer tantivy directories. It's idempotent over
+    // the opaque-body tantivy directories. It's idempotent over
     // existing substrate shards (no-op when present) and bootstraps fresh
-    // ones. Knowledge-layer *files* (entity.hnsw, statement.hnsw,
+    // ones. typed-graph *files* (entity.hnsw, statement.hnsw,
     // llm_cache.redb) are created lazily by their owning modules.
     let dir = cfg.data_dir.join(shard_id.to_string());
     brain_storage::ensure_dirs(&dir).map_err(|e| ShardError::dir_create(dir.clone(), e))?;
@@ -1287,9 +1287,9 @@ pub fn spawn_shard(
                 // Move the encoder onto its own thread: the forward
                 // pass is heavy CPU work that must not block the shard
                 // core. The shard awaits scores over a channel instead.
-                brain_ops::CrossEncoderSlot::Enabled(Arc::new(
-                    brain_rerank::RerankService::spawn(encoder),
-                ))
+                brain_ops::CrossEncoderSlot::Enabled(Arc::new(brain_rerank::RerankService::spawn(
+                    encoder,
+                )))
             }
             Ok(None) => {
                 // Operator left `rerank.enabled = true` but no model
@@ -1544,6 +1544,19 @@ pub fn spawn_shard(
                 (None, None)
             };
 
+            // Per-shard ForgetCascadeWorker channel. Unlike the edge /
+            // extractor workers above this is a correctness worker, not a
+            // feature: every FORGET must re-derive or tombstone the
+            // statements citing the forgotten memory, so the channel +
+            // worker are always created (no enable flag). The writer
+            // enqueues a job post-commit on each `Phase::Tombstone(Memory)`;
+            // a full queue drops the job and bumps a metric (the FORGET
+            // itself still succeeds), per the drop-on-overflow discipline
+            // shared by every non-text-indexer typed-graph worker.
+            let forget_cascade_metrics = Arc::new(brain_ops::ForgetCascadeMetrics::new());
+            let (forget_cascade_sender, forget_cascade_receiver) =
+                flume::bounded::<brain_ops::ForgetCascadeJob>(1024);
+
             // Materialise the persisted `EXTRACTORS_TABLE`
             // rows (seeded by the system-schema bootstrap at
             // MetadataDb::open) into a runtime ExtractorRegistry.
@@ -1564,7 +1577,7 @@ pub fn spawn_shard(
             // entities; only statements/relations (LLM-only) are
             // skipped. So it's INFO, not WARN — the server boots clean.
             // The note stays discoverable for anyone wondering why a
-            // memory has entities but no knowledge.
+            // memory has entities but no typed-graph.
             if llm_tier_enabled_for_closure && llm_deps.router.is_none() {
                 tracing::info!(
                     target: "brain_server::shard",
@@ -1754,6 +1767,12 @@ pub fn spawn_shard(
             if let Some(d) = memory_text_dispatcher_for_ops.clone() {
                 real_writer.set_memory_text_dispatcher(d);
             }
+            // Always wired: the FORGET cascade is correctness, not an
+            // optional feature. Both ends share one metrics Arc so the
+            // writer's drop counter and the worker's per-cascade counts
+            // surface together.
+            real_writer.set_forget_cascade_sender(forget_cascade_sender);
+            real_writer.set_forget_cascade_metrics(forget_cascade_metrics.clone());
             let writer: Arc<dyn WriterHandle> = Arc::new(real_writer);
             let executor_ctx = ExecutorContext::new(
                 dispatcher.clone(),
@@ -2250,6 +2269,24 @@ pub fn spawn_shard(
                     .expect("register TemporalEdgeWorker");
             }
 
+            // Register the ForgetCascadeWorker unconditionally — it drains
+            // the cascade channel stamped on the writer above and, for each
+            // FORGET, re-derives or tombstones the statements (and edges /
+            // relations) citing the forgotten memory. Without it a FORGET
+            // tombstones the memory but leaves dependent statements at their
+            // pre-FORGET confidence, citing a memory the user deleted.
+            // Substrate-only shards never enqueue a job, so the worker is a
+            // cheap ticking no-op there.
+            {
+                let worker = brain_workers::workers::forget_cascade::ForgetCascadeWorker::new(
+                    forget_cascade_receiver,
+                )
+                .with_metrics(forget_cascade_metrics.clone());
+                scheduler
+                    .register(Arc::new(worker), ops.clone())
+                    .expect("register ForgetCascadeWorker");
+            }
+
             // Register the ExtractorWorker when its channel was
             // created above (i.e. when `cfg.extractor.enabled` is true).
             // The worker drains the writer's post-encode channel and
@@ -2527,8 +2564,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 let result = match shard.rebuild_source.snapshot_vectors().await {
                     Ok(vectors) => {
                         let params = shard.hnsw_shared.params();
-                        match brain_index::rebuild::rebuild_impl(params, vectors)
-                        {
+                        match brain_index::rebuild::rebuild_impl(params, vectors) {
                             Ok((new_idx, _report)) => {
                                 let entries = new_idx.len();
                                 shard.hnsw_shared.swap(new_idx);
@@ -2854,7 +2890,11 @@ fn find_latest_snapshot_dir(root: &Path) -> Option<PathBuf> {
         if !path.is_dir() {
             continue;
         }
-        let id: u64 = match path.file_name().and_then(|n| n.to_str()).and_then(|s| s.parse().ok()) {
+        let id: u64 = match path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(|s| s.parse().ok())
+        {
             Some(v) => v,
             None => continue,
         };
@@ -3001,11 +3041,11 @@ mod tests {
         joiner.join().expect("shard should join cleanly");
     }
 
-    /// Spawning a shard must leave the knowledge-layer
+    /// Spawning a shard must leave the opaque-body
     /// tantivy directories present on disk so the owning modules can
     /// open them without a separate mkdir step.
     #[test]
-    fn spawn_creates_knowledge_directories() {
+    fn spawn_creates_graph_directories() {
         let dir = TempDir::new().unwrap();
         let cfg = stub_spawn_config(dir.path());
         let (handle, joiner) = spawn_shard(3, cfg).expect("spawn");

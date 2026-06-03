@@ -383,7 +383,10 @@ mod tests {
         let env = EnvGuard::new(ALL_KEYS);
         env.set("BRAIN_ANTHROPIC_MODEL", "claude-sonnet-4-6");
         env.set("BRAIN_OPENAI_MODEL", "gpt-4o");
-        assert_eq!(anthropic_model(&LlmSpawnConfig::default()), "claude-sonnet-4-6");
+        assert_eq!(
+            anthropic_model(&LlmSpawnConfig::default()),
+            "claude-sonnet-4-6"
+        );
         assert_eq!(openai_model(&LlmSpawnConfig::default()), "gpt-4o");
     }
 
@@ -391,7 +394,10 @@ mod tests {
     fn model_defaults_match_pricing_table() {
         let _g = ENV_LOCK.lock().unwrap();
         let _e = EnvGuard::new(ALL_KEYS);
-        assert_eq!(anthropic_model(&LlmSpawnConfig::default()), "claude-haiku-4-5");
+        assert_eq!(
+            anthropic_model(&LlmSpawnConfig::default()),
+            "claude-haiku-4-5"
+        );
         assert_eq!(openai_model(&LlmSpawnConfig::default()), "gpt-4o-mini");
     }
 

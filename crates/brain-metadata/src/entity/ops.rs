@@ -233,7 +233,9 @@ fn vector_to_bytes(vector: &[f32; 384]) -> [u8; ENTITY_VECTOR_BYTES] {
 fn bytes_to_vector(bytes: &[u8; ENTITY_VECTOR_BYTES]) -> [f32; 384] {
     let mut out = [0.0f32; 384];
     for (i, slot) in out.iter_mut().enumerate() {
-        let chunk: [u8; 4] = bytes[i * 4..(i + 1) * 4].try_into().expect("invariant: fixed slice");
+        let chunk: [u8; 4] = bytes[i * 4..(i + 1) * 4]
+            .try_into()
+            .expect("invariant: fixed slice");
         *slot = f32::from_le_bytes(chunk);
     }
     out
@@ -1225,7 +1227,9 @@ mod tests {
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let got = entity_vector_get(&rtxn, id).unwrap().expect("vector present");
+        let got = entity_vector_get(&rtxn, id)
+            .unwrap()
+            .expect("vector present");
         // Bit-exact: every f32 must survive the little-endian byte round-trip.
         for i in 0..384 {
             assert_eq!(got[i].to_bits(), v[i].to_bits(), "mismatch at {i}");

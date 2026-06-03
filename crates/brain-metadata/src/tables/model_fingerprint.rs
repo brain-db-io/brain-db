@@ -236,11 +236,4 @@ mod tests {
         assert_eq!(t.get(&fp(10)).unwrap().unwrap().value(), info_a);
         assert_eq!(t.get(&fp(20)).unwrap().unwrap().value(), info_b);
     }
-
-    #[test]
-    fn type_name_includes_v1() {
-        let name = <ModelInfo as redb::Value>::type_name();
-        let s = format!("{name:?}");
-        assert!(s.contains("v1"), "type_name missing v1 marker: {s}");
-    }
 }

@@ -108,6 +108,8 @@ fn recall_req(cue: &str, top_k: u32) -> RecallRequest {
         include_text: false,
         request_id: None,
         txn_id: None,
+        agent_filter: Vec::new(),
+        include_other_agents: false,
     }
 }
 
@@ -169,12 +171,20 @@ fn recall_full_pipeline_returns_top_k() {
         assert_eq!(top.kind, MemoryKindWire::Episodic);
         assert!((top.salience - 0.5).abs() < 1e-6);
         // The hybrid pipeline carries two distinct scores per hit:
-        // `similarity_score` is the semantic retriever's raw cosine,
-        // `confidence` is the RRF-fused score across all retrievers
-        // that contributed. They will rarely be equal — just assert
-        // both are populated.
+        // `similarity_score` is the semantic retriever's raw cosine and
+        // `confidence` mirrors it — both bounded in [0, 1]. The unbounded
+        // RRF rank-fusion sum is a separate diagnostic (`fused_score`),
+        // never surfaced as confidence.
         assert!(top.similarity_score > 0.0, "similarity_score populated");
-        assert!(top.confidence > 0.0, "confidence (fused) populated");
+        assert!(
+            top.confidence > 0.0 && top.confidence <= 1.0,
+            "confidence is a bounded [0,1] similarity, got {}",
+            top.confidence
+        );
+        assert!(
+            (top.confidence - top.similarity_score).abs() < 1e-6,
+            "confidence mirrors similarity_score on the hybrid path"
+        );
         assert_eq!(
             top.last_accessed_at_unix_nanos, top.created_at_unix_nanos,
             "v1: last_accessed mirrors created_at"

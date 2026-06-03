@@ -181,9 +181,8 @@ pub async fn execute(
     };
     let mut cached_semantic: Option<Vec<RankedItem>> = None;
     let mut pre_semantic_latency_ms: f64 = 0.0;
-    let mut pre_semantic_invocation: Option<
-        Result<Vec<RankedItem>, RetrieverInvocationError>,
-    > = None;
+    let mut pre_semantic_invocation: Option<Result<Vec<RankedItem>, RetrieverInvocationError>> =
+        None;
     if let Some(sem) = &pre_semantic_planned {
         let started = Instant::now();
         let invocation = invoke_retriever(sem, request, ctx, None);
@@ -205,8 +204,13 @@ pub async fn execute(
     // no second HNSW search.
     type FanoutFut<'a> = Pin<
         Box<
-            dyn Future<Output = (usize, f64, Result<Vec<RankedItem>, RetrieverInvocationError>)>
-                + 'a,
+            dyn Future<
+                    Output = (
+                        usize,
+                        f64,
+                        Result<Vec<RankedItem>, RetrieverInvocationError>,
+                    ),
+                > + 'a,
         >,
     >;
     let mut futures: Vec<FanoutFut<'_>> = Vec::with_capacity(plan.retrievers.len());

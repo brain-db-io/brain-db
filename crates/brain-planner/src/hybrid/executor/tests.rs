@@ -156,7 +156,8 @@ fn executes_single_semantic_retriever() {
         ..Default::default()
     };
     let qp = plan(&req).expect("plan");
-    let result: QueryResult = futures_lite::future::block_on(execute(&qp, &req, &ctx)).expect("execute");
+    let result: QueryResult =
+        futures_lite::future::block_on(execute(&qp, &req, &ctx)).expect("execute");
 
     assert_eq!(result.items.len(), 2);
     assert_eq!(result.metadata.retriever_latencies_ms.len(), 1);

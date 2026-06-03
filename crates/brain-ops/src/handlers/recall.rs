@@ -228,7 +228,7 @@ fn cosine(a: &[f32; brain_embed::VECTOR_DIM], b: &[f32; brain_embed::VECTOR_DIM]
     sum
 }
 
-/// Per-hit knowledge-layer enrichment populated when the request
+/// Per-hit opaque-body enrichment populated when the request
 /// carries `include_graph = true`. One redb read txn serves all
 /// hits; per hit we issue a small handful of point/range reads.
 /// Schema-gating is by table presence + edge presence: if
@@ -476,11 +476,7 @@ fn build_planner_request(
         // Push the memory-context scope into the front gate so the
         // retrievers run on the eligible universe instead of pruning
         // post-projection (the historical gap this turn closes).
-        context_filter: req
-            .context_filter
-            .as_ref()
-            .cloned()
-            .unwrap_or_default(),
+        context_filter: req.context_filter.as_ref().cloned().unwrap_or_default(),
         agent_filter,
         confidence_min: if req.confidence_threshold > 0.0 {
             Some(req.confidence_threshold)
@@ -528,14 +524,15 @@ fn project_memory_results(
     // Opening the texts table costs a redb seek; only do it when the
     // caller asked for text, so the common ids-only path stays cheap.
     let texts_table = if req.include_text {
-        Some(rtxn.open_table(TEXTS_TABLE).map_err(|e| {
-            OpError::Internal(format!("hybrid recall open TEXTS_TABLE: {e}"))
-        })?)
+        Some(
+            rtxn.open_table(TEXTS_TABLE)
+                .map_err(|e| OpError::Internal(format!("hybrid recall open TEXTS_TABLE: {e}")))?,
+        )
     } else {
         None
     };
 
-    // Pre-fetch knowledge-layer enrichment in one pass if requested.
+    // Pre-fetch opaque-body enrichment in one pass if requested.
     // The hybrid path already holds a read txn open for the row hydration
     // below; the helper reuses it so we don't open a second redb snapshot.
     let graph_per_memory: Option<
@@ -635,7 +632,7 @@ fn project_memory_results(
             .map(|c| c.raw_score)
             .unwrap_or(0.0);
         // Per-hit outgoing-edge projection — only builtin substrate
-        // edges. Knowledge-layer edges (Mentions / Typed) belong to
+        // edges. typed-graph edges (Mentions / Typed) belong to
         // entity/relation ops, not RECALL. The rtxn opened above
         // serves every hit; one prefix scan per memory.
         let edges = if req.include_edges {
@@ -672,12 +669,13 @@ fn project_memory_results(
             memory_id: memory_id.raw(),
             text,
             similarity_score: semantic_score,
-            // `confidence` carries the score the --confidence threshold
-            // is compared against. On hybrid that's the RRF-fused
-            // score (matching the server-side filter in
-            // brain-planner::recall). On substrate it equals
-            // similarity_score (set in hit_to_wire).
-            confidence: fused.fused_score as f32,
+            // `confidence` is the cosine similarity of the hit — a [0,1]
+            // quantity, identical to `similarity_score`, consistent across
+            // the hybrid and substrate paths. The raw RRF rank-fusion sum
+            // is unbounded (it grows with the number of contributing
+            // retrievers) and is exposed separately as `fused_score`; it is
+            // a ranking diagnostic, not a confidence.
+            confidence: semantic_score,
             salience: row.salience,
             kind: wire_kind,
             agent_id: row.agent_id_bytes,
@@ -734,7 +732,7 @@ fn map_execution_error(e: ExecutionError) -> OpError {
 }
 
 /// Translate the planner's `Retriever` directly to the substrate
-/// `RetrieverNameWire`. Avoids round-tripping through the knowledge
+/// `RetrieverNameWire`. Avoids round-tripping through the typed-graph
 /// namespace's wire enum (which would require chained `From`s on
 /// foreign types, an orphan-rule violation).
 fn retriever_to_wire_name(r: brain_planner::hybrid::router::Retriever) -> RetrieverNameWire {

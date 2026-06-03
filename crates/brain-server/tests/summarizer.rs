@@ -208,7 +208,10 @@ mod openai_tests {
         if let Some(p) = prior {
             std::env::set_var("OPENAI_API_KEY", p);
         }
-        assert!(failed, "expected OpenAiKeyMissing with no key in env or config");
+        assert!(
+            failed,
+            "expected OpenAiKeyMissing with no key in env or config"
+        );
     }
 }
 

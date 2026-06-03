@@ -191,10 +191,7 @@ mod tests {
                 self.seen.lock().unwrap().push(text.to_string());
                 Ok([0.0; VECTOR_DIM])
             }
-            fn embed_batch(
-                &self,
-                texts: &[&str],
-            ) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
+            fn embed_batch(&self, texts: &[&str]) -> Result<Vec<[f32; VECTOR_DIM]>, EmbedError> {
                 Ok(vec![[0.0; VECTOR_DIM]; texts.len()])
             }
             fn fingerprint(&self) -> [u8; 16] {

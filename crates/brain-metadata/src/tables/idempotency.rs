@@ -626,5 +626,4 @@ mod tests {
         assert_eq!(deleted, 50);
         assert!(scanned_to_end);
     }
-
 }

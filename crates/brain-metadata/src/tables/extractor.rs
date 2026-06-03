@@ -89,10 +89,7 @@ impl ExtractorDefinition {
     }
 }
 
-impl_redb_rkyv_value!(
-    ExtractorDefinition,
-    "brain_metadata::ExtractorDefinition"
-);
+impl_redb_rkyv_value!(ExtractorDefinition, "brain_metadata::ExtractorDefinition");
 
 #[cfg(all(test, not(miri)))]
 mod tests {

@@ -581,7 +581,7 @@ fn record_phase_outcomes(
 /// record (event publishing stamps this onto envelopes).
 ///
 /// Only phases that map to a `WalPayload` are appended. Unmapped phases
-/// (knowledge-layer phases persisted via redb; auto-derived phases
+/// (opaque-body phases persisted via redb; auto-derived phases
 /// re-derivable from state) are skipped — their durability rides on the
 /// redb commit's fsync. A `tracing::debug!` log surfaces each skip.
 ///
@@ -735,7 +735,7 @@ fn execute_hnsw_side_effects(writer: &RealWriterHandle, write: &Write) -> Result
 /// Publish one event per phase that has a wire-side counterpart.
 ///
 /// Memory phases (UpsertMemory, Tombstone(Memory), Link, Unlink) and
-/// knowledge phases (UpsertEntity, ...) publish their corresponding
+/// typed-graph phases (UpsertEntity, ...) publish their corresponding
 /// event types. Phases without a wire surface (UpdateSalience,
 /// ReclaimSlots, …) don't publish — they affect observability through
 /// metrics, not subscribers.
@@ -817,7 +817,7 @@ fn phase_to_envelope(
             salience: salience.raw(),
             timestamp_unix_nanos: committed_at_unix_nanos,
             text: Some(text.clone()),
-            knowledge_payload: None,
+            graph_payload: None,
             edge_payload: None,
             stage_kind: None,
             stage_outcome: None,
@@ -835,15 +835,15 @@ fn phase_to_envelope(
                 salience: 0.0,
                 timestamp_unix_nanos: committed_at_unix_nanos,
                 text: None,
-                knowledge_payload: None,
+                graph_payload: None,
                 edge_payload: None,
                 stage_kind: None,
                 stage_outcome: None,
                 stage_payload: None,
                 agent_id: write.agent_id,
             }),
-            // Knowledge tombstones publish through the knowledge-event
-            // path (emit_knowledge_event), not the memory subscribe bus.
+            // Typed-graph tombstones publish through the typed-graph-event
+            // path (emit_graph_event), not the memory subscribe bus.
             TombstoneTarget::Entity(_)
             | TombstoneTarget::Statement(_)
             | TombstoneTarget::Relation(_) => None,
@@ -865,7 +865,7 @@ fn phase_to_envelope(
             salience: 0.0,
             timestamp_unix_nanos: committed_at_unix_nanos,
             text: None,
-            knowledge_payload: None,
+            graph_payload: None,
             edge_payload: Some(edge_payload_to_event(
                 *from,
                 *to,
@@ -890,7 +890,7 @@ fn phase_to_envelope(
             salience: 0.0,
             timestamp_unix_nanos: committed_at_unix_nanos,
             text: None,
-            knowledge_payload: None,
+            graph_payload: None,
             edge_payload: Some(edge_payload_to_event(
                 *from,
                 *to,
@@ -906,8 +906,8 @@ fn phase_to_envelope(
             agent_id: write.agent_id,
         }),
 
-        // Knowledge phases publish through the knowledge-event channel
-        // (emit_knowledge_event), not the memory subscribe bus — they
+        // typed-graph phases publish through the typed-graph-event channel
+        // (emit_graph_event), not the memory subscribe bus — they
         // surface to subscribers via that path, not this envelope.
         Phase::UpsertEntity { .. }
         | Phase::UpsertStatement { .. }
@@ -1429,13 +1429,12 @@ mod tests {
     }
 
     /// A Write that mixes mapped substrate phases with an unmapped
-    /// knowledge phase must produce a WAL record for every mapped
+    /// typed-graph phase must produce a WAL record for every mapped
     /// phase. The earlier "all-or-nothing" gate dropped the entire
     /// append, silently demoting WAL-durable writes to redb-only.
     #[tokio::test]
     async fn mixed_mapped_and_unmapped_phases_wal_only_the_mapped() {
         use crate::writer::wal_sink::RecordingWalSink;
-        use brain_core::EntityId;
         use brain_storage::wal::kinds::WalRecordKind;
 
         let (_dir, mut writer) = build_writer();
@@ -1455,15 +1454,10 @@ mod tests {
             content_hash: None,
             deduplicate: false,
         };
-        // UpdateEntity has no WAL mapping today — must be skipped, not
+        // ReclaimSlots has no WAL mapping (it's derivable from
+        // MEMORIES_TABLE state on recovery) — it must be skipped, not
         // poison the whole append.
-        let update_entity = Phase::UpdateEntity {
-            id: EntityId::new(),
-            canonical_name: "Alice".into(),
-            aliases: Vec::new(),
-            attributes_blob: Vec::new(),
-            at_unix_nanos: 1_700_000_000_000,
-        };
+        let reclaim = Phase::ReclaimSlots { slots: vec![1, 2] };
         let link = Phase::Link {
             from: NodeRef::Memory(MemoryId::pack(0, 1, 0)),
             to: NodeRef::Memory(MemoryId::pack(0, 1, 0)),
@@ -1478,12 +1472,12 @@ mod tests {
         let write = Write::from_phases(
             WriteId::new(),
             AgentId::default(),
-            vec![upsert, update_entity, link],
+            vec![upsert, reclaim, link],
         );
-        // Apply may reject UpdateEntity (the entity row doesn't exist
-        // in metadata yet), but WAL append runs before apply opens its
-        // wtxn, so the recording sink sees the durable framing we're
-        // asserting on regardless of apply's outcome.
+        // The unmapped ReclaimSlots phase is skipped at the WAL layer;
+        // WAL append runs before apply opens its wtxn, so the recording
+        // sink sees the durable framing we're asserting on regardless of
+        // apply's outcome.
         let _ = writer.submit(write).await;
 
         let kinds: Vec<WalRecordKind> = sink.appended().iter().map(|r| r.kind).collect();
@@ -1496,7 +1490,7 @@ mod tests {
                 WalRecordKind::TxnCommit,
             ],
             "mapped substrate phases must reach WAL even when an unmapped \
-             knowledge phase is interleaved",
+             phase is interleaved",
         );
     }
 
@@ -1506,29 +1500,24 @@ mod tests {
     #[tokio::test]
     async fn all_unmapped_phases_no_wal_records() {
         use crate::writer::wal_sink::RecordingWalSink;
-        use brain_core::EntityId;
 
         let (_dir, mut writer) = build_writer();
         let sink = Arc::new(RecordingWalSink::new());
         writer = writer.with_wal_sink(sink.clone());
 
-        let update_entity = Phase::UpdateEntity {
-            id: EntityId::new(),
-            canonical_name: "Alice".into(),
-            aliases: Vec::new(),
-            attributes_blob: Vec::new(),
-            at_unix_nanos: 1_700_000_000_000,
-        };
-        let rename_entity = Phase::RenameEntity {
-            id: EntityId::new(),
-            new_canonical_name: "Bob".into(),
-            at_unix_nanos: 1_700_000_000_000,
+        // Two phases with no WAL mapping: ReclaimSlots is derivable from
+        // MEMORIES_TABLE on recovery, and UpdateEmbedding rewrites a
+        // vector the HNSW already absorbed pre-commit.
+        let reclaim = Phase::ReclaimSlots { slots: vec![3, 4] };
+        let update_embedding = Phase::UpdateEmbedding {
+            id: MemoryId::pack(0, 1, 0),
+            new_vector: Box::new([0.0_f32; VECTOR_DIM]),
         };
 
         let write = Write::from_phases(
             WriteId::new(),
             AgentId::default(),
-            vec![update_entity, rename_entity],
+            vec![reclaim, update_embedding],
         );
         // The phases will fail in apply (no rows to update), but the WAL
         // append happens before apply — we only care that nothing reached

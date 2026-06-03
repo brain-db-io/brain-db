@@ -31,13 +31,13 @@ pub mod worker_checkpoints;
 
 /// Boilerplate `redb::Value` impl for an rkyv-archived struct.
 ///
-/// Each value type in the knowledge layer uses the same encoding
+/// Each value type in the phase bodies uses the same encoding
 /// pattern (rkyv with `check_bytes`, deserialize-on-read, type_name
 /// versioned with `::v1`). This macro emits that impl from the type
 /// name and a stable `type_name` string.
 ///
 /// Mirrors the per-file impl in substrate tables (`agent.rs`,
-/// `memory.rs`); collapsed into a macro here because 11 knowledge-layer
+/// `memory.rs`); collapsed into a macro here because 11 opaque-body
 /// value structs share the exact same body.
 #[macro_export]
 macro_rules! impl_redb_rkyv_value {
@@ -87,9 +87,7 @@ macro_rules! impl_redb_rkyv_value {
 /// Tables that live in their own redb files (api_keys, llm_cache)
 /// self-init inside their own `open()` constructors and are NOT listed
 /// here.
-pub fn materialize_all_tables(
-    wtxn: &::redb::WriteTransaction,
-) -> Result<(), ::redb::TableError> {
+pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::redb::TableError> {
     use agent::AGENTS_TABLE;
     use audit::{
         ENTITY_RESOLUTION_AUDIT_TABLE, EXTRACTOR_AUDIT_BY_EXTRACTOR_TABLE,
@@ -118,10 +116,10 @@ pub fn materialize_all_tables(
     use schema_version::{SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE};
     use slot_version::SLOT_VERSIONS_TABLE;
     use statement::{
-        EVIDENCE_OVERFLOW_TABLE, STATEMENTS_BY_EVENT_TIME_TABLE,
-        STATEMENTS_BY_EVIDENCE_TABLE, STATEMENTS_BY_OBJECT_ENTITY_TABLE,
-        STATEMENTS_BY_PREDICATE_TABLE, STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE,
-        STATEMENT_CHAIN_TABLE, STATEMENT_EMBED_QUEUE_TABLE,
+        EVIDENCE_OVERFLOW_TABLE, STATEMENTS_BY_EVENT_TIME_TABLE, STATEMENTS_BY_EVIDENCE_TABLE,
+        STATEMENTS_BY_OBJECT_ENTITY_TABLE, STATEMENTS_BY_PREDICATE_TABLE,
+        STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE, STATEMENT_CHAIN_TABLE,
+        STATEMENT_EMBED_QUEUE_TABLE,
     };
     use text::TEXTS_TABLE;
     use worker_checkpoints::WORKER_CHECKPOINTS_TABLE;
@@ -183,12 +181,23 @@ pub fn materialize_all_tables(
 
 #[cfg(all(test, not(miri)))]
 pub(crate) fn fresh_db(dir: &tempfile::TempDir) -> redb::Database {
-    redb::Database::create(dir.path().join("test.redb")).expect("create redb")
+    let db = redb::Database::create(dir.path().join("test.redb")).expect("create redb");
+    // Materialize every table once on creation so read-only tests
+    // (counting rows on empty tables, missing-key lookups, etc.)
+    // don't trip TableDoesNotExist. Idempotent — see
+    // `materialize_all_tables_is_idempotent`.
+    {
+        let wtxn = db.begin_write().expect("begin_write");
+        materialize_all_tables(&wtxn).expect("materialize");
+        wtxn.commit().expect("commit");
+    }
+    db
 }
 
 #[cfg(all(test, not(miri)))]
 mod registry_tests {
     use super::*;
+    use redb::ReadableDatabase;
 
     #[test]
     fn materialize_all_tables_is_idempotent() {
