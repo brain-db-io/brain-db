@@ -47,7 +47,7 @@ pub enum LogFormat {
 }
 
 impl LogFormat {
-    /// Parse the `[logging] format = "..."` config knob.
+    /// Parse the `[monitoring.logging] format = "..."` config knob.
     #[must_use]
     pub fn parse(s: &str) -> (Self, Option<String>) {
         match s.to_ascii_lowercase().as_str() {
@@ -88,7 +88,7 @@ pub fn init_pre_config() {
 /// - `EnvFilter` (env-driven level filter).
 /// - Format layer (compact or JSON).
 /// - Optional OpenTelemetry layer (built by
-///   `bootstrap::tracing::build` when `[tracing] enabled = true`).
+///   `bootstrap::tracing::build` when `[monitoring.tracing] enabled = true`).
 ///
 /// Returns the `TracerProvider` when the OTel pipeline installed —
 /// callers must keep it alive (drop on shutdown to flush). Returns

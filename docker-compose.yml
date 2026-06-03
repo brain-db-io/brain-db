@@ -2,9 +2,9 @@
 #
 # Services:
 #   brain           Brain substrate (Dockerfile in this directory)
-#   prometheus      Scrapes brain on :9091/metrics; loads alert rules from monitoring/alerts/
+#   prometheus      Scrapes brain on :9091/metrics; loads alert rules from config/monitoring/alerts/
 #   otel-collector  Receives OTLP/HTTP traces from brain; debug exporter by default
-#   grafana         Auto-provisioned with Prometheus datasource and the dashboards under monitoring/dashboards/
+#   grafana         Auto-provisioned with Prometheus datasource and the dashboards under config/monitoring/dashboards/
 #
 # Bring up:    docker compose up -d
 # Bring down:  docker compose down            # keeps volumes
@@ -72,7 +72,7 @@ services:
       - "9090:9090"
     volumes:
       - ./deploy/compose/prometheus.yml:/etc/prometheus/prometheus.yml:ro
-      - ./monitoring/alerts:/etc/prometheus/rules:ro
+      - ./config/monitoring/alerts:/etc/prometheus/rules:ro
       - prometheus-data:/prometheus
     command:
       - --config.file=/etc/prometheus/prometheus.yml
@@ -111,7 +111,7 @@ services:
     volumes:
       - ./deploy/compose/grafana-datasources.yaml:/etc/grafana/provisioning/datasources/prometheus.yaml:ro
       - ./deploy/compose/grafana-dashboards.yaml:/etc/grafana/provisioning/dashboards/brain.yaml:ro
-      - ./monitoring/dashboards:/var/lib/grafana/dashboards:ro
+      - ./config/monitoring/dashboards:/var/lib/grafana/dashboards:ro
       - grafana-data:/var/lib/grafana
     depends_on:
       prometheus:

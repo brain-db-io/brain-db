@@ -1,4 +1,4 @@
-//! CI gate for `monitoring/dashboards/*.json`.
+//! CI gate for `config/monitoring/dashboards/*.json`.
 //!
 //! Verifies each dashboard:
 //! - Parses as valid JSON.
@@ -30,10 +30,11 @@ const EXPECTED_DASHBOARDS: &[&str] = &[
 const ALLOWED_PREFIXES: &[&str] = &["brain_", "process_"];
 
 fn dashboards_dir() -> PathBuf {
-    // brain-server/tests/dashboards.rs → monitoring/dashboards/
+    // brain-server/tests/dashboards.rs → config/monitoring/dashboards/
     PathBuf::from(env!("CARGO_MANIFEST_DIR"))
         .join("..")
         .join("..")
+        .join("config")
         .join("monitoring")
         .join("dashboards")
 }

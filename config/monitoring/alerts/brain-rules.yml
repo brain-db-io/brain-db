@@ -1,7 +1,7 @@
 # Prometheus alerting rules for Brain.
 #
 # Validated in CI by crates/brain-server/tests/alerts.rs (shape + required
-# alerts + severity set). `promtool check rules monitoring/alerts/brain-rules.yml`
+# alerts + severity set). `promtool check rules config/monitoring/alerts/brain-rules.yml`
 # is the authoritative check when the Prometheus toolchain is available.
 #
 # Severities: critical (page now), high (page in hours), medium (ticket),

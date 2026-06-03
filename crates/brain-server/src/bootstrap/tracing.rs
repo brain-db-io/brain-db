@@ -45,7 +45,7 @@ pub struct BuiltTracing {
     pub provider: TracerProvider,
 }
 
-/// Build an OpenTelemetry pipeline from `[tracing]` config. Returns
+/// Build an OpenTelemetry pipeline from `[monitoring.tracing]` config. Returns
 /// `None` when tracing is disabled or the resolved sampler is
 /// `always_off`.
 ///
