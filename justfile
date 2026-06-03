@@ -231,3 +231,39 @@ compose-up:
 # Tear down the compose stack. Pass `-v` to also drop data volumes.
 compose-down *ARGS:
     docker compose down {{ARGS}}
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Local serve — run the production image on macOS/Docker Desktop so native
+# (non-container) clients (brain-shell, the SDKs) can reach it. Differs from
+# `image-run` (the operator smoke test on Linux) in the ways Docker Desktop +
+# a dev laptop need:
+#   • --security-opt seccomp=unconfined  → io_uring works under Docker Desktop
+#   • bind-mounts the already-bootstrapped BGE model (no HuggingFace download)
+#   • env-disables the model-hungry tiers (rerank / classifier / llm) so the
+#     shard spawns embed-only instead of hard-failing
+#   • PORT is a parameter (8080 is often taken locally; use 18080 etc.)
+# ─────────────────────────────────────────────────────────────────────────────
+
+# Run the DB locally, detached, exposing the data plane on PORT (default 8080).
+# Prereqs: `just image` once, and `scripts/bootstrap-model.sh --only embed`.
+# Example (8080 busy): `just serve-local 18080`   →  connect to 127.0.0.1:18080
+serve-local PORT="8080" TAG="latest":
+    @docker rm -f brain-local >/dev/null 2>&1 || true
+    docker run -d --name brain-local --security-opt seccomp=unconfined \
+        -p {{PORT}}:8080 -p 9091:9091 \
+        -v "$HOME/.local/share/brain/models/bge-small-en-v1.5:/models/bge-small-en-v1.5:ro" \
+        -v brain-local-data:/var/lib/brain/data \
+        -e BRAIN_EMBED_MODEL_DIR=/models/bge-small-en-v1.5 \
+        -e BRAIN__SHARD__ARENA_CAPACITY_BYTES=256MiB \
+        -e BRAIN__RERANK__ENABLED=false \
+        -e BRAIN__EXTRACTORS__CLASSIFIER__ENABLED=false \
+        -e BRAIN__EXTRACTORS__LLM__ENABLED=false \
+        brain:{{TAG}}
+    @echo "Brain DB starting on 127.0.0.1:{{PORT}} (health: http://127.0.0.1:9091/healthz)"
+    @echo "Connect a client:  export BRAIN_SERVER=127.0.0.1:{{PORT}}"
+    @echo "Stop:  just serve-stop"
+
+# Stop + remove the local serve container (keeps the brain-local-data volume).
+serve-stop:
+    @docker rm -f brain-local >/dev/null 2>&1 || true
+    @echo "stopped brain-local (data volume kept; `docker volume rm brain-local-data` to wipe)"
