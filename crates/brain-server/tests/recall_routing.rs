@@ -9,9 +9,11 @@
 //!    are present) and `fused_score > 0`.
 //! 2. **Schema declared** — retrieval runs (same path; the schema
 //!    is strictness-only, not a retrieval gate).
-//! 3. **Txn attached** — substrate path, because retrieval
-//!    retrievers can't see the txn buffer and would silently miss
-//!    pending writes.
+//! 3. **Txn attached** — the same retrieval pipeline runs over
+//!    committed data, then the txn's pending ENCODE buffer is
+//!    overlaid on top for read-your-writes. Committed hits carry
+//!    `contributing_retrievers` exactly like a non-txn recall; only
+//!    the overlaid (not-yet-retrieved) pending writes don't.
 
 #![cfg(target_os = "linux")]
 
@@ -208,19 +210,6 @@ async fn seed_fixture(client: &mut TcpStream) {
     }
 }
 
-fn assert_substrate(frame: &RecallResponseFrame) {
-    for r in &frame.results {
-        assert!(
-            r.contributing_retrievers.is_empty(),
-            "substrate path must not populate contributing_retrievers",
-        );
-        assert_eq!(
-            r.fused_score, 0.0,
-            "substrate path must leave fused_score zero",
-        );
-    }
-}
-
 fn assert_retrieval(frame: &RecallResponseFrame) {
     assert!(
         !frame.results.is_empty(),
@@ -309,7 +298,7 @@ async fn recall_after_schema_upload_uses_retrieval_path() {
 }
 
 #[tokio::test(flavor = "current_thread")]
-async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
+async fn recall_inside_txn_returns_committed_pipeline_hits() {
     let server = start(1).await;
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
@@ -353,7 +342,10 @@ async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
     match body {
         ResponseBody::Recall(r) => {
             assert!(r.is_final);
-            assert_substrate(&r);
+            // In-txn recall runs the same pipeline over committed data
+            // (the fixture was seeded before the txn began), so hits
+            // carry the retrieval signature just like a non-txn recall.
+            assert_retrieval(&r);
         }
         other => panic!("expected RecallResp, got {other:?}"),
     }
@@ -365,7 +357,7 @@ async fn recall_inside_txn_uses_substrate_path_even_with_schema() {
 // E2 — cold-start safety. A retrieval recall against a server with zero
 // memories must return an empty result, not an error or a hang. tantivy
 // + HNSW have both historically returned errors on cold indexes; the
-// substrate path must surface this as an empty `RecallResp`.
+// retrieval path must surface this as an empty `RecallResp`.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "current_thread")]
@@ -439,15 +431,15 @@ async fn unicode_cue_text_roundtrips_through_retrieval_recall() {
 }
 
 // ---------------------------------------------------------------------------
-// P3 — txn-vs-non-txn routing invariant. For varied request shapes
-// (cue text, top_k, salience floor), the per-hit signature must match
-// the request's txn attachment: a recall with `txn_id` set must
-// produce empty `contributing_retrievers` and zero `fused_score`
-// (substrate); a recall without it must produce populated
-// `contributing_retrievers` and a non-zero `fused_score` on at least
-// one hit (retrieval). One shared server across iterations keeps wall
-// time bounded; each recall is idempotent given a fresh request_id,
-// so reuse is safe.
+// P3 — txn recall invariant across request shapes. For varied request
+// shapes (cue text, top_k, salience floor), an in-txn recall walks the
+// same retrieval pipeline as a non-txn recall over the committed
+// fixture (the txn buffers no writes here), then overlays its empty
+// pending buffer. So whenever a recall returns hits — txn-attached or
+// not — at least one carries populated `contributing_retrievers` and a
+// non-zero `fused_score`. One shared server across iterations keeps
+// wall time bounded; each recall is idempotent given a fresh
+// request_id, so reuse is safe.
 // ---------------------------------------------------------------------------
 
 #[tokio::test(flavor = "current_thread")]
@@ -527,19 +519,16 @@ async fn txn_recall_invariants_hold_across_request_shapes() {
             ResponseBody::Recall(r) => {
                 if attach_txn {
                     txn_count += 1;
-                    // Txn path is substrate-shaped; every hit
-                    // (when any) must carry the substrate
-                    // signature.
-                    assert_substrate(&r);
                 } else {
                     retrieval_count += 1;
-                    // Empty fixtures or strict salience floors
-                    // can legitimately return zero hits; only
-                    // assert the retrieval shape when there's
-                    // something to inspect.
-                    if !r.results.is_empty() {
-                        assert_retrieval(&r);
-                    }
+                }
+                // Txn-attached or not, hits come from the same retrieval
+                // pipeline over the committed fixture. Empty fixtures or
+                // strict salience floors can legitimately return zero
+                // hits, so only assert the retrieval shape when there's
+                // something to inspect.
+                if !r.results.is_empty() {
+                    assert_retrieval(&r);
                 }
             }
             other => panic!("expected RecallResp, got {other:?}"),
