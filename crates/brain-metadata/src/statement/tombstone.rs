@@ -68,20 +68,21 @@ pub fn statement_tombstone(
     Ok(())
 }
 
-/// Hard-delete intent. Implemented as `tombstone` with reason
-/// `ExtractorRetraction` (caller may override). Physical reclamation
-/// happens later via the GC worker.
-//
-// TODO: wire the periodic reclamation worker so retracted rows are
-// physically removed from STATEMENTS_TABLE + indexes after
-// `RETRACT_GRACE_NANOS`.
+/// Hard-delete intent. Tombstones the row and stamps the durable
+/// [`TombstoneReason::Retract`] marker so the periodic reclamation GC
+/// worker ([`crate::extractor::sweep::reclaim_retracted_statements`])
+/// physically removes it from every table after the grace period. The
+/// caller's `reason` is ignored for the stored byte — retract is its
+/// own reason — but kept in the signature for call-site symmetry with
+/// [`statement_tombstone`]; pass the audit reason for any out-of-band
+/// logging the caller does.
 pub fn statement_retract(
     wtxn: &WriteTransaction,
     id: StatementId,
-    reason: TombstoneReason,
+    _reason: TombstoneReason,
     now_unix_nanos: u64,
 ) -> Result<(), StatementOpError> {
-    statement_tombstone(wtxn, id, reason, now_unix_nanos)
+    statement_tombstone(wtxn, id, TombstoneReason::Retract, now_unix_nanos)
 }
 
 #[cfg(all(test, not(miri)))]

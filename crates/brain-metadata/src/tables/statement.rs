@@ -90,6 +90,10 @@ pub mod tombstone_reason {
     pub const USER_REQUEST: u8 = 2;
     pub const SCHEMA_INVALIDATION: u8 = 3;
     pub const EXTRACTOR_RETRACTION: u8 = 4;
+    /// Hard-delete intent (`STATEMENT_RETRACT` / `FORGET_STATEMENT`).
+    /// The reclamation GC worker selects only rows carrying this byte
+    /// so plain tombstones and superseded rows stay put for audit.
+    pub const RETRACT: u8 = 5;
 }
 
 // ---------------------------------------------------------------------------

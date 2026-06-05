@@ -507,22 +507,27 @@ pub async fn handle_statement_retract(
             "reason_message exceeds 4 KiB".into(),
         ));
     }
-    let reason = decode_tombstone_reason(req.reason)?;
+    // Validate the caller's audit reason byte (kept in the event /
+    // message) but stamp the row with `Retract` regardless: the
+    // reclamation GC worker keys on this byte to physically remove only
+    // rows the caller asked to retract, never plain tombstones or
+    // superseded rows.
+    decode_tombstone_reason(req.reason)?;
     let id = StatementId::from(req.statement_id);
     let now = crate::txn::now_unix_nanos_pub();
 
-    // brain-metadata's `statement_retract` is `statement_tombstone` in
-    // v1 (the wire distinction is purely in the post-commit behavior:
-    // retract drops the row from the lexical index immediately and is
-    // hidden from STATEMENT_HISTORY). The apply path is therefore
-    // identical to STATEMENT_TOMBSTONE.
+    // RETRACT shares the tombstone apply path; the wire distinction is
+    // the post-commit behavior (drops the row from the lexical index
+    // immediately, hidden from STATEMENT_HISTORY) plus the durable
+    // `Retract` reason byte that lets the GC worker reclaim the row
+    // after the grace period.
     let real_writer = downcast_writer_pub(ctx)?;
     let write_id = WriteId::from_request(RequestId::from(req.request_id));
     let request_hash = hash_statement_retract_request(&req);
 
     let phase = Phase::Tombstone {
         target: TombstoneTarget::Statement(id),
-        reason: reason.as_u8(),
+        reason: TombstoneReason::Retract.as_u8(),
         at_unix_nanos: now,
     };
     let write =

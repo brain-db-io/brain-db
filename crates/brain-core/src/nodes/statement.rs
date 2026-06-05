@@ -280,6 +280,13 @@ pub enum TombstoneReason {
     UserRequest = 2,
     SchemaInvalidation = 3,
     ExtractorRetraction = 4,
+    /// Hard-delete intent from `STATEMENT_RETRACT` / `FORGET_STATEMENT`.
+    /// Distinct from the other reasons so the physical-reclamation GC
+    /// worker can select only rows the caller asked to remove (vs.
+    /// soft tombstones and superseded rows, which are kept for audit).
+    /// The retract handler stamps this regardless of the caller's
+    /// audit reason byte.
+    Retract = 5,
 }
 
 impl TombstoneReason {
@@ -295,8 +302,16 @@ impl TombstoneReason {
             2 => Self::UserRequest,
             3 => Self::SchemaInvalidation,
             4 => Self::ExtractorRetraction,
+            5 => Self::Retract,
             _ => return None,
         })
+    }
+
+    /// True iff this reason marks a hard-delete (retract) — the signal
+    /// the reclamation GC worker keys on.
+    #[must_use]
+    pub const fn is_retract(self) -> bool {
+        matches!(self, Self::Retract)
     }
 }
 
@@ -635,9 +650,12 @@ mod tests {
             TombstoneReason::UserRequest,
             TombstoneReason::SchemaInvalidation,
             TombstoneReason::ExtractorRetraction,
+            TombstoneReason::Retract,
         ] {
             assert_eq!(TombstoneReason::from_u8(r.as_u8()), Some(r));
         }
+        assert!(TombstoneReason::Retract.is_retract());
+        assert!(!TombstoneReason::UserRequest.is_retract());
         assert_eq!(TombstoneReason::from_u8(0), None);
         assert_eq!(TombstoneReason::from_u8(255), None);
     }
