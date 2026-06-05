@@ -262,6 +262,23 @@ mod linux_main {
             "API-key scope store opened",
         );
 
+        // Loud, once-per-startup safety net for the permissive v1.0
+        // default. When neither the env override nor `[auth] mode =
+        // "apikey"` is set, every connecting client is granted FULL
+        // scope over whatever agent_id it claims — fine behind a trusted
+        // network boundary, dangerous anywhere else. The operator must
+        // see this in the logs so a permissive deploy is never silent.
+        if !strict_scope && cfg.auth.mode == crate::config::AuthMode::None {
+            tracing::warn!(
+                strict_env = crate::auth::STRICT_ENV_VAR,
+                hint = "set BRAIN_REQUIRE_SCOPED_API_KEYS=1 and/or [auth] mode = \"apikey\"",
+                "server is running WITHOUT authentication: any client can claim any \
+                 agent_id and is granted FULL scope. This is unsafe outside a trusted \
+                 network boundary. To harden, set BRAIN_REQUIRE_SCOPED_API_KEYS=1 \
+                 and/or configure [auth] mode = \"apikey\".",
+            );
+        }
+
         let server_caps = Arc::new(ServerCapabilities::v1_default(
             format!("brain-server/{}", env!("CARGO_PKG_VERSION")),
             vec![AuthMethod::Token, AuthMethod::None],

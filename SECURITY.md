@@ -70,6 +70,47 @@ Threats out of scope:
   (we ship a pinned model fingerprint; rotation is
   operator-driven).
 
+## Production deployment hardening
+
+Brain's v1.0 default posture is **permissive** — convenient for a
+single-tenant deployment behind a trusted network boundary, unsafe
+when exposed. Before exposing a server beyond `localhost` / a trusted
+LAN, walk this checklist:
+
+- **Require scoped authentication.** With auth left at its default
+  (`[auth] mode = "none"` and `BRAIN_REQUIRE_SCOPED_API_KEYS` unset),
+  any client can claim any `agent_id` and is granted full scope. The
+  server logs a loud startup `WARN` in this state. To harden, set
+  `BRAIN_REQUIRE_SCOPED_API_KEYS=1` (and/or `[auth] mode = "apikey"`)
+  so every connection must present a valid scoped API key. **Never run
+  the permissive default outside a trusted boundary.** Mint and revoke
+  keys via the admin HTTP surface.
+- **Enable TLS across a trust boundary.** Set `[server.tls] enabled =
+  true` with `cert` and `key` paths whenever traffic leaves the host
+  or trusted LAN. Without TLS, wire frames (including API-key tokens)
+  travel in cleartext.
+- **Keep the admin listener loopback-only.** The admin HTTP endpoint
+  (`/v1/*`, including API-key mint/revoke) has no built-in auth and
+  defaults to loopback. Do not bind `admin_addr` to a routable
+  interface; front it with a reverse proxy that adds authentication if
+  remote admin access is genuinely required.
+- **Respect the trusted-disk / trusted-operator assumptions.** The
+  data directory must sit on a trusted filesystem and anyone with shell
+  access to it has full authority over the deployment (see the threat
+  model above). Restrict OS-level access to the data dir and the
+  process accordingly.
+- **Bound per-connection and per-shard resources.** Tune the
+  connection limits (`max_connections`, `max_connections_per_ip`,
+  `max_payload_bytes`, and the read/auth/idle/ping timeouts) and the
+  per-shard storage caps (`[shard]` `arena_capacity_bytes`,
+  `wal_segment_size_bytes`, `wal_retention_segments`) to your host so a
+  single noisy or hostile peer cannot exhaust the box.
+- **Disable extractor / rerank tiers you don't use.** An *enabled*
+  capability tier (`[rerank]`, `[extractors.*]`, `[llm]`) that fails to
+  load is a hard shard-spawn failure; leave tiers you don't need
+  disabled so you don't depend on an external LLM endpoint or model
+  file you can't guarantee at startup.
+
 ## Public CVE history
 
 None yet. v1.0.0 is the first release.
