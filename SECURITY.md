@@ -37,7 +37,7 @@ window.
 Brain runs **untrusted wire input** through:
 
 - The TCP / WebSocket / SSE transport layer.
-- The rkyv-decoded request bodies.
+- The CBOR-decoded request bodies.
 - The schema DSL parser (when a schema is uploaded).
 - The LLM extractor (when configured) — prompts are derived
   from memory text, which is itself untrusted.
@@ -51,7 +51,7 @@ The substrate assumes:
 
 Threats we model:
 
-- Malformed wire frames (CRC + rkyv `check_bytes` reject).
+- Malformed wire frames (CRC + CBOR decode reject).
 - WAL corruption (CRC32C detects; recovery refuses corrupt
   records).
 - Idempotency-key collisions (`RequestId` UUID v7; spec §02/03).
