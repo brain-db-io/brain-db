@@ -26,6 +26,13 @@ pub enum WorkerKind {
     ForgetCascade,
     SchemaMigration,
     SupersessionSweeper,
+    /// Physically reclaims retracted statement rows (and their
+    /// secondary-index + evidence-overflow entries) once the retract
+    /// grace period elapses. **Off by default** — operators opt in via
+    /// `BRAIN_STATEMENT_RECLAIM_ENABLED`. Closes the
+    /// tombstone-grace-then-reclaim loop on the statement side, the way
+    /// slot reclamation does for memories.
+    StatementReclaim,
     AuditLogSweeper,
     LlmCacheSweeper,
     StaleExtractionDetector,
@@ -100,6 +107,7 @@ impl WorkerKind {
             Self::ForgetCascade => "forget_cascade",
             Self::SchemaMigration => "schema_migration",
             Self::SupersessionSweeper => "supersession_sweeper",
+            Self::StatementReclaim => "statement_reclaim",
             Self::AuditLogSweeper => "audit_log_sweeper",
             Self::LlmCacheSweeper => "llm_cache_sweeper",
             Self::StaleExtractionDetector => "stale_extraction_detector",
@@ -157,6 +165,9 @@ impl WorkerConfig {
             WorkerKind::ForgetCascade => (true, Duration::from_secs(1), 256, 10_000),
             WorkerKind::SchemaMigration => (true, Duration::from_secs(1), 128, 30_000),
             WorkerKind::SupersessionSweeper => (true, Duration::from_secs(86400), 256, 30_000),
+            // Off by default — like EntityGc, the operator opts in. Daily
+            // cadence, bounded batch keeps each reclamation wtxn small.
+            WorkerKind::StatementReclaim => (false, Duration::from_secs(86400), 256, 30_000),
             WorkerKind::AuditLogSweeper => (true, Duration::from_secs(86400), 1024, 30_000),
             WorkerKind::LlmCacheSweeper => (true, Duration::from_secs(3600), 1024, 10_000),
             WorkerKind::StaleExtractionDetector => (true, Duration::from_secs(3600), 512, 10_000),

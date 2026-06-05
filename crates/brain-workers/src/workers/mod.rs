@@ -24,6 +24,7 @@ pub mod slot_reclaim;
 pub mod snapshot;
 pub mod stale_extraction_detector;
 pub mod statement_embed;
+pub mod statement_reclaim;
 pub mod statistics;
 pub mod supersession_sweeper;
 pub mod temporal_edge;

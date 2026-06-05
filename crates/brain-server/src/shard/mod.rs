@@ -2209,6 +2209,23 @@ pub fn spawn_shard(
                     .expect("register ConfidenceSweepWorker");
             }
 
+            // StatementReclaimWorker — physically reclaims retracted
+            // statement rows (plus their secondary-index + evidence-
+            // overflow entries) after the retract grace period. Off by
+            // default; the worker reads `BRAIN_STATEMENT_RECLAIM_ENABLED`
+            // at construction and self-gates, so registering it
+            // unconditionally costs nothing when the operator hasn't
+            // opted in (the scheduler skips run_cycle on a disabled
+            // worker). Closes the tombstone-grace-then-reclaim loop on
+            // the statement side, mirroring slot reclamation for
+            // memories.
+            {
+                let worker = brain_workers::workers::statement_reclaim::StatementReclaimWorker::new();
+                scheduler
+                    .register(Arc::new(worker), ops.clone())
+                    .expect("register StatementReclaimWorker");
+            }
+
             // Register the AutoEdgeWorker when the channel was
             // created above (i.e. when `cfg.auto_edge.enabled` is true).
             // The worker drains the receiver feeding off post-commit
