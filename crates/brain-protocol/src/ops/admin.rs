@@ -408,3 +408,35 @@ pub struct TombstonedMemoryInfo {
     pub age_seconds: u32,
     pub eligible_for_reclaim: bool,
 }
+
+/// `ADMIN_LIST_PENDING_CONTRADICTIONS` (0x0178) request — list open
+/// Fact-vs-Fact contradictions awaiting operator reconciliation. A
+/// `limit` of 0 means the server default.
+#[derive(Clone, Copy, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AdminListPendingContradictionsRequest {
+    pub limit: u32,
+}
+
+/// One open contradiction: ≥2 coexisting current Facts on the same
+/// `(subject, predicate)` with distinct objects.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct ContradictionAuditView {
+    #[serde(with = "serde_bytes")]
+    pub audit_id: WireUuid,
+    #[serde(with = "serde_bytes")]
+    pub subject_id: WireUuid,
+    pub predicate_id: u32,
+    #[serde(with = "crate::codec::cbor::vec_byte_array16")]
+    pub contradicting_statement_ids: Vec<WireUuid>,
+    pub detected_at_unix_nanos: u64,
+    /// 0 = Pending (the list only ever returns Pending rows).
+    pub outcome: u8,
+}
+
+/// `ADMIN_LIST_PENDING_CONTRADICTIONS` (0x01F8) response — the full open
+/// set, bounded by the request `limit`. Returned in a single frame (the
+/// reconciliation queue is small), not streamed.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct AdminListPendingContradictionsResponse {
+    pub contradictions: Vec<ContradictionAuditView>,
+}

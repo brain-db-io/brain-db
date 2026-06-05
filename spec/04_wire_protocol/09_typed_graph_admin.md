@@ -921,8 +921,39 @@ Cross-references:
 | `0x0175` | `ADMIN_LIST_STALE_STATEMENTS` | "ADMIN_LIST_STALE_STATEMENTS" | spec-only |
 | `0x0176` | `ADMIN_BACKFILL` | "ADMIN_BACKFILL" | spec-only |
 | `0x0177` | `ADMIN_JOB_STATUS` | "ADMIN_JOB_STATUS" | spec-only |
+| `0x0178` | `ADMIN_LIST_PENDING_CONTRADICTIONS` | "ADMIN_LIST_PENDING_CONTRADICTIONS" | implemented |
 
-Responses live at `0x01F0–0x01F7`.
+Responses live at `0x01F0–0x01F8`.
+
+### ADMIN_LIST_PENDING_CONTRADICTIONS (0x0178)
+
+Lists open Fact-vs-Fact contradictions awaiting operator reconciliation
+(rows in `statement_contradiction_audit`; see §10/02 §18.6a). Admin-only.
+
+Request body (CBOR map):
+
+```
+{ limit: u32 }   // 0 = server default
+```
+
+Response (`0x01F8`, single frame — the queue is small, not streamed):
+
+```
+{ contradictions: [ ContradictionAuditView ] }
+
+ContradictionAuditView {
+    audit_id:                    bytes[16],
+    subject_id:                  bytes[16],
+    predicate_id:                u32,
+    contradicting_statement_ids: [ bytes[16] ],
+    detected_at_unix_nanos:      u64,
+    outcome:                     u8,   // 0 = Pending (only Pending is returned)
+}
+```
+
+The server re-checks liveness against `statements` on each call and
+lazily resolves rows that no longer hold, so the list reflects only
+currently-live contradictions.
 
 ### ADMIN_REBUILD_INDEX (0x0170)
 

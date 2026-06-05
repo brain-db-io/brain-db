@@ -225,6 +225,12 @@ pub enum Opcode {
     // injection.
     MaterializeProceduralReq = 0x0164,
     MaterializeProceduralResp = 0x01E4,
+
+    // Typed-graph admin operations (0x0170-0x017F req / 0x01F0-0x01FF
+    // resp). Operator-facing reconciliation surface. Only the
+    // contradiction list is implemented; 0x0170-0x0177 remain spec-only.
+    AdminListPendingContradictionsReq = 0x0178,
+    AdminListPendingContradictionsResp = 0x01F8,
 }
 
 impl Opcode {
@@ -376,6 +382,9 @@ impl Opcode {
             0x0164 => Self::MaterializeProceduralReq,
             0x01E4 => Self::MaterializeProceduralResp,
 
+            0x0178 => Self::AdminListPendingContradictionsReq,
+            0x01F8 => Self::AdminListPendingContradictionsResp,
+
             0x0120 => Self::SchemaUploadReq,
             0x01A0 => Self::SchemaUploadResp,
             0x0121 => Self::SchemaGetReq,
@@ -444,7 +453,8 @@ impl Opcode {
     #[inline]
     #[must_use]
     pub fn is_admin(self) -> bool {
-        self.namespace() == 0x00 && matches!(self.low_byte(), 0x60..=0x6F | 0xE0..=0xEF)
+        (self.namespace() == 0x00 && matches!(self.low_byte(), 0x60..=0x6F | 0xE0..=0xEF))
+            || (self.namespace() == 0x01 && matches!(self.low_byte(), 0x70..=0x7F | 0xF0..=0xFF))
     }
 
     /// True if this opcode is in the typed-graph namespace (`0x01xx`).
@@ -649,6 +659,9 @@ mod tests {
         // Typed-graph — procedural memory materialization
         (0x0164, Opcode::MaterializeProceduralReq),
         (0x01E4, Opcode::MaterializeProceduralResp),
+        // Typed-graph — admin (contradiction reconciliation)
+        (0x0178, Opcode::AdminListPendingContradictionsReq),
+        (0x01F8, Opcode::AdminListPendingContradictionsResp),
     ];
 
     #[test]
@@ -707,8 +720,11 @@ mod tests {
         assert!(!Opcode::EncodeReq.is_admin());
         assert!(!Opcode::Ping.is_admin());
         assert!(!Opcode::Error.is_admin());
-        // Typed-graph ops are never admin.
+        // Typed-graph *data* ops are never admin...
         assert!(!Opcode::EntityCreateReq.is_admin());
+        // ...but typed-graph admin ops (0x017x / 0x01Fx) are.
+        assert!(Opcode::AdminListPendingContradictionsReq.is_admin());
+        assert!(Opcode::AdminListPendingContradictionsResp.is_admin());
     }
 
     #[test]

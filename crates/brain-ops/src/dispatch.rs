@@ -339,6 +339,10 @@ pub async fn dispatch(
         // -----------------------------------------------------------
         // Admin ops — workers / server own these.
         // -----------------------------------------------------------
+        RequestBody::AdminListPendingContradictions(r) => {
+            handle_list_pending_contradictions(r, ctx).map(single)
+        }
+
         RequestBody::AdminStats(_)
         | RequestBody::AdminSnapshot(_)
         | RequestBody::AdminRestore(_)
@@ -526,6 +530,57 @@ pub async fn dispatch(
     }
 }
 
+/// Default cap on returned open contradictions when the request passes
+/// `limit == 0`.
+const DEFAULT_CONTRADICTION_LIST_LIMIT: usize = 256;
+
+/// `ADMIN_LIST_PENDING_CONTRADICTIONS` — return open Fact-vs-Fact
+/// contradictions. Opens one metadata write txn: the lister prunes
+/// no-longer-live ids and lazily resolves rows that no longer
+/// contradict, so the audit index self-heals on each call.
+fn handle_list_pending_contradictions(
+    req: brain_protocol::envelope::request::AdminListPendingContradictionsRequest,
+    ctx: &OpsContext,
+) -> Result<ResponseBody, OpError> {
+    use brain_protocol::envelope::response::{
+        AdminListPendingContradictionsResponse, ContradictionAuditView,
+    };
+
+    let limit = if req.limit == 0 {
+        DEFAULT_CONTRADICTION_LIST_LIMIT
+    } else {
+        req.limit as usize
+    };
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
+        .unwrap_or(0);
+
+    let metadata = &ctx.executor.metadata;
+    let wtxn = metadata
+        .write_txn()
+        .map_err(|e| OpError::Internal(format!("contradiction list wtxn: {e}")))?;
+    let rows = brain_metadata::statement::contradiction_audit_list_pending(&wtxn, limit, now)
+        .map_err(|e| OpError::Internal(format!("contradiction list: {e}")))?;
+    wtxn.commit()
+        .map_err(|e| OpError::Internal(format!("contradiction list commit: {e}")))?;
+
+    let contradictions = rows
+        .into_iter()
+        .map(|r| ContradictionAuditView {
+            audit_id: r.audit_id_bytes,
+            subject_id: r.subject_bytes,
+            predicate_id: r.predicate_id,
+            contradicting_statement_ids: r.contradicting_statement_ids,
+            detected_at_unix_nanos: r.detected_at_unix_nanos,
+            outcome: r.outcome,
+        })
+        .collect();
+    Ok(ResponseBody::AdminListPendingContradictions(
+        AdminListPendingContradictionsResponse { contradictions },
+    ))
+}
+
 /// Map each `RequestBody` variant to the permission bit it needs and
 /// fail with `Unauthorized` when the caller's bitfield lacks it.
 fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), OpError> {
@@ -611,6 +666,7 @@ fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), O
         | RequestBody::AdminMoveMemory(_)
         | RequestBody::AdminReclassify(_)
         | RequestBody::AdminListTombstoned(_)
+        | RequestBody::AdminListPendingContradictions(_)
         | RequestBody::AdminBackfill(_)
         | RequestBody::AdminBackfillCancel(_) => (perm_bits::ADMIN, "ADMIN"),
 
@@ -733,6 +789,21 @@ mod tests {
         let caller = strict(perm_bits::RECALL, "acme", agent(1));
         let err = enforce_permission(&caller, &encode_req()).unwrap_err();
         assert!(matches!(err, OpError::Unauthorized(_)));
+    }
+
+    #[test]
+    fn list_pending_contradictions_requires_admin() {
+        let req = RequestBody::AdminListPendingContradictions(
+            brain_protocol::envelope::request::AdminListPendingContradictionsRequest { limit: 0 },
+        );
+        // Permissive caller holds ADMIN — passes the gate.
+        assert!(enforce_permission(&permissive(), &req).is_ok());
+        // RECALL-only caller is rejected.
+        let caller = strict(perm_bits::RECALL, "acme", agent(1));
+        assert!(matches!(
+            enforce_permission(&caller, &req).unwrap_err(),
+            OpError::Unauthorized(_)
+        ));
     }
 
     #[test]

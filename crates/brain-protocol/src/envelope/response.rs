@@ -95,6 +95,7 @@ pub enum ResponseBody {
     AdminMoveMemory(AdminMoveMemoryResponse),
     AdminReclassify(AdminReclassifyResponse),
     AdminListTombstoned(AdminListTombstonedResponseFrame),
+    AdminListPendingContradictions(AdminListPendingContradictionsResponse),
     AdminBackfill(AdminBackfillResponse),
     AdminBackfillCancel(AdminBackfillCancelResponse),
 
@@ -195,6 +196,9 @@ impl ResponseBody {
             Self::AdminMoveMemory(_) => Opcode::AdminMoveMemoryResp,
             Self::AdminReclassify(_) => Opcode::AdminReclassifyResp,
             Self::AdminListTombstoned(_) => Opcode::AdminListTombstonedResp,
+            Self::AdminListPendingContradictions(_) => {
+                Opcode::AdminListPendingContradictionsResp
+            }
             Self::AdminBackfill(_) => Opcode::AdminBackfillResp,
             Self::AdminBackfillCancel(_) => Opcode::AdminBackfillCancelResp,
             Self::EntityCreate(_) => Opcode::EntityCreateResp,
@@ -294,6 +298,7 @@ impl ResponseBody {
             Self::AdminMoveMemory(r) => to_cbor_bytes(r),
             Self::AdminReclassify(r) => to_cbor_bytes(r),
             Self::AdminListTombstoned(r) => to_cbor_bytes(r),
+            Self::AdminListPendingContradictions(r) => to_cbor_bytes(r),
             Self::AdminBackfill(r) => to_cbor_bytes(r),
             Self::AdminBackfillCancel(r) => to_cbor_bytes(r),
             Self::EntityCreate(r) => to_cbor_bytes(r),
@@ -372,6 +377,9 @@ impl ResponseBody {
             Opcode::AdminMoveMemoryResp => Self::AdminMoveMemory(from_cbor_bytes(bytes)?),
             Opcode::AdminReclassifyResp => Self::AdminReclassify(from_cbor_bytes(bytes)?),
             Opcode::AdminListTombstonedResp => Self::AdminListTombstoned(from_cbor_bytes(bytes)?),
+            Opcode::AdminListPendingContradictionsResp => {
+                Self::AdminListPendingContradictions(from_cbor_bytes(bytes)?)
+            }
             Opcode::AdminBackfillResp => Self::AdminBackfill(from_cbor_bytes(bytes)?),
             Opcode::AdminBackfillCancelResp => Self::AdminBackfillCancel(from_cbor_bytes(bytes)?),
             Opcode::EntityCreateResp => Self::EntityCreate(from_cbor_bytes(bytes)?),
@@ -806,6 +814,18 @@ mod tests {
                     eligible_for_reclaim: false,
                 },
                 is_final: false,
+            },
+        ));
+        round_trip(ResponseBody::AdminListPendingContradictions(
+            AdminListPendingContradictionsResponse {
+                contradictions: vec![ContradictionAuditView {
+                    audit_id: [7u8; 16],
+                    subject_id: [9u8; 16],
+                    predicate_id: 42,
+                    contradicting_statement_ids: vec![[1u8; 16], [2u8; 16]],
+                    detected_at_unix_nanos: 1234,
+                    outcome: 0,
+                }],
             },
         ));
         round_trip(ResponseBody::AdminBackfill(AdminBackfillResponse {

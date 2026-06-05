@@ -99,6 +99,7 @@ pub enum RequestBody {
     AdminMoveMemory(AdminMoveMemoryRequest),
     AdminReclassify(AdminReclassifyRequest),
     AdminListTombstoned(AdminListTombstonedRequest),
+    AdminListPendingContradictions(AdminListPendingContradictionsRequest),
     AdminBackfill(AdminBackfillRequest),
     AdminBackfillCancel(AdminBackfillCancelRequest),
 
@@ -190,6 +191,9 @@ impl RequestBody {
             Self::AdminMoveMemory(_) => Opcode::AdminMoveMemoryReq,
             Self::AdminReclassify(_) => Opcode::AdminReclassifyReq,
             Self::AdminListTombstoned(_) => Opcode::AdminListTombstonedReq,
+            Self::AdminListPendingContradictions(_) => {
+                Opcode::AdminListPendingContradictionsReq
+            }
             Self::AdminBackfill(_) => Opcode::AdminBackfillReq,
             Self::AdminBackfillCancel(_) => Opcode::AdminBackfillCancelReq,
             Self::EntityCreate(_) => Opcode::EntityCreateReq,
@@ -271,6 +275,7 @@ impl RequestBody {
             Self::AdminMoveMemory(r) => to_cbor_bytes(r),
             Self::AdminReclassify(r) => to_cbor_bytes(r),
             Self::AdminListTombstoned(r) => to_cbor_bytes(r),
+            Self::AdminListPendingContradictions(r) => to_cbor_bytes(r),
             Self::AdminBackfill(r) => to_cbor_bytes(r),
             Self::AdminBackfillCancel(r) => to_cbor_bytes(r),
             Self::EntityCreate(r) => to_cbor_bytes(r),
@@ -355,6 +360,9 @@ impl RequestBody {
             Opcode::AdminMoveMemoryReq => Self::AdminMoveMemory(from_cbor_bytes(bytes)?),
             Opcode::AdminReclassifyReq => Self::AdminReclassify(from_cbor_bytes(bytes)?),
             Opcode::AdminListTombstonedReq => Self::AdminListTombstoned(from_cbor_bytes(bytes)?),
+            Opcode::AdminListPendingContradictionsReq => {
+                Self::AdminListPendingContradictions(from_cbor_bytes(bytes)?)
+            }
             Opcode::AdminBackfillReq => Self::AdminBackfill(from_cbor_bytes(bytes)?),
             Opcode::AdminBackfillCancelReq => Self::AdminBackfillCancel(from_cbor_bytes(bytes)?),
             Opcode::EntityCreateReq => Self::EntityCreate(from_cbor_bytes(bytes)?),
@@ -699,6 +707,9 @@ mod tests {
                 max_age_seconds: 3600,
                 limit: 100,
             },
+        ));
+        round_trip(RequestBody::AdminListPendingContradictions(
+            AdminListPendingContradictionsRequest { limit: 50 },
         ));
         round_trip(RequestBody::AdminBackfill(AdminBackfillRequest {
             scope: BackfillScope::All,

@@ -221,6 +221,9 @@ The substrate `RECALL` opcode (`0x0021`) is the primary vector recall. The pipel
 | 0x0175 | `ADMIN_LIST_STALE_STATEMENTS` | filter | StatementIds |
 | 0x0176 | `ADMIN_BACKFILL` | extractor_ids, memory_range | job_id |
 | 0x0177 | `ADMIN_JOB_STATUS` | job_id | status, progress, ETA |
+| 0x0178 | `ADMIN_LIST_PENDING_CONTRADICTIONS` | limit | list of open Fact-vs-Fact contradictions |
+
+Responses live at `0x01F0–0x01FF` (e.g. `ADMIN_LIST_PENDING_CONTRADICTIONS_RESP` = `0x01F8`).
 
 ### 2.7 SUBSCRIBE event types (typed graph)
 
