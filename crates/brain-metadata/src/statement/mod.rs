@@ -14,6 +14,7 @@
 //! - [`list`]: listing, history-walk, contradiction surface, filter
 //!   struct.
 
+pub mod contradiction;
 pub mod crud;
 pub mod embed_queue;
 pub mod evidence;
@@ -24,6 +25,7 @@ pub mod tombstone;
 // Flat re-exports so `brain_metadata::statement::*` covers the original
 // statement_ops API surface without consumers having to walk the
 // sub-modules.
+pub use contradiction::{contradiction_audit_list_pending, contradiction_audit_record};
 pub use crud::{
     allocate_evidence_overflow, evidence_overflow_load, rekey_predicate_index,
     remove_from_predicate_index, statement_create, statement_get,

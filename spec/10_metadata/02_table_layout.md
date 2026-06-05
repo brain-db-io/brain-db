@@ -176,6 +176,7 @@ Declaring a schema (via `SCHEMA_UPLOAD`) activates entity / statement / relation
 | `schema_versions` | u32 | SchemaDocument | Schema history |
 | `extractor_audit` | AuditId | ExtractionAudit | Per-extraction audit |
 | `entity_resolution_audit` | AuditId | ResolutionAudit | Per-resolution audit |
+| `statement_contradiction_audit` | (subject, predicate_id) | ContradictionAudit | Open Fact-vs-Fact contradictions |
 | `merge_log` | (timestamp, merge_id) | MergeRecord | Entity merges |
 
 The same composite-key + rkyv-value conventions apply (§4, §5).
@@ -316,6 +317,38 @@ Reverse: which memories mention each entity. Used for graph queries and provenan
 key:   AuditId (16 bytes)
 value: rkyv-serialized ResolutionAudit
 ```
+
+### 18.6a `statement_contradiction_audit`
+
+```
+key:   (subject: [u8; 16], predicate_id: u32)
+value: rkyv-serialized ContradictionAudit
+```
+
+One open row per `(subject, predicate)` — a re-detection unions the new
+ids into the existing open row (stable `audit_id`) rather than fanning
+out duplicates. The row is self-contained:
+
+```rust
+pub struct ContradictionAudit {
+    pub audit_id_bytes: [u8; 16],            // stable UUIDv7
+    pub subject_bytes: [u8; 16],
+    pub predicate_id: u32,
+    pub contradicting_statement_ids: Vec<[u8; 16]>,
+    pub detected_at_unix_nanos: u64,
+    pub resolved_at_unix_nanos: Option<u64>,
+    pub outcome: u8,                         // 0 = Pending, 1 = Resolved
+}
+```
+
+Liveness is re-checked against `statements` at list time (not via the
+single-value `statements_by_subject` index, which cannot enumerate
+coexisting current Facts): ids that are no longer current/untombstoned
+are pruned, and a row that drops to ≤1 distinct object is lazily flipped
+to `Resolved`. Surfaced to operators via `ADMIN_LIST_PENDING_CONTRADICTIONS`
+(`0x0178`). Written from `statement_create` when a new Fact disagrees with
+an active Fact on the same `(subject, predicate)` — the insert still
+proceeds (coexisting Facts are allowed).
 
 ### 18.7 `entity_merge_log`
 

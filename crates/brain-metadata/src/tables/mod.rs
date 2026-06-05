@@ -8,6 +8,7 @@ pub mod api_keys;
 pub mod audit;
 pub mod checkpoint;
 pub mod context;
+pub mod contradiction;
 pub mod edge;
 pub mod entity;
 pub mod entity_type;
@@ -95,6 +96,7 @@ pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::r
     };
     use checkpoint::CHECKPOINTS_TABLE;
     use context::{AGENT_CONTEXTS_TABLE, CONTEXTS_TABLE, CONTEXT_NAMES_TABLE};
+    use contradiction::STATEMENT_CONTRADICTION_AUDIT_TABLE;
     use edge::{EDGES_REVERSE_TABLE, EDGES_TABLE};
     use entity::{
         ENTITIES_TABLE, ENTITY_ALIASES_TABLE, ENTITY_BY_CANONICAL_NAME_TABLE,
@@ -130,6 +132,7 @@ pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::r
     let _ = wtxn.open_table(EXTRACTOR_AUDIT_BY_EXTRACTOR_TABLE)?;
     let _ = wtxn.open_table(EXTRACTOR_AUDIT_BY_TIME_TABLE)?;
     let _ = wtxn.open_table(ENTITY_RESOLUTION_AUDIT_TABLE)?;
+    let _ = wtxn.open_table(STATEMENT_CONTRADICTION_AUDIT_TABLE)?;
     let _ = wtxn.open_table(CHECKPOINTS_TABLE)?;
     let _ = wtxn.open_table(CONTEXTS_TABLE)?;
     let _ = wtxn.open_table(CONTEXT_NAMES_TABLE)?;

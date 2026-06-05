@@ -139,8 +139,19 @@ pub fn statement_create(
                 new_id = ?s.id,
                 "statement_create: Fact contradicts active facts"
             );
-            // TODO: write a dedicated contradiction audit table row.
-            // For now we emit the WARN trace and proceed.
+            // Durable audit: the conflicting set is the active Fact(s)
+            // already indexed plus the one being inserted. The insert
+            // still proceeds (coexisting Facts are allowed); operators
+            // reconcile via ADMIN_LIST_PENDING_CONTRADICTIONS.
+            let mut contradicting: Vec<StatementId> = active.iter().map(|a| a.id).collect();
+            contradicting.push(s.id);
+            super::contradiction::contradiction_audit_record(
+                wtxn,
+                subject_entity,
+                s.predicate,
+                &contradicting,
+                now_unix_nanos,
+            )?;
         }
     }
 

@@ -589,7 +589,7 @@ At step "validate" in statement_create (after subject/predicate check):
                 // No error — insert proceeds.
 ```
 
-`contradiction_audit_record` writes a row to `entity_resolution_audit` (re-used) so operators can find unresolved contradictions via `ADMIN_LIST_PENDING_RESOLUTIONS`.
+`contradiction_audit_record` writes a row to the dedicated `statement_contradiction_audit` table (keyed by `(subject, predicate_id)`, one open row per pair, storing the conflicting statement ids) so operators can find unresolved contradictions via `ADMIN_LIST_PENDING_CONTRADICTIONS` (`0x0178`). The row is self-contained — its `contradicting_statement_ids` are re-checked against `statements` at list time, and a row that no longer holds (one side superseded/retracted/tombstoned, ≤1 distinct object) is lazily marked `RESOLVED`. The `entity_resolution_audit` table is **not** reused: it is the entity-resolution log and carries no statement-lifecycle discriminator.
 
 #### Event emission
 
