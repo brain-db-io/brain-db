@@ -11,7 +11,6 @@
 //! substrate-level nested-txn detection.
 
 use std::collections::{HashMap, HashSet};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{EdgeKind, MemoryId};
 use brain_metadata::tables::memory::MemoryMetadata;
@@ -334,10 +333,7 @@ impl TxnStore {
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 // ---------------------------------------------------------------------------

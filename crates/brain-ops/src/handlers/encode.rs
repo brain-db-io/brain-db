@@ -5,7 +5,6 @@
 //! With `txn_id`: validate + embed + reserve a `MemoryId`, push to
 //! the buffer, return a preview response. Writes happen at TXN_COMMIT.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef, Salience};
 use brain_metadata::tables::memory::MemoryMetadata;
@@ -280,10 +279,7 @@ fn encode_request_hash(
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 /// Build the response for an idempotency-replay hit. The cached

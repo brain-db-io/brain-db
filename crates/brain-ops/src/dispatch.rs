@@ -551,10 +551,7 @@ fn handle_list_pending_contradictions(
     } else {
         req.limit as usize
     };
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| u64::try_from(d.as_nanos()).unwrap_or(u64::MAX))
-        .unwrap_or(0);
+    let now = crate::clock::now_unix_nanos();
 
     let metadata = &ctx.executor.metadata;
     let wtxn = metadata

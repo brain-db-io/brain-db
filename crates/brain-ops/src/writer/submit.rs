@@ -24,7 +24,7 @@
 //! require apply changes.
 
 use std::sync::Arc;
-use std::time::{Instant, SystemTime, UNIX_EPOCH};
+use std::time::Instant;
 
 use brain_core::{ContextId, MemoryId, MemoryKind, NodeRef};
 use brain_planner::WriterError;
@@ -223,10 +223,7 @@ fn classify(
 }
 
 fn default_now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 /// Build the durable idempotency row for a successful submit. Encodes
@@ -555,10 +552,7 @@ impl RealWriterHandle {
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 /// Record one submit outcome per phase in the parent [`Write`]. The

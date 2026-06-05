@@ -23,7 +23,6 @@
 //! aren't useful. A non-None `txn_id` is rejected so we don't
 //! silently degrade the user's intent.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef, Salience};
 use brain_embed::VECTOR_DIM;
@@ -450,10 +449,7 @@ fn reconstruct_response(
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 fn hex_short(bytes: &[u8; 16]) -> String {

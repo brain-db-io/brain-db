@@ -1,7 +1,6 @@
 //! LINK / UNLINK handlers — submit Link / Unlink phases through the
 //! unified writer; in-TXN ops buffer for later commit.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::{EdgeKind, EdgeKindRef, MemoryId, NodeRef, RequestId};
 use brain_planner::{LinkOp, UnlinkOp, WriterError};
@@ -166,10 +165,7 @@ pub(crate) fn downcast_writer_pub(ctx: &OpsContext) -> Result<&RealWriterHandle,
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 pub async fn handle_unlink(

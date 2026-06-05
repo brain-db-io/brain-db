@@ -21,6 +21,7 @@
 #![forbid(unsafe_code)]
 
 pub mod apply;
+pub mod clock;
 pub mod context;
 pub mod dispatch;
 pub mod error;

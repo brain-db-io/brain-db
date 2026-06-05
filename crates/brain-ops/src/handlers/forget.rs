@@ -1,7 +1,6 @@
 //! FORGET handler — non-TXN path submits a Tombstone phase through
 //! the unified writer; in-TXN ops buffer for later commit.
 
-use std::time::{SystemTime, UNIX_EPOCH};
 
 use brain_core::MemoryId;
 use brain_planner::{plan_forget_inner, ForgetOp, ForgetOutcome};
@@ -150,10 +149,7 @@ fn map_mode(mode: ForgetMode) -> PhaseTombstoneMode {
 }
 
 fn now_unix_nanos() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map(|d| d.as_nanos() as u64)
-        .unwrap_or(0)
+    crate::clock::now_unix_nanos()
 }
 
 async fn handle_forget_in_txn(
