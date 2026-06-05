@@ -196,7 +196,7 @@ impl EntityHnswIndex {
             return Err(EntityHnswError::DuplicateEntity(entity_id));
         }
         let internal_id = u32::try_from(self.forward.len())
-            .expect("entity HNSW id-space exhausted (> u32::MAX entities per shard)");
+            .expect("invariant: entity count per shard never reaches u32::MAX");
         self.forward.push(Some(entity_id));
         self.reverse.insert(entity_id, internal_id);
         self.inner
@@ -352,7 +352,7 @@ impl EntityHnswIndex {
                 continue;
             }
             let internal_id = u32::try_from(self.forward.len())
-                .expect("entity HNSW id-space exhausted during rebuild");
+                .expect("invariant: rebuilt entity count never reaches u32::MAX");
             self.forward.push(Some(id));
             self.reverse.insert(id, internal_id);
             self.inner

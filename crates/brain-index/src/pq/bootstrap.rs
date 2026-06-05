@@ -61,7 +61,7 @@ pub fn bootstrap_codebook() -> Arc<Codebook<BOOTSTRAP_M>> {
         .get_or_init(|| {
             let sample = synthetic_training_sample();
             let cb = kmeans::train::<BOOTSTRAP_M>(&sample, &PqParams::default_v1(), TRAINER_SEED)
-                .expect("synthetic training sample is well-shaped");
+                .expect("invariant: locally generated synthetic sample is always well-shaped");
             Arc::new(cb)
         })
         .clone()

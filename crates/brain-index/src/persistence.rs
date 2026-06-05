@@ -94,12 +94,15 @@ impl Header {
             shard_uuid,
             taken_at_lsn,
             graph_node_count,
-            m: u32::try_from(params.m).expect("M fits in u32"),
+            m: u32::try_from(params.m).expect("invariant: HNSW M is small and fits in u32"),
             ef_construction: u32::try_from(params.ef_construction)
-                .expect("ef_construction fits in u32"),
-            ef_search: u32::try_from(params.ef_search).expect("ef_search fits in u32"),
-            ef_search_max: u32::try_from(params.ef_search_max).expect("ef_search_max fits in u32"),
-            vector_dim: u32::try_from(D).expect("vector dim fits in u32"),
+                .expect("invariant: ef_construction is small and fits in u32"),
+            ef_search: u32::try_from(params.ef_search)
+                .expect("invariant: ef_search is small and fits in u32"),
+            ef_search_max: u32::try_from(params.ef_search_max)
+                .expect("invariant: ef_search_max is small and fits in u32"),
+            vector_dim: u32::try_from(D)
+                .expect("invariant: embedding dim is small and fits in u32"),
         }
     }
 
@@ -130,15 +133,25 @@ impl Header {
                 got: bytes.len(),
             });
         }
-        let magic: [u8; 4] = bytes[0..4].try_into().expect("4 bytes");
+        let magic: [u8; 4] = bytes[0..4]
+            .try_into()
+            .expect("invariant: HEADER_LEN length checked above guarantees 4 magic bytes");
         if magic != BRAIN_MAGIC {
             return Err(HeaderError::BadMagic(magic));
         }
-        let format_version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let format_version = u32::from_le_bytes(
+            bytes[4..8]
+                .try_into()
+                .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+        );
         if format_version != FORMAT_VERSION {
             return Err(HeaderError::UnsupportedVersion(format_version));
         }
-        let stored_crc = u32::from_le_bytes(bytes[60..64].try_into().unwrap());
+        let stored_crc = u32::from_le_bytes(
+            bytes[60..64]
+                .try_into()
+                .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+        );
         let computed_crc = crc32c::crc32c(&bytes[..60]);
         if stored_crc != computed_crc {
             return Err(HeaderError::BadCrc {
@@ -148,14 +161,44 @@ impl Header {
         }
         Ok(Self {
             format_version,
-            shard_uuid: bytes[8..24].try_into().unwrap(),
-            taken_at_lsn: u64::from_le_bytes(bytes[24..32].try_into().unwrap()),
-            graph_node_count: u64::from_le_bytes(bytes[32..40].try_into().unwrap()),
-            m: u32::from_le_bytes(bytes[40..44].try_into().unwrap()),
-            ef_construction: u32::from_le_bytes(bytes[44..48].try_into().unwrap()),
-            ef_search: u32::from_le_bytes(bytes[48..52].try_into().unwrap()),
-            ef_search_max: u32::from_le_bytes(bytes[52..56].try_into().unwrap()),
-            vector_dim: u32::from_le_bytes(bytes[56..60].try_into().unwrap()),
+            shard_uuid: bytes[8..24]
+                .try_into()
+                .expect("invariant: HEADER_LEN length checked above guarantees these 16 bytes"),
+            taken_at_lsn: u64::from_le_bytes(
+                bytes[24..32]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 8 bytes"),
+            ),
+            graph_node_count: u64::from_le_bytes(
+                bytes[32..40]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 8 bytes"),
+            ),
+            m: u32::from_le_bytes(
+                bytes[40..44]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+            ),
+            ef_construction: u32::from_le_bytes(
+                bytes[44..48]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+            ),
+            ef_search: u32::from_le_bytes(
+                bytes[48..52]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+            ),
+            ef_search_max: u32::from_le_bytes(
+                bytes[52..56]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+            ),
+            vector_dim: u32::from_le_bytes(
+                bytes[56..60]
+                    .try_into()
+                    .expect("invariant: HEADER_LEN length checked above guarantees these 4 bytes"),
+            ),
         })
     }
 }
@@ -190,7 +233,8 @@ impl Body {
         let mut bytes = Vec::new();
 
         // id_map entries.
-        let count = u32::try_from(id_map.len()).expect("id_map.len fits in u32");
+        let count = u32::try_from(id_map.len())
+            .expect("invariant: id_map len bounded by u32 internal-id space");
         bytes.extend_from_slice(&count.to_le_bytes());
         for entry in id_map.iter_forward() {
             bytes.extend_from_slice(&entry.0);
@@ -202,12 +246,14 @@ impl Body {
 
         // Tombstone bitmap.
         let words = tombstones.raw_words();
-        let word_count = u64::try_from(words.len()).expect("bitmap word count fits in u64");
+        let word_count = u64::try_from(words.len())
+            .expect("invariant: bitmap word count is a usize and fits in u64");
         bytes.extend_from_slice(&word_count.to_le_bytes());
         for w in words {
             bytes.extend_from_slice(&w.to_le_bytes());
         }
-        let set_count = u32::try_from(tombstones.count()).expect("tombstone count fits in u32");
+        let set_count = u32::try_from(tombstones.count())
+            .expect("invariant: tombstone count bounded by u32 internal-id space");
         bytes.extend_from_slice(&set_count.to_le_bytes());
 
         // Sibling-file hashes. 64 bytes appended after the tombstone
@@ -275,7 +321,11 @@ fn read_u32(bytes: &mut &[u8]) -> Result<u32, BodyError> {
     if bytes.len() < 4 {
         return Err(BodyError::Truncated);
     }
-    let v = u32::from_le_bytes(bytes[..4].try_into().unwrap());
+    let v = u32::from_le_bytes(
+        bytes[..4]
+            .try_into()
+            .expect("invariant: length checked above guarantees 4 bytes"),
+    );
     *bytes = &bytes[4..];
     Ok(v)
 }
@@ -284,7 +334,11 @@ fn read_u64(bytes: &mut &[u8]) -> Result<u64, BodyError> {
     if bytes.len() < 8 {
         return Err(BodyError::Truncated);
     }
-    let v = u64::from_le_bytes(bytes[..8].try_into().unwrap());
+    let v = u64::from_le_bytes(
+        bytes[..8]
+            .try_into()
+            .expect("invariant: length checked above guarantees 8 bytes"),
+    );
     *bytes = &bytes[8..];
     Ok(v)
 }
@@ -293,7 +347,9 @@ fn read_array_16(bytes: &mut &[u8]) -> Result<[u8; 16], BodyError> {
     if bytes.len() < 16 {
         return Err(BodyError::Truncated);
     }
-    let v: [u8; 16] = bytes[..16].try_into().unwrap();
+    let v: [u8; 16] = bytes[..16]
+        .try_into()
+        .expect("invariant: length checked above guarantees 16 bytes");
     *bytes = &bytes[16..];
     Ok(v)
 }
@@ -302,7 +358,9 @@ fn read_array_32(bytes: &mut &[u8]) -> Result<[u8; 32], BodyError> {
     if bytes.len() < 32 {
         return Err(BodyError::Truncated);
     }
-    let v: [u8; 32] = bytes[..32].try_into().unwrap();
+    let v: [u8; 32] = bytes[..32]
+        .try_into()
+        .expect("invariant: length checked above guarantees 32 bytes");
     *bytes = &bytes[32..];
     Ok(v)
 }

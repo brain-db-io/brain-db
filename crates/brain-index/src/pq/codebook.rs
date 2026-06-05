@@ -147,23 +147,41 @@ impl<const M: usize> Codebook<M> {
         if bytes.len() < CODEBOOK_HEADER_LEN {
             return Err(CodebookError::Truncated);
         }
-        let magic: [u8; 4] = bytes[0..4].try_into().expect("4 bytes");
+        let magic: [u8; 4] = bytes[0..4]
+            .try_into()
+            .expect("invariant: header length checked above guarantees 4 magic bytes");
         if magic != CODEBOOK_MAGIC {
             return Err(CodebookError::BadMagic);
         }
-        let version = u32::from_le_bytes(bytes[4..8].try_into().unwrap());
+        let version = u32::from_le_bytes(
+            bytes[4..8]
+                .try_into()
+                .expect("invariant: header length checked above guarantees these 4 bytes"),
+        );
         if version != CODEBOOK_FORMAT_VERSION {
             return Err(CodebookError::UnsupportedVersion(version));
         }
-        let m = u32::from_le_bytes(bytes[8..12].try_into().unwrap()) as usize;
+        let m = u32::from_le_bytes(
+            bytes[8..12]
+                .try_into()
+                .expect("invariant: header length checked above guarantees these 4 bytes"),
+        ) as usize;
         if m != M {
             return Err(CodebookError::ConfigMismatch {
                 params_m: m,
                 codebook_m: M,
             });
         }
-        let sub_dim = u32::from_le_bytes(bytes[12..16].try_into().unwrap()) as usize;
-        let data_len = u32::from_le_bytes(bytes[16..20].try_into().unwrap()) as usize;
+        let sub_dim = u32::from_le_bytes(
+            bytes[12..16]
+                .try_into()
+                .expect("invariant: header length checked above guarantees these 4 bytes"),
+        ) as usize;
+        let data_len = u32::from_le_bytes(
+            bytes[16..20]
+                .try_into()
+                .expect("invariant: header length checked above guarantees these 4 bytes"),
+        ) as usize;
         let expected_bytes = CODEBOOK_HEADER_LEN + data_len * 4;
         if bytes.len() != expected_bytes {
             return Err(CodebookError::Truncated);
@@ -171,7 +189,9 @@ impl<const M: usize> Codebook<M> {
         let mut data = Vec::with_capacity(data_len);
         for i in 0..data_len {
             let off = CODEBOOK_HEADER_LEN + i * 4;
-            let chunk: [u8; 4] = bytes[off..off + 4].try_into().unwrap();
+            let chunk: [u8; 4] = bytes[off..off + 4]
+                .try_into()
+                .expect("invariant: total length checked above guarantees this 4-byte chunk");
             data.push(f32::from_le_bytes(chunk));
         }
         Self::from_trained(data, sub_dim)

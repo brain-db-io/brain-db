@@ -110,7 +110,9 @@ pub fn encode_batch(
             // because `encode` was called with `add_special_tokens=true`.
             let sep_id = full[pre_trunc_len - 1];
             let mut ids = full[..MAX_TOKEN_LENGTH].to_vec();
-            *ids.last_mut().expect("MAX_TOKEN_LENGTH > 0") = sep_id;
+            *ids.last_mut()
+            .expect("invariant: truncated branch leaves exactly MAX_TOKEN_LENGTH (>0) ids") =
+            sep_id;
             ids
         } else {
             full.to_vec()
@@ -132,7 +134,11 @@ pub fn encode_batch(
     }
 
     // 3. Pad to the longest row (capped at MAX_TOKEN_LENGTH).
-    let seq_len = raw_ids.iter().map(Vec::len).max().expect("batch non-empty");
+    let seq_len = raw_ids
+        .iter()
+        .map(Vec::len)
+        .max()
+        .expect("invariant: empty batch rejected above, so raw_ids is non-empty");
     let mut padded_ids: Vec<u32> = vec![pad_id; batch * seq_len];
     let mut mask: Vec<u32> = vec![0; batch * seq_len];
     for (row, ids) in raw_ids.iter().enumerate() {

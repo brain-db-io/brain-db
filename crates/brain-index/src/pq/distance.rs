@@ -235,8 +235,12 @@ impl<const M: usize> Distance<u8> for PqDist<M> {
         debug_assert_eq!(va.len(), M, "PQ code length must equal M");
         debug_assert_eq!(vb.len(), M, "PQ code length must equal M");
         // SAFETY: debug_assert above; production callers guarantee.
-        let code_a: &[u8; M] = va.try_into().expect("PQ code length must equal M");
-        let code_b: &[u8; M] = vb.try_into().expect("PQ code length must equal M");
+        let code_a: &[u8; M] = va
+            .try_into()
+            .expect("invariant: PQ codes are always M bytes (asserted above)");
+        let code_b: &[u8; M] = vb
+            .try_into()
+            .expect("invariant: PQ codes are always M bytes (asserted above)");
 
         // ADC if a search LUT is installed (hnsw_rs calls
         // eval(query, candidate)).

@@ -201,7 +201,7 @@ impl StatementHnswIndex {
             return Err(StatementHnswError::DuplicateStatement(statement_id));
         }
         let internal_id = u32::try_from(self.forward.len())
-            .expect("statement HNSW id-space exhausted (> u32::MAX statements per shard)");
+            .expect("invariant: statement count per shard never reaches u32::MAX");
         self.forward.push(Some(statement_id));
         self.reverse.insert(statement_id, internal_id);
         self.inner
@@ -358,7 +358,7 @@ impl StatementHnswIndex {
                 continue;
             }
             let internal_id = u32::try_from(self.forward.len())
-                .expect("statement HNSW id-space exhausted during rebuild");
+                .expect("invariant: rebuilt statement count never reaches u32::MAX");
             self.forward.push(Some(id));
             self.reverse.insert(id, internal_id);
             self.inner

@@ -59,7 +59,7 @@ pub fn compute_fingerprint(
     let full = hasher.finalize();
     full.as_bytes()[..16]
         .try_into()
-        .expect("BLAKE3 output is at least 32 bytes")
+        .expect("invariant: BLAKE3 digest is 32 bytes, so the 16-byte prefix exists")
 }
 
 /// Compute the BLAKE3-truncated-16 of a text string. The cache in
@@ -70,7 +70,7 @@ pub fn blake3_hash_text(text: &str) -> [u8; 16] {
     let full = blake3::hash(text.as_bytes());
     full.as_bytes()[..16]
         .try_into()
-        .expect("BLAKE3 output is 32 bytes")
+        .expect("invariant: BLAKE3 digest is 32 bytes, so the 16-byte prefix exists")
 }
 
 /// Compute the BLAKE3 of a file by streaming 64 KiB chunks. Avoids
