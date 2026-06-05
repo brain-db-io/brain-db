@@ -61,10 +61,12 @@ fn confidence_bucket_round_trip() {
     assert_eq!(confidence_bucket(0.27), 2);
     assert_eq!(confidence_bucket(0.5), 5);
     assert_eq!(confidence_bucket(0.99), 9);
-    assert_eq!(confidence_bucket(1.0), 9, "1.0 clamps to bucket 9");
+    // Canonical 0..=10 bucketing (shared with the redb index): 1.0 is its
+    // own bucket 10, not folded into 9.
+    assert_eq!(confidence_bucket(1.0), 10, "1.0 is bucket 10");
     // Defensive: out-of-range inputs clamp.
     assert_eq!(confidence_bucket(-0.5), 0);
-    assert_eq!(confidence_bucket(1.5), 9);
+    assert_eq!(confidence_bucket(1.5), 10);
 }
 
 #[test]
