@@ -1,7 +1,7 @@
 //! Per-worker metrics.
 //!
 //! v1 publishes through atomics; the tracing/OpenTelemetry plumbing
-//! reads them out. Snapshot getters return a plain `Snapshot`
+//! reads them out. MetricsSnapshot getters return a plain `MetricsSnapshot`
 //! struct so callers (tests, admin handlers) don't have to chase
 //! atomics by hand.
 
@@ -30,8 +30,8 @@ impl WorkerMetrics {
     /// (each field still loads independently, so the snapshot isn't
     /// a full atomic across fields).
     #[must_use]
-    pub fn snapshot(&self) -> Snapshot {
-        Snapshot {
+    pub fn snapshot(&self) -> MetricsSnapshot {
+        MetricsSnapshot {
             cycles_total: self.cycles_total.load(Ordering::Relaxed),
             processed_total: self.processed_total.load(Ordering::Relaxed),
             errors_total: self.errors_total.load(Ordering::Relaxed),
@@ -43,7 +43,7 @@ impl WorkerMetrics {
 }
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
-pub struct Snapshot {
+pub struct MetricsSnapshot {
     pub cycles_total: u64,
     pub processed_total: u64,
     pub errors_total: u64,

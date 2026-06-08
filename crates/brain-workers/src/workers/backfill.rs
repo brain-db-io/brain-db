@@ -31,7 +31,7 @@ use std::time::SystemTime;
 
 use brain_core::{BackfillId, BackfillProgress, BackfillRange, BackfillRequest, MemoryId};
 use brain_metadata::tables::memory::MEMORIES_TABLE;
-use brain_metadata::tables::worker_checkpoints as checkpoints;
+use brain_metadata::tables::worker_checkpoints;
 use parking_lot::Mutex;
 
 use crate::config::{WorkerConfig, WorkerKind};
@@ -294,7 +294,7 @@ impl BackfillWorker {
         let rtxn = metadata
             .read_txn()
             .map_err(|e| WorkerError::Internal(format!("backfill read_txn: {e}")))?;
-        let existing = checkpoints::get(&rtxn, WORKER_ID, item_key)
+        let existing = worker_checkpoints::get(&rtxn, WORKER_ID, item_key)
             .map_err(|e| WorkerError::Internal(format!("checkpoint get: {e}")))?;
         drop(rtxn);
 
@@ -311,13 +311,13 @@ impl BackfillWorker {
         let wtxn = metadata
             .write_txn()
             .map_err(|e| WorkerError::Internal(format!("backfill write_txn: {e}")))?;
-        checkpoints::mark_started(&wtxn, WORKER_ID, item_key, now_ns)
+        worker_checkpoints::mark_started(&wtxn, WORKER_ID, item_key, now_ns)
             .map_err(|e| WorkerError::Internal(format!("mark_started: {e}")))?;
 
         let outcome = if dry_run {
             // Plan validation only — mark as `Completed` without invoking
             // the extractor pipeline.
-            checkpoints::mark_completed(&wtxn, WORKER_ID, item_key, now_ns)
+            worker_checkpoints::mark_completed(&wtxn, WORKER_ID, item_key, now_ns)
                 .map_err(|e| WorkerError::Internal(format!("mark_completed: {e}")))?;
             ItemOutcome::Completed
         } else {
@@ -327,7 +327,7 @@ impl BackfillWorker {
             // operators re-ingest. The checkpoint scaffolding lives here
             // so a post-v1 memory-text store can light this up.
             let _ = (memory_id, extractor_id);
-            checkpoints::mark_failed(
+            worker_checkpoints::mark_failed(
                 &wtxn,
                 WORKER_ID,
                 item_key,

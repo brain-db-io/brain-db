@@ -33,7 +33,7 @@ pub use config::{WorkerConfig, WorkerKind};
 pub use context::WorkerContext;
 pub use env::{parse_enabled, parse_interval_override, parse_positive_seconds};
 pub use error::WorkerError;
-pub use metrics::{Snapshot as MetricsSnapshot, WorkerMetrics};
+pub use metrics::{MetricsSnapshot, WorkerMetrics};
 pub use scheduler::{WorkerHandle, WorkerScheduler};
 pub use summarizer::{DisabledSummarizer, Summarizer, SummarizerError};
 pub use worker::{drive_batch, Worker};
@@ -47,43 +47,24 @@ pub use workers::{
     wal_retention,
 };
 
-pub use workers::ambiguity_resolver::{
-    AmbiguityResolverConfig, AmbiguityResolverWorker,
-    DEFAULT_AUTO_APPLY_THRESHOLD as DEFAULT_AMBIGUITY_RESOLVER_AUTO_APPLY_THRESHOLD,
-    DEFAULT_EXPIRE_AFTER_SECS as DEFAULT_AMBIGUITY_RESOLVER_EXPIRE_AFTER_SECS,
-    DEFAULT_INTERVAL_SECS as DEFAULT_AMBIGUITY_RESOLVER_INTERVAL_SECS,
-    DEFAULT_MAX_PER_TICK as DEFAULT_AMBIGUITY_RESOLVER_MAX_PER_TICK,
-    DEFAULT_REJECT_FLOOR as DEFAULT_AMBIGUITY_RESOLVER_REJECT_FLOOR,
-    SWEEP_INTERVAL_ENV as AMBIGUITY_RESOLVER_INTERVAL_ENV,
-};
+pub use workers::ambiguity_resolver::{AmbiguityResolverConfig, AmbiguityResolverWorker};
 
 pub use workers::access_boost::{
     boosted_salience, AccessBoostWorker, DEFAULT_BOOST_FACTOR, MAX_SALIENCE,
 };
 pub use workers::auto_edge::{
-    resolved_threshold as resolved_auto_edge_threshold, AutoEdgeKnobs, AutoEdgeWorker,
-    AUTO_EDGE_THRESHOLD_ENV, DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD, DEFAULT_EF_SEARCH,
-    DEFAULT_TOP_K,
+    resolved_threshold, AutoEdgeKnobs, AutoEdgeWorker, AUTO_EDGE_THRESHOLD_ENV,
+    DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD, DEFAULT_EF_SEARCH, DEFAULT_TOP_K,
 };
 pub use workers::cache_evict::{
     CacheEvictionError, CacheEvictionSource, CacheEvictionWorker, DisabledCacheEvictionSource,
     PruneFuture, DEFAULT_CACHE_MAX_AGE,
 };
 pub use workers::causal_edge::{
-    resolve_whitelist as resolve_causal_whitelist, CausalEdgeKnobs, CausalEdgeWorker,
-    DEFAULT_MAX_CAUSE_MEMORIES, DEFAULT_MAX_EFFECT_MEMORIES, DEFAULT_MAX_RELATED_STATEMENTS,
-    DEFAULT_MIN_CONFIDENCE as DEFAULT_CAUSAL_MIN_CONFIDENCE, DEFAULT_WHITELIST_QNAMES,
+    CausalEdgeKnobs, CausalEdgeWorker, DEFAULT_MAX_CAUSE_MEMORIES, DEFAULT_MAX_EFFECT_MEMORIES,
+    DEFAULT_MAX_RELATED_STATEMENTS, DEFAULT_WHITELIST_QNAMES,
 };
-pub use workers::confidence_sweep::{
-    decay as confidence_decay, ConfidenceSweepKnobs, ConfidenceSweepWorker,
-    DEFAULT_BATCH_SIZE as CONFIDENCE_SWEEP_BATCH_SIZE,
-    DEFAULT_INTERVAL_SECS as DEFAULT_CONFIDENCE_SWEEP_INTERVAL_SECS,
-    DEFAULT_MAX_CHANGE_PER_TICK as CONFIDENCE_SWEEP_MAX_CHANGE_PER_TICK,
-    DEFAULT_MAX_PER_TICK as CONFIDENCE_SWEEP_MAX_PER_TICK,
-    DEFAULT_MIN_AGE_SECONDS as CONFIDENCE_SWEEP_MIN_AGE_SECONDS,
-    DEFAULT_MIN_DRIFT_FOR_WRITE as CONFIDENCE_SWEEP_MIN_DRIFT_FOR_WRITE,
-    SWEEP_INTERVAL_ENV as CONFIDENCE_SWEEP_INTERVAL_ENV,
-};
+pub use workers::confidence_sweep::{ConfidenceSweepKnobs, ConfidenceSweepWorker};
 pub use workers::consolidation::{
     cluster_by_similarity, cosine, deterministic_request_id, ClusterCandidate, ConsolidationWorker,
     DEFAULT_CONSOLIDATION_SIMILARITY_THRESHOLD, DEFAULT_INITIAL_SALIENCE, DEFAULT_MIN_CLUSTER_SIZE,
@@ -102,23 +83,16 @@ pub use workers::extractor::{
 };
 pub use workers::hnsw_maint::{
     decide_action, Action, DisabledRebuildSource, HnswMaintenanceWorker, IndexStats, RebuildSource,
-    RebuildSourceError, RebuildThresholds, SnapshotFuture as RebuildSnapshotFuture,
+    RebuildSourceError, RebuildThresholds, SnapshotFuture,
 };
 pub use workers::idempotency_cleanup::{IdempotencyCleanupWorker, DEFAULT_IDEMPOTENCY_TTL};
-pub use workers::llm_cache_sweeper::{
-    LlmCacheSweeper, DEFAULT_INTERVAL_SECS as DEFAULT_LLM_CACHE_SWEEP_INTERVAL_SECS,
-    SWEEP_INTERVAL_ENV as LLM_CACHE_SWEEP_INTERVAL_ENV,
-};
+pub use workers::llm_cache_sweeper::LlmCacheSweeper;
 pub use workers::slot_reclaim::{SlotReclamationWorker, DEFAULT_FORGET_GRACE};
 pub use workers::snapshot::{
-    decide_retention, DeleteFuture as SnapshotDeleteFuture, DisabledSnapshotSource,
-    ListFuture as SnapshotListFuture, RetentionPolicy, SnapshotDesc, SnapshotId, SnapshotSource,
-    SnapshotSourceError, SnapshotWorker, TakeFuture as SnapshotTakeFuture,
+    decide_retention, DisabledSnapshotSource, RetentionPolicy, SnapshotDesc, SnapshotId,
+    SnapshotSource, SnapshotSourceError, SnapshotWorker,
 };
-pub use workers::statement_embed::{
-    StatementEmbedKnobs, StatementEmbedWorker, DEFAULT_BATCH_SIZE as STATEMENT_EMBED_BATCH_SIZE,
-    DEFAULT_MAX_PER_TICK as STATEMENT_EMBED_MAX_PER_TICK,
-};
+pub use workers::statement_embed::{StatementEmbedKnobs, StatementEmbedWorker};
 pub use workers::statistics::{StatisticsUpdateWorker, Stats};
 pub use workers::temporal_edge::{
     resolved_topical_threshold, TemporalEdgeKnobs, TemporalEdgeWorker, DEFAULT_CROSS_CONTEXT,
@@ -126,7 +100,7 @@ pub use workers::temporal_edge::{
     TEMPORAL_EDGE_TOPICAL_THRESHOLD_ENV,
 };
 pub use workers::wal_retention::{
-    decide_deletions, CheckpointDesc, CheckpointFuture, DeleteFuture as WalDeleteFuture,
-    DisabledWalRetentionSource, SegmentDesc, SegmentListFuture, WalRetentionSource,
-    WalRetentionSourceError, WalRetentionWorker,
+    decide_deletions, CheckpointDesc, CheckpointFuture, DeleteFuture, DisabledWalRetentionSource,
+    SegmentDesc, SegmentListFuture, WalRetentionSource, WalRetentionSourceError,
+    WalRetentionWorker,
 };

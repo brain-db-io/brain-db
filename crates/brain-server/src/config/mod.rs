@@ -360,7 +360,7 @@ fn default_auto_edge_similarity_threshold() -> f32 {
     // tune the cosine-similarity floor without re-rolling the config.
     // The crate default is 0.75 (topical-cluster floor), tunable up
     // to 0.85+ for strict deduping.
-    brain_workers::resolved_auto_edge_threshold(
+    brain_workers::auto_edge::resolved_threshold(
         brain_workers::DEFAULT_AUTO_EDGE_SIMILARITY_THRESHOLD,
     )
 }
