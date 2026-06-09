@@ -32,8 +32,8 @@ use crate::arena::allocator::SlotAllocator;
 use crate::arena::file::ArenaFile;
 use crate::arena::slot::{flags, VECTOR_DIM};
 use crate::wal::payload::{
-    ConsolidatePayload, EncodePayload, ForgetPayload, MigrateEmbeddingPayload, ReclaimPayload,
-    WalPayload, WalPayloadError,
+    ConsolidatePayload, EncodePayload, ForgetMode, ForgetPayload, MigrateEmbeddingPayload,
+    ReclaimPayload, WalPayload, WalPayloadError,
 };
 use crate::wal::reader::{WalReadError, WalReader};
 use crate::wal::record::{WalRecord, FLAG_SUBSCRIBE_EVENT};
@@ -383,8 +383,17 @@ fn mark_slot_tombstoned(
     let slot = arena.slot_mut(slot_idx);
     slot.set_flag(flags::TOMBSTONED, true);
     slot.metadata.last_modified_at_unix_nanos = record.timestamp_ns;
-    // Hard-forget (vector zeroing + HARD_FORGOTTEN flag) is handled
-    // separately.
+    // Hard forget: zero the vector and set HARD_FORGOTTEN. The ENCODE
+    // record for this memory is still in the WAL (it carries the
+    // plaintext vector for self-sufficient replay) and is replayed
+    // *before* this FORGET record, so it re-materializes the vector into
+    // the slot. Re-zeroing here is what makes hard forget hold across a
+    // crash + recovery — otherwise a recovered arena would resurrect the
+    // forgotten plaintext until the GC worker's wipe ran. Idempotent.
+    if p.mode == ForgetMode::Hard {
+        slot.vector = [0.0; VECTOR_DIM];
+        slot.set_flag(flags::HARD_FORGOTTEN, true);
+    }
     slot.refresh_crc();
     Ok(())
 }
@@ -565,6 +574,24 @@ mod tests {
         )
     }
 
+    fn hard_forget_record(slot: u64, version: u32) -> WalRecord {
+        let memory_id = MemoryId::pack(1, slot, version);
+        let p = ForgetPayload {
+            memory_id,
+            request_id: rid(0),
+            agent_id: brain_core::AgentId::default(),
+            mode: ForgetMode::Hard,
+            reason: ForgetReason::ClientRequest,
+        };
+        WalRecord::from_typed(
+            Lsn(0),
+            0,
+            1_700_000_000_000_000_001,
+            0xCAFE,
+            &WalPayload::Forget(p),
+        )
+    }
+
     fn reclaim_record(slot: u64, old_v: u32, new_v: u32) -> WalRecord {
         let p = ReclaimPayload {
             slot_id: slot,
@@ -675,6 +702,49 @@ mod tests {
             assert!(s.is_valid());
         }
         assert!(alloc.next_fresh() >= 20);
+    }
+
+    #[test]
+    fn hard_forget_zeroes_vector_on_recovery() {
+        // ENCODE (vector = 0.5s) then a HARD forget for the same slot.
+        // Recovery replays ENCODE first (re-materializing the vector),
+        // then the hard FORGET, which must re-zero it — so a crash can't
+        // resurrect the forgotten plaintext into the arena.
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = fresh_wal_dir(&dir);
+        write_via_wal(&wal_dir, vec![encode_record(0), hard_forget_record(0, 1)]);
+
+        let mut arena = fresh_arena(&dir, 16);
+        let mut sink = InMemoryMetadataSink::new();
+        recover(&mut arena, &wal_dir, uuid(1), &mut sink).unwrap();
+
+        let s = arena.slot(0);
+        assert!(s.is_tombstoned(), "hard forget tombstones the slot");
+        assert!(s.is_hard_forgotten(), "HARD_FORGOTTEN flag must be set");
+        assert!(
+            s.vector.iter().all(|&x| x == 0.0),
+            "hard forget must zero the vector on recovery"
+        );
+        assert!(s.is_valid(), "CRC must be refreshed after zeroing");
+    }
+
+    #[test]
+    fn soft_forget_keeps_vector_on_recovery() {
+        let dir = tempfile::tempdir().unwrap();
+        let wal_dir = fresh_wal_dir(&dir);
+        write_via_wal(&wal_dir, vec![encode_record(0), forget_record(0, 1)]);
+
+        let mut arena = fresh_arena(&dir, 16);
+        let mut sink = InMemoryMetadataSink::new();
+        recover(&mut arena, &wal_dir, uuid(1), &mut sink).unwrap();
+
+        let s = arena.slot(0);
+        assert!(s.is_tombstoned());
+        assert!(!s.is_hard_forgotten(), "soft forget must not set HARD_FORGOTTEN");
+        assert!(
+            s.vector.iter().any(|&x| x != 0.0),
+            "soft forget keeps the vector (recoverable during grace)"
+        );
     }
 
     #[test]
