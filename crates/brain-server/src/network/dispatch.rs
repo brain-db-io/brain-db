@@ -627,7 +627,7 @@ fn subscribe_agents_allowed(
     agents.is_some_and(|a| !a.is_empty() && a.iter().all(|b| AgentId::from(*b) == own))
 }
 
-fn error_frame(stream_id: u32, code: ErrorCode, message: &str) -> Frame {
+pub(crate) fn error_frame(stream_id: u32, code: ErrorCode, message: &str) -> Frame {
     let body = ResponseBody::Error(ErrorResponse {
         code: ErrorCodeWire::from(code),
         category: ErrorCategoryWire::from(code.category()),

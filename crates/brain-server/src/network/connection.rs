@@ -35,7 +35,7 @@ use brain_protocol::{Frame, HEADER_SIZE, MAX_PAYLOAD_BYTES};
 use socket2::{SockRef, TcpKeepalive};
 use tokio::io::{split, AsyncRead, AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpSocket, TcpStream};
-use tokio::sync::watch;
+use tokio::sync::{watch, Semaphore};
 use tokio_rustls::rustls::ServerConfig;
 use tokio_rustls::TlsAcceptor;
 use tracing::{debug, info, warn, Instrument as _};
@@ -43,8 +43,8 @@ use tracing::{debug, info, warn, Instrument as _};
 pub use crate::dispatch::Topology;
 
 use crate::dispatch::{
-    build_server_ping_frame, dispatch_frame, run_op_dispatch, Action, CancelSubscribe, ConnState,
-    IdleTimer, SubscribeStart, Tick,
+    build_server_ping_frame, dispatch_frame, error_frame, run_op_dispatch, Action, CancelSubscribe,
+    ConnState, IdleTimer, SubscribeStart, Tick,
 };
 use crate::subscribe::{
     build_cancel_stream_ack_frame, build_unsubscribe_response_frame, ShardEventHub,
@@ -143,6 +143,14 @@ pub struct ConnectionLimits {
     /// Maximum concurrent connections accepted from a single peer IP; `0`
     /// disables the cap. Bounds the blast radius of a single noisy source.
     pub max_connections_per_ip: usize,
+    /// Maximum concurrent streams per connection — the value advertised in
+    /// WELCOME (`ServerFeatures.max_concurrent_streams`). Enforced as two
+    /// independent budgets, each capped here: in-flight op-dispatch requests
+    /// and active subscriptions. Over the cap, the server returns
+    /// `StreamLimitExceeded` rather than spawning unbounded per-request tasks
+    /// (each of which would pin its request body — up to `max_payload_bytes` —
+    /// in memory). Spec default 1024.
+    pub max_concurrent_streams: u32,
 }
 
 impl Default for ConnectionLimits {
@@ -156,6 +164,7 @@ impl Default for ConnectionLimits {
             outgoing_capacity: 256,
             max_connections: 4096,
             max_connections_per_ip: 64,
+            max_concurrent_streams: 1024,
         }
     }
 }
@@ -517,7 +526,10 @@ where
     // Each connection gets its own SubscriptionRegistry.
     // It reuses the listener-wide `ShardEventHub` to subscribe to per-
     // shard broadcasts.
-    let subscriptions = Arc::new(SubscriptionRegistry::new(event_hub));
+    let subscriptions = Arc::new(SubscriptionRegistry::new(
+        event_hub,
+        limits.max_concurrent_streams as usize,
+    ));
 
     // The receiver loop returns the session id it minted at
     // HELLO/WELCOME (or all-zero when the connection died pre-handshake).
@@ -634,6 +646,14 @@ where
     let mut idle = IdleTimer::new(limits.idle_timeout, limits.ping_timeout);
     let mut handshake_deadline = Some(tokio::time::Instant::now() + limits.auth_timeout);
 
+    // Per-connection in-flight op budget — one owned permit per dispatched
+    // request, held for the request's lifetime. Bounds the number of
+    // concurrently-spawned op tasks (each pins its request body in memory
+    // and a slot in the shard queue) to the advertised stream cap; without
+    // it a client that pipelines requests without reading responses grows
+    // tasks + memory without limit. `acquire`/release is the only state.
+    let op_limiter = Arc::new(Semaphore::new(limits.max_concurrent_streams.max(1) as usize));
+
     // Return helper so every exit path surfaces the session id the
     // caller needs for the disconnect-time txn sweep.
     macro_rules! exit {
@@ -707,6 +727,33 @@ where
                                 }
                             }
                             Action::OpDispatch(op) => {
+                                // Enforce the advertised per-connection stream
+                                // cap: take a permit for this op's lifetime, or
+                                // reject with StreamLimitExceeded. try_acquire
+                                // (non-blocking) so a saturated connection gets a
+                                // clear error instead of head-of-line-blocking
+                                // unrelated control frames on the receiver loop.
+                                let permit = match op_limiter.clone().try_acquire_owned() {
+                                    Ok(p) => p,
+                                    Err(_) => {
+                                        let frame = error_frame(
+                                            op.stream_id,
+                                            ErrorCode::StreamLimitExceeded,
+                                            "per-connection concurrent stream limit reached",
+                                        );
+                                        if frame_tx
+                                            .send_async(OutgoingFrame {
+                                                bytes: frame.encode(),
+                                                close_after: false,
+                                            })
+                                            .await
+                                            .is_err()
+                                        {
+                                            exit!(Ok(()));
+                                        }
+                                        continue;
+                                    }
+                                };
                                 let shards = topology.shards.clone();
                                 let request_metrics = topology.request_metrics.clone();
                                 let tx = frame_tx.clone();
@@ -728,6 +775,9 @@ where
                                 );
                                 tokio::spawn(
                                     async move {
+                                        // Held until the task completes, then
+                                        // dropped — releasing the stream slot.
+                                        let _permit = permit;
                                         let timer = op_idx.map(|idx| {
                                             crate::metrics::request::RequestTimer::start(
                                                 request_metrics.clone(),

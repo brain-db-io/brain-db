@@ -95,6 +95,10 @@ impl Server {
 }
 
 async fn start_with_shards(n_shards: usize) -> Server {
+    start_with_shards_and_limits(n_shards, ConnectionLimits::default()).await
+}
+
+async fn start_with_shards_and_limits(n_shards: usize, limits: ConnectionLimits) -> Server {
     let data_dir = TempDir::new().expect("tmp");
     let mut handles = Vec::with_capacity(n_shards);
     let mut joiners = Vec::with_capacity(n_shards);
@@ -132,7 +136,7 @@ async fn start_with_shards(n_shards: usize) -> Server {
         None,
         topology,
         Arc::new(connection::ConnectionMetrics::default()),
-        ConnectionLimits::default(),
+        limits,
         signal,
     );
     let bound = listener.bind().expect("bind");
@@ -800,6 +804,74 @@ async fn subscribe_from_lsn_zero_replays_everything_in_wal() {
         }
     }
     assert!(got_event, "from_lsn=0 should replay the WAL");
+
+    server.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+async fn subscribe_over_stream_cap_returns_stream_limit_exceeded() {
+    // Cap concurrent streams at 2 for this connection. The third
+    // subscription must be rejected with StreamLimitExceeded rather
+    // than registering an unbounded number of per-sub tasks.
+    let limits = ConnectionLimits {
+        max_concurrent_streams: 2,
+        ..ConnectionLimits::default()
+    };
+    let server = start_with_shards_and_limits(1, limits).await;
+
+    let agent_id = *uuid::Uuid::now_v7().as_bytes();
+    let mut client = TcpStream::connect(server.addr).await.expect("connect");
+    complete_handshake(&mut client, agent_id).await;
+
+    // The receiver loop awaits each SUBSCRIBE's registration inline
+    // before reading the next frame, so by the time stream 5 is handled
+    // streams 1 and 3 are already registered — no sleep needed. A
+    // successful subscribe sends no synchronous frame; only the
+    // over-cap one produces a response (an Error).
+    for stream in [1u32, 3u32] {
+        send_frame(
+            &mut client,
+            Frame::new(
+                Opcode::SubscribeReq.as_u16(),
+                FLAG_EOS,
+                stream,
+                RequestBody::Subscribe(subscribe_request(open_filter())).encode(),
+            ),
+        )
+        .await;
+    }
+    // Third subscription — over the cap.
+    send_frame(
+        &mut client,
+        Frame::new(
+            Opcode::SubscribeReq.as_u16(),
+            FLAG_EOS,
+            5,
+            RequestBody::Subscribe(subscribe_request(open_filter())).encode(),
+        ),
+    )
+    .await;
+
+    let frame = read_one_frame(&mut client).await.expect("error frame");
+    assert_eq!(
+        frame.header.opcode_u16(),
+        Opcode::Error.as_u16(),
+        "over-cap subscribe must return an Error frame"
+    );
+    assert_eq!(
+        frame.header.stream_id_u32(),
+        5,
+        "the error must ride the rejected stream's id"
+    );
+    let body = ResponseBody::decode(Opcode::Error, &frame.payload).expect("decode error body");
+    match body {
+        ResponseBody::Error(e) => assert!(
+            e.message.contains("stream limit"),
+            "unexpected error message: {}",
+            e.message
+        ),
+        other => panic!("expected Error body, got {other:?}"),
+    }
 
     server.stop().await;
 }

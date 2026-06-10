@@ -276,6 +276,11 @@ pub struct SubscriptionRegistry {
     inner: Mutex<RegistryInner>,
     next_stream_id: AtomicU32,
     metrics: SubscriptionMetrics,
+    /// Per-connection cap on concurrently-active subscriptions — the
+    /// advertised `max_concurrent_streams`. Over the cap, `start` returns
+    /// `StreamLimitExceeded` rather than registering an unbounded number of
+    /// per-subscription tasks + broadcast receivers on one connection.
+    max_streams: usize,
 }
 
 struct RegistryInner {
@@ -288,20 +293,25 @@ struct SubscriptionState {
 }
 
 impl SubscriptionRegistry {
-    pub fn new(hub: ShardEventHub) -> Self {
-        Self::with_metrics(hub, SubscriptionMetrics::default())
+    pub fn new(hub: ShardEventHub, max_streams: usize) -> Self {
+        Self::with_metrics(hub, SubscriptionMetrics::default(), max_streams)
     }
 
     /// Construct with an externally-owned `SubscriptionMetrics` so
     /// the admin exposition path can read the same counters the
     /// registry bumps from `start` / `run_subscription_task`.
-    pub fn with_metrics(hub: ShardEventHub, metrics: SubscriptionMetrics) -> Self {
+    pub fn with_metrics(
+        hub: ShardEventHub,
+        metrics: SubscriptionMetrics,
+        max_streams: usize,
+    ) -> Self {
         Self {
             hub,
             inner: Mutex::new(RegistryInner {
                 streams: HashMap::new(),
             }),
             next_stream_id: AtomicU32::new(0),
+            max_streams: max_streams.max(1),
             metrics,
         }
     }
@@ -374,6 +384,9 @@ impl SubscriptionRegistry {
             if inner.streams.contains_key(&client_stream_id) {
                 return Err(OpError::StreamIdInUse);
             }
+            if inner.streams.len() >= self.max_streams {
+                return Err(OpError::StreamLimitExceeded);
+            }
             inner.streams.insert(
                 client_stream_id,
                 SubscriptionState {
@@ -435,6 +448,8 @@ pub enum OpError {
     LsnTooOld { oldest: u64 },
     #[error("subscribe: stream_id already in use")]
     StreamIdInUse,
+    #[error("subscribe: per-connection concurrent stream limit reached")]
+    StreamLimitExceeded,
     #[error("subscribe: target shard {0} out of range")]
     ShardOutOfRange(u16),
     #[error("subscribe: WAL open: {0}")]
@@ -453,6 +468,7 @@ impl OpError {
                 ),
             ),
             Self::StreamIdInUse => (ErrorCode::StreamIdInUse, self.to_string()),
+            Self::StreamLimitExceeded => (ErrorCode::StreamLimitExceeded, self.to_string()),
             Self::ShardOutOfRange(_) => (ErrorCode::ShardUnavailable, self.to_string()),
             Self::WalOpen(_) => (ErrorCode::Internal, self.to_string()),
             Self::Ops(e) => (ErrorCode::InvalidArgument, format!("subscribe filter: {e}")),
