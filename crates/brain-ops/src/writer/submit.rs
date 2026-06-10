@@ -325,11 +325,8 @@ impl RealWriterHandle {
             // All-sync redb work (open → apply phases → stamp idempotency →
             // commit) with no `.await` inside, so an `.entered()` guard is
             // safe — nothing interleaves to steal the span.
-            let _md_span = tracing::info_span!(
-                "brain.metadata.write",
-                phases = write.phases.len()
-            )
-            .entered();
+            let _md_span =
+                tracing::info_span!("brain.metadata.write", phases = write.phases.len()).entered();
             let wtxn = match self.metadata().write_txn() {
                 Ok(w) => w,
                 Err(e) => {
