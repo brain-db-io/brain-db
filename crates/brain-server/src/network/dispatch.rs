@@ -508,8 +508,20 @@ pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>
             )];
         }
     };
+    let caller = op.scope.to_caller(op.session_id);
+    // Root of the per-request trace. Held open for the whole op; the shard
+    // re-enters a clone via `.instrument()` so `brain.encode` nests under it
+    // across the Tokio→Glommio hop. In Phase 1 this is a trace root; once the
+    // wire carries `traceparent` it becomes a child of the remote context.
+    let request_span = tracing::info_span!(
+        "client.request",
+        brain.operation = ?op.req.opcode(),
+        brain.agent_id = %caller.agent_id.0,
+        brain.shard = op.target_shard,
+        brain.stream_id = stream_id,
+    );
     match shard
-        .dispatch_op(op.req, op.scope.to_caller(op.session_id))
+        .dispatch_op(op.req, caller, request_span.clone())
         .await
     {
         Ok(outcome) => match outcome {

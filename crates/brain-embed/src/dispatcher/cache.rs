@@ -136,6 +136,9 @@ impl<D: Dispatcher> CachingDispatcher<D> {
 
 impl<D: Dispatcher> Dispatcher for CachingDispatcher<D> {
     fn embed(&self, text: &str) -> Result<[f32; VECTOR_DIM], EmbedError> {
+        // Synchronous embed — no `.await` inside — so `.entered()` guards
+        // are safe; nothing interleaves to steal the span.
+        let _embed_span = tracing::info_span!("brain.embed").entered();
         // Disabled cache: pure passthrough.
         let Some(state) = &self.state else {
             return self.inner.embed(text);
@@ -147,6 +150,7 @@ impl<D: Dispatcher> Dispatcher for CachingDispatcher<D> {
         // Hit path. `peek` doesn't bump LRU — we promote only on
         // confirmed hits below.
         {
+            let _cache_span = tracing::info_span!("brain.embedder.cache_lookup").entered();
             let mut guard = state.lock();
             if let Some(entry) = guard.peek(&key) {
                 if entry.fingerprint == current_fp {

@@ -17,11 +17,19 @@
 //! ## Glommio note
 //!
 //! `tracing_opentelemetry::OpenTelemetryLayer` records spans into
-//! thread-local context. Glommio's per-core executors keep their
-//! own thread-locals; spans don't leak across the Tokio↔Glommio
-//! boundary. The shard-side handlers in `brain-ops` instrument with
-//! their own `tracing::info_span!` calls; those become independent
-//! OTel spans rooted at the request span at the connection layer.
+//! thread-local context, and `tracing`'s current-span stack is
+//! thread-local too. Glommio's per-core executors keep their own
+//! thread-locals, so span context does *not* follow the Tokio→Glommio
+//! hop on its own. The connection layer (`network::dispatch`) opens the
+//! `client.request` span and carries the `tracing::Span` handle (which
+//! is `Send + Sync`) across the shard channel in
+//! `ShardRequest::DispatchOp`; the shard re-enters it via
+//! `.instrument()`, so the `brain.encode` span and its storage
+//! sub-spans (`brain.embed`, `brain.wal.append`, `brain.metadata.write`,
+//! `brain.hnsw.insert`) nest under the request span as one trace tree.
+//! Span *creation* and *close* are thread-agnostic — only the batched
+//! OTLP export needs the Tokio runtime, and that runs on its own task,
+//! so emitting spans from a Glommio thread is sound.
 
 #![cfg(target_os = "linux")]
 

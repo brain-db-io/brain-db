@@ -90,7 +90,7 @@ use brain_workers::{
 use self::adapters::{ArenaRebuildSource, ShardSnapshotSource, WalDirRetentionSource};
 use flume::{Receiver, Sender};
 use glommio::{ExecutorJoinHandle, LocalExecutorBuilder, Placement};
-use tracing::{error, info, warn};
+use tracing::{error, info, warn, Instrument as _};
 
 // ---------------------------------------------------------------------------
 // Request type.
@@ -116,6 +116,12 @@ pub(crate) enum ShardRequest {
         req: Box<RequestBody>,
         caller: brain_ops::RequestCaller,
         reply_tx: Sender<Result<brain_ops::DispatchOutcome, OpError>>,
+        /// The connection-layer `client.request` span. `tracing::Span` is a
+        /// `Send + Sync` handle, so it rides the channel unchanged; the shard
+        /// re-enters it via `.instrument()` so the `brain.encode` span nests
+        /// under it even though span context is thread-local and does not
+        /// follow the Tokio→Glommio hop on its own.
+        parent_span: tracing::Span,
     },
     /// Append a pre-built record to the WAL. Returns the durable LSN.
     /// Low-level op — `RealWriterHandle` wraps the real
@@ -952,6 +958,7 @@ impl ShardHandle {
         &self,
         req: RequestBody,
         caller: brain_ops::RequestCaller,
+        parent_span: tracing::Span,
     ) -> Result<brain_ops::DispatchOutcome, DispatchError> {
         let (reply_tx, reply_rx) = flume::bounded(1);
         self.tx
@@ -959,6 +966,7 @@ impl ShardHandle {
                 req: Box::new(req),
                 caller,
                 reply_tx,
+                parent_span,
             })
             .await
             .map_err(|_| DispatchError::ShardDisconnected)?;
@@ -2626,6 +2634,7 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 req,
                 caller,
                 reply_tx,
+                parent_span,
             } => {
                 // `brain_ops::dispatch` is async and runs entirely
                 // within the per-shard Glommio executor: it touches
@@ -2634,7 +2643,17 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                 // the main loop is single-threaded and processes one
                 // request at a time, the same shape as
                 // `AppendWalRecord`.
-                let out = brain_ops::dispatch::dispatch(*req, caller, &shard.ops).await;
+                //
+                // `.instrument(parent_span)` re-enters the connection-layer
+                // `client.request` span on this Glommio thread so the
+                // `brain.encode` span (and its storage sub-spans) nest under
+                // it. We instrument the future rather than holding an
+                // `enter()` guard because the dispatch yields at `.await`
+                // points; a guard held across `.await` would mis-attribute
+                // spans from interleaved work.
+                let out = brain_ops::dispatch::dispatch(*req, caller, &shard.ops)
+                    .instrument(parent_span)
+                    .await;
                 if reply_tx.send_async(out).await.is_err() {
                     warn!(
                         shard_id = shard.shard_id,

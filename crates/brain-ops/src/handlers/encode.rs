@@ -19,6 +19,7 @@ use crate::state::idempotency::hash_encode_request;
 use crate::txn::{BufferedEdgeSpec, BufferedEncode, BufferedReplay};
 use crate::write::{Phase, PhaseAck, Write, WriteId};
 
+#[tracing::instrument(name = "brain.encode", skip_all)]
 pub async fn handle_encode(
     mut req: EncodeRequest,
     ctx: &OpsContext,

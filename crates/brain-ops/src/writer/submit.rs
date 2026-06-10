@@ -284,7 +284,13 @@ impl RealWriterHandle {
         // 2. WAL append. Single-phase writes get one typed payload;
         // multi-phase writes get TxnBegin + N × payloads + TxnCommit.
         let started_at = self.now_unix_nanos_or_zero(write.started_at_unix_nanos);
-        let lsn_first = match wal_append_for_write(self, &write, started_at).await {
+        let wal_span = tracing::info_span!("brain.wal.append", phases = write.phases.len());
+        let lsn_first = match tracing::Instrument::instrument(
+            wal_append_for_write(self, &write, started_at),
+            wal_span,
+        )
+        .await
+        {
             Ok(v) => v,
             Err(e) => {
                 record_phase_outcomes(&metrics, &write, SubmitOutcome::Err, start.elapsed());
@@ -295,7 +301,11 @@ impl RealWriterHandle {
         // 3. HNSW side effects. Run before the redb wtxn opens
         // so the wtxn lifetime stays minimal and a HNSW failure
         // abandons the encode before any metadata commits.
-        if let Err(e) = execute_hnsw_side_effects(self, &write) {
+        let hnsw_res = {
+            let _hnsw_span = tracing::info_span!("brain.hnsw.insert").entered();
+            execute_hnsw_side_effects(self, &write)
+        };
+        if let Err(e) = hnsw_res {
             record_phase_outcomes(&metrics, &write, SubmitOutcome::Err, start.elapsed());
             return Err(e);
         }
@@ -312,6 +322,14 @@ impl RealWriterHandle {
         // same struct just before we Arc-wrap and return.
         let committed_at = (cache.now_unix_nanos)();
         let mut durable_ack: WriteAck = {
+            // All-sync redb work (open → apply phases → stamp idempotency →
+            // commit) with no `.await` inside, so an `.entered()` guard is
+            // safe — nothing interleaves to steal the span.
+            let _md_span = tracing::info_span!(
+                "brain.metadata.write",
+                phases = write.phases.len()
+            )
+            .entered();
             let wtxn = match self.metadata().write_txn() {
                 Ok(w) => w,
                 Err(e) => {
