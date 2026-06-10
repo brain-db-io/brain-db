@@ -47,5 +47,6 @@ pub mod exposition;
 pub mod format;
 pub mod gauge;
 pub mod histogram;
+pub mod otel;
 pub mod process;
 pub mod request;

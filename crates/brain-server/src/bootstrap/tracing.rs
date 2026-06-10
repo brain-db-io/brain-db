@@ -100,7 +100,35 @@ pub fn build(cfg: &TracingConfig) -> Result<Option<BuiltTracing>, String> {
     let tracer = opentelemetry::trace::TracerProvider::tracer(&provider, "brain");
     let layer = tracing_opentelemetry::layer().with_tracer(tracer);
 
+    install_error_handler();
+
     Ok(Some(BuiltTracing { layer, provider }))
+}
+
+/// Feed the trace-pipeline self-metrics from OpenTelemetry's process-global
+/// error handler. The batch processor reports a full export buffer as
+/// `TraceError::Other` (a "send failed" on the internal channel) and an
+/// export failure/timeout as `ExportFailed` / `ExportTimedOut`; we map the
+/// former to dropped spans and the latter to export errors. The handler is a
+/// process singleton, so this is only meaningfully installed once — a second
+/// `build()` (config reload) just re-points it at the same global counters.
+fn install_error_handler() {
+    use opentelemetry::global::Error as OtelError;
+    use opentelemetry::trace::TraceError;
+
+    let metrics = crate::metrics::otel::global().clone();
+    let _ = opentelemetry::global::set_error_handler(move |err| {
+        match &err {
+            OtelError::Trace(TraceError::ExportFailed(_) | TraceError::ExportTimedOut(_)) => {
+                metrics.export_errors.inc();
+            }
+            OtelError::Trace(TraceError::Other(_)) => {
+                metrics.spans_dropped.inc();
+            }
+            _ => {}
+        }
+        tracing::warn!(otel_error = %err, "opentelemetry trace pipeline error");
+    });
 }
 
 /// Resolve the sampler.

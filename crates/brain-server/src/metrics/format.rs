@@ -68,8 +68,39 @@ pub async fn format(snap: &Snapshot<'_>) -> String {
     emit_temporal_edge_metrics(&mut s, snap.shards);
     emit_causal_edge_metrics(&mut s, snap.shards);
     emit_statement_embed_metrics(&mut s, snap.shards);
+    emit_tracing_metrics(&mut s);
 
     s
+}
+
+/// OpenTelemetry trace-pipeline self-metrics. Process-global (the OTel
+/// error handler is a singleton), so this reads the shared counters
+/// directly rather than from the per-server `Snapshot`.
+fn emit_tracing_metrics(out: &mut String) {
+    let m = super::otel::global();
+    emit_header(
+        out,
+        "brain_tracing_spans_dropped_total",
+        "Spans dropped because the OTLP export buffer was full.",
+        "counter",
+    );
+    let _ = writeln!(
+        out,
+        "brain_tracing_spans_dropped_total {}",
+        m.spans_dropped.get()
+    );
+
+    emit_header(
+        out,
+        "brain_tracing_export_errors_total",
+        "OTLP export attempts that failed or timed out.",
+        "counter",
+    );
+    let _ = writeln!(
+        out,
+        "brain_tracing_export_errors_total {}",
+        m.export_errors.get()
+    );
 }
 
 fn emit_build_info(out: &mut String, info: BuildInfo) {
