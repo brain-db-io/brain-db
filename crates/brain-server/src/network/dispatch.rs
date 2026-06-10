@@ -519,7 +519,24 @@ pub(crate) async fn run_op_dispatch(op: OpDispatch, shards: Arc<Vec<ShardHandle>
         brain.agent_id = %caller.agent_id.0,
         brain.shard = op.target_shard,
         brain.stream_id = stream_id,
+        trace_id = tracing::field::Empty,
+        span_id = tracing::field::Empty,
     );
+    // Surface the OTel trace/span id on the request span so the JSON log
+    // formatter (which emits span fields) carries them — operators pivot
+    // trace↔logs by id. The id is assigned synchronously when the OTel layer
+    // sees the new span, so it is readable here. No-op when tracing is
+    // disabled: the context then holds an invalid (all-zero) span context.
+    {
+        use opentelemetry::trace::TraceContextExt as _;
+        use tracing_opentelemetry::OpenTelemetrySpanExt as _;
+        let cx = request_span.context();
+        let span_ctx = cx.span().span_context().clone();
+        if span_ctx.is_valid() {
+            request_span.record("trace_id", span_ctx.trace_id().to_string());
+            request_span.record("span_id", span_ctx.span_id().to_string());
+        }
+    }
     match shard
         .dispatch_op(op.req, caller, request_span.clone())
         .await
