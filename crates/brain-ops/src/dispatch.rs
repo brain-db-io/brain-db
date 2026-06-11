@@ -605,10 +605,12 @@ fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), O
             (perm_bits::ENCODE, "TXN")
         }
 
-        // Schema ops.
-        RequestBody::SchemaUpload(_) | RequestBody::SchemaReplace(_) => {
-            (perm_bits::SCHEMA_UPLOAD, "SCHEMA_UPLOAD")
-        }
+        // Schema ops. SCHEMA_UPLOAD merges additively (any schema-writer
+        // key); SCHEMA_REPLACE is the destructive namespace wipe, so it
+        // requires the ADMIN capability — a routine upload key must not be
+        // able to drop or narrow an existing namespace.
+        RequestBody::SchemaUpload(_) => (perm_bits::SCHEMA_UPLOAD, "SCHEMA_UPLOAD"),
+        RequestBody::SchemaReplace(_) => (perm_bits::ADMIN, "SCHEMA_REPLACE"),
         RequestBody::SchemaGet(_) | RequestBody::SchemaList(_) | RequestBody::SchemaValidate(_) => {
             (perm_bits::RECALL, "SCHEMA_READ")
         }

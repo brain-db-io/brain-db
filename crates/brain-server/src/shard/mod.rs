@@ -1565,6 +1565,17 @@ pub fn spawn_shard(
             let (forget_cascade_sender, forget_cascade_receiver) =
                 flume::bounded::<brain_ops::ForgetCascadeJob>(1024);
 
+            // Per-shard SchemaMigrationWorker channel. Always wired: a
+            // SCHEMA_UPLOAD that narrows a namespace must flag the
+            // statements/relations now outside it (the OUTSIDE_ACTIVE_SCHEMA
+            // sweep), so the writer enqueues a `SchemaFlagSweepJob`
+            // post-commit and this worker drains it. Both ends share one
+            // metrics Arc so the writer's enqueue-drop counter and the
+            // worker's sweep counts surface together.
+            let schema_migration_metrics = Arc::new(brain_ops::SchemaMigrationMetrics::new());
+            let (schema_flag_sweep_sender, schema_flag_sweep_receiver) =
+                flume::bounded::<brain_ops::SchemaFlagSweepJob>(1024);
+
             // Materialise the persisted `EXTRACTORS_TABLE`
             // rows (seeded by the system-schema bootstrap at
             // MetadataDb::open) into a runtime ExtractorRegistry.
@@ -1685,12 +1696,23 @@ pub fn spawn_shard(
                     &materialize_deps,
                     tier_gate_for_closure,
                 );
-                for (id, err) in errors {
-                    tracing::warn!(
-                        target: "brain_server::shard",
-                        extractor_id = id.raw(),
-                        error = %err,
-                        "extractor materialise failed; skipping",
+                if !errors.is_empty() {
+                    // An *enabled* extractor tier that fails to materialise
+                    // is a hard spawn failure, not a silent degrade: a shard
+                    // serving with a quietly-missing tier returns wrong audit
+                    // status on every ENCODE and hides the misconfiguration.
+                    // Disabled tiers never reach here — the materialiser skips
+                    // them before any fallible work — so every error is an
+                    // opted-in tier that broke or a corrupt definition.
+                    // Fail-stop, the same convention the classifier-model load
+                    // above uses.
+                    let detail = errors
+                        .iter()
+                        .map(|(id, err)| format!("extractor {}: {err}", id.raw()))
+                        .collect::<Vec<_>>()
+                        .join("; ");
+                    panic!(
+                        "enabled extractor tier(s) failed to initialise at shard spawn: {detail}"
                     );
                 }
                 reg
@@ -1781,6 +1803,11 @@ pub fn spawn_shard(
             // surface together.
             real_writer.set_forget_cascade_sender(forget_cascade_sender);
             real_writer.set_forget_cascade_metrics(forget_cascade_metrics.clone());
+            // Always wired: the schema-flag sweep is correctness (keeps the
+            // OUTSIDE_ACTIVE_SCHEMA flag accurate after a narrowing upload),
+            // not an optional feature.
+            real_writer.set_schema_flag_sweep_sender(schema_flag_sweep_sender);
+            real_writer.set_schema_flag_sweep_metrics(schema_migration_metrics.clone());
             let writer: Arc<dyn WriterHandle> = Arc::new(real_writer);
             let executor_ctx = ExecutorContext::new(
                 dispatcher.clone(),
@@ -2310,6 +2337,48 @@ pub fn spawn_shard(
                 scheduler
                     .register(Arc::new(worker), ops.clone())
                     .expect("register ForgetCascadeWorker");
+            }
+
+            // SchemaMigrationWorker — drains the writer's post-commit
+            // `SchemaFlagSweepJob` channel and (re)flags statements /
+            // relations that fall outside the active schema after a
+            // narrowing SCHEMA_UPLOAD. Without it the OUTSIDE_ACTIVE_SCHEMA
+            // flag never updates and ADMIN_LIST_STALE_STATEMENTS goes blind.
+            // Shares the metrics Arc handed to the writer above.
+            {
+                let worker = brain_workers::workers::schema_migration::SchemaMigrationWorker::new(
+                    schema_flag_sweep_receiver,
+                )
+                .with_metrics(schema_migration_metrics.clone());
+                scheduler
+                    .register(Arc::new(worker), ops.clone())
+                    .expect("register SchemaMigrationWorker");
+            }
+
+            // AuditLogSweeper — enforces the extractor-audit retention
+            // window (default 90d). Without it the extractor-audit table
+            // grows unbounded on long-running shards.
+            {
+                let worker = brain_workers::workers::audit_log_sweeper::AuditLogSweeper::new();
+                scheduler
+                    .register(Arc::new(worker), ops.clone())
+                    .expect("register AuditLogSweeper");
+            }
+
+            // AmbiguityResolverWorker — promotes / expires entries in the
+            // entity-merge review queue using the per-shard entity HNSW +
+            // embedder. Without it ambiguous resolutions accumulate and
+            // entity-resolution quality decays over time. Cheap ticking
+            // no-op on shards with no pending review rows.
+            {
+                let worker = brain_workers::AmbiguityResolverWorker::new(
+                    metadata.clone(),
+                    entity_hnsw_for_shard.clone(),
+                    dispatcher.clone(),
+                );
+                scheduler
+                    .register(Arc::new(worker), ops.clone())
+                    .expect("register AmbiguityResolverWorker");
             }
 
             // Register the ExtractorWorker when its channel was
