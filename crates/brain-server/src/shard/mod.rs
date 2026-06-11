@@ -157,6 +157,14 @@ pub(crate) enum ShardRequest {
     /// Snapshot the HNSW index counts. Used by the admin `/metrics`
     /// path to emit `brain_hnsw_*` families.
     HnswSnapshot { reply_tx: Sender<HnswCounts> },
+    /// Sample the shard's on-disk storage footprint. Used by the
+    /// admin `/metrics` path to emit `brain_wal_*`,
+    /// `brain_metadata_size_bytes`, and `brain_arena_*` families. The
+    /// handler does blocking `fs::metadata`, acceptable on the
+    /// dedicated per-core thread at scrape cadence.
+    StorageStats {
+        reply_tx: Sender<StorageStatsSnapshot>,
+    },
     /// Pause / resume / run-now a single background worker.
     /// Replies with `true` iff the named worker exists.
     WorkerControl {
@@ -227,6 +235,29 @@ impl HnswCounts {
             self.tombstone_count as f64 / self.node_count as f64
         }
     }
+}
+
+/// On-disk storage footprint surfaced by
+/// `ShardRequest::StorageStats`. Pure data type so it crosses the
+/// Tokio↔Glommio boundary without further plumbing. All sizes are
+/// sampled lazily on the scrape that asks for them — there is no
+/// background tick.
+#[derive(Clone, Copy, Debug, Default)]
+pub struct StorageStatsSnapshot {
+    /// Sum of bytes of every `wal/*.wal` segment file.
+    pub wal_size_bytes: u64,
+    /// Count of `wal/*.wal` segment files.
+    pub wal_segments: u64,
+    /// Byte size of the shard's `metadata.redb` file.
+    pub metadata_size_bytes: u64,
+    /// Addressable arena capacity in bytes (`capacity_slots * 1600`).
+    pub arena_capacity_bytes: u64,
+    /// Bytes backing currently-allocated slots (occupied + tombstoned).
+    pub arena_used_bytes: u64,
+    /// Currently-allocated slots (occupied + tombstoned).
+    pub arena_slots_used: u64,
+    /// Reclaimed slots sitting on the free list, ready to reuse.
+    pub arena_slots_free: u64,
 }
 
 /// Owned snapshot descriptor surfaced through `ShardHandle`. Mirrors
@@ -878,6 +909,22 @@ impl ShardHandle {
             .map_err(|_| ShardError::ShardDisconnected)
     }
 
+    /// Sample this shard's on-disk storage footprint for the admin
+    /// `/metrics` exposition. The shard handler stats the WAL
+    /// directory and `metadata.redb`, and reads the arena
+    /// capacity / allocator occupancy in-process.
+    pub async fn storage_stats(&self) -> Result<StorageStatsSnapshot, ShardError> {
+        let (reply_tx, reply_rx) = flume::bounded(1);
+        self.tx
+            .send_async(ShardRequest::StorageStats { reply_tx })
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)?;
+        reply_rx
+            .recv_async()
+            .await
+            .map_err(|_| ShardError::ShardDisconnected)
+    }
+
     /// Pause / resume / run-now a named background worker on
     /// this shard. Returns `Ok(true)` iff the worker exists,
     /// `Ok(false)` if there's no such worker (caller should reply
@@ -1115,6 +1162,68 @@ struct Shard {
     /// The shared HNSW handle. `rebuild-ann` swaps a freshly-
     /// rebuilt index in via `SharedHnsw::swap()`.
     hnsw_shared: SharedHnsw,
+}
+
+impl Shard {
+    /// Count the live rows in `MEMORIES_TABLE`. There is exactly one
+    /// arena slot per memory row (occupied + tombstoned until reclaimed),
+    /// so this is the authoritative source for arena occupancy on the
+    /// `/metrics` path. A read failure degrades to 0 so a transient redb
+    /// hiccup never fails the scrape.
+    fn memory_row_count(&self) -> u64 {
+        use brain_metadata::tables::memory::MEMORIES_TABLE;
+        use redb::ReadableTableMetadata;
+
+        let Ok(rtxn) = self.ops.executor.metadata.read_txn() else {
+            return 0;
+        };
+        let Ok(table) = rtxn.open_table(MEMORIES_TABLE) else {
+            return 0;
+        };
+        table.len().unwrap_or(0)
+    }
+
+    /// Sample the shard's on-disk storage footprint for `/metrics`.
+    /// WAL + metadata sizes are stat'd off disk; arena capacity comes
+    /// from the live arena header. Occupancy is the metadata memory-row
+    /// count, not the arena `SlotAllocator`: the writer allocates slots
+    /// from its own in-process counter, so the `SlotAllocator` never
+    /// advances and would always report 0. Blocking `fs::metadata` is
+    /// fine here — this runs on the shard's own core at scrape cadence,
+    /// and a missing/rotated file degrades to 0 rather than failing the
+    /// scrape.
+    fn storage_stats(&self) -> StorageStatsSnapshot {
+        let metadata_path = self.ops.executor.metadata.path().to_path_buf();
+        let metadata_size_bytes = std::fs::metadata(&metadata_path)
+            .map(|m| m.len())
+            .unwrap_or(0);
+
+        // The shard root is metadata.redb's parent; derive the wal dir
+        // from it so we go through the same layout the writer uses.
+        let wal_dir = metadata_path
+            .parent()
+            .map(|root| brain_storage::ShardPaths::at(root).wal_dir())
+            .unwrap_or_else(|| metadata_path.clone());
+        let (wal_size_bytes, wal_segments) = brain_storage::wal_segment_stats(&wal_dir);
+
+        let capacity_slots = self.arena.borrow().capacity_slots();
+        let arena_capacity_bytes = capacity_slots * brain_storage::SLOT_SIZE_BYTES as u64;
+        let arena_slots_used = self.memory_row_count();
+        // The free-list reclamation worker isn't wired yet, so there are
+        // no reclaimed-and-reusable slots to report.
+        let arena_slots_free = 0;
+        let arena_used_bytes = arena_slots_used * brain_storage::SLOT_SIZE_BYTES as u64;
+
+        StorageStatsSnapshot {
+            wal_size_bytes,
+            wal_segments,
+            metadata_size_bytes,
+            arena_capacity_bytes,
+            arena_used_bytes,
+            arena_slots_used,
+            arena_slots_free,
+        }
+    }
 }
 
 /// Register every background worker against `scheduler`, plugging in
@@ -2621,6 +2730,15 @@ async fn shard_main_loop(mut shard: Shard, rx: Receiver<ShardRequest>) {
                     warn!(
                         shard_id = shard.shard_id,
                         "HnswSnapshot reply dropped (caller gone)"
+                    );
+                }
+            }
+            ShardRequest::StorageStats { reply_tx } => {
+                let stats = shard.storage_stats();
+                if reply_tx.send_async(stats).await.is_err() {
+                    warn!(
+                        shard_id = shard.shard_id,
+                        "StorageStats reply dropped (caller gone)"
                     );
                 }
             }
