@@ -39,6 +39,14 @@ use crate::txn::BufferedEncode;
 /// statement/relation list cap (`LIST_LIMIT_MAX`).
 pub const MAX_RECALL_TOP_K: u32 = 1000;
 
+/// Upper bound on the entry count of any one recall filter list
+/// (`agent_filter`, `context_filter`, `kind_filter`). These are only
+/// bounded by the 16 MiB payload cap otherwise; an explicit cap turns a
+/// crafted oversized filter into a clear `InvalidRequest` instead of
+/// silently building a large `HashSet` for the post-filter pass. The
+/// bound is generous — far above any legitimate scoping need.
+pub const MAX_RECALL_FILTER_ENTRIES: usize = 1024;
+
 pub async fn handle_recall(
     req: RecallRequest,
     ctx: &OpsContext,
@@ -53,6 +61,25 @@ pub async fn handle_recall(
         return Err(OpError::InvalidRequest(format!(
             "recall: top_k must be <= {MAX_RECALL_TOP_K}"
         )));
+    }
+    if req.agent_filter.len() > MAX_RECALL_FILTER_ENTRIES {
+        return Err(OpError::InvalidRequest(format!(
+            "recall: agent_filter must have <= {MAX_RECALL_FILTER_ENTRIES} entries"
+        )));
+    }
+    if let Some(ref ctxs) = req.context_filter {
+        if ctxs.len() > MAX_RECALL_FILTER_ENTRIES {
+            return Err(OpError::InvalidRequest(format!(
+                "recall: context_filter must have <= {MAX_RECALL_FILTER_ENTRIES} entries"
+            )));
+        }
+    }
+    if let Some(ref kinds) = req.kind_filter {
+        if kinds.len() > MAX_RECALL_FILTER_ENTRIES {
+            return Err(OpError::InvalidRequest(format!(
+                "recall: kind_filter must have <= {MAX_RECALL_FILTER_ENTRIES} entries"
+            )));
+        }
     }
     let planner_req = build_planner_request(&req, ctx.executor.caller_agent);
 

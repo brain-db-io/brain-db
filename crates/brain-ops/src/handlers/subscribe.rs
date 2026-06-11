@@ -57,6 +57,13 @@ use crate::error::OpError;
 /// [`broadcast::error::RecvError::Lagged`].
 pub const DEFAULT_EVENT_CHANNEL_CAPACITY: usize = 1024;
 
+/// Upper bound on the entry count of any one subscription filter list
+/// (`contexts`, `kinds`, `agents`). Otherwise bounded only by the 16 MiB
+/// payload cap; an explicit cap rejects a crafted oversized filter with
+/// a clear `InvalidRequest` instead of building a large `HashSet`. The
+/// bound is generous — far above any legitimate subscription scope.
+pub const MAX_SUBSCRIBE_FILTER_ENTRIES: usize = 1024;
+
 // ---------------------------------------------------------------------------
 // LSN allocator + envelope.
 // ---------------------------------------------------------------------------
@@ -617,6 +624,27 @@ pub fn parse_filter(req: &SubscribeRequest) -> Result<ParsedFilter, OpError> {
         return Err(OpError::NotYetImplemented(
             "subscribe: similarity-based filtering (similar_to) is not yet supported",
         ));
+    }
+    if let Some(ref v) = req.filter.contexts {
+        if v.len() > MAX_SUBSCRIBE_FILTER_ENTRIES {
+            return Err(OpError::InvalidRequest(format!(
+                "subscribe: filter.contexts must have <= {MAX_SUBSCRIBE_FILTER_ENTRIES} entries"
+            )));
+        }
+    }
+    if let Some(ref v) = req.filter.kinds {
+        if v.len() > MAX_SUBSCRIBE_FILTER_ENTRIES {
+            return Err(OpError::InvalidRequest(format!(
+                "subscribe: filter.kinds must have <= {MAX_SUBSCRIBE_FILTER_ENTRIES} entries"
+            )));
+        }
+    }
+    if let Some(ref v) = req.filter.agents {
+        if v.len() > MAX_SUBSCRIBE_FILTER_ENTRIES {
+            return Err(OpError::InvalidRequest(format!(
+                "subscribe: filter.agents must have <= {MAX_SUBSCRIBE_FILTER_ENTRIES} entries"
+            )));
+        }
     }
     let contexts = req
         .filter

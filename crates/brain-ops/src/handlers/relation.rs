@@ -56,6 +56,11 @@ const REASON_MAX: usize = 4096;
 const QNAME_MAX: usize = 96;
 const LIST_LIMIT_MAX: u32 = 1000;
 const TRAVERSE_MAX_NODES: u32 = 1000;
+// Upper bound on the `relation_types` filter of a traverse request. Each
+// entry costs a per-qname schema-registry lookup, so cap the count to
+// bound per-request I/O against a crafted payload. Mirrors RECALL's
+// `MAX_PREDICATE_FILTER` rationale.
+const MAX_RELATION_TYPE_FILTER: usize = 256;
 
 // ---------------------------------------------------------------------------
 // RELATION_CREATE
@@ -580,6 +585,11 @@ pub async fn handle_relation_traverse(
     if req.max_nodes == 0 || req.max_nodes > TRAVERSE_MAX_NODES {
         return Err(OpError::InvalidRequest(format!(
             "max_nodes must be in 1..={TRAVERSE_MAX_NODES}"
+        )));
+    }
+    if req.relation_types.len() > MAX_RELATION_TYPE_FILTER {
+        return Err(OpError::InvalidRequest(format!(
+            "relation_types must have <= {MAX_RELATION_TYPE_FILTER} entries"
         )));
     }
     let direction = match req.direction {

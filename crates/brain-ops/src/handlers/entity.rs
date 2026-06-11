@@ -42,6 +42,13 @@ use crate::write::{Phase, PhaseAck, TombstoneTarget, Write, WriteId};
 // Default grace window for ENTITY_MERGE — 7 days.
 const DEFAULT_MERGE_GRACE_SECS: u64 = 7 * 24 * 60 * 60;
 
+/// Upper bound on the alias count of a single entity. Otherwise bounded
+/// only by the 16 MiB payload cap; an explicit cap rejects a crafted
+/// oversized alias list with a clear `InvalidRequest` instead of
+/// persisting it. The bound is generous — far above any real entity's
+/// alias set.
+pub const MAX_ENTITY_ALIASES: usize = 256;
+
 // ---------------------------------------------------------------------------
 // ENTITY_CREATE
 // ---------------------------------------------------------------------------
@@ -54,6 +61,11 @@ pub async fn handle_entity_create(
         return Err(OpError::InvalidRequest(
             "canonical_name must be non-empty".into(),
         ));
+    }
+    if req.aliases.len() > MAX_ENTITY_ALIASES {
+        return Err(OpError::InvalidRequest(format!(
+            "aliases must have <= {MAX_ENTITY_ALIASES} entries"
+        )));
     }
 
     let entity_type = EntityTypeId(req.entity_type_id);
@@ -147,6 +159,11 @@ pub async fn handle_entity_update(
         return Err(OpError::InvalidRequest(
             "canonical_name must be non-empty".into(),
         ));
+    }
+    if req.aliases.len() > MAX_ENTITY_ALIASES {
+        return Err(OpError::InvalidRequest(format!(
+            "aliases must have <= {MAX_ENTITY_ALIASES} entries"
+        )));
     }
     let id = EntityId::from(req.entity_id);
     let now = crate::txn::now_unix_nanos_pub();

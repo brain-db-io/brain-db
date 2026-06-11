@@ -63,6 +63,11 @@ pub const MAX_EXPLICIT_RETRIEVERS: usize = 3;
 /// payload.
 pub const MAX_PREDICATE_FILTER: usize = 256;
 
+/// Max entries in a `kind_filter`. Statement kinds are a small fixed
+/// enum, so any honest filter is tiny; the cap rejects a crafted
+/// oversized list with a clear error rather than mapping every byte.
+pub const MAX_KIND_FILTER: usize = 256;
+
 // ---------------------------------------------------------------------------
 // Handlers.
 // ---------------------------------------------------------------------------
@@ -272,6 +277,12 @@ fn wire_to_planner_request(
         Some(req.text)
     };
     let entity_anchor = req.entity_anchor.map(EntityId::from_bytes);
+    if req.kind_filter.len() > MAX_KIND_FILTER {
+        return Err(OpError::InvalidRequest(format!(
+            "kind_filter has {} entries; max is {MAX_KIND_FILTER}",
+            req.kind_filter.len()
+        )));
+    }
     let kind_filter = req
         .kind_filter
         .iter()
