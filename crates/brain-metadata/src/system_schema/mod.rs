@@ -311,6 +311,10 @@ mod tests {
             (23, "behavior_avoids"),
             (24, "behavior_prefers"),
             (25, "behavior_constraint"),
+            (26, "knows"),
+            (27, "interested_in"),
+            (28, "intends"),
+            (29, "did"),
         ] {
             let row = predicate_lookup_by_qname(&rtxn, "brain", name)
                 .unwrap()

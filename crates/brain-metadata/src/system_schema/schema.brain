@@ -39,9 +39,14 @@
 #   PredicateId(23)  = brain:behavior_avoids
 #   PredicateId(24)  = brain:behavior_prefers
 #   PredicateId(25)  = brain:behavior_constraint
+#   PredicateId(26)  = brain:knows
+#   PredicateId(27)  = brain:interested_in
+#   PredicateId(28)  = brain:intends
+#   PredicateId(29)  = brain:did
 #   RelationTypeId(1) = brain:related_to
 #   RelationTypeId(2) = brain:reports_to
 #   RelationTypeId(3) = brain:co_authored
+#   RelationTypeId(4) = brain:family_of
 #   ExtractorId(1) = brain:entity_mentions
 #   ExtractorId(2) = brain:gliner
 #   ExtractorId(3) = brain:llm_predicate
@@ -283,6 +288,43 @@ define predicate behavior_constraint {
     description: "Hard rules the agent must follow across all sessions."
 }
 
+# --- Universal agent-memory core ----------------------------------
+#
+# Only what is STRUCTURALLY universal for any agent's memory: the social
+# graph (knows + family_of), agent intent (intends), and broad sinks
+# (interested_in / did take Any). Specific attributes (birthplace,
+# nationality, …) are an open-ended space and are deliberately NOT seeded
+# — they ride the `fact` capture tail and are promoted per-domain via
+# SCHEMA_UPLOAD. Appended last so the interned ids above stay stable.
+
+define predicate knows {
+    kind: Fact
+    object: Entity<Person>
+    stateful: false
+    description: "The subject is acquainted or associated with another person (foaf:knows). Cumulative."
+}
+
+define predicate interested_in {
+    kind: Fact
+    object: Any
+    stateful: false
+    description: "A topic, field, or activity the subject is interested in or engages with (foaf:interest / schema:knowsAbout). Cumulative — a person has many."
+}
+
+define predicate intends {
+    kind: Fact
+    object: Value<text>
+    stateful: false
+    description: "A goal, plan, or intention the subject holds or has decided on. Core to agent memory. Cumulative."
+}
+
+define predicate did {
+    kind: Fact
+    object: Any
+    stateful: false
+    description: "A notable action the subject performed; the generic action sink — prefer a more specific predicate when one fits. Cumulative."
+}
+
 # --- Relation types -----------------------------------------------
 #
 # Typed edges between entities. Distinct from predicates — relations
@@ -309,6 +351,14 @@ define relation_type co_authored {
     cardinality: many-to-many
     symmetric: true
     description: "Symmetric co-authorship of a memory or artifact; canonicalises from / to byte-wise."
+}
+
+define relation_type family_of {
+    from: Person
+    to: Person
+    cardinality: many-to-many
+    symmetric: true
+    description: "Kinship between two people (schema parent/child/sibling/spouse); the specific role is carried in the statement detail, not the relation type."
 }
 
 # --- Built-in extractors -----------------------------------------
@@ -364,14 +414,16 @@ The active schema declares these entity types:
 
 These predicates are declared (use these verbatim as `predicate`):
 - brain:is_a, brain:has_name, brain:mentions, brain:related_to
-- brain:works_at, brain:member_of, brain:lives_in, brain:located_in
-- brain:owns, brain:current_role, brain:speaks, brain:has_skill
-- brain:prefers, brain:likes, brain:dislikes
+- brain:works_at, brain:member_of, brain:current_role
+- brain:lives_in, brain:located_in
+- brain:owns, brain:speaks, brain:has_skill
+- brain:prefers, brain:likes, brain:dislikes, brain:interested_in
+- brain:knows, brain:intends, brain:did
 - brain:scheduled, brain:occurred_at, brain:participated_in
 - brain:mentioned_in
 
 These relation types are declared (use these verbatim as `relation_type`):
-- brain:related_to, brain:reports_to, brain:co_authored
+- brain:related_to, brain:reports_to, brain:co_authored, brain:family_of
 
 Output STRICT JSON matching this shape, and nothing else:
 {
@@ -382,6 +434,20 @@ Output STRICT JSON matching this shape, and nothing else:
       "object": "Acme Corp",
       "is_stateful": true,
       "confidence": 0.92
+    },
+    {
+      "subject": "Alice Wong",
+      "predicate": "brain:interested_in",
+      "object": "rock climbing",
+      "is_stateful": false,
+      "confidence": 0.9
+    },
+    {
+      "subject": "Alice Wong",
+      "predicate": "brain:intends",
+      "object": "to switch careers into teaching",
+      "is_stateful": false,
+      "confidence": 0.86
     }
   ],
   "relations": [
