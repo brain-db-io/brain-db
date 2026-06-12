@@ -287,7 +287,9 @@ fn kind_to_u64(kind: StatementKind) -> u64 {
 /// cross-index disagreement at the boundary.
 #[must_use]
 pub fn confidence_bucket(confidence: f32) -> u64 {
-    u64::from(brain_metadata::tables::statement::confidence_bucket(confidence))
+    u64::from(brain_metadata::tables::statement::confidence_bucket(
+        confidence,
+    ))
 }
 
 fn commit_with_retry(writer: &mut IndexWriter) -> Result<(), ()> {
@@ -340,7 +342,9 @@ pub fn upsert_op_from_statement(
     // indexable — they have no canonical name yet).
     let subject_id = match statement.subject {
         SubjectRef::Entity(id) => id,
-        SubjectRef::Pending(_) => return None,
+        // Memory + Pending subjects have no entity canonical name to
+        // index — skip text indexing for them.
+        SubjectRef::Memory(_) | SubjectRef::Pending(_) => return None,
     };
     let subject = brain_metadata::entity::ops::entity_get(&rtxn, subject_id).ok()??;
 

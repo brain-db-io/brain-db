@@ -78,6 +78,7 @@ pub fn statement_supersede(
         != match new_statement.subject {
             SubjectRef::Entity(e) => e.to_bytes(),
             SubjectRef::Pending(audit) => audit.to_bytes(),
+            SubjectRef::Memory(id) => id.to_be_bytes(),
         }
     {
         return Err(StatementOpError::SubjectMismatch);
@@ -670,13 +671,21 @@ mod tests {
             .get(&(pred.raw(), StatementKind::Fact.as_u8(), old_bucket))
             .unwrap()
             .map(|g| g.value());
-        assert_ne!(at_old, Some(old.id.to_bytes()), "old bucket must drop the superseded row");
+        assert_ne!(
+            at_old,
+            Some(old.id.to_bytes()),
+            "old bucket must drop the superseded row"
+        );
         // New bucket points at the current row.
         let at_new = t
             .get(&(pred.raw(), StatementKind::Fact.as_u8(), new_bucket))
             .unwrap()
             .map(|g| g.value());
-        assert_eq!(at_new, Some(new_id.to_bytes()), "new bucket points at the current row");
+        assert_eq!(
+            at_new,
+            Some(new_id.to_bytes()),
+            "new bucket points at the current row"
+        );
     }
 
     // ----- Fakes -----

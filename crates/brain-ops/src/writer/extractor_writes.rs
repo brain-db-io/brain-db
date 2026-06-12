@@ -31,7 +31,10 @@ use redb::WriteTransaction;
 #[derive(Debug, Clone)]
 pub struct StatementCreatePayload {
     pub kind: StatementKind,
-    pub subject: EntityId,
+    /// The statement's subject — an entity, or the source memory itself
+    /// (temporal Events). Pending subjects are produced only by the
+    /// resolver, not this internal path.
+    pub subject: SubjectRef,
     pub predicate: PredicateId,
     pub object: StatementObject,
     pub confidence: f32,
@@ -78,11 +81,10 @@ pub fn statement_create_internal(
         payload.extracted_at_unix_nanos,
         payload.extractor_id,
     )?;
-    let subject = SubjectRef::Entity(payload.subject);
     let mut s = Statement::new_root(
         id,
         payload.kind,
-        subject,
+        payload.subject,
         payload.predicate,
         payload.object.clone(),
         payload.confidence,
@@ -163,7 +165,7 @@ mod tests {
             let pid = predicate_intern_or_get(&wtxn, "brain", "current_role", 0, NOW).unwrap();
             let payload = StatementCreatePayload {
                 kind: StatementKind::Fact,
-                subject,
+                subject: SubjectRef::Entity(subject),
                 predicate: pid,
                 object: StatementObject::Value(brain_core::StatementValue::Text(
                     "Senior Engineer".into(),

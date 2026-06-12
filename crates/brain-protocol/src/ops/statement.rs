@@ -700,9 +700,14 @@ impl StatementView {
     /// `"namespace:name"`).
     #[must_use]
     pub fn from_statement(s: &Statement, predicate_qname: String) -> Self {
+        // `flags` bit 0 = pending subject, bit 1 = memory subject; neither
+        // set = entity. `subject` carries the 16 id bytes for entity /
+        // memory subjects, `subject_pending_audit_id` the audit id for
+        // pending ones.
         let (subject, subject_pending_audit_id, flags) = match s.subject {
             SubjectRef::Entity(id) => (id.to_bytes(), [0u8; 16], 0u32),
             SubjectRef::Pending(audit) => ([0u8; 16], audit.to_bytes(), 1u32),
+            SubjectRef::Memory(id) => (id.to_be_bytes(), [0u8; 16], 2u32),
         };
 
         Self {
@@ -744,6 +749,10 @@ impl StatementView {
             SubjectRef::Pending(brain_core::AuditId::from_bytes(
                 self.subject_pending_audit_id,
             ))
+        } else if self.flags & 2 != 0 {
+            SubjectRef::Memory(brain_core::MemoryId::from_raw(u128::from_be_bytes(
+                self.subject,
+            )))
         } else {
             SubjectRef::Entity(EntityId::from_bytes(self.subject))
         };

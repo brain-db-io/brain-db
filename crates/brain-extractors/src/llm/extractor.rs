@@ -449,6 +449,7 @@ fn render_statement_human_readable(
             Ok(None) => format!("entity:{eid:?}"),
             Err(e) => return Err(format!("entity_get: {e}")),
         },
+        SubjectRef::Memory(mid) => format!("memory:{mid:?}"),
         SubjectRef::Pending(audit) => format!("pending:{audit:?}"),
     };
     let predicate = match predicate_get(rtxn, s.predicate) {

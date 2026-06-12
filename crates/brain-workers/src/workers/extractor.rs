@@ -51,7 +51,7 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use brain_core::{
     AgentId, ContextId, EntityId, ExtractorId, Memory as CoreMemory, MemoryId, MemoryKind, Salience,
 };
-use brain_core::{StatementKind, StatementObject, StatementValue};
+use brain_core::{StatementKind, StatementObject, StatementValue, SubjectRef};
 use brain_extractors::{
     classify_statement_kind_pattern,
     resolver::{
@@ -1322,7 +1322,7 @@ async fn apply_outcome(
                     let kind = statement_kind_from_byte(sm.kind);
                     let payload = StatementCreatePayload {
                         kind,
-                        subject,
+                        subject: SubjectRef::Entity(subject),
                         predicate: pid,
                         object,
                         confidence: sm.confidence.clamp(0.0, 1.0),
@@ -1378,7 +1378,7 @@ async fn apply_outcome(
                                 predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(false);
                             let payload = StatementCreatePayload {
                                 kind: StatementKind::Fact,
-                                subject: from,
+                                subject: SubjectRef::Entity(from),
                                 predicate: pid,
                                 object: StatementObject::Entity(to),
                                 confidence: rm.confidence.clamp(0.0, 1.0),

@@ -607,7 +607,7 @@ mod tests {
             version: 1,
             kind: StatementKind::Fact.as_u8(),
             subject_entity_bytes: [0u8; 16],
-            subject_is_pending: 0,
+            subject_kind: 0,
             predicate_id: 1,
             object_blob: Vec::new(),
             object_discriminant: 1,

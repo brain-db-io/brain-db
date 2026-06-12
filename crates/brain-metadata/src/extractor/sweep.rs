@@ -239,7 +239,9 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     // flips the row to is_current=0, but defensively remove both
     // current-bit keys so a row reclaimed before the flip committed
     // still leaves no orphan.
-    if row.subject_is_pending == 0 {
+    // Mirror the insert in crud.rs: entity AND memory subjects are
+    // by-subject-indexed (skip only pending), so remove for both.
+    if row.subject_kind != 1 {
         let mut t = wtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
         t.remove(&(row.subject_entity_bytes, row.kind, row.predicate_id, 0u8))?;
         t.remove(&(row.subject_entity_bytes, row.kind, row.predicate_id, 1u8))?;

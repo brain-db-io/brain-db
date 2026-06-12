@@ -313,7 +313,9 @@ fn iterate_statements(
                 };
                 ent_guard.value().canonical_name.clone()
             }
-            SubjectRef::Pending(_) => continue,
+            // Memory + Pending subjects have no entity canonical name to
+            // index against — skip them from the statement text index.
+            SubjectRef::Memory(_) | SubjectRef::Pending(_) => continue,
         };
 
         let predicate_record = predicates
@@ -370,10 +372,12 @@ fn iterate_statements(
 }
 
 fn decode_subject(row: &brain_metadata::tables::statement::StatementMetadata) -> SubjectRef {
-    if row.subject_is_pending == 0 {
-        SubjectRef::Entity(brain_core::EntityId::from(row.subject_entity_bytes))
-    } else {
-        SubjectRef::Pending(brain_core::AuditId::from(row.subject_entity_bytes))
+    match row.subject_kind {
+        0 => SubjectRef::Entity(brain_core::EntityId::from(row.subject_entity_bytes)),
+        2 => SubjectRef::Memory(brain_core::MemoryId::from_raw(u128::from_be_bytes(
+            row.subject_entity_bytes,
+        ))),
+        _ => SubjectRef::Pending(brain_core::AuditId::from(row.subject_entity_bytes)),
     }
 }
 

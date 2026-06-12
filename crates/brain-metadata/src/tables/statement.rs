@@ -321,10 +321,14 @@ pub struct StatementMetadata {
     /// Fact=0 / Preference=1 / Event=2 per `brain_core::StatementKind`.
     pub kind: u8,
     pub subject_entity_bytes: [u8; 16],
-    /// `0` if subject is `SubjectRef::Entity`, `1` if
-    /// `SubjectRef::Pending` (in which case `subject_entity_bytes`
-    /// holds the pending audit id).
-    pub subject_is_pending: u8,
+    /// Subject kind: `0` = `SubjectRef::Entity`, `1` = `SubjectRef::Pending`
+    /// (in which case `subject_entity_bytes` holds the pending audit id),
+    /// `2` = `SubjectRef::Memory` (the bytes hold the source memory id).
+    /// rkyv is positional, so this repurposes the former
+    /// `subject_is_pending` slot in place. Readers that asked
+    /// `subject_is_pending == 0` ("is an entity subject") stay correct as
+    /// `subject_kind == 0`.
+    pub subject_kind: u8,
     pub predicate_id: u32,
     /// rkyv-encoded `StatementObject` (via [`encode_object`]).
     pub object_blob: Vec<u8>,
@@ -519,9 +523,10 @@ impl_redb_rkyv_value!(EvidenceOverflow, "brain_metadata::EvidenceOverflow");
 /// to query-time.
 #[must_use]
 pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
-    let (subject_entity_bytes, subject_is_pending) = match s.subject {
+    let (subject_entity_bytes, subject_kind) = match s.subject {
         SubjectRef::Entity(id) => (id.to_bytes(), 0u8),
         SubjectRef::Pending(audit) => (audit.to_bytes(), 1u8),
+        SubjectRef::Memory(id) => (id.to_be_bytes(), 2u8),
     };
     let object_discriminant = s.object.discriminant() + 1;
     let object_blob = encode_object(&s.object);
@@ -549,7 +554,7 @@ pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
         version: s.version,
         kind: s.kind.as_u8(),
         subject_entity_bytes,
-        subject_is_pending,
+        subject_kind,
         predicate_id: s.predicate.raw(),
         object_blob,
         object_discriminant,
@@ -589,10 +594,13 @@ pub fn statement_from_metadata(m: &StatementMetadata) -> Option<Statement> {
     let kind = m.kind()?;
     let object = decode_object(&m.object_blob)?;
 
-    let subject = if m.subject_is_pending == 0 {
-        SubjectRef::Entity(EntityId::from_bytes(m.subject_entity_bytes))
-    } else {
-        SubjectRef::Pending(brain_core::AuditId::from_bytes(m.subject_entity_bytes))
+    let subject = match m.subject_kind {
+        0 => SubjectRef::Entity(EntityId::from_bytes(m.subject_entity_bytes)),
+        2 => SubjectRef::Memory(brain_core::MemoryId::from_raw(u128::from_be_bytes(
+            m.subject_entity_bytes,
+        ))),
+        // 1 (and any unknown byte, defensively) → Pending.
+        _ => SubjectRef::Pending(brain_core::AuditId::from_bytes(m.subject_entity_bytes)),
     };
 
     let evidence = if let Some(bytes) = m.evidence_overflow_id_bytes {

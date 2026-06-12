@@ -86,21 +86,27 @@ pub fn statement_create(
 ) -> Result<StatementId, StatementOpError> {
     validate_statement_shape(s)?;
 
-    // Subject must be a resolved entity (Pending subjects are not yet
-    // supported).
-    let subject_entity = match s.subject {
-        SubjectRef::Entity(e) => e,
+    // Subject is an entity, or the source memory itself (temporal
+    // Events). Pending subjects are not yet supported here. Entity
+    // subjects must exist; memory subjects carry no entity to check and
+    // skip the entity-keyed existence / supersession / contradiction
+    // paths below (temporal events are Event-kind, which is never
+    // superseded or Fact-contradicted anyway).
+    let subject_entity: Option<EntityId> = match s.subject {
+        SubjectRef::Entity(e) => Some(e),
+        SubjectRef::Memory(_) => None,
         SubjectRef::Pending(_) => {
             return Err(StatementOpError::InvalidArgument(
                 "pending subjects deferred to phase 22 audits",
             ));
         }
     };
-    // Subject must exist.
-    let entity_rtxn_view = TxnAsRead::Write(wtxn);
-    let exists = entity_get_via(entity_rtxn_view, subject_entity)?;
-    if !exists {
-        return Err(StatementOpError::UnknownSubject(subject_entity));
+    if let Some(e) = subject_entity {
+        let entity_rtxn_view = TxnAsRead::Write(wtxn);
+        let exists = entity_get_via(entity_rtxn_view, e)?;
+        if !exists {
+            return Err(StatementOpError::UnknownSubject(e));
+        }
     }
 
     // Predicate must be registered. Validate against its constraints.
@@ -122,13 +128,18 @@ pub fn statement_create(
     // supersession semantics while still defaulting Preference to true.
     // Event is never superseded — each event is its own row by design.
     if pred.is_stateful && s.kind != StatementKind::Event {
-        if let Some(prior) = find_current_statement(wtxn, subject_entity, s.predicate, s.kind)? {
-            return statement_supersede(wtxn, prior, s, now_unix_nanos);
+        if let Some(e) = subject_entity {
+            if let Some(prior) = find_current_statement(wtxn, e, s.predicate, s.kind)? {
+                return statement_supersede(wtxn, prior, s, now_unix_nanos);
+            }
         }
     }
 
-    // Fact contradiction probe (read-only; insert proceeds).
-    if s.kind == StatementKind::Fact {
+    // Fact contradiction probe (read-only; insert proceeds). Only for
+    // entity subjects — memory subjects don't participate in the
+    // entity-keyed contradiction index (and temporal events are Events,
+    // not Facts).
+    if let (StatementKind::Fact, Some(subject_entity)) = (s.kind, subject_entity) {
         let active =
             load_active_facts_for_subject_predicate_wtxn(wtxn, subject_entity, s.predicate)?;
         let disagrees = active.iter().any(|existing| existing.object != s.object);
@@ -250,8 +261,11 @@ pub(super) fn insert_new_statement(
         t.insert(&m.statement_id_bytes, &m)?;
     }
 
-    // 2. by_subject — only if subject is a resolved entity.
-    if m.subject_is_pending == 0 {
+    // 2. by_subject — for resolved-entity AND memory subjects (skip only
+    // pending). Memory subjects must be indexed so "statements about
+    // memory M" (e.g. the forget cascade) can find them; entity and
+    // memory ids occupy disjoint byte spaces so they share the key.
+    if m.subject_kind != 1 {
         let mut t = wtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
         t.insert(
             &(m.subject_entity_bytes, m.kind, m.predicate_id, m.is_current),
