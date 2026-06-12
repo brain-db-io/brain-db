@@ -494,3 +494,30 @@ fn limit_truncates_after_filters() {
     let result = futures_lite::future::block_on(execute(&qp, &req, false, &ctx)).expect("execute");
     assert_eq!(result.items.len(), 3);
 }
+
+#[test]
+fn lexical_terms_drop_stopwords_and_question_words() {
+    let terms = super::lexical_content_terms("When did Caroline go to the LGBTQ support group?");
+    assert_eq!(terms, vec!["caroline", "go", "lgbtq", "support", "group"]);
+}
+
+#[test]
+fn lexical_terms_dedup_preserves_first_seen_order() {
+    let terms = super::lexical_content_terms("Paris loves Paris and London");
+    // "and" dropped; second "paris" deduped; order preserved.
+    assert_eq!(terms, vec!["paris", "loves", "london"]);
+}
+
+#[test]
+fn lexical_terms_preserve_inner_apostrophe_and_hyphen() {
+    let terms = super::lexical_content_terms("Caroline's co-worker, Bob.");
+    assert_eq!(terms, vec!["caroline's", "co-worker", "bob"]);
+}
+
+#[test]
+fn lexical_terms_all_stopwords_falls_back_to_raw_split() {
+    // A cue made entirely of stopwords must not yield an empty term
+    // set; the raw whitespace split is preserved as a fallback.
+    let terms = super::lexical_content_terms("What did you do?");
+    assert_eq!(terms, vec!["What", "did", "you", "do?"]);
+}

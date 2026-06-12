@@ -238,7 +238,8 @@ pub async fn execute(
         };
         futures.push(Box::pin(async move {
             let started = Instant::now();
-            let invocation = invoke_retriever(planned, request, ctx, pre_anchors, include_statements);
+            let invocation =
+                invoke_retriever(planned, request, ctx, pre_anchors, include_statements);
             let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
             (idx, elapsed_ms, invocation)
         }));
@@ -624,6 +625,64 @@ fn apply_pre_filter_to_semantic(pre: &Option<PreFilter>, filters: &mut SemanticF
     }
 }
 
+/// English stopwords plus interrogatives, dropped from the BM25 term
+/// set. A raw cue like "When did Caroline go to the LGBTQ support
+/// group?" otherwise dilutes BM25 toward high-document-frequency
+/// function words; ranking on the content words ({caroline, go, lgbtq,
+/// support, group}) lets the lexical signal land on what the question
+/// is actually about. Kept lowercase so the comparison can be done on
+/// already-lowercased tokens.
+static LEXICAL_STOPWORDS: &[&str] = &[
+    // interrogatives
+    "when", "what", "where", "who", "whom", "whose", "why", "how", "which",
+    // auxiliaries / copulas
+    "did", "does", "do", "is", "are", "was", "were", "be", "been", "being", "am", "has", "have",
+    "had", "will", "would", "shall", "should", "can", "could", "may", "might", "must",
+    // articles / determiners
+    "the", "a", "an", "this", "that", "these", "those", "some", "any", "no",
+    // prepositions / conjunctions
+    "of", "to", "in", "on", "at", "for", "and", "or", "with", "about", "from", "as", "by", "into",
+    "over", "after", "before", "between", "out", "up", "down", "off", "than", "then", "so", "but",
+    "if", "because", // pronouns
+    "it", "its", "i", "you", "he", "she", "they", "we", "his", "her", "hers", "their", "theirs",
+    "your", "yours", "my", "mine", "our", "ours", "me", "him", "them", "us",
+];
+
+/// Strip ASCII leading/trailing punctuation from a token, preserving
+/// inner apostrophes/hyphens (so "caroline's", "co-worker" survive).
+fn trim_token_punct(tok: &str) -> &str {
+    tok.trim_matches(|c: char| c.is_ascii_punctuation())
+}
+
+/// Build the BM25 term set from content words only: lowercase, strip
+/// surrounding punctuation, drop stopwords/question-words, dedup
+/// preserving first-seen order. If filtering empties the set (a cue
+/// made entirely of stopwords), fall back to the raw whitespace split
+/// so the lexical query is never empty.
+fn lexical_content_terms(text: &str) -> Vec<String> {
+    let mut seen = std::collections::HashSet::new();
+    let mut terms: Vec<String> = Vec::new();
+    for raw in text.split_whitespace() {
+        let trimmed = trim_token_punct(raw);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let lowered = trimmed.to_lowercase();
+        if LEXICAL_STOPWORDS.contains(&lowered.as_str()) {
+            continue;
+        }
+        if seen.insert(lowered.clone()) {
+            terms.push(lowered);
+        }
+    }
+    if terms.is_empty() {
+        // Degenerate guard: an all-stopword question keeps the raw
+        // split so BM25 still has something to match.
+        return text.split_whitespace().map(str::to_owned).collect();
+    }
+    terms
+}
+
 fn invoke_lexical(
     planned: &crate::retrieval::planner::PlannedRetriever,
     req: &QueryRequest,
@@ -652,7 +711,7 @@ fn invoke_lexical(
     // the requested context universe only.
     filters.context_ids = req.context_filter.clone();
 
-    let terms: Vec<String> = text.split_whitespace().map(str::to_owned).collect();
+    let terms = lexical_content_terms(text);
     let query = LexicalQuery {
         terms,
         phrase_clauses: Vec::new(),
