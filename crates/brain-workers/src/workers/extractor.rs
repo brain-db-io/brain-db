@@ -52,6 +52,7 @@ use brain_core::{
     AgentId, ContextId, EntityId, ExtractorId, Memory as CoreMemory, MemoryId, MemoryKind, Salience,
 };
 use brain_core::{StatementKind, StatementObject, StatementValue, SubjectRef};
+use crate::workers::hype::HypeGenerator;
 use brain_extractors::{
     classify_statement_kind_pattern,
     resolver::{
@@ -259,6 +260,12 @@ pub struct ExtractorWorker {
     /// `EntityDisambiguator` built from the shared LLM client when
     /// `ANTHROPIC_API_KEY` / `OPENAI_API_KEY` are present at startup.
     entity_disambiguator: Option<Arc<EntityDisambiguator>>,
+    /// Optional write-time HyPE generator. `None` (the default) skips
+    /// hypothetical-question generation entirely — substrate-only
+    /// deployments, tests, and any shard without the LLM tier leave it
+    /// unset. Production shards stamp it when the LLM tier is provisioned
+    /// and `[extractors.hype]` is enabled.
+    hype: Option<HypeGenerator>,
 }
 
 impl ExtractorWorker {
@@ -276,7 +283,18 @@ impl ExtractorWorker {
             causal_edge: None,
             embed_deps: None,
             entity_disambiguator: None,
+            hype: None,
         }
+    }
+
+    /// Wire the write-time HyPE generator. Without this call the worker
+    /// generates no hypothetical-question embeddings. Production shards
+    /// set it when the LLM tier is provisioned and `[extractors.hype]` is
+    /// enabled; tests and substrate-only deployments leave it unset.
+    #[must_use]
+    pub fn with_hype(mut self, hype: HypeGenerator) -> Self {
+        self.hype = Some(hype);
+        self
     }
 
     /// Wire the resolver's tier-3b embedding path. Without this call
@@ -675,6 +693,16 @@ async fn drain_batch(
         worker.metrics.add_llm_micro_usd(total_llm_micro);
     }
 
+    // Snapshot (memory_id, text) before the apply loop consumes `live`,
+    // so the HyPE pass below can generate question embeddings from the
+    // memory text. Independent of extraction success — HyPE only needs
+    // the text — but written idempotently so a later retry is cheap.
+    let hype_inputs: Vec<(MemoryId, Arc<str>)> = if worker.hype.is_some() {
+        live.iter().map(|(_, mid, text)| (*mid, text.clone())).collect()
+    } else {
+        Vec::new()
+    };
+
     // Apply each outcome and fold into the per-memory decision slot.
     for ((idx, memory_id, _), outcome) in live.into_iter().zip(outcomes) {
         let decision = match apply_outcome(worker, ctx, memory_id, &outcome).await {
@@ -700,6 +728,28 @@ async fn drain_batch(
         };
         decisions[idx] = decision;
     }
+
+    // HyPE pass: generate + embed + persist + index hypothetical
+    // questions for each live memory. Runs after extraction (its own
+    // write txns) and shares the per-cycle LLM budget — once exhausted,
+    // the remaining memories this cycle skip generation and pick up on a
+    // later cycle (the audit gate doesn't bar a HyPE-only re-run because
+    // generation is idempotent on the question-vector key).
+    if let Some(hype) = worker.hype.as_ref() {
+        let cycle_budget = worker.knobs.llm_budget_per_cycle_micro_usd;
+        for (memory_id, text) in hype_inputs {
+            if cycle_budget > 0 && *worker.llm_spend.lock() >= cycle_budget {
+                break;
+            }
+            let outcome = hype.generate_for(memory_id, &text).await;
+            if outcome.cost_micro_usd > 0 {
+                let mut spend = worker.llm_spend.lock();
+                *spend = spend.saturating_add(outcome.cost_micro_usd);
+                worker.metrics.add_llm_micro_usd(outcome.cost_micro_usd);
+            }
+        }
+    }
+
     decisions
 }
 
