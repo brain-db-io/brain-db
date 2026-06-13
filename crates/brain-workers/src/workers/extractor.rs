@@ -572,17 +572,43 @@ async fn drain_batch(
     let spent_so_far = { *worker.llm_spend.lock() };
     let skip_llm_budget_exhausted = cycle_budget > 0 && spent_so_far >= cycle_budget;
 
+    // Fetch each live memory's event/write timestamps so the temporal
+    // extractor can anchor relative dates ("last week") to the real
+    // event time (`occurred_at`, else `created_at`) rather than to zero.
+    let ts_by_id: std::collections::HashMap<MemoryId, (u64, Option<u64>)> = {
+        use brain_metadata::tables::memory::MEMORIES_TABLE;
+        let mut m = std::collections::HashMap::with_capacity(live.len());
+        if let Ok(rtxn) = ctx.ops.executor.metadata.read_txn() {
+            if let Ok(t) = rtxn.open_table(MEMORIES_TABLE) {
+                for (_, mid, _) in &live {
+                    if let Ok(Some(g)) = t.get(&mid.to_be_bytes()) {
+                        let row = g.value();
+                        m.insert(
+                            *mid,
+                            (row.created_at_unix_nanos, row.occurred_at_unix_nanos),
+                        );
+                    }
+                }
+            }
+        }
+        m
+    };
+
     let live_mems: Vec<CoreMemory> = live
         .iter()
-        .map(|(_, mid, text)| CoreMemory {
-            id: *mid,
-            agent: AgentId::new(),
-            context: ContextId(0),
-            kind: MemoryKind::Episodic,
-            salience: Salience::default(),
-            text: Some(text.to_string()),
-            created_at_unix_ms: 0,
-            last_accessed_at_unix_ms: 0,
+        .map(|(_, mid, text)| {
+            let (created_ns, occurred) = ts_by_id.get(mid).copied().unwrap_or((0, None));
+            CoreMemory {
+                id: *mid,
+                agent: AgentId::new(),
+                context: ContextId(0),
+                kind: MemoryKind::Episodic,
+                salience: Salience::default(),
+                text: Some(text.to_string()),
+                created_at_unix_ms: created_ns / 1_000_000,
+                last_accessed_at_unix_ms: 0,
+                occurred_at_unix_nanos: occurred,
+            }
         })
         .collect();
 
@@ -1228,6 +1254,58 @@ async fn apply_outcome(
     for item in &outcome.items {
         match item {
             ExtractedItem::EntityMention(_) => {}
+            ExtractedItem::StatementMention(sm) if sm.subject_is_memory => {
+                // Memory-subject statement (temporal Event): the subject is
+                // the source memory itself, not an entity. `object_text`
+                // carries the resolved event time as decimal unix-nanos →
+                // a typed `UnixNanos` value (the `occurred_at` predicate
+                // requires `Value<timestamp>`).
+                let (ns, name) =
+                    split_qname(&sm.predicate_qname).map_err(ApplyError::InvalidQname)?;
+                if !predicate_allowed_by_schema(&wtxn, ns, name)? {
+                    worker.metrics.inc_schema_filtered(&sm.predicate_qname);
+                    continue;
+                }
+                let Some(ts) = sm
+                    .object_text
+                    .as_deref()
+                    .and_then(|t| t.parse::<u64>().ok())
+                else {
+                    trace!(
+                        memory_id = ?memory_id,
+                        "memory-subject statement with unparseable object_text; dropping",
+                    );
+                    continue;
+                };
+                let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
+                    .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
+                let payload = StatementCreatePayload {
+                    kind: statement_kind_from_byte(sm.kind),
+                    subject: SubjectRef::Memory(memory_id),
+                    predicate: pid,
+                    object: StatementObject::Value(StatementValue::UnixNanos(ts)),
+                    confidence: sm.confidence.clamp(0.0, 1.0),
+                    evidence_memory_ids: vec![memory_id],
+                    extractor_id: ExtractorId::from(sm.extractor_id),
+                    schema_version: 0,
+                    extracted_at_unix_nanos: now,
+                    is_stateful: false,
+                };
+                match statement_create_internal(&wtxn, &payload) {
+                    Ok(_) => {
+                        counts.statements = counts.statements.saturating_add(1);
+                        worker
+                            .metrics
+                            .add_items_written(ExtractorItemKind::Statement, 1);
+                    }
+                    Err(e) => trace!(
+                        memory_id = ?memory_id,
+                        error = %e,
+                        "memory-subject statement dropped",
+                    ),
+                }
+                continue;
+            }
             ExtractedItem::StatementMention(sm) => {
                 if let Some(subject) = sm
                     .subject_text
@@ -2040,6 +2118,7 @@ mod tests {
             text: Some(text.into()),
             created_at_unix_ms: 0,
             last_accessed_at_unix_ms: 0,
+            occurred_at_unix_nanos: None,
         }
     }
 
@@ -2360,6 +2439,7 @@ mod tests {
                 ExtractedItem::StatementMention(StatementMention {
                     kind: StatementKind::Fact.as_u8(),
                     subject_text: Some("Priya".into()),
+                    subject_is_memory: false,
                     predicate_qname: "brain:reports_to".into(),
                     object_text: Some("Dana".into()),
                     confidence: 0.9,

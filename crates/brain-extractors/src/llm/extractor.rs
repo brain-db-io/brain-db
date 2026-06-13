@@ -959,6 +959,7 @@ fn project_statement(
         extractor_id,
         extractor_version,
         is_stateful,
+        subject_is_memory: false,
     }))
 }
 
@@ -986,6 +987,7 @@ fn project_statement_open(
         extractor_id,
         extractor_version,
         is_stateful,
+        subject_is_memory: false,
     }))
 }
 

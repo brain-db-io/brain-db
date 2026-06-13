@@ -59,7 +59,7 @@ pub use materialize::{
     build_registry_from_definitions, build_registry_with_gate, materialize_classifier_extractor,
     materialize_llm_extractor, materialize_pattern_extractor, MaterializeDeps,
 };
-pub use pattern::{CompiledRegex, PatternExtractor};
+pub use pattern::{CompiledRegex, PatternExtractor, TemporalExtractor};
 pub use resolver::{
     resolve_or_create, EntityDisambiguator, MatchVerdict, Resolution, ResolutionTier,
     ResolverError, DEFAULT_DISAMBIGUATOR_MIN_CONFIDENCE,

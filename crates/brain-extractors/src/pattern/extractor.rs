@@ -129,6 +129,7 @@ impl PatternExtractor {
                     // Pattern extractor can't infer statefulness — schemaless
                     // pattern matches default to cumulative.
                     is_stateful: false,
+                    subject_is_memory: false,
                 }))
             }
             ExtractorTarget::Relation { .. } => None, // handled by run_for_relation below
@@ -268,6 +269,7 @@ mod tests {
             text: Some(text.to_string()),
             created_at_unix_ms: 0,
             last_accessed_at_unix_ms: 0,
+            occurred_at_unix_nanos: None,
         }
     }
 

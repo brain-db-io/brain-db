@@ -105,6 +105,7 @@ fn memory(text: &str) -> Memory {
         text: Some(text.into()),
         created_at_unix_ms: 0,
         last_accessed_at_unix_ms: 0,
+        occurred_at_unix_nanos: None,
     }
 }
 
@@ -386,6 +387,7 @@ fn sm_fixture() -> StatementMention {
     StatementMention {
         kind: 1,
         subject_text: Some("X".into()),
+        subject_is_memory: false,
         predicate_qname: "brain:fact".into(),
         object_text: Some("Y".into()),
         confidence: 0.9,

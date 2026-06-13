@@ -51,6 +51,7 @@ fn build_memory(size_bytes: usize) -> Memory {
         text: Some(text),
         created_at_unix_ms: 0,
         last_accessed_at_unix_ms: 0,
+        occurred_at_unix_nanos: None,
     }
 }
 

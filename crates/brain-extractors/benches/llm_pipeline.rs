@@ -111,6 +111,7 @@ fn build_memory() -> Memory {
         text: Some(memory_text().into()),
         created_at_unix_ms: 0,
         last_accessed_at_unix_ms: 0,
+        occurred_at_unix_nanos: None,
     }
 }
 
@@ -257,6 +258,7 @@ fn bench_llm_mock_miss(c: &mut Criterion) {
                 text: Some(format!("{} iteration={counter}", memory_text())),
                 created_at_unix_ms: 0,
                 last_accessed_at_unix_ms: 0,
+                occurred_at_unix_nanos: None,
             };
             let r = block_on(ext.run(&ctx(&reg), black_box(&mem)));
             black_box(r);

@@ -1802,7 +1802,7 @@ pub fn spawn_shard(
 
                 let materialize_deps = llm_deps
                     .into_materialize_deps(classifier_model, entity_type_qnames);
-                let (reg, errors) = brain_extractors::build_registry_with_gate(
+                let (mut reg, errors) = brain_extractors::build_registry_with_gate(
                     &defs,
                     &materialize_deps,
                     tier_gate_for_closure,
@@ -1826,6 +1826,13 @@ pub fn spawn_shard(
                         "enabled extractor tier(s) failed to initialise at shard spawn: {detail}"
                     );
                 }
+                // Register the native built-in temporal-expressions
+                // extractor (pattern tier, deterministic date arithmetic
+                // — not materialisable from a regex schema def). Always
+                // wired; runs under the pattern-tier gate.
+                reg.register(std::sync::Arc::new(
+                    brain_extractors::TemporalExtractor::new(),
+                ));
                 reg
             };
 

@@ -77,6 +77,13 @@ pub struct StatementMention {
     /// `PredicateDefinition.is_stateful` wins.
     #[serde(default)]
     pub is_stateful: bool,
+    /// When true, the statement's subject is the *source memory itself*
+    /// (`SubjectRef::Memory`), not an entity — `subject_text` is ignored.
+    /// Set by the temporal-expressions extractor for memory-anchored
+    /// Events ("this memory's content occurred at T"). Default false
+    /// keeps every existing extractor's entity-subject behaviour.
+    #[serde(default)]
+    pub subject_is_memory: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
@@ -124,6 +131,7 @@ mod tests {
         let m = StatementMention {
             kind: 2, // Preference
             subject_text: Some("Alice".into()),
+            subject_is_memory: false,
             predicate_qname: "brain:prefers".into(),
             object_text: Some("async meetings".into()),
             confidence: 0.85,

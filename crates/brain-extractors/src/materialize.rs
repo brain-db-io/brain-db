@@ -728,6 +728,7 @@ mod tests {
             text: Some("Priya Sharma joined Stripe as a Senior Engineer in San Francisco".into()),
             created_at_unix_ms: 0,
             last_accessed_at_unix_ms: 0,
+            occurred_at_unix_nanos: None,
         };
         let reg = ExtractorRegistry::new();
         let ctx = ExtractionContext {
@@ -898,6 +899,7 @@ mod tests {
             text: Some("hi".into()),
             created_at_unix_ms: 0,
             last_accessed_at_unix_ms: 0,
+            occurred_at_unix_nanos: None,
         };
         let ctx = crate::framework::extractor::ExtractionContext {
             schema_version: 1,
