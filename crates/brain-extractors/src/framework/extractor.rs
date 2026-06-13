@@ -177,11 +177,18 @@ pub struct ExtractionResult {
     pub status_reason: String,
     pub started_at_unix_nanos: u64,
     pub completed_at_unix_nanos: u64,
+    /// Provider cost this run actually incurred, in micro-USD. Non-zero
+    /// only for LLM-tier runs that made a paid call (cache hits, budget
+    /// skips, and the free pattern/classifier tiers are `0`). The worker
+    /// sums this into the per-cycle spend gate and the
+    /// `brain_extractor_llm_micro_usd_spent_total` metric.
+    pub cost_micro_usd: u64,
 }
 
 impl ExtractionResult {
     /// Convenience: an empty result with `Success`. Wall time is
-    /// expected to be filled in by callers that wrap `run`.
+    /// expected to be filled in by callers that wrap `run`. Cost
+    /// defaults to `0`; LLM callers chain [`with_cost`](Self::with_cost).
     pub fn success(items: Vec<ExtractedItem>, started_at: u64, completed_at: u64) -> Self {
         Self {
             items,
@@ -189,6 +196,7 @@ impl ExtractionResult {
             status_reason: String::new(),
             started_at_unix_nanos: started_at,
             completed_at_unix_nanos: completed_at,
+            cost_micro_usd: 0,
         }
     }
 
@@ -199,6 +207,7 @@ impl ExtractionResult {
             status_reason: reason.into(),
             started_at_unix_nanos: at,
             completed_at_unix_nanos: at,
+            cost_micro_usd: 0,
         }
     }
 
@@ -209,7 +218,15 @@ impl ExtractionResult {
             status_reason: reason.into(),
             started_at_unix_nanos: started_at,
             completed_at_unix_nanos: completed_at,
+            cost_micro_usd: 0,
         }
+    }
+
+    /// Attach the provider cost (micro-USD) this run incurred.
+    #[must_use]
+    pub fn with_cost(mut self, cost_micro_usd: u64) -> Self {
+        self.cost_micro_usd = cost_micro_usd;
+        self
     }
 }
 

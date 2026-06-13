@@ -1122,15 +1122,19 @@ impl Extractor for LlmExtractor {
                         "estimated {} µ$ exceeds per-call budget {} µ$",
                         est, budget.per_call_micro_usd
                     );
-                    return ExtractionResult {
-                        items: Vec::new(),
-                        status: ExtractionStatus::SkippedBudget,
-                        status_reason: reason,
-                        started_at_unix_nanos: started,
-                        completed_at_unix_nanos: started,
-                    };
+                    return ExtractionResult::skipped(
+                        ExtractionStatus::SkippedBudget,
+                        reason,
+                        started,
+                    );
                 }
             }
+
+            // Provider cost this run incurs, summed across the first call
+            // and any schema-retry call. Threaded onto the final result so
+            // the worker's per-cycle budget gate and the cost metric see
+            // real spend instead of zero.
+            let mut cost_micro: u64 = 0;
 
             // ----- 3. First LLM call -------------------------------------------
             let resp1 = match inner.client.complete(request.clone()).await {
@@ -1139,6 +1143,7 @@ impl Extractor for LlmExtractor {
                     return ExtractionResult::failure(llm_error_reason(&e), started, started);
                 }
             };
+            cost_micro = cost_micro.saturating_add(resp1.cost_micro_usd);
 
             // ----- 4. Validate + retry-once ------------------------------------
             let parsed = match inner.schema_compiled.as_ref() {
@@ -1171,6 +1176,7 @@ impl Extractor for LlmExtractor {
                                 );
                             }
                         };
+                        cost_micro = cost_micro.saturating_add(resp2.cost_micro_usd);
                         match validate_against(schema, &resp2.content) {
                             Ok(v) => v,
                             Err(_) => {
@@ -1213,7 +1219,7 @@ impl Extractor for LlmExtractor {
 
             // ----- 6. Project to ExtractedItem[] -------------------------------
             let items = self.project_value(&parsed);
-            ExtractionResult::success(items, started, started)
+            ExtractionResult::success(items, started, started).with_cost(cost_micro)
         })
     }
 }

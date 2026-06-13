@@ -402,7 +402,7 @@ define extractor llm_predicate {
     kind: llm
     target: entity_or_statement
     model: "gpt-4o-mini"
-    prompt: """You are extracting structured knowledge from one memory at a time.
+    prompt: """You are extracting structured knowledge from one memory at a time. Capture EVERY salient assertion in the text as a clean subject–predicate–object triple.
 
 The active schema declares these entity types:
 - brain:Person
@@ -412,7 +412,7 @@ The active schema declares these entity types:
 - brain:Place
 - brain:Concept
 
-These predicates are declared (use these verbatim as `predicate`):
+These predicates are declared. PREFER one of these verbatim when it fits the assertion:
 - brain:is_a, brain:has_name, brain:mentions, brain:related_to
 - brain:works_at, brain:member_of, brain:current_role
 - brain:lives_in, brain:located_in
@@ -422,7 +422,7 @@ These predicates are declared (use these verbatim as `predicate`):
 - brain:scheduled, brain:occurred_at, brain:participated_in
 - brain:mentioned_in
 
-These relation types are declared (use these verbatim as `relation_type`):
+These relation types are declared (prefer when an entity↔entity relation fits):
 - brain:related_to, brain:reports_to, brain:co_authored, brain:family_of
 
 Output STRICT JSON matching this shape, and nothing else:
@@ -436,18 +436,25 @@ Output STRICT JSON matching this shape, and nothing else:
       "confidence": 0.92
     },
     {
-      "subject": "Alice Wong",
-      "predicate": "brain:interested_in",
-      "object": "rock climbing",
+      "subject": "Caroline",
+      "predicate": "brain:moved_from",
+      "object": "Sweden",
       "is_stateful": false,
       "confidence": 0.9
     },
     {
-      "subject": "Alice Wong",
-      "predicate": "brain:intends",
-      "object": "to switch careers into teaching",
+      "subject": "Melanie's kids",
+      "predicate": "brain:likes",
+      "object": "dinosaurs",
       "is_stateful": false,
-      "confidence": 0.86
+      "confidence": 0.88
+    },
+    {
+      "subject": "Melanie",
+      "predicate": "brain:read",
+      "object": "Becoming Nicole",
+      "is_stateful": false,
+      "confidence": 0.95
     }
   ],
   "relations": [
@@ -461,10 +468,13 @@ Output STRICT JSON matching this shape, and nothing else:
 }
 
 Rules:
-- Only emit a statement whose `predicate` is in the declared list above. If no declared predicate fits the assertion, omit the statement entirely — do not invent or substitute a near-fit predicate.
-- Only emit a relation whose `relation_type` is in the declared list above. If no declared type fits, omit the relation entirely.
-- Use the entity surface forms verbatim from the "Previously extracted entities" section below as `subject` / `object` whenever the assertion involves one of them. Do not invent new entity surface forms for those concepts.
-- If there are no statements or relations, return `{ "statements": [], "relations": [] }`.
+- Decompose each assertion into a clean (subject, predicate, object). The predicate carries the verb/relation; the object is the entity or short value it acts on — NOT a verb phrase. "Caroline moved from Sweden" -> subject "Caroline", predicate "brain:moved_from", object "Sweden" (NOT object "moved from Sweden"). "Caroline makes abstract art" -> predicate "brain:makes", object "abstract art".
+- PREFER a declared predicate when one genuinely fits. If none fits, COIN a concise predicate as brain:<lower_snake_case_verb> (e.g. brain:moved_from, brain:read, brain:makes, brain:researches) rather than forcing an ill-fitting declared predicate or dropping the fact. Never omit a real assertion just because no declared predicate matches.
+- Same for relations: prefer a declared relation_type; otherwise coin brain:<lower_snake_case>.
+- Extract assertions about possessive or implied subjects too ("Melanie's kids love dinosaurs" -> subject "Melanie's kids").
+- Use the entity surface forms verbatim from the "Previously extracted entities" section below as `subject` / `object` whenever the assertion involves one of them. Do not invent new surface forms for those concepts.
+- Set is_stateful true only for single-valued attributes that supersede prior values (current job, current city); leave false for additive facts and events.
+- If the text genuinely contains no assertion, return `{ "statements": [], "relations": [] }`.
 {PRIOR_ENTITIES}
 Input text:
 ```

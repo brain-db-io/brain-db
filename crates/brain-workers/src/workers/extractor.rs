@@ -981,6 +981,13 @@ async fn run_tier_into(
                 ExtractorKind::Classifier => slot.classifier = outcome_byte,
                 ExtractorKind::Llm => slot.llm = outcome_byte,
             }
+            // Real provider cost flows from the LLM extractor's result into
+            // the per-memory outcome, which the caller sums into the
+            // per-cycle spend gate and the cost metric. Non-LLM tiers report
+            // zero, so the unconditional add is correct.
+            slot.llm_cost_micro_usd = slot
+                .llm_cost_micro_usd
+                .saturating_add(result.cost_micro_usd);
             // Per-tier visibility: log exactly what THIS tier's extractor
             // produced for THIS memory, before the items are merged into
             // the cumulative slot. Lets an operator see the pattern →
