@@ -792,3 +792,219 @@ fn cue_anchor_falls_back_on_two_distinct_entities() {
     let qp = plan(&req).expect("plan");
     assert!(super::resolve_cue_anchor(&qp, &req, &ctx).is_none());
 }
+
+// ---------------------------------------------------------------------------
+// Pseudo-relevance feedback (non-LLM read-time query expansion).
+// ---------------------------------------------------------------------------
+
+/// Lexical mock that records the term set of every call and replays a
+/// queued response per call (the last response repeats once drained).
+/// Lets a PRF test observe both the bare probe and the expanded re-probe.
+#[derive(Clone)]
+struct RecordingLexical {
+    captured: Arc<StdMutex<Vec<Vec<String>>>>,
+    responses: Arc<StdMutex<std::collections::VecDeque<Vec<RankedItem>>>>,
+}
+
+impl LexicalRetriever for RecordingLexical {
+    fn retrieve(
+        &self,
+        query: &LexicalQuery,
+        _scope: LexicalScope,
+        _config: &LexicalRetrieverConfig,
+    ) -> Result<Vec<RankedItem>, LexicalError> {
+        self.captured.lock().expect("lock").push(query.terms.clone());
+        let mut r = self.responses.lock().expect("lock");
+        let resp = if r.len() > 1 {
+            r.pop_front().unwrap_or_default()
+        } else {
+            r.front().cloned().unwrap_or_default()
+        };
+        Ok(resp)
+    }
+}
+
+/// Write UTF-8 text rows for the given `(slot, text)` pairs so the PRF
+/// feedback harvest (which reads `TEXTS_TABLE`) has something to mine.
+fn seed_texts<'a>(metadata: &MetadataDb, rows: impl IntoIterator<Item = (u64, &'a str)>) {
+    use brain_metadata::tables::text::TEXTS_TABLE;
+    let wtxn = metadata.write_txn().expect("wtxn");
+    {
+        let mut t = wtxn.open_table(TEXTS_TABLE).expect("open texts");
+        for (slot, text) in rows {
+            let id = MemoryId::pack(0, slot, 0);
+            t.insert(&id.to_be_bytes(), text.as_bytes()).expect("insert text");
+        }
+    }
+    wtxn.commit().expect("commit");
+}
+
+fn prf_request(text: &str) -> QueryRequest {
+    QueryRequest {
+        text: Some(text.into()),
+        retrievers: RetrieverSelection::Explicit(vec![Retriever::Semantic, Retriever::Lexical]),
+        limit: 10,
+        ..Default::default()
+    }
+}
+
+#[test]
+fn prf_expansion_terms_keeps_recurring_topical_words() {
+    let texts = [
+        "a gift from my grandma in my home country sweden",
+        "i still miss sweden and the long winters there",
+        "we moved away from sweden many years ago",
+    ];
+    let refs: Vec<&str> = texts.to_vec();
+    let query = vec!["caroline".to_string(), "move".to_string()];
+    let terms = super::prf_expansion_terms(&refs, &query);
+    // "sweden" recurs across all three feedback docs → survives the
+    // doc-freq >= 2 bar; single-doc words ("grandma", "winters") do not.
+    assert!(terms.contains(&"sweden".to_string()), "got {terms:?}");
+    assert!(!terms.contains(&"grandma".to_string()), "got {terms:?}");
+    // Query terms are never re-harvested.
+    assert!(!terms.contains(&"caroline".to_string()));
+    assert!(terms.len() <= super::PRF_EXPANSION_TERMS);
+}
+
+#[test]
+fn prf_expansion_terms_drops_short_and_stopwords() {
+    let texts = ["the of an it sweden id ok", "the of an it sweden by no"];
+    let refs: Vec<&str> = texts.to_vec();
+    let terms = super::prf_expansion_terms(&refs, &[]);
+    // Only "sweden" clears the stopword + min-length filters in both docs.
+    assert_eq!(terms, vec!["sweden".to_string()]);
+}
+
+#[test]
+fn prf_expansion_terms_empty_without_recurrence() {
+    // Each topical word appears in exactly one doc → nothing clears the
+    // doc-freq >= 2 bar → no expansion (fail-open to the bare query).
+    let texts = ["alpha beta", "gamma delta"];
+    let refs: Vec<&str> = texts.to_vec();
+    assert!(super::prf_expansion_terms(&refs, &[]).is_empty());
+}
+
+#[test]
+fn merge_lexical_hits_is_recall_additive_and_reranked() {
+    let mut existing = vec![ranked_memory(1, 1, 3.0), ranked_memory(2, 2, 1.0)];
+    // slot 2 reappears with a higher score; slot 9 is new.
+    let expanded = vec![ranked_memory(2, 1, 5.0), ranked_memory(9, 2, 2.0)];
+    super::merge_lexical_hits(&mut existing, expanded, 10);
+    let ids: Vec<u64> = existing
+        .iter()
+        .map(|it| match it.id {
+            RankedItemId::Memory(m) => m.slot(),
+            _ => unreachable!(),
+        })
+        .collect();
+    // No original hit dropped; new id added.
+    assert!(ids.contains(&1) && ids.contains(&2) && ids.contains(&9));
+    // Re-sorted by (best) score: slot2 (5.0) > slot1 (3.0) > slot9 (2.0).
+    assert_eq!(ids, vec![2, 1, 9]);
+    // Dense 1-based ranks.
+    assert_eq!(existing[0].rank, 1);
+    assert_eq!(existing[2].rank, 3);
+}
+
+#[test]
+fn prf_reprobes_lexical_with_expansion_on_low_specificity_query() {
+    let dir = TempDir::new().expect("tempdir");
+    let mut metadata = MetadataDb::open(dir.path().join("metadata.redb")).expect("open");
+    seed_active_memories(&mut metadata, 0..256);
+    seed_texts(
+        &metadata,
+        [
+            (1, "a gift from my grandma in my home country sweden"),
+            (2, "i still miss sweden and the long winters there"),
+            (3, "we moved away from sweden many years ago"),
+        ],
+    );
+
+    // Semantic supplies the feedback set (slots 1-3); bare lexical is
+    // empty, the expanded re-probe surfaces the answer (slot 42).
+    let semantic = MockSemantic {
+        response: Arc::new(StdMutex::new(Ok(vec![
+            ranked_memory(1, 1, 0.9),
+            ranked_memory(2, 2, 0.8),
+            ranked_memory(3, 3, 0.7),
+        ]))),
+        delay: None,
+    };
+    let captured = Arc::new(StdMutex::new(Vec::new()));
+    let mut responses = std::collections::VecDeque::new();
+    responses.push_back(Vec::new()); // bare probe: no lexical hit
+    responses.push_back(vec![ranked_memory(42, 1, 2.5)]); // expanded probe
+    let lexical = RecordingLexical {
+        captured: captured.clone(),
+        responses: Arc::new(StdMutex::new(responses)),
+    };
+
+    let ctx = RetrievalExecutorContext {
+        semantic: Arc::new(semantic),
+        lexical: Arc::new(lexical),
+        graph: Arc::new(MockGraph {
+            response: Arc::new(StdMutex::new(Ok(Vec::new()))),
+        }),
+        metadata: Arc::new(metadata),
+        cross_encoder: None,
+    };
+
+    let req = prf_request("Where did Caroline move from?");
+    let qp = plan(&req).expect("plan");
+    let result =
+        futures_lite::future::block_on(execute(&qp, &req, false, &ctx)).expect("execute");
+
+    let calls = captured.lock().expect("lock").clone();
+    assert_eq!(calls.len(), 2, "bare probe + one PRF re-probe: {calls:?}");
+    assert!(
+        calls[1].iter().any(|t| t == "sweden"),
+        "re-probe carries the harvested term: {:?}",
+        calls[1]
+    );
+    let has_answer = result.items.iter().any(|it| match it.id {
+        RankedItemId::Memory(m) => m.slot() == 42,
+        _ => false,
+    });
+    assert!(has_answer, "PRF-surfaced answer reaches the result set");
+}
+
+#[test]
+fn prf_skips_high_specificity_query() {
+    let dir = TempDir::new().expect("tempdir");
+    let mut metadata = MetadataDb::open(dir.path().join("metadata.redb")).expect("open");
+    seed_active_memories(&mut metadata, 0..256);
+    seed_texts(&metadata, [(1, "sweden sweden sweden")]);
+
+    let semantic = MockSemantic {
+        response: Arc::new(StdMutex::new(Ok(vec![ranked_memory(1, 1, 0.9)]))),
+        delay: None,
+    };
+    let captured = Arc::new(StdMutex::new(Vec::new()));
+    let mut responses = std::collections::VecDeque::new();
+    responses.push_back(vec![ranked_memory(5, 1, 1.0)]);
+    let lexical = RecordingLexical {
+        captured: captured.clone(),
+        responses: Arc::new(StdMutex::new(responses)),
+    };
+    let ctx = RetrievalExecutorContext {
+        semantic: Arc::new(semantic),
+        lexical: Arc::new(lexical),
+        graph: Arc::new(MockGraph {
+            response: Arc::new(StdMutex::new(Ok(Vec::new()))),
+        }),
+        metadata: Arc::new(metadata),
+        cross_encoder: None,
+    };
+
+    // Six content words → above the low-specificity gate → no PRF pass.
+    let req = prf_request("What special gift did grandma send Caroline from Sweden");
+    let qp = plan(&req).expect("plan");
+    let _ = futures_lite::future::block_on(execute(&qp, &req, false, &ctx)).expect("execute");
+
+    assert_eq!(
+        captured.lock().expect("lock").len(),
+        1,
+        "high-specificity query must not trigger a PRF re-probe",
+    );
+}

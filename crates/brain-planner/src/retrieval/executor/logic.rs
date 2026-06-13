@@ -436,6 +436,14 @@ async fn execute_once(
         }
     }
 
+    // Non-LLM read-time query expansion (pseudo-relevance feedback) for
+    // the lexical lane. Fires only on low-specificity queries, where the
+    // bare BM25 term set is too thin to bridge the query↔memory phrasing
+    // gap. Pure local index math — harvests topical terms from the top
+    // hits and re-probes lexical. Fail-open: leaves `outputs` untouched
+    // on any miss, so it can never regress a hit the bare pass found.
+    maybe_apply_lexical_prf(&mut outputs, plan, request, ctx, include_statements);
+
     // Adaptive RRF k from the actual candidate-pool size (small pools →
     // smaller k → sharper top ranks). Falls back to the plan's k for
     // non-RRF fusion methods, which don't use k.
@@ -757,7 +765,7 @@ fn invoke_retriever(
 ) -> Result<Vec<RankedItem>, RetrieverInvocationError> {
     match planned.retriever {
         Retriever::Semantic => invoke_semantic(planned, req, ctx, include_statements),
-        Retriever::Lexical => invoke_lexical(planned, req, ctx, include_statements),
+        Retriever::Lexical => invoke_lexical(planned, req, ctx, include_statements, &[]),
         Retriever::Graph => invoke_graph(planned, req, ctx, pre_anchors),
     }
 }
@@ -903,11 +911,246 @@ fn lexical_content_terms(text: &str) -> Vec<String> {
     terms
 }
 
+// ---------------------------------------------------------------------------
+// Pseudo-relevance feedback (RM3-lite) — non-LLM read-time expansion.
+// ---------------------------------------------------------------------------
+
+/// Only queries with at most this many content terms get a PRF pass. A
+/// rich query already pins the topic, so expanding it risks drift; a
+/// thin one ("Where did Caroline move from?" → {caroline, move}) is
+/// exactly where corpus terms bridge the phrasing gap.
+const PRF_MAX_QUERY_TERMS: usize = 3;
+
+/// How many top hits form the relevance-feedback set we harvest terms
+/// from. The top of the bare ranking is our best guess at on-topic text.
+const PRF_FEEDBACK_DOCS: usize = 5;
+
+/// How many harvested terms to append to the lexical query. Bounded so
+/// the expanded BM25 query stays focused and the re-probe stays cheap.
+const PRF_EXPANSION_TERMS: usize = 5;
+
+/// Minimum length for a harvested term — drops 1–2 char noise that
+/// survives stopword filtering ("ok", "id", stray initials).
+const PRF_MIN_TERM_LEN: usize = 3;
+
+/// Run pseudo-relevance feedback on the lexical lane when the query is
+/// low-specificity. Mutates `outputs` in place, unioning the
+/// expanded-query hits into the lexical entry (recall-additive). No-op
+/// on any gate miss, empty harvest, or retriever error.
+fn maybe_apply_lexical_prf(
+    outputs: &mut [(Retriever, Vec<RankedItem>)],
+    plan: &QueryPlan,
+    request: &QueryRequest,
+    ctx: &RetrievalExecutorContext,
+    include_statements: bool,
+) {
+    let Some(text) = request.text.as_deref() else {
+        return;
+    };
+    // Gate: low-specificity queries only.
+    let content = lexical_content_terms(text);
+    if content.len() > PRF_MAX_QUERY_TERMS {
+        return;
+    }
+    // Need a planned lexical retriever to re-probe with.
+    let Some(lex_planned) = plan
+        .retrievers
+        .iter()
+        .find(|r| r.retriever == Retriever::Lexical)
+    else {
+        return;
+    };
+
+    // Feedback set: the top memory hits we already have. Prefer the
+    // semantic lane (cosine-ranked, the strongest recall signal); fall
+    // back to the bare lexical hits when semantic is empty.
+    let feedback = prf_feedback_ids(outputs);
+    if feedback.is_empty() {
+        return;
+    }
+    let candidates = match fetch_texts(&feedback, ctx) {
+        Ok(c) => c,
+        Err(e) => {
+            tracing::warn!(
+                target: "brain_planner::executor",
+                error = %e,
+                "PRF feedback text fetch failed; skipping expansion",
+            );
+            return;
+        }
+    };
+    if candidates.is_empty() {
+        return;
+    }
+    let feedback_texts: Vec<&str> = candidates.iter().map(|c| c.text.as_str()).collect();
+    let expansion = prf_expansion_terms(&feedback_texts, &content);
+    if expansion.is_empty() {
+        return;
+    }
+
+    let expanded = match invoke_lexical(lex_planned, request, ctx, include_statements, &expansion) {
+        Ok(hits) => hits,
+        Err(_) => return,
+    };
+    if expanded.is_empty() {
+        return;
+    }
+
+    if let Some((_, lex_out)) = outputs.iter_mut().find(|(r, _)| *r == Retriever::Lexical) {
+        let before = lex_out.len();
+        merge_lexical_hits(lex_out, expanded, lex_planned.top_n);
+        tracing::debug!(
+            target: "brain_planner::executor",
+            query = text,
+            expansion = ?expansion,
+            lexical_before = before,
+            lexical_after = lex_out.len(),
+            "PRF expansion applied",
+        );
+    }
+}
+
+/// Pick the relevance-feedback memory ids from the per-retriever
+/// outputs: the semantic lane's top hits if present, else the lexical
+/// lane's. Capped at [`PRF_FEEDBACK_DOCS`]; only `Memory` variants
+/// (statement/entity hits carry no rerank text).
+fn prf_feedback_ids(outputs: &[(Retriever, Vec<RankedItem>)]) -> Vec<brain_core::MemoryId> {
+    let lane = outputs
+        .iter()
+        .find(|(r, items)| *r == Retriever::Semantic && !items.is_empty())
+        .or_else(|| outputs.iter().find(|(r, _)| *r == Retriever::Lexical));
+    let Some((_, items)) = lane else {
+        return Vec::new();
+    };
+    items
+        .iter()
+        .filter_map(|it| match it.id {
+            RankedItemId::Memory(m) => Some(m),
+            _ => None,
+        })
+        .take(PRF_FEEDBACK_DOCS)
+        .collect()
+}
+
+/// Harvest expansion terms from the feedback texts. A term is a content
+/// word (lowercased, punctuation-stripped, non-stopword, length ≥
+/// [`PRF_MIN_TERM_LEN`]) that is **not** already in the query. Candidates
+/// are scored by feedback-document frequency, then total frequency, then
+/// the term itself for determinism; only terms recurring across ≥2
+/// feedback docs survive (a term unique to one hit is per-doc noise, not
+/// a topical signal). Returns at most [`PRF_EXPANSION_TERMS`].
+fn prf_expansion_terms(feedback_texts: &[&str], query_terms: &[String]) -> Vec<String> {
+    let original: std::collections::HashSet<&str> =
+        query_terms.iter().map(String::as_str).collect();
+    // term -> (doc_freq, total_freq)
+    let mut stats: std::collections::HashMap<String, (u32, u32)> = std::collections::HashMap::new();
+    for text in feedback_texts {
+        let mut seen_in_doc: std::collections::HashSet<String> = std::collections::HashSet::new();
+        for raw in text.split_whitespace() {
+            let trimmed = trim_token_punct(raw);
+            if trimmed.len() < PRF_MIN_TERM_LEN {
+                continue;
+            }
+            let lowered = trimmed.to_lowercase();
+            if lowered.len() < PRF_MIN_TERM_LEN
+                || LEXICAL_STOPWORDS.contains(&lowered.as_str())
+                || original.contains(lowered.as_str())
+            {
+                continue;
+            }
+            let entry = stats.entry(lowered.clone()).or_insert((0, 0));
+            entry.1 += 1;
+            if seen_in_doc.insert(lowered) {
+                entry.0 += 1;
+            }
+        }
+    }
+
+    let mut ranked: Vec<(String, u32, u32)> = stats
+        .into_iter()
+        .filter(|(_, (doc_freq, _))| *doc_freq >= 2)
+        .map(|(term, (doc_freq, total))| (term, doc_freq, total))
+        .collect();
+    ranked.sort_by(|a, b| {
+        b.1.cmp(&a.1) // doc_freq desc
+            .then(b.2.cmp(&a.2)) // total_freq desc
+            .then(a.0.cmp(&b.0)) // term asc (deterministic)
+    });
+    ranked.truncate(PRF_EXPANSION_TERMS);
+    ranked.into_iter().map(|(term, _, _)| term).collect()
+}
+
+/// Union the expanded-query hits into the existing lexical hits,
+/// recall-additively: keep every original hit, add any new id, and on a
+/// collision keep the higher BM25 score. The merged set is re-sorted by
+/// score and given dense 1-based ranks, then truncated to `top_n`. By
+/// never dropping an original hit, PRF can only add recall, never trade
+/// it away.
+fn merge_lexical_hits(existing: &mut Vec<RankedItem>, expanded: Vec<RankedItem>, top_n: usize) {
+    let mut by_id: std::collections::HashMap<RankedItemId, RankedItem> =
+        std::collections::HashMap::new();
+    for item in existing.drain(..).chain(expanded) {
+        by_id
+            .entry(item.id)
+            .and_modify(|cur| {
+                if item.score > cur.score {
+                    cur.score = item.score;
+                }
+            })
+            .or_insert(item);
+    }
+    let mut merged: Vec<RankedItem> = by_id.into_values().collect();
+    merged.sort_by(|a, b| {
+        b.score
+            .partial_cmp(&a.score)
+            .unwrap_or(std::cmp::Ordering::Equal)
+            .then_with(|| rank_item_sort_key(&a.id).cmp(&rank_item_sort_key(&b.id)))
+    });
+    if top_n > 0 {
+        merged.truncate(top_n);
+    }
+    for (i, item) in merged.iter_mut().enumerate() {
+        item.rank = (i as u32) + 1;
+    }
+    *existing = merged;
+}
+
+/// Deterministic 17-byte tie-break key for a `RankedItemId`, mirroring
+/// the fusion stage's `id_sort_key` so equal-score merges order the same
+/// way the rest of the pipeline does.
+fn rank_item_sort_key(id: &RankedItemId) -> [u8; 17] {
+    let mut key = [0u8; 17];
+    match id {
+        RankedItemId::Memory(m) => {
+            key[0] = 0;
+            key[1..].copy_from_slice(&m.raw().to_be_bytes());
+        }
+        RankedItemId::Statement(s) => {
+            key[0] = 1;
+            key[1..].copy_from_slice(&s.to_bytes());
+        }
+        RankedItemId::Entity(e) => {
+            key[0] = 2;
+            key[1..].copy_from_slice(&e.to_bytes());
+        }
+        RankedItemId::Relation(r) => {
+            key[0] = 3;
+            key[1..].copy_from_slice(&r.to_bytes());
+        }
+    }
+    key
+}
+
+/// `extra_terms` are appended to the content-word term set (deduped,
+/// preserving order). Empty for the normal fan-out; the pseudo-relevance
+/// feedback pass passes corpus-harvested expansion terms here to widen
+/// the BM25 net on a low-specificity query.
 fn invoke_lexical(
     planned: &crate::retrieval::planner::PlannedRetriever,
     req: &QueryRequest,
     ctx: &RetrievalExecutorContext,
     include_statements: bool,
+    extra_terms: &[String],
 ) -> Result<Vec<RankedItem>, RetrieverInvocationError> {
     let handle = &ctx.lexical;
     let Some(text) = req.text.as_ref() else {
@@ -931,7 +1174,12 @@ fn invoke_lexical(
     // the requested context universe only.
     filters.context_ids = req.context_filter.clone();
 
-    let terms = lexical_content_terms(text);
+    let mut terms = lexical_content_terms(text);
+    for extra in extra_terms {
+        if !terms.iter().any(|t| t == extra) {
+            terms.push(extra.clone());
+        }
+    }
     let query = LexicalQuery {
         terms,
         phrase_clauses: Vec::new(),
