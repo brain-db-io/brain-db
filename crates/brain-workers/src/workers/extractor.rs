@@ -1314,11 +1314,19 @@ async fn apply_outcome(
                 continue;
             }
             ExtractedItem::StatementMention(sm) => {
-                if let Some(subject) = sm
-                    .subject_text
-                    .as_deref()
-                    .and_then(|t| entity_map.get(t).copied())
-                {
+                // Resolve the subject to an entity: prefer one already
+                // extracted from this memory; otherwise mint/resolve a coined
+                // subject ("Melanie's kids") so the fact persists as a
+                // queryable statement instead of being dropped. Non-referential
+                // junk subjects are rejected to keep the entity graph clean.
+                if let Some(subject) = resolve_statement_subject(
+                    &wtxn,
+                    sm,
+                    &mut entity_map,
+                    embed_deps,
+                    entity_disambiguator,
+                    now,
+                )? {
                     let object = statement_object_for(sm, &entity_map);
                     let (ns, name) =
                         split_qname(&sm.predicate_qname).map_err(ApplyError::InvalidQname)?;
@@ -1393,7 +1401,14 @@ async fn apply_outcome(
                         false
                     };
 
-                    let kind = statement_kind_from_byte(sm.kind);
+                    // A declared predicate's kind constraint wins over the
+                    // extractor's guessed kind. The LLM projection emits every
+                    // statement as Fact (`kind: 1`) and relies on this override;
+                    // without it a `likes`/`prefers` (Preference) or other
+                    // non-Fact predicate would be rejected by the create-time
+                    // kind_constraint check and the fact would be lost.
+                    let kind = predicate_declared_kind_in_write_txn(&wtxn, pid)?
+                        .unwrap_or_else(|| statement_kind_from_byte(sm.kind));
                     let payload = StatementCreatePayload {
                         kind,
                         subject: SubjectRef::Entity(subject),
@@ -1847,6 +1862,24 @@ fn predicate_is_stateful_in_write_txn(
     Ok(row.map(|g| g.value().is_stateful))
 }
 
+/// The kind a predicate constrains its statements to (`Fact`/`Preference`/
+/// `Event`), or `None` for an unconstrained (open-vocabulary or any-kind)
+/// predicate. Lets the worker stamp the schema-declared kind on a
+/// statement instead of trusting the extractor's guess.
+fn predicate_declared_kind_in_write_txn(
+    wtxn: &redb::WriteTransaction,
+    pid: brain_core::PredicateId,
+) -> Result<Option<StatementKind>, ApplyError> {
+    use brain_metadata::tables::predicate::decode_kind_constraint;
+    let t = wtxn
+        .open_table(PREDICATES_TABLE)
+        .map_err(|e| ApplyError::Storage(format!("predicates open: {e}")))?;
+    let row = t
+        .get(&pid.raw())
+        .map_err(|e| ApplyError::Storage(format!("predicates get: {e}")))?;
+    Ok(row.and_then(|g| decode_kind_constraint(g.value().kind_constraint)))
+}
+
 fn relation_type_allowed_by_schema(
     wtxn: &redb::WriteTransaction,
     namespace: &str,
@@ -1888,6 +1921,75 @@ fn statement_object_for(
         return StatementObject::Value(StatementValue::Text(text.to_string()));
     }
     StatementObject::Value(StatementValue::Text(String::new()))
+}
+
+/// Default entity type for a coined statement subject the classifier never
+/// extracted (e.g. "Melanie's kids"). Generic on purpose — the subject is
+/// minted only so the fact persists as a queryable statement; its precise
+/// type isn't asserted by the LLM.
+const COINED_SUBJECT_ENTITY_TYPE: &str = "brain:Concept";
+
+/// Resolve a statement's subject to an entity. Prefers an entity already
+/// extracted from this memory (`entity_map`); otherwise mints/resolves a
+/// coined subject so the fact isn't dropped at persist. Returns `None` for
+/// an absent or non-referential subject (those statements are skipped).
+fn resolve_statement_subject(
+    wtxn: &redb::WriteTransaction,
+    sm: &StatementMention,
+    entity_map: &mut HashMap<String, EntityId>,
+    embed_deps: Option<&EmbeddingDeps>,
+    entity_disambiguator: Option<&EntityDisambiguator>,
+    now: u64,
+) -> Result<Option<EntityId>, ApplyError> {
+    let Some(text) = sm.subject_text.as_deref() else {
+        return Ok(None);
+    };
+    if let Some(id) = entity_map.get(text).copied() {
+        return Ok(Some(id));
+    }
+    if !statement_subject_mintable(text) {
+        return Ok(None);
+    }
+    let res = resolve_or_create_with_deps(
+        wtxn,
+        text,
+        COINED_SUBJECT_ENTITY_TYPE,
+        sm.confidence,
+        now,
+        embed_deps,
+        entity_disambiguator,
+    )
+    .map_err(ApplyError::from)?;
+    entity_map.insert(text.to_string(), res.entity_id);
+    Ok(Some(res.entity_id))
+}
+
+/// Whether a coined subject is worth minting as an entity. Reuses the
+/// entity-mention surface guards and rejects lone pronouns / determiners
+/// the LLM might emit, so subject minting can't repollute the graph.
+fn statement_subject_mintable(text: &str) -> bool {
+    if !entity_mention_is_acceptable(text) {
+        return false;
+    }
+    const NON_REFERENTIAL: &[&str] = &[
+        "i",
+        "you",
+        "we",
+        "they",
+        "he",
+        "she",
+        "it",
+        "this",
+        "that",
+        "these",
+        "those",
+        "someone",
+        "something",
+        "everyone",
+        "anyone",
+        "nobody",
+    ];
+    !NON_REFERENTIAL.contains(&text.trim().to_lowercase().as_str())
 }
 
 fn split_qname(q: &str) -> Result<(&str, &str), String> {
@@ -2446,6 +2548,34 @@ mod tests {
                     extractor_id: 3,
                     extractor_version: 1,
                 }),
+                // Coined subject not in the entity mentions above — must be
+                // minted so the fact persists. The mention kind is Fact (what
+                // the LLM projection always emits), but `likes` is a
+                // Preference-kind predicate: the worker must stamp the declared
+                // kind so the create-time kind_constraint check accepts it.
+                ExtractedItem::StatementMention(StatementMention {
+                    kind: statement_kind_to_byte(StatementKind::Fact),
+                    subject_text: Some("Melanie's kids".into()),
+                    subject_is_memory: false,
+                    predicate_qname: "brain:likes".into(),
+                    object_text: Some("dinosaurs".into()),
+                    confidence: 0.9,
+                    extractor_id: 3,
+                    extractor_version: 1,
+                    is_stateful: false,
+                }),
+                // Pronoun subject — must be rejected (no entity minted).
+                ExtractedItem::StatementMention(StatementMention {
+                    kind: StatementKind::Fact.as_u8(),
+                    subject_text: Some("they".into()),
+                    subject_is_memory: false,
+                    predicate_qname: "brain:likes".into(),
+                    object_text: Some("noise".into()),
+                    confidence: 0.9,
+                    extractor_id: 3,
+                    extractor_version: 1,
+                    is_stateful: false,
+                }),
             ],
             pattern: tier_status::ABSENT,
             classifier: tier_status::ABSENT,
@@ -2509,5 +2639,38 @@ mod tests {
             "expected one member_of statement from Priya (coerced from relation)"
         );
         assert_eq!(stmts[0].predicate, member_of_id);
+
+        // (c) A coined subject the classifier never extracted ("Melanie's
+        // kids") is minted as an entity so its fact persists; a pronoun
+        // subject ("they") is rejected so junk can't pollute the graph.
+        let likes_id = {
+            let wtxn = metadata.write_txn().unwrap();
+            let p = predicate_intern_or_get(&wtxn, "brain", "likes", 0, 0).unwrap();
+            wtxn.commit().unwrap();
+            p
+        };
+        let kids =
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "Melanie's kids").unwrap();
+        assert_eq!(
+            kids.len(),
+            1,
+            "coined subject 'Melanie's kids' should be minted"
+        );
+        let kids_stmts = statement_list(
+            &rtxn,
+            &StatementListFilter {
+                subject: Some(kids[0]),
+                predicate: Some(likes_id),
+                ..StatementListFilter::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(kids_stmts.len(), 1, "the coined-subject fact must persist");
+        assert!(
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "they")
+                .unwrap()
+                .is_empty(),
+            "pronoun subject 'they' must not be minted"
+        );
     }
 }
