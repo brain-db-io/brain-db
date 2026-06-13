@@ -747,6 +747,13 @@ async fn drain_batch(
                 *spend = spend.saturating_add(outcome.cost_micro_usd);
                 worker.metrics.add_llm_micro_usd(outcome.cost_micro_usd);
             }
+            if outcome.questions_written > 0 {
+                // Fold into items_written so the eval drain barrier waits
+                // for HyPE, not just entity/statement extraction.
+                worker
+                    .metrics
+                    .add_items_written(ExtractorItemKind::HyPe, outcome.questions_written as u64);
+            }
         }
     }
 

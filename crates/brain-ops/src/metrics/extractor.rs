@@ -69,6 +69,11 @@ pub enum ExtractorItemKind {
     Statement = 1,
     Relation = 2,
     Mention = 3,
+    /// Hypothetical-question vectors written by the HyPE generator. Folded
+    /// into `items_written_total` so the eval's extraction-drain barrier
+    /// (which waits for that counter to plateau) also waits for HyPE
+    /// generation to finish before querying.
+    HyPe = 4,
 }
 
 impl ExtractorItemKind {
