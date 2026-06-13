@@ -15,6 +15,7 @@ pub mod entity_type;
 pub mod extractor;
 pub mod extractor_audit;
 pub mod fingerprint;
+pub mod hype;
 pub mod idempotency;
 pub mod memory;
 pub mod merge;

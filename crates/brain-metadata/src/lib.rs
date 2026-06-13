@@ -18,6 +18,7 @@ pub mod cascade;
 pub mod db;
 pub mod entity;
 pub mod extractor;
+pub mod hype;
 pub mod llm_cache;
 pub mod recovery;
 pub mod relation;
@@ -57,6 +58,10 @@ pub use entity::types::{entity_type_intern, entity_type_lookup_by_name, EntityTy
 pub use extractor::ops::{
     extractor_get, extractor_intern, extractor_list, extractor_lookup_by_qname,
     extractor_set_enabled, ExtractorOpError,
+};
+pub use hype::ops::{
+    hype_iter_all_vectors, hype_vector_put, hype_vectors_delete_memory, HypeOpError,
+    HypeRebuildRow,
 };
 pub use llm_cache::{
     sweep_expired as llm_cache_sweep_expired, LlmCacheDb, LlmCacheError, LlmResponse,
