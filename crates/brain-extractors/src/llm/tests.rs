@@ -111,6 +111,7 @@ fn memory(text: &str) -> Memory {
 
 fn ctx<'a>(reg: &'a ExtractorRegistry) -> ExtractionContext<'a> {
     ExtractionContext {
+            declared_predicates: None,
         schema_version: 1,
         now_unix_nanos: 100,
         registry: reg,
@@ -440,6 +441,7 @@ fn build_request_injects_prior_entities_into_prompt() {
         "Alice Wong works at Acme Corp from Bengaluru.",
         &prior_refs,
         None,
+        None,
         0,
     );
     let body = &req.messages[0].content;
@@ -481,6 +483,7 @@ fn build_request_with_empty_prior_entities_omits_section() {
         "Plain text.",
         &priors,
         None,
+        None,
         0,
     );
     let body = &req.messages[0].content;
@@ -507,6 +510,7 @@ fn build_request_filters_non_entity_items_from_prior() {
         brain_core::MemoryId::pack(0, 3, 0),
         "Alice met Acme.",
         &priors,
+        None,
         None,
         0,
     );
@@ -535,6 +539,7 @@ fn build_request_filters_non_entity_items_from_prior() {
     );
     let reg = ExtractorRegistry::new();
     let ctx = ExtractionContext {
+            declared_predicates: None,
         schema_version: 1,
         now_unix_nanos: 1,
         registry: &reg,
@@ -590,6 +595,7 @@ fn build_request_splits_into_cached_blocks() {
         brain_core::MemoryId::pack(0, 1, 0),
         "Alice met Bob.",
         &[],
+        None,
         None,
         0,
     );
@@ -659,6 +665,7 @@ fn build_request_without_examples_emits_role_block_only() {
         brain_core::MemoryId::pack(0, 1, 0),
         "Hello.",
         &[],
+        None,
         None,
         0,
     );
@@ -939,6 +946,7 @@ fn extract_with_context_includes_neighbors_in_prompt() {
         "Alice approved the design.",
         &[],
         Some(&ec),
+        None,
         now,
     );
     let body = &req.messages[0].content;
@@ -980,7 +988,7 @@ fn extract_with_context_drops_summary_when_over_budget() {
         // 600-char summary (truncated to 500 in the render).
         summary: Some("Summary that pushes us over the cap. ".repeat(20)),
     };
-    let (_req, stats) = ext.build_request(&inner, mid, &memory_text, &[], Some(&ec), 0);
+    let (_req, stats) = ext.build_request(&inner, mid, &memory_text, &[], Some(&ec), None, 0);
     assert!(
         !stats.summary_included,
         "summary must be dropped when over budget (got {} tokens)",
@@ -1024,7 +1032,7 @@ fn extract_with_context_drops_lowest_similarity_neighbors_when_over_budget() {
         neighbors,
         summary: None,
     };
-    let (req, stats) = ext.build_request(&inner, mid, &memory_text, &[], Some(&ec), 0);
+    let (req, stats) = ext.build_request(&inner, mid, &memory_text, &[], Some(&ec), None, 0);
     let body = &req.messages[0].content;
     assert!(
         stats.neighbors_included < 30,
@@ -1057,7 +1065,7 @@ fn extract_with_context_includes_summary_when_under_budget() {
         neighbors: vec![neighbor("a recent prior", 0.9, 1_000)],
         summary: Some("Last week Alice shipped the auth rewrite.".into()),
     };
-    let (req, stats) = ext.build_request(&inner, mid, "today", &[], Some(&ec), 1_000_000_000);
+    let (req, stats) = ext.build_request(&inner, mid, "today", &[], Some(&ec), None, 1_000_000_000);
     let body = &req.messages[0].content;
     assert!(body.contains("## Rolling summary"));
     assert!(body.contains("Last week Alice shipped"));
@@ -1071,7 +1079,7 @@ fn extract_with_context_skips_sections_when_context_is_empty() {
     let inner = ext.inner.as_ref().unwrap().clone();
     let mid = brain_core::MemoryId::pack(0, 1, 0);
     let ec = ExtractorContext::empty();
-    let (req, stats) = ext.build_request(&inner, mid, "first memory ever", &[], Some(&ec), 0);
+    let (req, stats) = ext.build_request(&inner, mid, "first memory ever", &[], Some(&ec), None, 0);
     let body = &req.messages[0].content;
     assert!(
         !body.contains("## Recent context"),

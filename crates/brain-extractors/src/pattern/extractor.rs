@@ -275,6 +275,7 @@ mod tests {
 
     fn ctx<'a>(reg: &'a ExtractorRegistry) -> ExtractionContext<'a> {
         ExtractionContext {
+            declared_predicates: None,
             schema_version: 1,
             now_unix_nanos: 0,
             registry: reg,

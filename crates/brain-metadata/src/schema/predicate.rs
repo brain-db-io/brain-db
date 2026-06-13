@@ -248,6 +248,41 @@ pub fn render_declared_predicates_block(
     Ok(out)
 }
 
+/// Record one sighting of an undeclared predicate qname in the review
+/// queue, incrementing its count. Called by the extractor's closed-vocab
+/// gate when a proposed predicate isn't in the active schema, so the
+/// candidate is captured durably for later promotion instead of silently
+/// lost. Composed inside the caller's write txn.
+pub fn predicate_review_record(
+    wtxn: &WriteTransaction,
+    qname: &str,
+) -> Result<(), PredicateOpError> {
+    let mut t = wtxn.open_table(crate::tables::predicate::PREDICATE_REVIEW_QUEUE_TABLE)?;
+    let prev = t.get(qname)?.map(|g| g.value()).unwrap_or(0);
+    t.insert(qname, &prev.saturating_add(1))?;
+    Ok(())
+}
+
+/// List the review queue as `(qname, count)` pairs, descending by count.
+/// For operator review — which coined predicates recur enough to promote.
+pub fn predicate_review_list(
+    rtxn: &ReadTransaction,
+) -> Result<Vec<(String, u64)>, PredicateOpError> {
+    let t = match rtxn.open_table(crate::tables::predicate::PREDICATE_REVIEW_QUEUE_TABLE) {
+        Ok(t) => t,
+        // Never-written table on a fresh DB → empty queue.
+        Err(redb::TableError::TableDoesNotExist(_)) => return Ok(Vec::new()),
+        Err(e) => return Err(e.into()),
+    };
+    let mut out: Vec<(String, u64)> = Vec::new();
+    for entry in t.iter()? {
+        let (k, v) = entry?;
+        out.push((k.value().to_string(), v.value()));
+    }
+    out.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
+    Ok(out)
+}
+
 // ---------------------------------------------------------------------------
 // Write path.
 // ---------------------------------------------------------------------------

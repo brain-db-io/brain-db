@@ -415,6 +415,7 @@ mod tests {
 
     fn ctx(reg: &ExtractorRegistry) -> ExtractionContext<'_> {
         ExtractionContext {
+            declared_predicates: None,
             schema_version: 1,
             // A fixed, recognisable "now" so tests that fall through to
             // it are deterministic: 2024-06-01T00:00:00Z.

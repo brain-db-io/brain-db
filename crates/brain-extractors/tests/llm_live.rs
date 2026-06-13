@@ -107,6 +107,7 @@ fn memory(text: &str) -> Memory {
 
 fn ctx<'a>(reg: &'a ExtractorRegistry) -> ExtractionContext<'a> {
     ExtractionContext {
+            declared_predicates: None,
         schema_version: 1,
         now_unix_nanos: 1,
         registry: reg,

@@ -21,6 +21,15 @@ pub const PREDICATES_TABLE: TableDefinition<'static, u32, PredicateDefinition> =
 pub const PREDICATES_BY_QNAME_TABLE: TableDefinition<'static, &str, u32> =
     TableDefinition::new("predicates_by_qname");
 
+/// `predicate_review_queue` — durable record of predicate qnames the
+/// extractor proposed but that are NOT declared in the active schema, so
+/// closed-vocab extraction dropped them from the live graph. Key is the
+/// canonical `"namespace:name"`; value is the number of times it was
+/// seen. Operators scan this to decide which coined predicates to promote
+/// into a schema via `SCHEMA_UPLOAD`. Nothing reads it on the hot path.
+pub const PREDICATE_REVIEW_QUEUE_TABLE: TableDefinition<'static, &str, u64> =
+    TableDefinition::new("predicate_review_queue");
+
 /// Origin of a registered predicate. Tracks whether the row was
 /// authored by an explicit `SCHEMA_UPLOAD` (strict mode) or interned
 /// on demand from an open-vocabulary write (schemaless mode).

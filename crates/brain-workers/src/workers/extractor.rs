@@ -673,11 +673,27 @@ async fn drain_batch(
         }
     }
 
+    // Snapshot the active schema's predicates as the closed-vocab prompt
+    // block for the LLM tier. Read per cycle so a user's SCHEMA_UPLOAD
+    // takes effect on the next batch without a restart. Empty string on
+    // any read error degrades to an unconstrained prompt rather than
+    // failing extraction.
+    let declared_predicates_block: String = match ctx.ops.executor.metadata.read_txn() {
+        Ok(rtxn) => brain_metadata::render_declared_predicates_block(&rtxn).unwrap_or_default(),
+        Err(_) => String::new(),
+    };
+    let declared_predicates = if declared_predicates_block.is_empty() {
+        None
+    } else {
+        Some(declared_predicates_block.as_str())
+    };
+
     let outcomes = run_pipeline_batch(
         extractors,
         &live_mems,
         skip_llm_budget_exhausted,
         extractor_context_map,
+        declared_predicates,
     )
     .await;
 
@@ -855,6 +871,7 @@ async fn run_pipeline_batch(
     mems: &[CoreMemory],
     skip_llm_budget_exhausted: bool,
     extractor_context_map: Option<HashMap<MemoryId, ExtractorContext>>,
+    declared_predicates: Option<&str>,
 ) -> Vec<PipelineOutcome> {
     use brain_core::ExtractorKind;
 
@@ -899,6 +916,7 @@ async fn run_pipeline_batch(
             registry: &empty_reg,
             prior_tier_items: None,
             extractor_context: None,
+            declared_predicates,
         };
         run_tier_into(
             &pattern_exts,
@@ -919,6 +937,7 @@ async fn run_pipeline_batch(
             registry: &empty_reg,
             prior_tier_items: Some(&prior_items),
             extractor_context: None,
+            declared_predicates,
         };
         run_tier_into(
             &classifier_exts,
@@ -955,6 +974,7 @@ async fn run_pipeline_batch(
             registry: &empty_reg,
             prior_tier_items: Some(&prior_items),
             extractor_context: extractor_context_map,
+            declared_predicates,
         };
         run_tier_into(&llm_exts, &ctx, mems, &mut outcomes, ExtractorKind::Llm).await;
     }
@@ -1437,26 +1457,36 @@ async fn apply_outcome(
                         }
                     }
 
-                    // Open-vocabulary persistence: an undeclared predicate is
-                    // NOT dropped. Extracted relational facts ("X researches Y")
-                    // are the whole point of write-time distillation — dropping
-                    // them strands the fact and leaves read-time with nothing to
-                    // match. We intern the coined predicate and keep its real
-                    // qname (better for retrieval than collapsing every coined
-                    // verb onto one sink key), and force `is_stateful = false`
-                    // for undeclared predicates so distinct coined predicates
-                    // never collide under supersession — the exact failure that
-                    // retired the old `brain:fact` wildcard sink (which flattened
-                    // mentors/owns/located_in onto `(subject, brain:fact)` and
-                    // tripped the supersession rule on every emission).
+                    // Closed-vocab gate: a predicate not declared in the active
+                    // schema (system core + user SCHEMA_UPLOAD) and not coerced
+                    // to a relation above is NOT interned. Interning coined
+                    // predicates is exactly what re-grew the per-memory
+                    // predicate sprawl (`has_name -> "running"`, 35 overlapping
+                    // verbs) and made the typed graph unqueryable. Record the
+                    // candidate to the durable review queue (for operator
+                    // promotion into a schema) + the schema-filtered metric, and
+                    // skip — keeping the live graph canonical.
+                    if !pred_ok {
+                        if let Err(e) =
+                            brain_metadata::predicate_review_record(&wtxn, &sm.predicate_qname)
+                        {
+                            trace!(
+                                memory_id = ?memory_id,
+                                predicate = %sm.predicate_qname,
+                                error = %e,
+                                "review-queue record failed; dropping undeclared predicate anyway",
+                            );
+                        }
+                        worker.metrics.inc_schema_filtered(&sm.predicate_qname);
+                        continue;
+                    }
+                    // Declared predicate: `intern_or_get` resolves to the
+                    // existing id (no new coinage on this path).
                     let pid = predicate_intern_or_get(&wtxn, ns, name, 0, now)
                         .map_err(|e| ApplyError::Predicate(format!("{e}")))?;
                     let used_qname = (ns.to_string(), name.to_string());
-                    let is_stateful = if pred_ok {
-                        predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(sm.is_stateful)
-                    } else {
-                        false
-                    };
+                    let is_stateful =
+                        predicate_is_stateful_in_write_txn(&wtxn, pid)?.unwrap_or(sm.is_stateful);
 
                     // A declared predicate's kind constraint wins over the
                     // extractor's guessed kind. The LLM projection emits every
@@ -1557,11 +1587,18 @@ async fn apply_outcome(
                         }
 
                         // Neither a declared relation_type nor a declared
-                        // predicate → an extractor-coined relation. Open-
-                        // vocabulary persistence: intern the coined relation_type
-                        // and keep the typed edge rather than dropping the fact.
-                        // Falls through to the relation_create below.
+                        // predicate → an extractor-coined relation. Closed-vocab:
+                        // do NOT intern it (mirrors the statement gate). Record
+                        // to the review queue + metric and skip, keeping the
+                        // relation graph canonical.
+                        let _ = brain_metadata::predicate_review_record(
+                            &wtxn,
+                            &rm.relation_type_qname,
+                        );
+                        worker.metrics.inc_schema_filtered(&rm.relation_type_qname);
+                        continue;
                     }
+                    // Declared relation_type: resolve to its existing id.
                     let rt = relation_type_intern_or_get(&wtxn, ns, name, 0, now)
                         .map_err(|e| ApplyError::RelationType(format!("{e}")))?;
                     let payload = RelationCreatePayload {
@@ -2297,6 +2334,7 @@ mod tests {
             &mems,
             false,
             None,
+            None,
         ));
         assert_eq!(outcomes.len(), mems.len());
 
@@ -2445,6 +2483,7 @@ mod tests {
             vec![llm, classifier], // intentional reverse order — pipeline must reorder.
             &mems,
             false,
+            None,
             None,
         ));
 

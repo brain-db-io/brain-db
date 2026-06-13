@@ -402,7 +402,7 @@ define extractor llm_predicate {
     kind: llm
     target: entity_or_statement
     model: "gpt-4o-mini"
-    prompt: """You are extracting structured knowledge from one memory at a time. Capture EVERY salient assertion in the text as a clean subject–predicate–object triple.
+    prompt: """You extract durable, factual knowledge from one memory at a time as clean subject–predicate–object triples for a memory database. Extract only genuine, lasting facts, preferences, and relationships about the entities — NOT conversational filler, greetings, reactions, or in-the-moment feelings.
 
 The active schema declares these entity types:
 - brain:Person
@@ -412,17 +412,11 @@ The active schema declares these entity types:
 - brain:Place
 - brain:Concept
 
-These predicates are declared. PREFER one of these verbatim when it fits the assertion:
-- brain:is_a, brain:has_name, brain:mentions, brain:related_to
-- brain:works_at, brain:member_of, brain:current_role
-- brain:lives_in, brain:located_in
-- brain:owns, brain:speaks, brain:has_skill
-- brain:prefers, brain:likes, brain:dislikes, brain:interested_in
-- brain:knows, brain:intends, brain:did
-- brain:scheduled, brain:occurred_at, brain:participated_in
-- brain:mentioned_in
+You may use ONLY the predicates declared below. Choose the closest one and map synonyms onto it (loves/enjoys/is a fan of -> the closest "like" predicate; from/grew up in/home country -> the closest origin/location predicate; job/employer -> a work predicate). If NO declared predicate genuinely fits an assertion, OMIT that assertion — do NOT invent or coin a new predicate.
 
-These relation types are declared (prefer when an entity↔entity relation fits):
+Declared predicates — `qname (Kind, single|set): description`:
+{DECLARED_PREDICATES}
+Declared relation types (entity↔entity edges; use ONLY these):
 - brain:related_to, brain:reports_to, brain:co_authored, brain:family_of
 
 Output STRICT JSON matching this shape, and nothing else:
@@ -437,9 +431,9 @@ Output STRICT JSON matching this shape, and nothing else:
     },
     {
       "subject": "Caroline",
-      "predicate": "brain:moved_from",
-      "object": "Sweden",
-      "is_stateful": false,
+      "predicate": "brain:lives_in",
+      "object": "Berlin",
+      "is_stateful": true,
       "confidence": 0.9
     },
     {
@@ -448,13 +442,6 @@ Output STRICT JSON matching this shape, and nothing else:
       "object": "dinosaurs",
       "is_stateful": false,
       "confidence": 0.88
-    },
-    {
-      "subject": "Melanie",
-      "predicate": "brain:read",
-      "object": "Becoming Nicole",
-      "is_stateful": false,
-      "confidence": 0.95
     }
   ],
   "relations": [
@@ -468,13 +455,14 @@ Output STRICT JSON matching this shape, and nothing else:
 }
 
 Rules:
-- Decompose each assertion into a clean (subject, predicate, object). The predicate carries the verb/relation; the object is the entity or short value it acts on — NOT a verb phrase. "Caroline moved from Sweden" -> subject "Caroline", predicate "brain:moved_from", object "Sweden" (NOT object "moved from Sweden"). "Caroline makes abstract art" -> predicate "brain:makes", object "abstract art".
-- PREFER a declared predicate when one genuinely fits. If none fits, COIN a concise predicate as brain:<lower_snake_case_verb> (e.g. brain:moved_from, brain:read, brain:makes, brain:researches) rather than forcing an ill-fitting declared predicate or dropping the fact. Never omit a real assertion just because no declared predicate matches.
-- Same for relations: prefer a declared relation_type; otherwise coin brain:<lower_snake_case>.
+- Decompose each assertion into a clean (subject, predicate, object). The predicate is the verb/relation; the object is the entity or a short clean value it acts on — NEVER a verb phrase or sentence fragment. "Alice works at Acme" -> predicate "brain:works_at", object "Acme Corp" (NOT "works at Acme"). "Caroline lives in Berlin" -> predicate "brain:lives_in", object "Berlin".
+- Use ONLY the declared predicates above. Map synonyms to the closest declared predicate. If none genuinely fits, OMIT the assertion — never coin a new predicate, never force an ill-fitting one.
+- Same for relations: use ONLY the declared relation types; if none fits, omit.
+- Quality over coverage. Extract a durable fact / preference / relationship, not conversational noise: skip greetings, reactions ("that's awesome"), momentary feelings, and vague statements. Emitting nothing is better than a wrong or vague triple.
 - Extract assertions about possessive or implied subjects too ("Melanie's kids love dinosaurs" -> subject "Melanie's kids").
 - Use the entity surface forms verbatim from the "Previously extracted entities" section below as `subject` / `object` whenever the assertion involves one of them. Do not invent new surface forms for those concepts.
 - Set is_stateful true only for single-valued attributes that supersede prior values (current job, current city); leave false for additive facts and events.
-- If the text genuinely contains no assertion, return `{ "statements": [], "relations": [] }`.
+- If the text contains no durable assertion, return `{ "statements": [], "relations": [] }`.
 {PRIOR_ENTITIES}
 Input text:
 ```

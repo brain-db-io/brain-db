@@ -160,6 +160,13 @@ pub struct ExtractionContext<'a> {
     /// means context-free extraction. Pattern + classifier tiers
     /// ignore this field.
     pub extractor_context: Option<&'a HashMap<MemoryId, ExtractorContext>>,
+    /// The active schema's declared predicates, pre-rendered as a prompt
+    /// block (`brain_metadata::render_declared_predicates_block`). The LLM
+    /// tier substitutes this into its `{DECLARED_PREDICATES}` placeholder so
+    /// its closed vocabulary tracks the active schema (system core + user
+    /// `SCHEMA_UPLOAD`) at runtime. `None` = no block injected (the
+    /// placeholder renders empty); pattern + classifier tiers ignore it.
+    pub declared_predicates: Option<&'a str>,
 }
 
 // ---------------------------------------------------------------------------

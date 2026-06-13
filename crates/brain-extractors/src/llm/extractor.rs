@@ -211,6 +211,7 @@ impl LlmExtractor {
         }
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub(super) fn build_request(
         &self,
         inner: &LlmExtractorInner,
@@ -218,10 +219,19 @@ impl LlmExtractor {
         memory_text: &str,
         prior_entities: &[&EntityMention],
         extractor_context: Option<&ExtractorContext>,
+        declared_predicates: Option<&str>,
         now_unix_nanos: u64,
     ) -> (LlmRequest, BuildRequestStats) {
+        // Fill the active-schema predicate block once, before the
+        // per-memory render. Closed-vocab extraction tracks the active
+        // schema (system + user uploads) without baking the predicate
+        // list into the template. A template without the placeholder is
+        // left unchanged; an unfilled placeholder renders empty.
+        let prompt = inner
+            .prompt
+            .replace("{DECLARED_PREDICATES}", declared_predicates.unwrap_or(""));
         let (user_body, stats) = render_prompt_with_context(
-            &inner.prompt,
+            &prompt,
             memory_text,
             prior_entities,
             extractor_context,
@@ -1113,6 +1123,7 @@ impl Extractor for LlmExtractor {
                 text,
                 &prior_entities,
                 extractor_context,
+                ctx.declared_predicates,
                 started,
             );
             if let Some(budget) = self.cost_budget {

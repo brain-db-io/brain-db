@@ -82,7 +82,8 @@ pub use relation::types::{
 pub use schema::apply::{apply_schema_definitions, SchemaApplyError};
 pub use schema::predicate::{
     predicate_get, predicate_intern, predicate_list, predicate_lookup_by_qname,
-    render_declared_predicates_block, PredicateOpError,
+    predicate_review_list, predicate_review_record, render_declared_predicates_block,
+    PredicateOpError,
 };
 pub use schema::store::{
     schema_active, schema_active_row, schema_get, schema_list, schema_namespaces, schema_upload,

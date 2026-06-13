@@ -732,6 +732,7 @@ mod tests {
         };
         let reg = ExtractorRegistry::new();
         let ctx = ExtractionContext {
+            declared_predicates: None,
             schema_version: 1,
             now_unix_nanos: 0,
             registry: &reg,
@@ -902,6 +903,7 @@ mod tests {
             occurred_at_unix_nanos: None,
         };
         let ctx = crate::framework::extractor::ExtractionContext {
+            declared_predicates: None,
             schema_version: 1,
             now_unix_nanos: 0,
             registry: &reg,
