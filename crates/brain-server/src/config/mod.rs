@@ -300,8 +300,10 @@ fn default_resolver_embed_threshold() -> f32 {
 }
 
 /// `[extractors.hype]` TOML sub-section. Write-time hypothetical-
-/// question generation tuning. HyPE is always-on when an LLM provider +
-/// cache are available; the only tunable is the question count.
+/// question generation tuning. HyPE is **mandatory and always-on** —
+/// there is no flag to disable it, and the LLM it depends on is a hard
+/// startup requirement (see `Config::validate_llm_provider`). The only
+/// tunable is the question count.
 #[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
 pub struct HypeExtractorConfig {
@@ -1321,40 +1323,36 @@ impl Config {
         Ok(())
     }
 
-    /// Hard startup gate on the LLM provider key. Brain's write path is
-    /// not a happy-path veneer: entity / statement / relation extraction
-    /// and HyPE hypothetical-question generation are core, always-on
-    /// features that depend on an LLM provider. So when the LLM extractor
-    /// tier is enabled (the default), a provider key is a HARD startup
-    /// requirement — the server refuses to boot without one rather than
-    /// silently degrading to a substrate-only shell that looks healthy but
-    /// stores no graph and no question-vector bridge.
+    /// Hard, unconditional startup gate on the LLM provider key. An LLM
+    /// is a mandatory dependency of every Brain shard — it is not a tier
+    /// the operator can opt out of. Write-time HyPE hypothetical-question
+    /// generation is always-on (there is no flag to disable it), and HyPE
+    /// has no fallback path: without an LLM there are no question vectors,
+    /// no entity/statement/relation extraction, and the read-side
+    /// question-vector bridge is empty. So the server refuses to boot
+    /// without a provider key, period — there is no substrate-only mode.
     ///
     /// A key resolves from either the `BRAIN_API_KEY` process env or
     /// `[llm] api_key` in config (the latter also covers the
     /// `BRAIN__LLM__API_KEY` override, already folded into `self.llm`
     /// by this point).
     ///
-    /// The single escape hatch is an explicit substrate-only deployment:
-    /// `[extractors.llm] enabled = false` opts out of the LLM tier, and
-    /// then no key is required (HyPE has no provider to call and skips).
+    /// `[extractors.llm] enabled` no longer gates this requirement: the
+    /// LLM is required regardless of the tier flag, and a missing key is
+    /// always a hard startup error.
     fn validate_llm_provider(&self, env: &HashMap<String, String>) -> Result<(), ConfigError> {
-        if !self.extractors.llm.enabled {
-            // Operator explicitly opted into a substrate-only deployment.
-            return Ok(());
-        }
         let env_present = |k: &str| env.get(k).is_some_and(|v| !v.trim().is_empty());
         let cfg_present =
             |k: &Option<String>| k.as_deref().is_some_and(|v| !v.trim().is_empty());
         let have_provider = env_present("BRAIN_API_KEY") || cfg_present(&self.llm.api_key);
         if !have_provider {
             return Err(ConfigError::Invariant(
-                "no LLM provider key configured, but the LLM extractor tier is enabled. \
-                 Brain's write path (entity / statement / relation extraction and HyPE \
-                 hypothetical-question generation) requires an LLM provider and will not \
-                 start without one. Set BRAIN_API_KEY in the environment, or `[llm] api_key` \
-                 in the config. For an intentional substrate-only deployment (no extraction, \
-                 no HyPE), set `[extractors.llm] enabled = false`."
+                "no LLM provider key configured. Brain requires an LLM: write-time HyPE \
+                 hypothetical-question generation is mandatory and always-on, and the \
+                 write path (entity / statement / relation extraction) depends on it. \
+                 There is no way to disable HyPE or run without an LLM. \
+                 Set BRAIN_API_KEY in the environment, or `[llm] api_key` in the config, \
+                 and ensure `[llm] model` names a provider you hold a key for."
                     .into(),
             ));
         }
@@ -1380,15 +1378,14 @@ mod tests {
     }
 
     #[test]
-    fn llm_provider_gate_requires_key_when_tier_enabled() {
+    fn llm_provider_gate_requires_key_unconditionally() {
         let mut cfg = Config::for_tests();
-        assert!(cfg.extractors.llm.enabled, "llm tier defaults on");
         let empty: HashMap<String, String> = HashMap::new();
 
-        // Default (tier on) + no key anywhere → refuse to start.
+        // No key anywhere → refuse to start.
         assert!(
             cfg.validate_llm_provider(&empty).is_err(),
-            "no provider key with the LLM tier enabled must fail startup"
+            "no provider key must fail startup — the LLM is mandatory"
         );
 
         // Bare env key satisfies it.
@@ -1406,12 +1403,17 @@ mod tests {
     }
 
     #[test]
-    fn llm_provider_gate_allows_substrate_only_optout() {
+    fn llm_provider_gate_has_no_substrate_only_optout() {
+        // The LLM is mandatory and HyPE is always-on. Disabling the
+        // `extractors.llm` tier does NOT lift the key requirement — a
+        // keyless boot must still fail.
         let mut cfg = Config::for_tests();
         cfg.extractors.llm.enabled = false;
         let empty: HashMap<String, String> = HashMap::new();
-        // Explicit substrate-only deployment: no key required.
-        assert!(cfg.validate_llm_provider(&empty).is_ok());
+        assert!(
+            cfg.validate_llm_provider(&empty).is_err(),
+            "disabling the llm tier must not bypass the mandatory LLM key gate"
+        );
     }
 
     #[test]

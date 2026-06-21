@@ -1594,11 +1594,6 @@ pub fn spawn_shard(
         llm: brain_extractors::TierState::from_enabled(cfg.extractors.llm_enabled),
     };
     let tier_gate_for_closure = tier_gate;
-    // Whether the LLM extractor tier is enabled in config. Captured for
-    // the executor closure so it can warn (after `build_llm_deps`) when
-    // the tier is on but no provider key is in the environment — that
-    // combination silently yields zero statements/relations otherwise.
-    let llm_tier_enabled_for_closure = cfg.extractors.llm_enabled;
     // Provider credentials / model overrides for the LLM extractor
     // tier, resolved env-first / config-fallback inside the closure.
     let llm_config_for_closure = cfg.llm.clone();
@@ -1878,20 +1873,21 @@ pub fn spawn_shard(
             // configured stay unchanged.
             let llm_deps =
                 llm_setup::build_llm_deps(&shard_dir_for_executor, &llm_config_for_closure);
-            // The LLM tier is on (all tiers default to enabled) but no
-            // provider client could be built — no BRAIN_API_KEY in the
-            // env and no `[llm] api_key` in config. This is the expected
-            // out-of-box state, not a misconfiguration: pattern +
-            // classifier still extract entities; only statements/relations
-            // (LLM-only) are skipped. So it's INFO, not WARN — the server
-            // boots clean. The note stays discoverable for anyone
-            // wondering why a memory has entities but no typed-graph.
-            if llm_tier_enabled_for_closure && llm_deps.router.is_none() {
-                tracing::info!(
+            // The LLM is mandatory. The operator-facing hard gate lives at
+            // config load (`Config::validate_llm_provider`): a keyless
+            // server refuses to boot. `spawn_shard` is the lower-level API
+            // beneath that gate; if a caller reaches here without a provider
+            // key, HyPE and the write path cannot run, so we warn loudly
+            // rather than silently degrade. Production always passes the
+            // config gate first, so this WARN never fires there.
+            if llm_deps.primary_client.is_none() {
+                tracing::warn!(
                     target: "brain_server::shard",
-                    "LLM extractor tier has no provider key (set BRAIN_API_KEY or \
-                     `[llm] api_key` in config); entities still extract, \
-                     statements/relations are skipped until a key is set",
+                    shard_id,
+                    "no LLM provider key resolved; HyPE (mandatory) and the LLM write \
+                     path are inoperative on this shard. Set BRAIN_API_KEY or \
+                     `[llm] api_key`. The server entry point enforces this as a hard \
+                     startup error (Config::validate_llm_provider)",
                 );
             }
             let llm_cache_for_ops = llm_deps.cache.clone();
@@ -2835,18 +2831,22 @@ pub fn spawn_shard(
                     };
                     extractor_worker = extractor_worker.with_causal_edge_feed(feed);
                 }
-                // Wire the write-time HyPE generator. HyPE is a core
-                // accuracy feature — hypothetical-question embeddings are
-                // the cheap-read bridge that lets a user's phrasing match a
-                // memory it doesn't lexically resemble — so it runs by
-                // default whenever an LLM provider + cache are available,
-                // exactly like the other LLM-backed write-time tiers. It is
-                // not behind an on/off flag. The only tunable is the number
-                // of questions per memory (`[extractors.hype]
-                // num_questions`, default 6). A substrate-only deployment
-                // with no provider is an INFO skip, never a hard fail —
-                // HyPE enhances recall, it is never a correctness
-                // dependency.
+                // Wire the write-time HyPE generator. HyPE is MANDATORY and
+                // always-on — there is no flag to disable it. Hypothetical-
+                // question embeddings are the cheap-read bridge that lets a
+                // user's phrasing match a memory it doesn't lexically
+                // resemble, and the write path depends on them. The LLM HyPE
+                // needs is a hard startup requirement enforced at config load
+                // (`Config::validate_llm_provider`): a keyless server refuses
+                // to boot. The only tunable is the number of questions per
+                // memory (`[extractors.hype] num_questions`, default 6).
+                //
+                // The `(client, cache)` slots are `Some` whenever the config
+                // gate was honoured (the production entry point). They can
+                // only be `None` below that gate — `spawn_shard` reached
+                // directly without a provider key/cache — in which case the
+                // shard already logged a WARN above; HyPE is then inoperative
+                // and we skip wiring it rather than panic the executor thread.
                 match (hype_client_for_worker.clone(), hype_cache_for_worker.clone()) {
                     (Some(client), Some(cache)) => {
                         let num_questions = extractor_tuning_spawn_cfg.hype_num_questions.max(1);
@@ -2862,13 +2862,16 @@ pub fn spawn_shard(
                         extractor_worker = extractor_worker.with_hype(generator);
                         info!(
                             shard_id,
-                            num_questions, "HyPE write-time generation enabled"
+                            num_questions, "HyPE write-time generation enabled (mandatory)"
                         );
                     }
-                    _ => info!(
+                    _ => tracing::warn!(
+                        target: "brain_server::shard",
                         shard_id,
-                        "no LLM provider/cache; HyPE generation skipped \
-                         (substrate-only deployment)"
+                        "HyPE (mandatory) is inoperative: no LLM provider client or cache. \
+                         The server entry point enforces an LLM as a hard startup \
+                         requirement (Config::validate_llm_provider); reaching here means \
+                         spawn_shard was used below that gate without a key",
                     ),
                 }
                 scheduler

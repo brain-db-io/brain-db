@@ -173,6 +173,8 @@ max_related_statements_per_entity = 5
 # threshold = 0.5           # GLiNER post-sigmoid acceptance floor
 
 # [extractors.hype]
+# HyPE is mandatory and always-on — there is no enable/disable flag.
+# It requires the LLM configured under [llm] (a keyless server won't boot).
 # num_questions = 6         # hypothetical questions generated per memory
 
 # Index pipeline tuning. Tantivy group-commit cadence (whichever of the
@@ -210,6 +212,11 @@ openai_api_key = ""  # operator sets at deploy time — never commit a real key
 # ollama_model = "llama3.1:8b"
 
 [llm]
+# REQUIRED. An LLM is mandatory: write-time HyPE hypothetical-question
+# generation is always-on and cannot be disabled, and the write path
+# depends on it. The server refuses to boot without a provider key —
+# there is no substrate-only / HyPE-less mode.
+#
 # Single provider-agnostic credential + model. The provider is derived
 # from the model id (claude* → Anthropic, else OpenAI). BRAIN_API_KEY /
 # BRAIN_AI_MODEL override these at deploy time.

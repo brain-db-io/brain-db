@@ -10,9 +10,10 @@
 //!   provider key.
 //! - Constructs a [`ModelRouter`] holding the one provider client.
 //! - Opens `<shard_dir>/llm_cache.redb` via [`LlmCacheDb::open`].
-//!   Failure to open the file is non-fatal: a warning is logged
-//!   and the cache slot stays `None` (LLM extractors then skip
-//!   caching).
+//!   On failure a warning is logged and the cache slot stays `None`.
+//!   Note that HyPE is mandatory and requires this cache, so the shard
+//!   spawn path treats a `None` cache as fatal (it cannot run HyPE) —
+//!   the slot is only `None` transiently while the warning is surfaced.
 //!
 //! ## One credential, one model, derived provider
 //!
