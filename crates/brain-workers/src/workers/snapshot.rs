@@ -4,18 +4,19 @@
 //! **off by default** — many deployments prefer external backup
 //! tooling, and the built-in snapshot worker is a convenience.
 //!
-//! ## v1 deviation (documented)
+//! ## v1 status
 //!
-//! No full-shard snapshot orchestration exists yet:
-//! - `SharedHnsw::save_snapshot` exists but no arena / metadata
-//!   wrappers do.
-//! - No `Wal` instance hangs off the writer, so the "trigger
-//!   checkpoint first" sequencing is not yet wired.
+//! Partial: the memory-HNSW graph is persisted (`SharedHnsw::save_snapshot`,
+//! driven by the real `ShardSnapshotSource` in brain-server), giving a
+//! fast memory-index cold-start. What is NOT yet wired is full-shard
+//! snapshot orchestration — the arena + metadata-redb + WAL-tail reflink
+//! bundle and its `manifest.json` (see spec/08_storage/06_snapshots.md),
+//! and therefore the checkpoint-then-copy sequencing.
 //!
-//! v1 ships the **worker shape + retention policy** as a pluggable
-//! seam (same pattern as the HNSW / WAL-retention / cache-evict
-//! workers). [`DisabledSnapshotSource`] is the default; a real source
-//! plugs in later.
+//! The worker ships the **shape + retention policy** as a pluggable seam
+//! (same pattern as the HNSW / WAL-retention / cache-evict workers);
+//! [`DisabledSnapshotSource`] is the default for deployments that prefer
+//! external backup tooling, and `ShardSnapshotSource` is the live source.
 
 use std::future::Future;
 use std::pin::Pin;

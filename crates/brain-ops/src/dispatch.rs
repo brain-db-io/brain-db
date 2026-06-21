@@ -343,6 +343,18 @@ pub async fn dispatch(
             handle_list_pending_contradictions(r, ctx).map(single)
         }
 
+        // Substrate admin ops (stats / snapshot / restore / integrity-check /
+        // migrate-embeddings / context create+rename / move-memory / reclassify
+        // / list-tombstoned) are NOT wire operations. The operator control
+        // plane is the HTTP admin listener (the SDK + observability specs make
+        // admin HTTP-only — "Brain ships no CLI; operators administer over the
+        // admin API"). The opcodes remain allocated in the wire table for
+        // namespace stability, but a client that sends one is on the wrong
+        // plane: reject it permanently and point at HTTP, rather than implying
+        // "coming later" with NotYetImplemented. (The typed-graph admin family
+        // and SCHEMA_REPLACE ARE genuine per-shard wire ops, dispatched above;
+        // AdminBackfill below is a real future wire op pending its worker
+        // handle, distinct from this HTTP-only set.)
         RequestBody::AdminStats(_)
         | RequestBody::AdminSnapshot(_)
         | RequestBody::AdminRestore(_)
@@ -352,9 +364,10 @@ pub async fn dispatch(
         | RequestBody::AdminRenameContext(_)
         | RequestBody::AdminMoveMemory(_)
         | RequestBody::AdminReclassify(_)
-        | RequestBody::AdminListTombstoned(_) => {
-            Err(OpError::NotYetImplemented("admin op — Phase 8 / 9"))
-        }
+        | RequestBody::AdminListTombstoned(_) => Err(OpError::InvalidRequest(
+            "admin operations are served over the HTTP admin listener, not the wire protocol"
+                .to_owned(),
+        )),
 
         // Backfill control surface. The wire layer is allocated;
         // the handler that bridges to the per-shard

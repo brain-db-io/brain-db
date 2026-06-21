@@ -16,11 +16,11 @@
 //! caller (`submit::wal_append_for_write`) — this module just maps
 //! each phase to its payload.
 //!
-//! Deferred:
-//! - UpsertEntity / UpsertStatement / UpsertRelation / Supersede /
-//!   UpsertSchema / SetExtractorEnabled / MergeEntities — these need
-//!   the `WalPayload::PhaseBody` variant with rkyv-encoded bodies; the
-//!   body schemas land in a phase_bodies.rs follow-up.
+//! Typed-graph + schema phases (UpsertEntity / UpsertStatement /
+//! UpsertRelation / Supersede / UpsertSchema / SetExtractorEnabled /
+//! MergeEntities) are WAL-durable via `WalPayload::PhaseBody`, which
+//! carries the rkyv-encoded phase body; recovery decodes and re-applies
+//! it. (See the `PhaseBody` arms below.)
 //!
 //! Phases without a wire-side WAL event (UpdateEmbedding before
 //! arena-write wiring, ReclaimSlots, UpdateEntity, RenameEntity,

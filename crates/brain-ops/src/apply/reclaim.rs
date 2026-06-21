@@ -5,7 +5,8 @@
 //! evict any FINGERPRINTS rows that referenced the reclaimed slots so
 //! a future encode with the same content can dedupe-or-not freely.
 
-use brain_metadata::tables::fingerprint::FINGERPRINTS_TABLE;
+use brain_core::{AgentId, ContextId};
+use brain_metadata::tables::fingerprint::{fingerprint_key, FINGERPRINTS_TABLE};
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use redb::{ReadableTable, WriteTransaction};
 
@@ -47,7 +48,16 @@ pub fn apply_reclaim_slots(
             let row = v.value();
             if slots.contains(&row.slot_id) {
                 if let Some(ch) = row.content_hash {
-                    evictions.push(content_hash_to_fp_key(ch));
+                    // Reconstruct the EXACT fingerprint key from the row's own
+                    // (agent, context, hash) — the same triple the encode path
+                    // keyed it under. A zeroed agent/context placeholder would
+                    // prefix-collide: two agents (or contexts) sharing a content
+                    // hash would evict each other's fingerprint.
+                    evictions.push(fingerprint_key(
+                        AgentId::from(row.agent_id_bytes),
+                        ContextId(row.context_id),
+                        &ch,
+                    ));
                 }
                 count += 1;
             }
@@ -66,18 +76,6 @@ pub fn apply_reclaim_slots(
     }
 
     Ok(PhaseAck::SlotsReclaimed { count })
-}
-
-/// FINGERPRINTS_TABLE is keyed by 56 bytes: agent(16) + context(8) +
-/// hash(32). The slot-reclaim path here only knows the content_hash;
-/// it removes via prefix match isn't directly supported, so we encode
-/// a synthetic key with zeroed agent/context. That's a placeholder —
-/// the real port comes with the worker migration, where the worker
-/// already knows the original (agent, context) tuple.
-fn content_hash_to_fp_key(content_hash: [u8; 32]) -> [u8; 56] {
-    let mut k = [0u8; 56];
-    k[24..56].copy_from_slice(&content_hash);
-    k
 }
 
 #[cfg(test)]
@@ -108,5 +106,89 @@ mod tests {
         let wtxn = db.write_txn().unwrap();
         let ack = apply_reclaim_slots(&wtxn, &phase, &write).unwrap();
         assert!(matches!(ack, PhaseAck::SlotsReclaimed { count: 0 }));
+    }
+
+    /// Two memories with the SAME content hash + context but DIFFERENT
+    /// agents. Reclaiming one agent's slot must evict ONLY that agent's
+    /// fingerprint — the other agent's identical-hash fingerprint must
+    /// survive. Guards the zeroed-key bug, where reclaim keyed by
+    /// content-hash alone could collide across agents/contexts.
+    #[test]
+    fn reclaim_evicts_only_the_matching_agent_fingerprint() {
+        use brain_core::{MemoryId, MemoryKind};
+        use brain_metadata::tables::fingerprint::{content_hash, FingerprintEntry};
+        use brain_metadata::tables::memory::MemoryMetadata;
+        use uuid::Uuid;
+
+        let (_dir, db) = open_db();
+        let agent_a = AgentId(Uuid::from_bytes([1u8; 16]));
+        let agent_b = AgentId(Uuid::from_bytes([2u8; 16]));
+        let ctx = ContextId(7);
+        let hash = content_hash("identical text stored under two agents");
+
+        let mem_a = MemoryMetadata::new_active(
+            MemoryId::pack(0, 100, 1),
+            agent_a,
+            ctx,
+            100,
+            1,
+            MemoryKind::Episodic,
+            [0u8; 16],
+            1.0,
+            8,
+            1,
+        )
+        .with_content_hash(hash);
+        let mem_b = MemoryMetadata::new_active(
+            MemoryId::pack(0, 200, 1),
+            agent_b,
+            ctx,
+            200,
+            1,
+            MemoryKind::Episodic,
+            [0u8; 16],
+            1.0,
+            8,
+            1,
+        )
+        .with_content_hash(hash);
+
+        let key_a = fingerprint_key(agent_a, ctx, &hash);
+        let key_b = fingerprint_key(agent_b, ctx, &hash);
+
+        {
+            let wtxn = db.write_txn().unwrap();
+            {
+                let mut mt = wtxn.open_table(MEMORIES_TABLE).unwrap();
+                mt.insert(&mem_a.memory_id_bytes, &mem_a).unwrap();
+                mt.insert(&mem_b.memory_id_bytes, &mem_b).unwrap();
+                let mut fp = wtxn.open_table(FINGERPRINTS_TABLE).unwrap();
+                fp.insert(&key_a, &FingerprintEntry::new(mem_a.memory_id(), 1))
+                    .unwrap();
+                fp.insert(&key_b, &FingerprintEntry::new(mem_b.memory_id(), 1))
+                    .unwrap();
+            }
+            wtxn.commit().unwrap();
+        }
+
+        let phase = Phase::ReclaimSlots { slots: vec![100] };
+        let write = Write::single(WriteId::new(), AgentId::default(), phase.clone());
+        {
+            let wtxn = db.write_txn().unwrap();
+            let ack = apply_reclaim_slots(&wtxn, &phase, &write).unwrap();
+            assert!(matches!(ack, PhaseAck::SlotsReclaimed { count: 1 }));
+            wtxn.commit().unwrap();
+        }
+
+        let rtxn = db.read_txn().unwrap();
+        let fp = rtxn.open_table(FINGERPRINTS_TABLE).unwrap();
+        assert!(
+            fp.get(&key_a).unwrap().is_none(),
+            "reclaimed agent's fingerprint must be evicted"
+        );
+        assert!(
+            fp.get(&key_b).unwrap().is_some(),
+            "other agent's same-hash fingerprint must survive (no zeroed-key collision)"
+        );
     }
 }
