@@ -208,6 +208,51 @@ fn apply_anchor_abstention(
     }
 }
 
+/// Unique multi-lane consensus collapse (model-free, no per-read model). Uses the
+/// per-lane contributions the fan-out already recorded: a memory found by MORE
+/// independent lanes (semantic / lexical / graph) is a stronger belonging signal.
+///
+/// Collapse the set to a crisp Single ONLY when BOTH agree:
+///   * exactly one member has the maximum lane count, and that maximum is ≥ 2
+///     (a unique multi-lane consensus), AND
+///   * that same member is the highest-belonging member (`top_member_id`).
+///
+/// Requiring both is what protects recall on paraphrase / lexical cues: a lexical
+/// term-matcher can hit two cheap lanes and win the lane count while NOT being the
+/// real answer; without the score-agreement guard the collapse would discard the
+/// true answer. When the two signals disagree (or there is no unique consensus, or
+/// the max is a single lane), the full set is returned unchanged — recall is never
+/// reduced. Pure (no `ctx`): unit-testable.
+fn consensus_collapse(
+    mut out: Vec<MemoryResult>,
+    top_member_id: Option<u128>,
+) -> Vec<MemoryResult> {
+    let lanes = |m: &MemoryResult| m.contributing_retrievers.len();
+    if out.is_empty() {
+        return out;
+    }
+    let max_lanes = out.iter().map(&lanes).max().unwrap_or(0);
+    if max_lanes < 2 {
+        return out;
+    }
+    let consensus: Vec<usize> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| lanes(m) == max_lanes)
+        .map(|(i, _)| i)
+        .collect();
+    if consensus.len() == 1
+        && out
+            .get(consensus[0])
+            .is_some_and(|m| Some(m.memory_id) == top_member_id)
+    {
+        let m = out.swap_remove(consensus[0]);
+        out.clear();
+        out.push(m);
+    }
+    out
+}
+
 /// Build the membership set for a cue: `S_struct ∪ S_sem`, ranked by
 /// confirmation strength (in both lanes first, then structured-only, then
 /// associative-only), deduped by memory id. The associative side (`S_sem`) is
@@ -231,22 +276,35 @@ fn build_membership(
     let mut scored: Vec<(MemoryResult, f32)> = ranked
         .into_iter()
         .map(|m| {
-            // Re-score against the HNSW vector when present. A pending in-txn
-            // write isn't in the HNSW yet (it's only in the txn buffer), so
-            // `vector_for` misses — fall back to the cosine the overlay already
-            // computed against this hit (`similarity_score`) instead of zeroing
-            // it, which would drop the caller's own uncommitted write below the
-            // membership band and break read-your-writes. Committed hits always
-            // have a vector, so this fallback is inert outside a transaction.
-            let cos = ctx
+            // Belonging score = the STRONGER of the direct passage cosine and the
+            // score the fan-out already assigned this hit. The fan-out score
+            // carries signals the raw passage vector does NOT: a HyPE question-
+            // vector match (the cue matched a hypothetical question generated FROM
+            // this memory — the paraphrase bridge), the best-of-lanes union, and
+            // the in-txn overlay cosine. Re-scoring on the passage vector alone
+            // would discard those and drop a paraphrase-/lexical-surfaced answer
+            // below the membership band (measured: passage cosine ~0.5 on indirect
+            // cues while HyPE surfaced the gold). Taking the max keeps such a hit
+            // in the set and leaves direct-cosine hits unchanged.
+            //
+            // A pending in-txn write isn't in the HNSW yet (`vector_for` misses),
+            // so its score comes entirely from `similarity_score` — preserving the
+            // read-your-writes guarantee.
+            let passage = ctx
                 .semantic_retriever
                 .vector_for(MemoryId::from_raw(m.memory_id))
                 .map(|v| cosine(cue_vec, &v).max(0.0))
-                .unwrap_or_else(|| m.similarity_score.max(0.0));
+                .unwrap_or(0.0);
+            let cos = passage.max(m.similarity_score.max(0.0));
             (m, cos)
         })
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // The highest-belonging member (used below so the lane-consensus collapse only
+    // fires when the consensus and the score agree — never collapses the answer
+    // away to a lexical term-matcher that merely hit more lanes).
+    let top_member_id: Option<u128> = scored.first().map(|(m, _)| m.memory_id);
 
     let top = scored.first().map(|(_, c)| *c).unwrap_or(0.0);
     let band = top * MEMBERSHIP_REL_BAND;
@@ -349,38 +407,8 @@ fn build_membership(
         }
     }
 
-    // CROSS-LANE AGREEMENT (no model, no extra latency — uses the per-lane
-    // contributions the fan-out already recorded). A memory found by MORE
-    // independent lanes (semantic / lexical / graph) is a stronger belonging
-    // signal than one found by a single lane. Stable-sort members by lane count
-    // so the consensus answer leads. If exactly ONE member has the maximum lane
-    // count and that maximum is ≥ 2 (a unique multi-lane consensus — the one
-    // memory independent methods agree on), collapse to that crisp Single; this
-    // is what isolates the answer turn from same-subject turns on dense corpora
-    // without an encoder. Otherwise the full set is preserved — recall is never
-    // reduced, only reordered.
-    // Only the unique-consensus COLLAPSE — do NOT reorder the rest. Reordering by
-    // lane count was measured to mislead the downstream reader on dense corpora
-    // (it floats lexical term-matchers above the cosine-best answer); the collapse
-    // alone delivers the crisp Single, with the original cosine order preserved
-    // otherwise, so recall ordering never regresses.
-    let lanes = |m: &MemoryResult| m.contributing_retrievers.len();
-    if !out.is_empty() {
-        let max_lanes = out.iter().map(&lanes).max().unwrap_or(0);
-        if max_lanes >= 2 {
-            let consensus: Vec<usize> = out
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| lanes(m) == max_lanes)
-                .map(|(i, _)| i)
-                .collect();
-            if consensus.len() == 1 {
-                let m = out.swap_remove(consensus[0]);
-                out.clear();
-                out.push(m);
-            }
-        }
-    }
+    // Cross-lane consensus collapse (model-free; see `consensus_collapse`).
+    let mut out = consensus_collapse(out, top_member_id);
 
     // ── GRAPH-ANCHORED INJECTION (buried-fact recall) ──────────────────────
     // When the cue resolved to a real subject entity, pull that entity's OWN
@@ -1940,5 +1968,116 @@ mod tests {
             retriever_to_wire_name(Retriever::Graph),
             RetrieverNameWire::Graph
         );
+    }
+
+    // ── Read-path belonging logic: consensus collapse + abstention ──────────
+    // These cover the model-free membership-arbitration changes (A1/A4) and the
+    // structural abstention gate — all pure, no server, fast.
+
+    // `GroundedOutcome`, `MemoryResult`, `MemoryKindWire`, `RetrieverNameWire`
+    // are all in scope via `use super::*`.
+
+    /// Minimal `MemoryResult` for membership-logic tests: only `memory_id` and
+    /// the contributing-retriever lanes matter; everything else is benign.
+    fn mr(id: u128, lanes: &[RetrieverNameWire]) -> MemoryResult {
+        MemoryResult {
+            memory_id: id,
+            text: String::new(),
+            similarity_score: 0.0,
+            confidence: 0.0,
+            salience: 0.0,
+            kind: MemoryKindWire::Episodic,
+            agent_id: [0u8; 16],
+            context_id: 0,
+            created_at_unix_nanos: 0,
+            last_accessed_at_unix_nanos: 0,
+            edges: None,
+            graph: None,
+            contributing_retrievers: lanes.to_vec(),
+            fused_score: 0.0,
+            rerank_score: None,
+            salience_initial: 0.0,
+            access_count: 0,
+            lsn: 0,
+            flags: 0,
+            consolidated_at_unix_nanos: None,
+            occurred_at_unix_nanos: None,
+            edges_out_count: 0,
+            edges_in_count: 0,
+        }
+    }
+
+    use RetrieverNameWire::{Graph, Lexical, Semantic};
+
+    #[test]
+    fn collapse_fires_only_when_unique_consensus_is_also_top() {
+        // A is the unique 2-lane consensus AND the top-belonging member → collapse.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 1, "unique consensus that is also top → Single");
+        assert_eq!(got[0].memory_id, 1);
+    }
+
+    #[test]
+    fn no_collapse_when_consensus_is_not_top() {
+        // A is the unique 2-lane consensus but B is the top-belonging member.
+        // The lane winner is not the score winner → keep the full set so the real
+        // answer (B) is never discarded. This is the paraphrase/lexical guard.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let got = consensus_collapse(out, Some(2));
+        assert_eq!(got.len(), 2, "consensus≠top must not collapse the answer away");
+    }
+
+    #[test]
+    fn no_collapse_on_tied_max_lane_count() {
+        // Two members share the max lane count (2) → no UNIQUE consensus → keep both.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic, Graph])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 2, "tied consensus → full set preserved");
+    }
+
+    #[test]
+    fn no_collapse_when_max_is_single_lane() {
+        // Every member has one lane → no multi-lane consensus → keep the set.
+        let out = vec![mr(1, &[Semantic]), mr(2, &[Lexical])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 2, "single-lane max never collapses");
+    }
+
+    #[test]
+    fn collapse_empty_in_empty_out() {
+        assert!(consensus_collapse(Vec::new(), None).is_empty());
+        // top_member_id None can never equal a real id → never collapses.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        assert_eq!(consensus_collapse(out, None).len(), 2);
+    }
+
+    #[test]
+    fn abstention_keeps_set_when_anchor_present() {
+        let members = vec![mr(1, &[Semantic])];
+        let kept = apply_anchor_abstention(
+            members,
+            Some(brain_core::EntityId::new()),
+            &GroundedOutcome::NoAnswer,
+        );
+        assert_eq!(kept.len(), 1, "a resolved anchor suppresses abstention");
+    }
+
+    #[test]
+    fn abstention_drops_unanchored_semantic_only_noise() {
+        // No anchor, no grounded answer, and every member is semantic-only (no
+        // cross-lane confirmation) → topical noise → abstain (empty).
+        let members = vec![mr(1, &[Semantic]), mr(2, &[Semantic])];
+        let kept = apply_anchor_abstention(members, None, &GroundedOutcome::NoAnswer);
+        assert!(kept.is_empty(), "unanchored semantic-only set must abstain");
+    }
+
+    #[test]
+    fn abstention_keeps_lane_confirmed_member_without_anchor() {
+        // No anchor, but one member is confirmed by a non-semantic lane (lexical):
+        // a real keyword/paraphrase hit, not topical noise → keep the set.
+        let members = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let kept = apply_anchor_abstention(members, None, &GroundedOutcome::NoAnswer);
+        assert_eq!(kept.len(), 2, "a lane-confirmed hit suppresses abstention");
     }
 }
