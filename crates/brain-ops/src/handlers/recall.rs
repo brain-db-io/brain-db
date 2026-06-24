@@ -27,9 +27,7 @@ use brain_planner::retrieval::router::{
     QueryRequest as PlannerQueryRequest, Retriever, RetrieverSelection,
 };
 use brain_protocol::envelope::request::{MemoryKindWire, RecallRequest};
-use brain_protocol::envelope::response::{
-    AnswerKindWire, MemoryResult, RecallResponseFrame,
-};
+use brain_protocol::envelope::response::{AnswerKindWire, MemoryResult, RecallResponseFrame};
 use brain_protocol::RetrieverNameWire;
 
 use crate::context::OpsContext;
@@ -68,6 +66,14 @@ pub async fn handle_recall(
     mut req: RecallRequest,
     ctx: &OpsContext,
 ) -> Result<RecallResponseFrame, OpError> {
+    // Did the caller ask for a specific result count? `0` means "no count, use
+    // the server default"; any non-zero value is an explicit caller cap. We
+    // capture this BEFORE normalising `max_results` below, because the keyed
+    // (exact-anchor) path must not clip the intrinsic belonging set to the fuzzy
+    // default window when the caller never asked for a count — and the
+    // normalisation overwrites `0` with the default, erasing the distinction.
+    let client_requested_count = req.max_results != 0;
+
     // Normalise the safety cap. `0` means "server default"; anything
     // above the hard ceiling is clamped (not rejected) — the cap is a
     // bound, never the caller's intent. The answer's shape comes from
@@ -148,12 +154,29 @@ pub async fn handle_recall(
     // A memory in BOTH is the most-confirmed (both lanes agree) and ranks first.
     // The answer's SHAPE follows the set's cardinality: 0 → None, 1 → Single,
     // N → Many. There is no caller-supplied count anywhere in this path.
-    let membership = build_membership(memories, &grounded, &req, ctx, &cue_vec, anchor);
+    let membership = build_membership(
+        memories,
+        &grounded,
+        &req,
+        ctx,
+        &cue_vec,
+        anchor,
+        client_requested_count,
+    );
     // Structural abstention (write-time anchors): if the cue resolves to no
     // subject entity present in the store, the grounded layer found nothing, and
     // no surviving member is confirmed by a non-semantic lane, the cue has no
     // anchor here — return None rather than topical semantic noise.
-    let membership = apply_anchor_abstention(membership, anchor, &grounded);
+    //
+    // In-txn reads are exempt: they are read-your-writes, and a pending write
+    // the caller just made in THIS transaction is not topical noise — it carries
+    // no retrieval-lane confirmation only because it isn't committed/indexed yet.
+    // Abstaining it away would silently break the read-your-writes guarantee.
+    let membership = if req.txn_id.is_some() {
+        membership
+    } else {
+        apply_anchor_abstention(membership, anchor, &grounded)
+    };
 
     Ok(recall_frame(membership))
 }
@@ -185,6 +208,51 @@ fn apply_anchor_abstention(
     }
 }
 
+/// Unique multi-lane consensus collapse (model-free, no per-read model). Uses the
+/// per-lane contributions the fan-out already recorded: a memory found by MORE
+/// independent lanes (semantic / lexical / graph) is a stronger belonging signal.
+///
+/// Collapse the set to a crisp Single ONLY when BOTH agree:
+///   * exactly one member has the maximum lane count, and that maximum is ≥ 2
+///     (a unique multi-lane consensus), AND
+///   * that same member is the highest-belonging member (`top_member_id`).
+///
+/// Requiring both is what protects recall on paraphrase / lexical cues: a lexical
+/// term-matcher can hit two cheap lanes and win the lane count while NOT being the
+/// real answer; without the score-agreement guard the collapse would discard the
+/// true answer. When the two signals disagree (or there is no unique consensus, or
+/// the max is a single lane), the full set is returned unchanged — recall is never
+/// reduced. Pure (no `ctx`): unit-testable.
+fn consensus_collapse(
+    mut out: Vec<MemoryResult>,
+    top_member_id: Option<u128>,
+) -> Vec<MemoryResult> {
+    let lanes = |m: &MemoryResult| m.contributing_retrievers.len();
+    if out.is_empty() {
+        return out;
+    }
+    let max_lanes = out.iter().map(&lanes).max().unwrap_or(0);
+    if max_lanes < 2 {
+        return out;
+    }
+    let consensus: Vec<usize> = out
+        .iter()
+        .enumerate()
+        .filter(|(_, m)| lanes(m) == max_lanes)
+        .map(|(i, _)| i)
+        .collect();
+    if consensus.len() == 1
+        && out
+            .get(consensus[0])
+            .is_some_and(|m| Some(m.memory_id) == top_member_id)
+    {
+        let m = out.swap_remove(consensus[0]);
+        out.clear();
+        out.push(m);
+    }
+    out
+}
+
 /// Build the membership set for a cue: `S_struct ∪ S_sem`, ranked by
 /// confirmation strength (in both lanes first, then structured-only, then
 /// associative-only), deduped by memory id. The associative side (`S_sem`) is
@@ -198,6 +266,7 @@ fn build_membership(
     ctx: &OpsContext,
     cue_vec: &[f32; brain_embed::VECTOR_DIM],
     anchor: Option<EntityId>,
+    client_requested_count: bool,
 ) -> Vec<MemoryResult> {
     // Membership = candidates within the query-relative cosine band of the best
     // match. Recall-safe; shape-loose on dense single-subject corpora and cannot
@@ -207,15 +276,35 @@ fn build_membership(
     let mut scored: Vec<(MemoryResult, f32)> = ranked
         .into_iter()
         .map(|m| {
-            let cos = ctx
+            // Belonging score = the STRONGER of the direct passage cosine and the
+            // score the fan-out already assigned this hit. The fan-out score
+            // carries signals the raw passage vector does NOT: a HyPE question-
+            // vector match (the cue matched a hypothetical question generated FROM
+            // this memory — the paraphrase bridge), the best-of-lanes union, and
+            // the in-txn overlay cosine. Re-scoring on the passage vector alone
+            // would discard those and drop a paraphrase-/lexical-surfaced answer
+            // below the membership band (measured: passage cosine ~0.5 on indirect
+            // cues while HyPE surfaced the gold). Taking the max keeps such a hit
+            // in the set and leaves direct-cosine hits unchanged.
+            //
+            // A pending in-txn write isn't in the HNSW yet (`vector_for` misses),
+            // so its score comes entirely from `similarity_score` — preserving the
+            // read-your-writes guarantee.
+            let passage = ctx
                 .semantic_retriever
                 .vector_for(MemoryId::from_raw(m.memory_id))
                 .map(|v| cosine(cue_vec, &v).max(0.0))
                 .unwrap_or(0.0);
+            let cos = passage.max(m.similarity_score.max(0.0));
             (m, cos)
         })
         .collect();
     scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
+
+    // The highest-belonging member (used below so the lane-consensus collapse only
+    // fires when the consensus and the score agree — never collapses the answer
+    // away to a lexical term-matcher that merely hit more lanes).
+    let top_member_id: Option<u128> = scored.first().map(|(m, _)| m.memory_id);
 
     let top = scored.first().map(|(_, c)| *c).unwrap_or(0.0);
     let band = top * MEMBERSHIP_REL_BAND;
@@ -227,6 +316,28 @@ fn build_membership(
                 sem_ids.insert(m.memory_id);
                 s_sem.push(m.clone());
             }
+        }
+    }
+    // Lexical / graph belonging. A hit independently confirmed by a
+    // non-semantic lane — it surfaced in the lexical or graph fan-out, or in
+    // two lanes at once — belongs to the cue even when its embedding cosine
+    // sits below the semantic floor. Keyword and paraphrase cues match
+    // lexically at a low cosine; the fan-out already did that matching, so the
+    // membership set must not discard it. This is the same cross-lane
+    // confirmation the abstention gate trusts, applied here at construction so
+    // a real lexical hit survives to be returned instead of being gated out by
+    // the cosine floor.
+    for (m, _c) in &scored {
+        if sem_ids.contains(&m.memory_id) {
+            continue;
+        }
+        let lane_confirmed = m.contributing_retrievers.len() >= 2
+            || m.contributing_retrievers
+                .iter()
+                .any(|r| !matches!(r, RetrieverNameWire::Semantic));
+        if lane_confirmed {
+            sem_ids.insert(m.memory_id);
+            s_sem.push(m.clone());
         }
     }
     let by_id: HashMap<u128, MemoryResult> =
@@ -296,38 +407,8 @@ fn build_membership(
         }
     }
 
-    // CROSS-LANE AGREEMENT (no model, no extra latency — uses the per-lane
-    // contributions the fan-out already recorded). A memory found by MORE
-    // independent lanes (semantic / lexical / graph) is a stronger belonging
-    // signal than one found by a single lane. Stable-sort members by lane count
-    // so the consensus answer leads. If exactly ONE member has the maximum lane
-    // count and that maximum is ≥ 2 (a unique multi-lane consensus — the one
-    // memory independent methods agree on), collapse to that crisp Single; this
-    // is what isolates the answer turn from same-subject turns on dense corpora
-    // without an encoder. Otherwise the full set is preserved — recall is never
-    // reduced, only reordered.
-    // Only the unique-consensus COLLAPSE — do NOT reorder the rest. Reordering by
-    // lane count was measured to mislead the downstream reader on dense corpora
-    // (it floats lexical term-matchers above the cosine-best answer); the collapse
-    // alone delivers the crisp Single, with the original cosine order preserved
-    // otherwise, so recall ordering never regresses.
-    let lanes = |m: &MemoryResult| m.contributing_retrievers.len();
-    if !out.is_empty() {
-        let max_lanes = out.iter().map(&lanes).max().unwrap_or(0);
-        if max_lanes >= 2 {
-            let consensus: Vec<usize> = out
-                .iter()
-                .enumerate()
-                .filter(|(_, m)| lanes(m) == max_lanes)
-                .map(|(i, _)| i)
-                .collect();
-            if consensus.len() == 1 {
-                let m = out.swap_remove(consensus[0]);
-                out.clear();
-                out.push(m);
-            }
-        }
-    }
+    // Cross-lane consensus collapse (model-free; see `consensus_collapse`).
+    let mut out = consensus_collapse(out, top_member_id);
 
     // ── GRAPH-ANCHORED INJECTION (buried-fact recall) ──────────────────────
     // When the cue resolved to a real subject entity, pull that entity's OWN
@@ -362,9 +443,27 @@ fn build_membership(
         }
     }
 
-    // Safety ceiling only — never the semantic answer size. The verification
-    // band already bounds the set; this guards a pathological flat distribution.
-    out.truncate(membership_ceiling(req) as usize);
+    // ── EXACT-PATH INTRINSIC CARDINALITY ───────────────────────────────────
+    // Ablatable block (revert by deleting it and keeping the plain
+    // `membership_ceiling` truncation below): for a KEYED query — one whose cue
+    // resolved to a subject anchor OR produced a grounded answer — the exact set
+    // (grounded source memories ∪ anchor-direct statements/mentions) IS the
+    // answer, with its own intrinsic size. Clipping it to the fuzzy
+    // `DEFAULT_RECALL_RESULTS` window would drop true belonging-set members, so
+    // the keyed ceiling is the hard allocation guard (`MAX_RECALL_RESULTS`),
+    // honouring an explicit client `max_results` only when the caller actually
+    // asked for one. A KEYLESS query has no exact key, so it keeps the fuzzy
+    // default window unchanged.
+    let keyed = anchor.is_some() || matches!(grounded, GroundedOutcome::Answer(_));
+    let ceiling = if keyed {
+        keyed_membership_ceiling(req, client_requested_count)
+    } else {
+        membership_ceiling(req)
+    };
+    // Safety ceiling only — never the answer size on the keyed path; on the
+    // keyless path the verification band already bounds the set and this guards
+    // a pathological flat distribution.
+    out.truncate(ceiling as usize);
 
     tracing::debug!(
         target: "brain_ops::recall_trace",
@@ -380,13 +479,16 @@ fn build_membership(
     out
 }
 
-/// Maximum number of anchor-direct memories pulled in one read by the
-/// graph-anchored injection. Sized to the per-read result scale
-/// ([`DEFAULT_RECALL_RESULTS`]) so the pull is bounded the same way every other
-/// lane is, and so a hub entity with thousands of mentions can't blow up the
-/// candidate set or the latency budget. Not a ranking knob — the final set is
-/// still cut by `membership_ceiling`; this only bounds the scan/hydrate work.
-const ANCHOR_DIRECT_PULL_CAP: usize = DEFAULT_RECALL_RESULTS as usize;
+/// Runaway guard on the anchor-direct EXACT pull (entity→statements +
+/// incoming Mentions). The exact path is keyed: when the cue resolves to a
+/// subject entity, every fact ABOUT that subject belongs to the answer, so its
+/// size is INTRINSIC (single value / list / range) — it must not be clipped to
+/// the fuzzy `DEFAULT_RECALL_RESULTS` window the associative lane uses. The only
+/// bound here is the same hard allocation ceiling that bounds every other path
+/// ([`MAX_RECALL_RESULTS`]), so a hub entity with thousands of mentions still
+/// can't blow up the candidate set or the latency budget. This is the runaway
+/// guard, NOT the answer size.
+const ANCHOR_DIRECT_PULL_CAP: usize = MAX_RECALL_RESULTS as usize;
 
 /// Collect memories that are DIRECTLY about the resolved subject entity, for the
 /// graph-anchored injection in [`build_membership`]: the first evidence memory
@@ -474,9 +576,10 @@ const MEMBERSHIP_ABS_FLOOR: f32 = 0.20;
 /// cluster → Many. "Within ~15% of the best." Principled default, not tuned.
 const MEMBERSHIP_REL_BAND: f32 = 0.85;
 
-/// Internal safety ceiling on the membership set size. Not a ranking knob and
-/// not caller intent — the adaptive gap decides the real set; this only caps a
-/// degenerate flat-distribution result so the response can't balloon.
+/// Internal safety ceiling on the membership set size for the KEYLESS (fuzzy)
+/// path. Not a ranking knob and not caller intent — the adaptive gap decides the
+/// real set; this only caps a degenerate flat-distribution result so the
+/// response can't balloon.
 fn membership_ceiling(req: &RecallRequest) -> u32 {
     let cap = if req.max_results == 0 {
         DEFAULT_RECALL_RESULTS
@@ -484,6 +587,24 @@ fn membership_ceiling(req: &RecallRequest) -> u32 {
         req.max_results
     };
     cap.min(MAX_RECALL_RESULTS)
+}
+
+/// Ceiling for the KEYED (exact-anchor / grounded) path. The belonging set has
+/// an intrinsic cardinality, so when the caller did NOT ask for a count
+/// (`client_requested_count == false`, the common "I didn't ask for a count"
+/// case) the set is NOT clipped to the fuzzy default-50 window — it is bounded
+/// only by the hard allocation guard. An explicit client `max_results` is still
+/// honoured as a caller cap. This is the runaway guard, never the answer size.
+///
+/// `req.max_results` has already been normalised by the time this runs (a `0`
+/// became [`DEFAULT_RECALL_RESULTS`]), which is exactly why the caller's original
+/// intent is threaded in separately as `client_requested_count`.
+fn keyed_membership_ceiling(req: &RecallRequest, client_requested_count: bool) -> u32 {
+    if client_requested_count {
+        req.max_results.min(MAX_RECALL_RESULTS)
+    } else {
+        MAX_RECALL_RESULTS
+    }
 }
 
 /// Build the response frame from the router's chosen memories, deriving the
@@ -603,10 +724,16 @@ fn hydrate_memories_by_id(
     } else if req.include_other_agents {
         None
     } else {
-        Some([<[u8; 16]>::from(ctx.executor.caller_agent)].into_iter().collect())
+        Some(
+            [<[u8; 16]>::from(ctx.executor.caller_agent)]
+                .into_iter()
+                .collect(),
+        )
     };
-    let kind_filter: Option<HashSet<MemoryKindWire>> =
-        req.kind_filter.as_ref().map(|v| v.iter().copied().collect());
+    let kind_filter: Option<HashSet<MemoryKindWire>> = req
+        .kind_filter
+        .as_ref()
+        .map(|v| v.iter().copied().collect());
     let context_filter: Option<HashSet<u64>> = req
         .context_filter
         .as_ref()
@@ -615,13 +742,14 @@ fn hydrate_memories_by_id(
     let table = rtxn
         .open_table(MEM_T)
         .map_err(|e| OpError::Internal(format!("structured recall open MEMORIES_TABLE: {e}")))?;
-    let texts_table = if req.include_text {
-        Some(rtxn.open_table(TEXTS_TABLE).map_err(|e| {
-            OpError::Internal(format!("structured recall open TEXTS_TABLE: {e}"))
-        })?)
-    } else {
-        None
-    };
+    let texts_table =
+        if req.include_text {
+            Some(rtxn.open_table(TEXTS_TABLE).map_err(|e| {
+                OpError::Internal(format!("structured recall open TEXTS_TABLE: {e}"))
+            })?)
+        } else {
+            None
+        };
 
     let mut out: Vec<MemoryResult> = Vec::with_capacity(ids.len());
     for &memory_id in ids {
@@ -838,10 +966,7 @@ fn capitalized_runs(cue: &str) -> Vec<String> {
             .trim_matches(|c: char| !c.is_alphanumeric())
             .trim_end_matches("'s")
             .trim_end_matches("’s");
-        let starts_upper = trimmed
-            .chars()
-            .next()
-            .is_some_and(char::is_uppercase);
+        let starts_upper = trimmed.chars().next().is_some_and(char::is_uppercase);
         if starts_upper {
             current.push(trimmed);
         } else {
@@ -936,12 +1061,13 @@ async fn retrieve_memories(
                 _ => n_other += 1,
             }
             for c in &f.contributing {
-                *lane.entry(match c.retriever {
-                    Retriever::Semantic => "semantic",
-                    Retriever::Lexical => "lexical",
-                    Retriever::Graph => "graph",
-                })
-                .or_default() += 1;
+                *lane
+                    .entry(match c.retriever {
+                        Retriever::Semantic => "semantic",
+                        Retriever::Lexical => "lexical",
+                        Retriever::Graph => "graph",
+                    })
+                    .or_default() += 1;
             }
         }
         tracing::debug!(
@@ -1763,14 +1889,69 @@ mod tests {
             vec!["NeuraCorp"]
         );
         // Two separate runs.
-        assert_eq!(
-            capitalized_runs("Alice met Bob"),
-            vec!["Alice", "Bob"]
-        );
+        assert_eq!(capitalized_runs("Alice met Bob"), vec!["Alice", "Bob"]);
         // No capitalized surface → empty (lowercase / CJK handled by the
         // token path, not this one).
         assert!(capitalized_runs("what are my allergies").is_empty());
         assert!(capitalized_runs("李明 去 哪里").is_empty());
+    }
+
+    /// Minimal `RecallRequest` for ceiling-logic tests. Only `max_results`
+    /// matters here; everything else is a benign zero/empty value.
+    fn req_with_max(max_results: u32) -> RecallRequest {
+        RecallRequest {
+            cue_text: String::new(),
+            subject_name: String::new(),
+            max_results,
+            confidence_threshold: 0.0,
+            context_filter: None,
+            age_bound_unix_nanos: None,
+            as_of_record_time_unix_nanos: None,
+            kind_filter: None,
+            salience_floor: 0.0,
+            include_edges: false,
+            include_graph: false,
+            include_text: true,
+            request_id: None,
+            txn_id: None,
+            agent_filter: Vec::new(),
+            include_other_agents: false,
+        }
+    }
+
+    #[test]
+    fn keyed_ceiling_uses_intrinsic_set_not_fuzzy_window() {
+        // KEYED + no caller count → bounded only by the hard guard, NOT the
+        // fuzzy default-50 window. This is the core of the change: the exact
+        // belonging set keeps its intrinsic cardinality.
+        let normalized = req_with_max(DEFAULT_RECALL_RESULTS); // 0 → default at the gate
+        assert_eq!(
+            keyed_membership_ceiling(&normalized, false),
+            MAX_RECALL_RESULTS,
+            "keyed path with no caller count must not clip to the fuzzy default window"
+        );
+
+        // KEYED + explicit caller count → honour the caller's cap.
+        let explicit = req_with_max(7);
+        assert_eq!(
+            keyed_membership_ceiling(&explicit, true),
+            7,
+            "an explicit max_results is still a caller cap on the keyed path"
+        );
+
+        // KEYED + explicit count above the hard guard → clamped to the guard.
+        let huge = req_with_max(MAX_RECALL_RESULTS + 100);
+        assert_eq!(keyed_membership_ceiling(&huge, true), MAX_RECALL_RESULTS);
+
+        // KEYLESS (fuzzy) path is unchanged: a no-count request keeps the
+        // default-50 window — the fuzzy fallback is never widened.
+        assert_eq!(
+            membership_ceiling(&normalized),
+            DEFAULT_RECALL_RESULTS,
+            "keyless path must keep the fuzzy default window"
+        );
+        // And a keyless explicit cap is honoured (clamped to the guard).
+        assert_eq!(membership_ceiling(&req_with_max(12)), 12);
     }
 
     #[test]
@@ -1787,5 +1968,116 @@ mod tests {
             retriever_to_wire_name(Retriever::Graph),
             RetrieverNameWire::Graph
         );
+    }
+
+    // ── Read-path belonging logic: consensus collapse + abstention ──────────
+    // These cover the model-free membership-arbitration changes (A1/A4) and the
+    // structural abstention gate — all pure, no server, fast.
+
+    // `GroundedOutcome`, `MemoryResult`, `MemoryKindWire`, `RetrieverNameWire`
+    // are all in scope via `use super::*`.
+
+    /// Minimal `MemoryResult` for membership-logic tests: only `memory_id` and
+    /// the contributing-retriever lanes matter; everything else is benign.
+    fn mr(id: u128, lanes: &[RetrieverNameWire]) -> MemoryResult {
+        MemoryResult {
+            memory_id: id,
+            text: String::new(),
+            similarity_score: 0.0,
+            confidence: 0.0,
+            salience: 0.0,
+            kind: MemoryKindWire::Episodic,
+            agent_id: [0u8; 16],
+            context_id: 0,
+            created_at_unix_nanos: 0,
+            last_accessed_at_unix_nanos: 0,
+            edges: None,
+            graph: None,
+            contributing_retrievers: lanes.to_vec(),
+            fused_score: 0.0,
+            rerank_score: None,
+            salience_initial: 0.0,
+            access_count: 0,
+            lsn: 0,
+            flags: 0,
+            consolidated_at_unix_nanos: None,
+            occurred_at_unix_nanos: None,
+            edges_out_count: 0,
+            edges_in_count: 0,
+        }
+    }
+
+    use RetrieverNameWire::{Graph, Lexical, Semantic};
+
+    #[test]
+    fn collapse_fires_only_when_unique_consensus_is_also_top() {
+        // A is the unique 2-lane consensus AND the top-belonging member → collapse.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 1, "unique consensus that is also top → Single");
+        assert_eq!(got[0].memory_id, 1);
+    }
+
+    #[test]
+    fn no_collapse_when_consensus_is_not_top() {
+        // A is the unique 2-lane consensus but B is the top-belonging member.
+        // The lane winner is not the score winner → keep the full set so the real
+        // answer (B) is never discarded. This is the paraphrase/lexical guard.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let got = consensus_collapse(out, Some(2));
+        assert_eq!(got.len(), 2, "consensus≠top must not collapse the answer away");
+    }
+
+    #[test]
+    fn no_collapse_on_tied_max_lane_count() {
+        // Two members share the max lane count (2) → no UNIQUE consensus → keep both.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic, Graph])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 2, "tied consensus → full set preserved");
+    }
+
+    #[test]
+    fn no_collapse_when_max_is_single_lane() {
+        // Every member has one lane → no multi-lane consensus → keep the set.
+        let out = vec![mr(1, &[Semantic]), mr(2, &[Lexical])];
+        let got = consensus_collapse(out, Some(1));
+        assert_eq!(got.len(), 2, "single-lane max never collapses");
+    }
+
+    #[test]
+    fn collapse_empty_in_empty_out() {
+        assert!(consensus_collapse(Vec::new(), None).is_empty());
+        // top_member_id None can never equal a real id → never collapses.
+        let out = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        assert_eq!(consensus_collapse(out, None).len(), 2);
+    }
+
+    #[test]
+    fn abstention_keeps_set_when_anchor_present() {
+        let members = vec![mr(1, &[Semantic])];
+        let kept = apply_anchor_abstention(
+            members,
+            Some(brain_core::EntityId::new()),
+            &GroundedOutcome::NoAnswer,
+        );
+        assert_eq!(kept.len(), 1, "a resolved anchor suppresses abstention");
+    }
+
+    #[test]
+    fn abstention_drops_unanchored_semantic_only_noise() {
+        // No anchor, no grounded answer, and every member is semantic-only (no
+        // cross-lane confirmation) → topical noise → abstain (empty).
+        let members = vec![mr(1, &[Semantic]), mr(2, &[Semantic])];
+        let kept = apply_anchor_abstention(members, None, &GroundedOutcome::NoAnswer);
+        assert!(kept.is_empty(), "unanchored semantic-only set must abstain");
+    }
+
+    #[test]
+    fn abstention_keeps_lane_confirmed_member_without_anchor() {
+        // No anchor, but one member is confirmed by a non-semantic lane (lexical):
+        // a real keyword/paraphrase hit, not topical noise → keep the set.
+        let members = vec![mr(1, &[Semantic, Lexical]), mr(2, &[Semantic])];
+        let kept = apply_anchor_abstention(members, None, &GroundedOutcome::NoAnswer);
+        assert_eq!(kept.len(), 2, "a lane-confirmed hit suppresses abstention");
     }
 }
