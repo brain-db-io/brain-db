@@ -43,8 +43,8 @@ use std::time::Duration;
 
 use brain_core::{AgentId, ContextId, ExtractorId, Memory, MemoryId, MemoryKind, Salience};
 use brain_extractors::{
-    extractor::{ExtractionContext, ExtractionStatus, Extractor},
-    hash_memory_text, ExtractedItem, ExtractorRegistry, LlmExtractor,
+    hash_memory_text, ExtractedItem, ExtractionContext, ExtractionStatus, Extractor,
+    ExtractorRegistry, LlmExtractor,
 };
 use brain_llm::client::{model_id_hash, LlmClient};
 use brain_llm::AnthropicClient;
