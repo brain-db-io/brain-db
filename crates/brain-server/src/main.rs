@@ -239,16 +239,14 @@ mod linux_main {
             }
         };
 
-        // W2.5: scope-bound API keys. The store lives in its own redb
-        // file under the configured data dir; strict enforcement is
-        // opt-in via `BRAIN_REQUIRE_SCOPED_API_KEYS`. In permissive
-        // mode the server still advertises `AuthMethod::Token` so
-        // scoped clients can opt in client-side; the AUTH path treats
-        // both methods uniformly when strict mode is off.
-        let strict_scope = crate::auth::require_scoped_keys_from_env();
+        // Mandatory key auth. The store lives in its own redb file under
+        // the configured data dir. Every data-plane connection must present
+        // a valid, resolvable, non-revoked key; identity (namespace, agent,
+        // permissions) is derived entirely from it. Keys are minted via the
+        // admin HTTP listener — there is no permissive / anonymous mode.
         let auth_store_path = cfg.storage.data_dir.join("api_keys.redb");
-        let auth_store = match crate::auth::AuthStore::open(&auth_store_path, strict_scope) {
-            Ok(s) => Arc::new(s.with_default_namespace(cfg.auth.default_namespace.clone())),
+        let auth_store = match crate::auth::AuthStore::open(&auth_store_path) {
+            Ok(s) => Arc::new(s),
             Err(e) => {
                 tracing::error!(
                     error = %e,
@@ -259,27 +257,9 @@ mod linux_main {
             }
         };
         tracing::info!(
-            strict = strict_scope,
             path = %auth_store_path.display(),
-            "API-key scope store opened",
+            "API-key scope store opened (auth is mandatory)",
         );
-
-        // Loud, once-per-startup safety net for the permissive v1.0
-        // default. When neither the env override nor `[auth] mode =
-        // "apikey"` is set, every connecting client is granted FULL
-        // scope over whatever agent_id it claims — fine behind a trusted
-        // network boundary, dangerous anywhere else. The operator must
-        // see this in the logs so a permissive deploy is never silent.
-        if !strict_scope && cfg.auth.mode == crate::config::AuthMode::None {
-            tracing::warn!(
-                strict_env = crate::auth::STRICT_ENV_VAR,
-                hint = "set BRAIN_REQUIRE_SCOPED_API_KEYS=1 and/or [auth] mode = \"apikey\"",
-                "server is running WITHOUT authentication: any client can claim any \
-                 agent_id and is granted FULL scope. This is unsafe outside a trusted \
-                 network boundary. To harden, set BRAIN_REQUIRE_SCOPED_API_KEYS=1 \
-                 and/or configure [auth] mode = \"apikey\".",
-            );
-        }
 
         // One source of truth for the per-connection stream budget: the
         // connection layer enforces `limits.max_concurrent_streams`, and we
@@ -289,7 +269,7 @@ mod linux_main {
         let limits = ConnectionLimits::default();
         let mut caps = ServerCapabilities::v1_default(
             format!("brain-server/{}", env!("CARGO_PKG_VERSION")),
-            vec![AuthMethod::Token, AuthMethod::None],
+            vec![AuthMethod::Token],
         );
         caps.server_features.max_concurrent_streams = limits.max_concurrent_streams;
         let server_caps = Arc::new(caps);
@@ -362,6 +342,20 @@ mod linux_main {
                     return ExitCode::FAILURE;
                 }
             };
+
+            // Fail-closed: the admin listener is the bootstrap channel for
+            // minting data-plane keys, so it must be gated by an operator
+            // secret. Without one configured, refuse to start it rather than
+            // expose an unauthenticated mint endpoint.
+            if cfg.admin.token.as_deref().unwrap_or("").is_empty() {
+                tracing::error!(
+                    hint = "set [admin] token or BRAIN__ADMIN__TOKEN",
+                    "admin secret not configured: the admin HTTP listener mints \
+                     data-plane API keys and must not run unauthenticated. Set \
+                     [admin] token (or BRAIN__ADMIN__TOKEN) and restart.",
+                );
+                return ExitCode::FAILURE;
+            }
 
             let admin = crate::admin::AdminServer::admin(
                 cfg.server.admin_addr,
@@ -477,10 +471,6 @@ mod linux_main {
                 api_key: cfg.llm.api_key.clone(),
                 model: cfg.llm.model.clone(),
             };
-            // Ferry the operator's permissive default namespace so each
-            // shard interns it and permissive callers resolve to that
-            // tenant instead of the system namespace.
-            spawn_cfg.default_namespace = cfg.auth.default_namespace.clone();
             // Ferry the operator's `[workers.auto_edge]`
             // overrides into the per-shard spawn config so the
             // AutoEdgeWorker registers with the configured knobs

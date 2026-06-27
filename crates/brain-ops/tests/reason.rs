@@ -110,7 +110,7 @@ async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) ->
         };
         let _ = dispatch(
             RequestBody::Link(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &ctx,
         )
         .await
@@ -195,7 +195,7 @@ fn reason_full_pipeline_emits_one_inference() {
         let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -229,7 +229,7 @@ fn reason_isolated_base_returns_only_self() {
         let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -255,7 +255,7 @@ fn reason_invalid_depth_returns_plan_error() {
         let req = reason_req(ObservationInput::ByMemoryId(fix.ids[0].into()), 0, 5);
         let err = dispatch(
             RequestBody::Reason(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -280,7 +280,7 @@ fn reason_kind_categorisation_uses_evidence_accumulation() {
         let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -305,7 +305,7 @@ fn reason_by_text_preserves_claim() {
         let frame = collect_reason_outcome(
             dispatch(
                 RequestBody::Reason(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

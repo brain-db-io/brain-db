@@ -88,7 +88,7 @@ async fn encode_one(ctx: &OpsContext, rid: u32, text: &str) {
     };
     let _ = dispatch(
         RequestBody::Encode(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         ctx,
     )
     .await
@@ -116,7 +116,7 @@ async fn recall_one(ctx: &OpsContext, cue: &str) -> usize {
     };
     let outcome = dispatch(
         RequestBody::Recall(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         ctx,
     )
     .await

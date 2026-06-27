@@ -339,7 +339,7 @@ fn forget_stamps_tombstoned_at_unix_nanos() {
         let memory_id = match single_body(
             dispatch(
                 RequestBody::Encode(encode),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -356,7 +356,7 @@ fn forget_stamps_tombstoned_at_unix_nanos() {
         };
         let _ = dispatch(
             RequestBody::Forget(forget),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -384,7 +384,7 @@ fn forget_replay_does_not_overwrite_stamp() {
         let memory_id = match single_body(
             dispatch(
                 RequestBody::Encode(encode),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -403,7 +403,7 @@ fn forget_replay_does_not_overwrite_stamp() {
                     request_id: rid,
                     txn_id: None,
                 }),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

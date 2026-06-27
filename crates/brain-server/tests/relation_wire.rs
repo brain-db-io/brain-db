@@ -86,7 +86,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "relation-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -109,9 +109,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     .await;
     let _ = read_one_frame(client).await;
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -192,7 +191,7 @@ async fn create_asymmetric_round_trips() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let a = make_entity(&mut client, 1, "A-asym").await;
     let b = make_entity(&mut client, 3, "B-asym").await;
@@ -239,7 +238,7 @@ async fn create_unknown_relation_type_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "A-unk").await;
     let b = make_entity(&mut client, 3, "B-unk").await;
 
@@ -265,7 +264,7 @@ async fn create_unknown_endpoint_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (op, body) = round_trip(
         &mut client,
@@ -287,7 +286,7 @@ async fn create_symmetric_canonicalises() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "A-sym").await;
     let b = make_entity(&mut client, 3, "B-sym").await;
 
@@ -332,7 +331,7 @@ async fn create_many_to_one_auto_supersedes() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let priya = make_entity(&mut client, 1, "priya").await;
     let alice = make_entity(&mut client, 3, "alice").await;
     let bob = make_entity(&mut client, 5, "bob").await;
@@ -389,7 +388,7 @@ async fn get_missing_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (op, body) = round_trip(
         &mut client,
@@ -414,7 +413,7 @@ async fn supersede_explicit_returns_new_id_and_version() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "a-sup").await;
     let b = make_entity(&mut client, 3, "b-sup").await;
 
@@ -457,7 +456,7 @@ async fn tombstone_flips_current_state() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "a-tomb").await;
     let b = make_entity(&mut client, 3, "b-tomb").await;
 
@@ -538,7 +537,7 @@ async fn list_to_filters_by_type() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "a-lt").await;
     let b = make_entity(&mut client, 3, "b-lt").await;
     let c = make_entity(&mut client, 5, "c-lt").await;
@@ -588,7 +587,7 @@ async fn traverse_one_hop() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "a-tr1").await;
     let b = make_entity(&mut client, 3, "b-tr1").await;
 
@@ -633,7 +632,7 @@ async fn traverse_two_hop() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let a = make_entity(&mut client, 1, "a-tr2").await;
     let b = make_entity(&mut client, 3, "b-tr2").await;
@@ -734,7 +733,7 @@ async fn traverse_invalid_depth_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     let a = make_entity(&mut client, 1, "a-d").await;
 
     let (op, _) = round_trip(

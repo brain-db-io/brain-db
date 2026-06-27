@@ -273,7 +273,7 @@ mod tests {
             // a stub. Either of those error shapes confirms routing.
             let ctx = fake_context();
             let req = brain_protocol::envelope::request::RequestBody::Encode(encode_req());
-            match dispatch(req, RequestCaller::anonymous(), &ctx).await {
+            match dispatch(req, RequestCaller::for_tests(), &ctx).await {
                 Err(OpError::ExecError(_)) | Err(OpError::Internal(_)) => {}
                 other => panic!("expected ExecError or Internal from NopWriter, got {other:?}"),
             }
@@ -292,7 +292,7 @@ mod tests {
             );
             // Substrate admin ops are served over the HTTP admin listener, not
             // the wire — dispatch rejects them with a clear InvalidRequest.
-            match dispatch(req, RequestCaller::anonymous(), &ctx).await {
+            match dispatch(req, RequestCaller::for_tests(), &ctx).await {
                 Err(OpError::InvalidRequest(msg)) => assert!(msg.contains("admin")),
                 other => panic!("expected InvalidRequest (admin is HTTP-only), got {other:?}"),
             }
@@ -310,7 +310,7 @@ mod tests {
                     request_id: [0u8; 16],
                 },
             );
-            match dispatch(backfill, RequestCaller::anonymous(), &ctx).await {
+            match dispatch(backfill, RequestCaller::for_tests(), &ctx).await {
                 Err(OpError::InvalidRequest(msg)) => assert!(msg.contains("admin")),
                 other => {
                     panic!("expected InvalidRequest for AdminBackfill (HTTP-only), got {other:?}")

@@ -201,7 +201,7 @@ async fn encode(fix: &Fixture, rid: [u8; 16], text: &str, txn: Option<[u8; 16]>)
     match single_body(
         dispatch(
             RequestBody::Encode(encode_req(rid, text, txn)),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -326,7 +326,7 @@ async fn begin(fix: &Fixture, txn_id: [u8; 16], timeout_seconds: u32) -> TxnBegi
                 txn_id,
                 timeout_seconds,
             }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -338,7 +338,7 @@ async fn commit(fix: &Fixture, txn_id: [u8; 16]) -> TxnCommitResponse {
     unwrap_commit(
         dispatch(
             RequestBody::TxnCommit(TxnCommitRequest { txn_id }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -350,7 +350,7 @@ async fn abort(fix: &Fixture, txn_id: [u8; 16]) -> TxnAbortResponse {
     unwrap_abort(
         dispatch(
             RequestBody::TxnAbort(TxnAbortRequest { txn_id }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -399,7 +399,7 @@ fn expired_txn_swept_on_next_op() {
         // Now an in-txn encode must fail with TxnExpired.
         let err = dispatch(
             RequestBody::Encode(encode_req([99; 16], "x", Some(txn))),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -426,7 +426,7 @@ fn encode_in_txn_not_visible_outside() {
         let frame = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("secret", 10, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -456,7 +456,7 @@ fn commit_makes_buffered_writes_visible() {
         let frame = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("committed", 10, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -481,7 +481,7 @@ fn abort_discards_buffered_writes() {
         let frame = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("aborted", 10, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -513,7 +513,7 @@ fn commit_is_atomic_link_to_phantom_fails_whole_txn() {
                 [42; 16],
                 Some(txn),
             )),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -541,7 +541,7 @@ fn recall_in_txn_sees_pending_encode() {
         let frame = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("in-flight", 10, Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -571,7 +571,7 @@ fn recall_in_txn_drops_pending_tombstone() {
         let _ = begin(&fix, txn, 60).await;
         let _ = dispatch(
             RequestBody::Forget(forget_req(committed_mid, [62; 16], Some(txn))),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -581,7 +581,7 @@ fn recall_in_txn_drops_pending_tombstone() {
         let in_txn = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("doomed", 10, Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -593,7 +593,7 @@ fn recall_in_txn_drops_pending_tombstone() {
         let outside = unwrap_recall(
             dispatch(
                 RequestBody::Recall(recall_req("doomed", 10, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -627,7 +627,7 @@ fn plan_in_txn_traverses_pending_link() {
                 [73; 16],
                 Some(txn),
             )),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -637,7 +637,7 @@ fn plan_in_txn_traverses_pending_link() {
         let in_txn = unwrap_plan(
             dispatch(
                 RequestBody::Plan(plan_req(a, b, 3, Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -650,7 +650,7 @@ fn plan_in_txn_traverses_pending_link() {
         let outside = unwrap_plan(
             dispatch(
                 RequestBody::Plan(plan_req(a, b, 3, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -680,7 +680,7 @@ fn reason_in_txn_picks_up_pending_supports_edge() {
                 [83; 16],
                 Some(txn),
             )),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -689,7 +689,7 @@ fn reason_in_txn_picks_up_pending_supports_edge() {
         let frame = unwrap_reason(
             dispatch(
                 RequestBody::Reason(reason_req(a, 2, Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -716,7 +716,7 @@ fn unlink_in_txn_hides_committed_edge() {
         let _ = unwrap_link(
             dispatch(
                 RequestBody::Link(link_req(a, b, EdgeKindWire::Caused, 1.0, [92; 16], None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -727,7 +727,7 @@ fn unlink_in_txn_hides_committed_edge() {
         let outside = unwrap_plan(
             dispatch(
                 RequestBody::Plan(plan_req(a, b, 3, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -741,7 +741,7 @@ fn unlink_in_txn_hides_committed_edge() {
         let u = unwrap_unlink(
             dispatch(
                 RequestBody::Unlink(unlink_req(a, b, EdgeKindWire::Caused, [94; 16], Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -752,7 +752,7 @@ fn unlink_in_txn_hides_committed_edge() {
         let in_txn = unwrap_plan(
             dispatch(
                 RequestBody::Plan(plan_req(a, b, 3, Some(txn))),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -765,7 +765,7 @@ fn unlink_in_txn_hides_committed_edge() {
         let restored = unwrap_plan(
             dispatch(
                 RequestBody::Plan(plan_req(a, b, 3, None)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -787,7 +787,7 @@ fn op_with_unknown_txn_id_returns_txn_not_found() {
         let fix = build_fixture();
         let err = dispatch(
             RequestBody::Encode(encode_req([100; 16], "x", Some([99; 16]))),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -811,7 +811,7 @@ fn op_against_committed_txn_returns_txn_expired() {
 
         let err = dispatch(
             RequestBody::Encode(encode_req([112; 16], "after", Some(txn))),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -879,7 +879,7 @@ fn txn_expires_after_idle_window() {
         // Commit must report expired.
         let err = dispatch(
             RequestBody::TxnCommit(TxnCommitRequest { txn_id: txn }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -907,7 +907,7 @@ async fn begin_with_session(
     timeout_seconds: u32,
     session_id: [u8; 16],
 ) -> TxnBeginResponse {
-    let caller = brain_ops::RequestCaller::anonymous().with_session_id(session_id);
+    let caller = brain_ops::RequestCaller::for_tests().with_session_id(session_id);
     unwrap_begin(
         dispatch(
             RequestBody::TxnBegin(TxnBeginRequest {
@@ -944,7 +944,7 @@ fn session_drop_aborts_open_txns() {
         // TxnExpired for any non-Active state).
         let err = dispatch(
             RequestBody::TxnCommit(TxnCommitRequest { txn_id: txn }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -958,7 +958,7 @@ fn session_drop_aborts_open_txns() {
         let recall = unwrap_recall(
             dispatch(
                 RequestBody::Recall(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -1000,7 +1000,7 @@ fn session_drop_does_not_affect_other_sessions() {
         let recall = unwrap_recall(
             dispatch(
                 RequestBody::Recall(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -1042,7 +1042,7 @@ fn reconnect_after_drop_sees_clean_state() {
         let recall = unwrap_recall(
             dispatch(
                 RequestBody::Recall(req),
-                brain_ops::RequestCaller::anonymous().with_session_id(session_2),
+                brain_ops::RequestCaller::for_tests().with_session_id(session_2),
                 &fix.ctx,
             )
             .await
@@ -1110,7 +1110,7 @@ async fn buffer_encode(fix: &Fixture, txn: [u8; 16], i: u32) -> Result<EncodeRes
     let text = format!("cap-fill-{i}");
     dispatch(
         RequestBody::Encode(encode_req(rid(0xE0, i), &text, Some(txn))),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         &fix.ctx,
     )
     .await

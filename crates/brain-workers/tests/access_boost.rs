@@ -346,14 +346,14 @@ fn recall_fills_buffer_then_boost_worker_applies() {
         };
         let _ = dispatch(
             RequestBody::Encode(encode_req([1; 16], "alpha")),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &ctx,
         )
         .await
         .unwrap();
         let _ = dispatch(
             RequestBody::Encode(encode_req([2; 16], "beta")),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &ctx,
         )
         .await
@@ -393,7 +393,7 @@ fn recall_fills_buffer_then_boost_worker_applies() {
         };
         let outcome = dispatch(
             RequestBody::Recall(recall),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &ctx,
         )
         .await

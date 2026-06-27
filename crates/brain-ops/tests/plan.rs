@@ -124,7 +124,7 @@ async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) ->
         };
         let _ = dispatch(
             RequestBody::Link(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &ctx,
         )
         .await
@@ -204,7 +204,7 @@ fn plan_full_pipeline_returns_path() {
         let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -235,7 +235,7 @@ fn plan_no_path_returns_no_path_status() {
         let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -258,7 +258,7 @@ fn plan_step_transitions_map_correctly() {
         let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -281,7 +281,7 @@ fn plan_invalid_budget_returns_plan_error() {
         req.budget.max_steps = 0;
         let err = dispatch(
             RequestBody::Plan(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -308,7 +308,7 @@ fn plan_by_memory_id_skips_recall() {
         let frame = collect_plan_outcome(
             dispatch(
                 RequestBody::Plan(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

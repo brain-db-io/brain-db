@@ -116,7 +116,7 @@ async fn round_trip(
     (resp_opcode, body)
 }
 
-async fn handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
+async fn handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "durability-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -141,9 +141,8 @@ async fn handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id,
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -265,7 +264,11 @@ async fn acknowledged_writes_survive_graceful_shutdown_and_restart() {
         let mut client = TcpStream::connect(server.data_plane_addr)
             .await
             .expect("connect 1");
-        handshake(&mut client, agent_id).await;
+        handshake(
+            &mut client,
+            &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+        )
+        .await;
 
         for (i, text) in memories.iter().enumerate() {
             // Client-initiated streams must be odd.
@@ -285,7 +288,11 @@ async fn acknowledged_writes_survive_graceful_shutdown_and_restart() {
         let mut client = TcpStream::connect(server.data_plane_addr)
             .await
             .expect("connect 2");
-        handshake(&mut client, agent_id).await;
+        handshake(
+            &mut client,
+            &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+        )
+        .await;
 
         for (i, cue) in cues.iter().enumerate() {
             let got = recall_ids_until_contains(&mut client, 1 + (i as u32) * 2, cue, ids[i]).await;
@@ -317,7 +324,11 @@ async fn graceful_shutdown_with_no_writes_restarts_clean() {
         let mut client = TcpStream::connect(server.data_plane_addr)
             .await
             .expect("connect 1");
-        handshake(&mut client, agent_id).await;
+        handshake(
+            &mut client,
+            &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+        )
+        .await;
         drop(client);
         server.stop().await;
     }
@@ -327,7 +338,11 @@ async fn graceful_shutdown_with_no_writes_restarts_clean() {
         let mut client = TcpStream::connect(server.data_plane_addr)
             .await
             .expect("connect 2");
-        handshake(&mut client, agent_id).await;
+        handshake(
+            &mut client,
+            &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+        )
+        .await;
         // The shard recovered to an empty, queryable state.
         let got = recall_ids(&mut client, 1, "anything at all").await;
         assert!(

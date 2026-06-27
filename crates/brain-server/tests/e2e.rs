@@ -110,7 +110,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "e2e-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -135,9 +135,8 @@ async fn complete_handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id,
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -304,7 +303,11 @@ async fn encode_recall_forget_recall_round_trip() {
         .await
         .expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(
+        &mut client,
+        &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+    )
+    .await;
 
     // ENCODE. Either succeeds (returning a memory_id) or surfaces an ERROR
     // (the NopDispatcher path is not always green end-to-end). Both are
@@ -351,7 +354,11 @@ async fn repeated_encode_recall_is_stable() {
         .await
         .expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(
+        &mut client,
+        &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+    )
+    .await;
 
     // A few × (ENCODE + RECALL), rotating stream ids through a 1024-slot
     // space (well below the outgoing capacity). This smoke-checks that the
@@ -391,8 +398,16 @@ async fn metrics_endpoint_reflects_traffic() {
         .await
         .expect("connect 2");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut c1, agent_id).await;
-    complete_handshake(&mut c2, agent_id).await;
+    complete_handshake(
+        &mut c1,
+        &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+    )
+    .await;
+    complete_handshake(
+        &mut c2,
+        &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+    )
+    .await;
 
     // Give the accept loop a moment to publish the atomics.
     tokio::time::sleep(Duration::from_millis(100)).await;
@@ -437,7 +452,11 @@ async fn bye_and_shutdown_drain_cleanly() {
         .await
         .expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(
+        &mut client,
+        &server.mint("test", agent_id, brain_metadata::api_keys::bits::FULL),
+    )
+    .await;
 
     bye_round_trip(&mut client).await;
     drop(client);

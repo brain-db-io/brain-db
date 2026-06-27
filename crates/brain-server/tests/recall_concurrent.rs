@@ -90,7 +90,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream, client_id: &str) {
+async fn complete_handshake(client: &mut TcpStream, client_id: &str, token: &[u8]) {
     let hello = HelloPayload {
         client_id: client_id.into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -122,9 +122,8 @@ async fn complete_handshake(client: &mut TcpStream, client_id: &str) {
     // fixed agent, which is what lets the test actually exercise concurrent
     // recall routing over a common corpus.
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: [0x11u8; 16],
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -240,7 +239,7 @@ async fn concurrent_txn_and_non_txn_recalls_route_correctly() {
         let mut setup = TcpStream::connect(server.data_plane_addr)
             .await
             .expect("connect setup");
-        complete_handshake(&mut setup, "recall-c1-setup").await;
+        complete_handshake(&mut setup, "recall-c1-setup", &server.token).await;
         seed_fixture(&mut setup).await;
 
         // Wait for the async text-indexer to commit before fanning out, so
@@ -278,9 +277,11 @@ async fn concurrent_txn_and_non_txn_recalls_route_correctly() {
     for i in 0..TASKS {
         let use_txn = i % 2 == 0;
         let addr = server.data_plane_addr;
+        // All tasks act as the one shared default agent.
+        let token = server.token.clone();
         handles.push(tokio::spawn(async move {
             let mut client = TcpStream::connect(addr).await.expect("connect task");
-            complete_handshake(&mut client, &format!("recall-c1-task-{i}")).await;
+            complete_handshake(&mut client, &format!("recall-c1-task-{i}"), &token).await;
 
             let txn_id = if use_txn {
                 let id = *uuid::Uuid::now_v7().as_bytes();

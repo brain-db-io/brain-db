@@ -88,7 +88,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "merge-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -113,9 +113,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -183,7 +182,7 @@ async fn merge_and_unmerge_round_trip() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
     let alyss = create_person(&mut client, 3, "Alyss", vec!["AL".into()]).await;
@@ -314,7 +313,7 @@ async fn merge_self_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
     let (opcode, body) = round_trip(
@@ -344,7 +343,7 @@ async fn merge_low_confidence_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
     let bob = create_person(&mut client, 3, "Bob", vec![]).await;
@@ -371,7 +370,7 @@ async fn tombstone_then_get_shows_flag() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
 
@@ -413,7 +412,7 @@ async fn resolve_exact_match_via_canonical_name() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
 
@@ -449,7 +448,7 @@ async fn resolve_unknown_returns_not_found() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     create_person(&mut client, 1, "Alice", vec![]).await;
 
@@ -481,7 +480,7 @@ async fn list_returns_created_entities() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
     let bob = create_person(&mut client, 3, "Bob", vec![]).await;
@@ -526,7 +525,7 @@ async fn list_with_name_prefix_filters() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let alice = create_person(&mut client, 1, "Alice", vec![]).await;
     let _bob = create_person(&mut client, 3, "Bob", vec![]).await;
@@ -562,7 +561,7 @@ async fn list_cursor_rejected_in_v1() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     create_person(&mut client, 1, "Alice", vec![]).await;
 

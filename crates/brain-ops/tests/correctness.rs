@@ -112,7 +112,7 @@ async fn encode(fix: &Fixture, rid: [u8; 16], text: &str) -> u128 {
     match single_body(
         dispatch(
             RequestBody::Encode(encode_req(rid, text)),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -145,7 +145,7 @@ async fn recall(fix: &Fixture, cue: &str, max_results: u32) -> RecallResponseFra
     match single_body(
         dispatch(
             RequestBody::Recall(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await

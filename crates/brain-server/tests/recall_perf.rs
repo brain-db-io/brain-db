@@ -190,7 +190,7 @@ async fn encode(fix: &Fixture, request_id: [u8; 16], text: &str) -> u128 {
     };
     let outcome = brain_ops::dispatch(
         RequestBody::Encode(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         &fix.ctx,
     )
     .await

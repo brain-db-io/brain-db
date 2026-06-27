@@ -77,7 +77,7 @@ fn empty_topology() -> Topology {
     let auth_store = {
         let tmp = tempfile::TempDir::new().expect("tmpdir");
         let p = tmp.path().join("api_keys.redb");
-        let store = Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
+        let store = Arc::new(crate::auth::AuthStore::open(&p).expect("open auth store"));
         std::mem::forget(tmp);
         store
     };
@@ -88,7 +88,7 @@ fn empty_topology() -> Topology {
         )),
         server_caps: Arc::new(ServerCapabilities::v1_default(
             "brain-server/test",
-            vec![AuthMethod::None],
+            vec![AuthMethod::Token],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
         auth_store,

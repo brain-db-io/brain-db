@@ -90,7 +90,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "extractor-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -115,9 +115,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -161,7 +160,7 @@ async fn extractor_list_returns_seeded_builtins() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -199,7 +198,7 @@ async fn extractor_disable_then_list_excludes_disabled() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // Resolve the entity_mentions id via LIST.
     let (_, body) = round_trip(
@@ -292,7 +291,7 @@ async fn extractor_enable_after_disable_returns_previously_disabled() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (_, body) = round_trip(
         &mut client,
@@ -352,7 +351,7 @@ async fn extractor_disable_unknown_id_returns_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -379,7 +378,7 @@ async fn extractor_disable_zero_id_returns_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, _) = round_trip(
         &mut client,
@@ -402,7 +401,7 @@ async fn extractor_disable_oversized_reason_returns_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let big = "x".repeat(4097);
     let (opcode, _) = round_trip(

@@ -132,8 +132,8 @@ fn build_fixture() -> Fixture {
 /// per-agent boundary.
 const SHARED_AGENT: [u8; 16] = [0xCD; 16];
 
-/// A strict-mode caller bound to `namespace`, carrying the shared agent. Going
-/// through `from_scope` (scope_enforced = true) with a real agent id makes
+/// A caller bound to `namespace`, carrying the shared agent. Going through
+/// `from_scope` (the production key-resolution path) with a real agent id makes
 /// `dispatch` resolve the namespace name to its interned id and stamp it onto
 /// the executor — the production tenant-resolution path.
 fn caller_for(namespace: &str) -> RequestCaller {

@@ -93,7 +93,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "statement-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -118,9 +118,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -248,7 +247,7 @@ async fn create_fact_round_trips() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mgr = make_entity(&mut client, 3, "Manager-A").await;
@@ -303,7 +302,7 @@ async fn create_attribute_auto_supersedes() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
 
@@ -345,7 +344,7 @@ async fn create_event_requires_event_at() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mut req = event_request(priya, 0); // event_at = 0 → invalid
@@ -373,7 +372,7 @@ async fn create_unknown_predicate_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mgr = make_entity(&mut client, 3, "M").await;
@@ -405,7 +404,7 @@ async fn get_missing_statement_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (op, body) = round_trip(
         &mut client,
@@ -431,7 +430,7 @@ async fn supersede_returns_new_id_and_version() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mgr_a = make_entity(&mut client, 3, "A").await;
@@ -477,7 +476,7 @@ async fn tombstone_returns_timestamp() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mgr = make_entity(&mut client, 3, "M").await;
@@ -536,7 +535,7 @@ async fn retract_returns_will_zero_hint() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let mgr = make_entity(&mut client, 3, "M").await;
@@ -580,7 +579,7 @@ async fn history_returns_chain_in_version_order() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
 
@@ -647,7 +646,7 @@ async fn list_subject_predicate_filter() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let priya = make_entity(&mut client, 1, "Priya").await;
     let _ = round_trip(
@@ -698,7 +697,7 @@ async fn list_limit_zero_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (op, body) = round_trip(
         &mut client,

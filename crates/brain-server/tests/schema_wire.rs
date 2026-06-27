@@ -95,7 +95,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "schema-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -120,9 +120,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -182,7 +181,7 @@ async fn upload_get_list_smoke() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // UPLOAD v1.
     let (opcode, body) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
@@ -249,7 +248,7 @@ async fn upload_bumps_version_and_list_is_newest_first() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (_, _) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
     let (_, body) = round_trip(&mut client, 3, upload_request(ACME_V2)).await;
@@ -288,7 +287,7 @@ async fn get_by_explicit_version_returns_that_version_not_active() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // Upload v1, then v2 (adds a predicate). Active becomes v2.
     let (_, _) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
@@ -339,7 +338,7 @@ async fn validate_dry_run_returns_would_be_version() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // Validate on empty active namespace → would_be = 1.
     let (_, body) = round_trip(
@@ -401,7 +400,7 @@ async fn parse_error_rides_in_validation_errors_not_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(&mut client, 1, upload_request("namespace 123\n")).await;
     assert_eq!(
@@ -427,7 +426,7 @@ async fn reserved_brain_namespace_validation_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (_, body) = round_trip(
         &mut client,
@@ -455,7 +454,7 @@ async fn empty_document_returns_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(&mut client, 1, upload_request("")).await;
     assert_eq!(opcode, Opcode::Error.as_u16());
@@ -473,7 +472,7 @@ async fn schema_get_missing_returns_error_frame() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -499,7 +498,7 @@ async fn system_schema_visible_via_schema_get() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (_, body) = round_trip(
         &mut client,

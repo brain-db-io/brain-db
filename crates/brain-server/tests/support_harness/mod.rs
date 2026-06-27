@@ -81,10 +81,41 @@ pub struct Server {
     pub admin_handle: tokio::task::JoinHandle<std::io::Result<SocketAddr>>,
     pub handles: Vec<ShardHandle>,
     pub joiners: Vec<Option<ShardJoiner>>,
+    /// Mandatory-auth handle for tests: the API-key store the data plane
+    /// resolves credentials against. Tests mint keys via [`Server::mint`].
+    pub auth_store: Arc<crate::auth::AuthStore>,
+    /// A pre-minted FULL-permission token (raw secret bytes) for a default
+    /// `(namespace="test", agent=default_agent)`. Most tests just present
+    /// this; multi-agent tests call [`Server::mint`] for more.
+    pub token: Vec<u8>,
+    /// The agent_id bound to [`Server::token`].
+    pub default_agent: [u8; 16],
     /// `Some` when [`start`] owns the data dir (auto-cleanup on `stop`);
     /// `None` when [`start_in`] was used and the caller holds the
     /// `TempDir` (so the data dir survives `stop` for inspection).
     pub _data_dir: Option<TempDir>,
+}
+
+impl Server {
+    /// Mint an API key for `(namespace, agent)` with the given permission
+    /// bitfield and return the raw secret bytes to present in AUTH.
+    pub fn mint(&self, namespace: &str, agent: [u8; 16], permissions: u32) -> Vec<u8> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        self.auth_store
+            .mint(
+                [0u8; 16],
+                [0u8; 16],
+                namespace.to_string(),
+                agent,
+                permissions,
+                now,
+            )
+            .expect("mint test key")
+            .secret_bytes
+    }
 }
 
 impl Server {
@@ -172,13 +203,31 @@ where
 
     let auth_store_path = data_dir.join("api_keys.redb");
     let auth_store =
-        Arc::new(crate::auth::AuthStore::open(&auth_store_path, false).expect("open auth store"));
+        Arc::new(crate::auth::AuthStore::open(&auth_store_path).expect("open auth store"));
+    // Mandatory auth: mint a default FULL-permission key so tests can
+    // connect. Multi-agent tests mint more via `Server::mint`.
+    let default_agent = *uuid::Uuid::now_v7().as_bytes();
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_nanos() as u64)
+        .unwrap_or(0);
+    let token = auth_store
+        .mint(
+            [0u8; 16],
+            [0u8; 16],
+            "test".to_string(),
+            default_agent,
+            brain_metadata::api_keys::bits::FULL,
+            now,
+        )
+        .expect("mint default test key")
+        .secret_bytes;
     let topology = Topology {
         shards: shards.clone(),
         routing,
         server_caps: Arc::new(ServerCapabilities::v1_default(
             "brain-server/e2e",
-            vec![AuthMethod::None],
+            vec![AuthMethod::Token],
         )),
         request_metrics: request_metrics.clone(),
         auth_store: auth_store.clone(),
@@ -204,7 +253,7 @@ where
         connections,
         Arc::new(config::Config::for_tests()),
         request_metrics,
-        auth_store,
+        auth_store.clone(),
     ));
     let admin = AdminServer::new("127.0.0.1:0".parse().unwrap(), admin_state, signal);
     let bound_admin = admin.bind().await.expect("bind admin");
@@ -219,6 +268,9 @@ where
         admin_handle,
         handles,
         joiners,
+        auth_store,
+        token,
+        default_agent,
         _data_dir: None,
     }
 }

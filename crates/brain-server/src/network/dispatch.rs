@@ -58,10 +58,8 @@ pub(crate) enum ConnPhase {
         agent: AgentId,
         bound_shard: u16,
         permissions: AgentPermissions,
-        /// Resolved scope for this connection. In permissive mode
-        /// (no `BRAIN_REQUIRE_SCOPED_API_KEYS`) this is permissive
-        /// over the agent the client claimed; in strict mode it's
-        /// derived from the API key.
+        /// Resolved scope for this connection, derived entirely from the
+        /// presented API key.
         scope: RequestScope,
     },
 }
@@ -272,16 +270,11 @@ pub(crate) fn dispatch_frame(frame: Frame, state: &mut ConnState, topology: &Top
             // agents" (a cross-tenant leak on a shared shard), and any id
             // other than the caller's own agent is likewise forbidden —
             // mirrors RECALL's `enforce_agent_filter`.
-            if !subscribe_agents_allowed(
-                scope.scope_enforced,
-                scope.agent_id,
-                sub_req.filter.agents.as_deref(),
-            ) {
+            if !subscribe_agents_allowed(scope.agent_id, sub_req.filter.agents.as_deref()) {
                 return Action::Inline(error_frame(
                     stream_id,
                     ErrorCode::PermissionDenied,
-                    "subscribe: filter.agents must name only the API key's own \
-                     agent under scoped API-key auth",
+                    "subscribe: filter.agents must name only the API key's own agent",
                 ));
             }
             return Action::Subscribe(SubscribeStart {
@@ -394,9 +387,8 @@ fn on_auth(frame: Frame, state: &mut ConnState, topology: &Topology) -> Action {
         }
     };
 
-    // The server still advertises its accepted methods; reject anything
-    // the policy doesn't allow. Both `Token` (scoped API key) and
-    // `None` (dev / trusted-network mode) flow through `derive_scope`.
+    // The server advertises its accepted methods; reject anything the
+    // policy doesn't allow before resolving the credential.
     if !topology
         .server_caps
         .server_features
@@ -418,7 +410,7 @@ fn on_auth(frame: Frame, state: &mut ConnState, topology: &Topology) -> Action {
                 AuthError::Missing | AuthError::Unknown | AuthError::Revoked => {
                     ErrorCode::Unauthenticated
                 }
-                AuthError::PolicyForbidsAnonymous => ErrorCode::NoSuchAuthMethod,
+                AuthError::UnsupportedMethod => ErrorCode::NoSuchAuthMethod,
                 AuthError::Storage(_) => ErrorCode::Internal,
             };
             return Action::CloseWith(error_frame(0, code, &e.to_string()));
@@ -439,14 +431,13 @@ fn on_auth(frame: Frame, state: &mut ConnState, topology: &Topology) -> Action {
     };
 
     let auth_ok = AuthOkPayload {
-        // Echo the AUTH-bound agent (which may differ from what the
-        // client claimed when strict mode is on).
+        // The agent is resolved entirely from the key — the client never
+        // claims one. This is how the client learns its identity.
         agent_id: *agent.0.as_bytes(),
         bound_shard_id: bound_shard,
         permissions,
-        // Surface the tenant the connection resolved to (strict: the key's
-        // namespace; permissive: the operator default; empty = system). The
-        // client only displays this — it never sends a namespace.
+        // Surface the tenant the connection resolved to (the key's
+        // namespace). The client only displays this — it never sends one.
         namespace: scope.namespace.clone(),
         server_time_unix_nanos: now_unix_nanos(),
     };
@@ -615,19 +606,11 @@ fn build_response_frame(stream_id: u32, eos: bool, body: ResponseBody) -> Frame 
 
 /// Whether a SUBSCRIBE's `filter.agents` is allowed for this scope.
 ///
-/// Under scoped API-key auth a subscriber may only receive its own
-/// agent's events, so `agents` must be a non-empty list naming only the
-/// caller's own agent — `None`/empty (= all agents on the shard) is a
-/// cross-tenant leak and is rejected. Permissive mode allows any filter.
+/// A subscriber may only receive its own agent's events, so `agents` must
+/// be a non-empty list naming only the caller's own agent — `None`/empty
+/// (= all agents on the shard) is a cross-tenant leak and is rejected.
 /// Mirrors RECALL's `enforce_agent_filter`.
-fn subscribe_agents_allowed(
-    scope_enforced: bool,
-    own: AgentId,
-    agents: Option<&[[u8; 16]]>,
-) -> bool {
-    if !scope_enforced {
-        return true;
-    }
+fn subscribe_agents_allowed(own: AgentId, agents: Option<&[[u8; 16]]>) -> bool {
     agents.is_some_and(|a| !a.is_empty() && a.iter().all(|b| AgentId::from(*b) == own))
 }
 
@@ -756,7 +739,7 @@ mod tests {
     fn test_topology() -> Topology {
         let tmp = tempfile::tempdir().expect("tmpdir");
         let auth_store = Arc::new(
-            crate::auth::AuthStore::open(tmp.path().join("api_keys.redb"), false)
+            crate::auth::AuthStore::open(tmp.path().join("api_keys.redb"))
                 .expect("open auth store"),
         );
         // Leak the tempdir into a 'static slot — we want the file alive
@@ -770,7 +753,7 @@ mod tests {
             )),
             server_caps: Arc::new(ServerCapabilities::v1_default(
                 "brain-server/test",
-                vec![AuthMethod::None, AuthMethod::Token],
+                vec![AuthMethod::Token],
             )),
             request_metrics: Arc::new(crate::metrics::request::RequestMetrics::new()),
             auth_store,
@@ -905,21 +888,14 @@ mod tests {
     fn subscribe_agents_scope_guard() {
         let own = AgentId::from([7u8; 16]);
         let other = [9u8; 16];
-        // Permissive mode: any filter is allowed.
-        assert!(subscribe_agents_allowed(false, own, None));
-        assert!(subscribe_agents_allowed(false, own, Some(&[other])));
-        // Scoped mode: only a non-empty list of the caller's own agent.
-        assert!(subscribe_agents_allowed(true, own, Some(&[[7u8; 16]])));
-        // Scoped mode rejects: None (= all), empty (= all), other agent,
-        // and any list that includes another agent.
-        assert!(!subscribe_agents_allowed(true, own, None));
-        assert!(!subscribe_agents_allowed(true, own, Some(&[])));
-        assert!(!subscribe_agents_allowed(true, own, Some(&[other])));
-        assert!(!subscribe_agents_allowed(
-            true,
-            own,
-            Some(&[[7u8; 16], other])
-        ));
+        // Allowed: a non-empty list naming only the caller's own agent.
+        assert!(subscribe_agents_allowed(own, Some(&[[7u8; 16]])));
+        // Rejected: None (= all), empty (= all), another agent, and any
+        // list that includes another agent.
+        assert!(!subscribe_agents_allowed(own, None));
+        assert!(!subscribe_agents_allowed(own, Some(&[])));
+        assert!(!subscribe_agents_allowed(own, Some(&[other])));
+        assert!(!subscribe_agents_allowed(own, Some(&[[7u8; 16], other])));
     }
 
     /// Client op on stream_id = 0 is BadFrame.

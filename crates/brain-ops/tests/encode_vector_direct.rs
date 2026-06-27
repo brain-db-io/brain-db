@@ -111,7 +111,7 @@ fn vector_direct_full_pipeline_returns_memory_id() {
         let req = vector_direct_req([1; 16], 7);
         let resp = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -139,7 +139,7 @@ fn vector_direct_fingerprint_mismatch_rejected() {
 
         let err = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -167,7 +167,7 @@ fn vector_direct_non_unit_norm_rejected() {
 
         let err = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -193,7 +193,7 @@ fn vector_direct_wrong_dim_rejected() {
 
         let err = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -218,7 +218,7 @@ fn vector_direct_nan_element_rejected() {
 
         let err = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -243,7 +243,7 @@ fn vector_direct_replay_returns_same_response() {
         let first = unwrap_resp(
             dispatch(
                 RequestBody::EncodeVectorDirect(req.clone()),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -252,7 +252,7 @@ fn vector_direct_replay_returns_same_response() {
         let second = unwrap_resp(
             dispatch(
                 RequestBody::EncodeVectorDirect(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -278,7 +278,7 @@ fn vector_direct_txn_id_rejected() {
 
         let err = dispatch(
             RequestBody::EncodeVectorDirect(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -308,7 +308,7 @@ fn vector_direct_missing_edge_target_silently_dropped() {
         let resp = unwrap_resp(
             dispatch(
                 RequestBody::EncodeVectorDirect(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

@@ -100,7 +100,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "llm-wire-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -125,9 +125,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -194,7 +193,7 @@ async fn schema_upload_registers_llm_extractor_in_list() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // 1. SCHEMA_UPLOAD parses + persists the user namespace.
     let (opcode, body) = round_trip(&mut client, 1, upload_request(ACME_LLM_SCHEMA)).await;
@@ -268,7 +267,7 @@ async fn extractor_disable_then_enable_round_trip_for_llm_row() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (_, _) = round_trip(&mut client, 1, upload_request(ACME_LLM_SCHEMA)).await;
 

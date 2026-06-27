@@ -133,7 +133,7 @@ async fn encode(fix: &Fixture, request_id: [u8; 16], text: &str, kind: MemoryKin
     let req = encode_req(request_id, text, kind);
     let outcome = dispatch(
         RequestBody::Encode(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         &fix.ctx,
     )
     .await
@@ -167,7 +167,7 @@ fn recall_cue_hit_returns_member_with_fields_plumbed() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("alpha", 2)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -242,7 +242,7 @@ fn recall_echoes_client_supplied_occurred_at() {
         };
         dispatch(
             RequestBody::Encode(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -252,7 +252,7 @@ fn recall_echoes_client_supplied_occurred_at() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("moved to berlin", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -307,7 +307,7 @@ fn recency_breaks_relevance_ties_toward_recent_event_time() {
         let recent_id = match single_body(
             dispatch(
                 RequestBody::Encode(recent),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -318,7 +318,7 @@ fn recency_breaks_relevance_ties_toward_recent_event_time() {
         };
         dispatch(
             RequestBody::Encode(old),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -332,7 +332,7 @@ fn recency_breaks_relevance_ties_toward_recent_event_time() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -385,7 +385,7 @@ fn list_intent_recall_runs_merge_path_and_returns_results() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("list all the things she enjoys", 3)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -413,7 +413,7 @@ fn recall_empty_index_returns_empty_frame() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("nothing", 10)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -444,7 +444,7 @@ fn recall_membership_set_bounded_by_max_results() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("doc-2", 3)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -496,7 +496,7 @@ fn recall_confidence_floor_drops_low_score_hits() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -529,7 +529,7 @@ fn recall_zero_max_results_defaults_not_rejected() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("zero-cap-alpha", 0)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -564,7 +564,7 @@ fn recall_returns_text_even_when_include_text_false() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("alpha-text-rev0", 2)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -610,7 +610,7 @@ fn recall_include_text_true_returns_stored_text() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -670,7 +670,7 @@ fn recall_with_real_embedder_end_to_end() {
         let frame = unwrap_recall_resp(
             dispatch(
                 RequestBody::Recall(recall_req("a cat resting on a rug", 2)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

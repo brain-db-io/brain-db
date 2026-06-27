@@ -21,25 +21,22 @@ use crate::error::OpError;
 /// Per-request caller context. Carries the AUTH-bound scope
 /// (org / user / namespace / agent / permissions) derived from the
 /// API key the client presented — handlers read scope from here
-/// instead of trusting client-supplied fields.
+/// instead of trusting client-supplied fields. Every caller is fully
+/// scoped: there is no anonymous or permissive variant. Production
+/// builds one only via [`RequestCaller::from_scope`] (a resolved key);
+/// tests use [`RequestCaller::for_tests`].
 #[derive(Debug, Clone)]
 pub struct RequestCaller {
-    /// Authenticated agent. `AgentId::default()` means "unauthenticated /
-    /// test path"; the writer treats that as a substrate-wide event with
-    /// no agent filter applicability.
+    /// Authenticated agent, resolved from the API key.
     pub agent_id: AgentId,
-    /// Tenant identity. Zero in permissive mode (no scope binding).
+    /// Tenant identity (reserved audit tag; currently zeroed).
     pub org_id: [u8; 16],
     /// User identity (optional human/service). Zero when not bound.
     pub user_id: [u8; 16],
-    /// Schema namespace the caller may address. Empty string means
-    /// "no namespace lock" (permissive / dev mode).
+    /// Schema namespace the caller may address, resolved from the key.
     pub namespace: String,
     /// Permission bitfield from [`brain_metadata::api_keys::bits`].
     pub permissions: u32,
-    /// True when scope binding is enforced for this caller. In
-    /// permissive mode (default v1.0) all checks short-circuit.
-    pub scope_enforced: bool,
     /// Wire-level session identifier minted at HELLO/WELCOME. Stamped
     /// onto every open transaction so the connection layer can
     /// auto-abort buffered work when the client's TCP/TLS connection
@@ -50,22 +47,8 @@ pub struct RequestCaller {
 }
 
 impl RequestCaller {
-    /// Construct a permissive caller carrying the given agent. Used by
-    /// the network layer when `BRAIN_REQUIRE_SCOPED_API_KEYS` is off.
-    #[must_use]
-    pub fn new(agent_id: AgentId) -> Self {
-        Self {
-            agent_id,
-            org_id: [0u8; 16],
-            user_id: [0u8; 16],
-            namespace: String::new(),
-            permissions: perm_bits::FULL,
-            scope_enforced: false,
-            session_id: [0u8; 16],
-        }
-    }
-
-    /// Construct a strict-mode caller from a resolved API-key scope.
+    /// Construct a caller from a resolved API-key scope. This is the
+    /// only production path — identity is always the credential.
     #[must_use]
     pub fn from_scope(
         agent_id: AgentId,
@@ -80,22 +63,23 @@ impl RequestCaller {
             user_id,
             namespace,
             permissions,
-            scope_enforced: true,
             session_id: [0u8; 16],
         }
     }
 
-    /// The substrate-wide / test-only default. Used by paths that
-    /// don't yet wire connection auth (in-process unit tests).
+    /// Test-only caller: a fully-scoped caller with FULL permissions and
+    /// no namespace lock. Production code resolves callers from a key via
+    /// [`RequestCaller::from_scope`]; this exists solely so in-process
+    /// unit/integration tests can drive dispatch without minting a key.
+    #[doc(hidden)]
     #[must_use]
-    pub fn anonymous() -> Self {
+    pub fn for_tests() -> Self {
         Self {
             agent_id: AgentId::default(),
             org_id: [0u8; 16],
             user_id: [0u8; 16],
             namespace: String::new(),
             permissions: perm_bits::FULL,
-            scope_enforced: false,
             session_id: [0u8; 16],
         }
     }
@@ -109,22 +93,11 @@ impl RequestCaller {
         self
     }
 
-    /// Set the addressable namespace WITHOUT enabling scope enforcement.
-    /// The permissive path uses this to scope `auth=none` connections to an
-    /// operator-configured namespace: dispatch resolves + stamps the
-    /// namespace so writes land in that tenant, while the cross-namespace
-    /// and agent-filter guards stay off (`scope_enforced` remains false).
-    #[must_use]
-    pub fn with_namespace(mut self, namespace: String) -> Self {
-        self.namespace = namespace;
-        self
-    }
-
     /// True iff every bit in `op` is set on this caller's permission
-    /// bitfield. In permissive mode this is always true.
+    /// bitfield.
     #[must_use]
     pub fn allows(&self, op: u32) -> bool {
-        !self.scope_enforced || (self.permissions & op == op)
+        self.permissions & op == op
     }
 
     /// Returns `Err(OpError::Unauthorized)` if the requested permission
@@ -140,11 +113,10 @@ impl RequestCaller {
         }
     }
 
-    /// Returns `Err(OpError::Unauthorized)` when scope binding is on
-    /// and the request's claimed agent doesn't match the key's agent.
-    /// In permissive mode this passes unconditionally.
+    /// Returns `Err(OpError::Unauthorized)` when the request's claimed
+    /// agent doesn't match the key's agent.
     pub fn require_agent(&self, claimed: AgentId, what: &'static str) -> Result<(), OpError> {
-        if !self.scope_enforced || self.agent_id == claimed {
+        if self.agent_id == claimed {
             Ok(())
         } else {
             Err(OpError::Unauthorized(format!(
@@ -153,11 +125,11 @@ impl RequestCaller {
         }
     }
 
-    /// Returns `Err(OpError::Unauthorized)` when scope binding is on
-    /// and the schema namespace the request targets doesn't match the
-    /// key's namespace.
+    /// Returns `Err(OpError::Unauthorized)` when the schema namespace the
+    /// request targets doesn't match the key's namespace. An empty caller
+    /// namespace (test-only callers) imposes no lock.
     pub fn require_namespace(&self, claimed: &str, what: &'static str) -> Result<(), OpError> {
-        if !self.scope_enforced || self.namespace.is_empty() || self.namespace == claimed {
+        if self.namespace.is_empty() || self.namespace == claimed {
             Ok(())
         } else {
             Err(OpError::Unauthorized(format!(
@@ -207,10 +179,8 @@ pub async fn dispatch(
     caller: RequestCaller,
     ctx: &OpsContext,
 ) -> Result<DispatchOutcome, OpError> {
-    // First gate: every op carries a required-permission tag. In
-    // permissive mode `caller.allows()` is unconditionally true so the
-    // check is a no-op; in strict mode an API key without the bit
-    // gets rejected before any work is done.
+    // First gate: every op carries a required-permission tag. An API
+    // key without the bit gets rejected before any work is done.
     enforce_permission(&caller, &req)?;
     // Second gate: handlers that act as a specific agent_id must see
     // the AUTH-bound one, not whatever the client claimed. Namespace
@@ -229,18 +199,17 @@ pub async fn dispatch(
     // it via `ctx.executor.caller_agent` without taking another
     // function param. The clone is cheap — every field is Arc'd.
     let per_request_ctx = if caller.agent_id == brain_core::AgentId::default() {
-        // Anonymous caller — no override needed; reuse the shared
-        // ctx (zero-cost on the hot path that doesn't actually
-        // authenticate).
+        // Test-only default-agent caller — no override needed; reuse the
+        // shared ctx (zero-cost on the hot path).
         None
     } else {
         let mut owned = ctx.clone();
         owned.executor = owned.executor.with_caller_agent(caller.agent_id);
         // Resolve the caller's namespace (the company/tenant boundary)
-        // to its interned id. An empty namespace (permissive / dev) or
+        // to its interned id. An empty namespace (test-only callers) or
         // one not yet interned stays the system namespace; the AUTH path
-        // interns a key's namespace so the lookup resolves in strict
-        // mode. Read-only: the dispatch path never mints.
+        // interns a key's namespace at mint so the lookup resolves.
+        // Read-only: the dispatch path never mints.
         if !caller.namespace.is_empty() {
             if let Ok(rtxn) = owned.executor.metadata.read_txn() {
                 if let Ok(Some(ns)) =
@@ -717,9 +686,10 @@ fn enforce_permission(caller: &RequestCaller, req: &RequestBody) -> Result<(), O
 }
 
 /// Reject namespace-touching ops whose target namespace doesn't match
-/// the caller's bound namespace. In permissive mode this is a no-op.
+/// the caller's bound namespace. A caller with no namespace (test-only)
+/// imposes no lock.
 fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), OpError> {
-    if !caller.scope_enforced || caller.namespace.is_empty() {
+    if caller.namespace.is_empty() {
         return Ok(());
     }
     let target = match req {
@@ -736,18 +706,14 @@ fn enforce_namespace(caller: &RequestCaller, req: &RequestBody) -> Result<(), Op
 }
 
 /// Reject a RECALL whose explicit cross-agent scope would read outside the
-/// caller's bound agent. In permissive mode (default v1.0) this is a no-op —
-/// dev / trusted-network callers carry no scope binding. Under scoped API-key
-/// auth the key is bound to exactly one agent, so the only `agent_filter` it
-/// may name is its own agent, and it may not set `include_other_agents` (which
-/// drops the implicit caller scope and reads across every agent).
+/// caller's bound agent. The key is bound to exactly one agent, so the only
+/// `agent_filter` it may name is its own agent, and it may not set
+/// `include_other_agents` (which drops the implicit caller scope and reads
+/// across every agent).
 ///
 /// The common path — empty `agent_filter`, `include_other_agents == false` —
 /// passes here and is scoped to the caller downstream in the RECALL handler.
 fn enforce_agent_filter(caller: &RequestCaller, req: &RequestBody) -> Result<(), OpError> {
-    if !caller.scope_enforced {
-        return Ok(());
-    }
     let RequestBody::Recall(r) = req else {
         return Ok(());
     };
@@ -782,8 +748,15 @@ mod tests {
         AgentId(uuid::Uuid::from_bytes(a))
     }
 
-    fn permissive() -> RequestCaller {
-        RequestCaller::new(agent(1))
+    /// A fully-scoped caller with FULL permissions and no namespace lock.
+    fn full_caller() -> RequestCaller {
+        RequestCaller::from_scope(
+            agent(1),
+            [0u8; 16],
+            [0u8; 16],
+            String::new(),
+            perm_bits::FULL,
+        )
     }
 
     fn strict(perms: u32, namespace: &str, agent_id: AgentId) -> RequestCaller {
@@ -801,8 +774,8 @@ mod tests {
     }
 
     #[test]
-    fn permissive_caller_passes_every_permission_check() {
-        let caller = permissive();
+    fn full_caller_passes_every_permission_check() {
+        let caller = full_caller();
         assert!(enforce_permission(&caller, &encode_req()).is_ok());
         assert!(caller.allows(perm_bits::ADMIN));
         assert!(caller.allows(perm_bits::ENCODE | perm_bits::FORGET));
@@ -820,8 +793,8 @@ mod tests {
         let req = RequestBody::AdminListPendingContradictions(
             brain_protocol::envelope::request::AdminListPendingContradictionsRequest { limit: 0 },
         );
-        // Permissive caller holds ADMIN — passes the gate.
-        assert!(enforce_permission(&permissive(), &req).is_ok());
+        // Full-permission caller holds ADMIN — passes the gate.
+        assert!(enforce_permission(&full_caller(), &req).is_ok());
         // RECALL-only caller is rejected.
         let caller = strict(perm_bits::RECALL, "acme", agent(1));
         assert!(matches!(
@@ -869,14 +842,15 @@ mod tests {
     }
 
     #[test]
-    fn strict_mode_enforces_agent_id() {
+    fn caller_is_bound_to_its_own_agent() {
         let caller = strict(perm_bits::ENCODE, "ns", agent(1));
         assert!(caller.require_agent(agent(1), "test").is_ok());
         assert!(caller.require_agent(agent(2), "test").is_err());
 
-        // Permissive: any claimed agent_id passes.
-        let p = permissive();
-        assert!(p.require_agent(agent(99), "test").is_ok());
+        // A caller bound to agent(1) cannot act as another agent.
+        let p = full_caller();
+        assert!(p.require_agent(agent(99), "test").is_err());
+        assert!(p.require_agent(agent(1), "test").is_ok());
     }
 
     fn recall_with(agent_filter: Vec<[u8; 16]>, include_other_agents: bool) -> RequestBody {
@@ -902,14 +876,6 @@ mod tests {
 
     fn agent_bytes(byte: u8) -> [u8; 16] {
         *agent(byte).0.as_bytes()
-    }
-
-    #[test]
-    fn permissive_recall_allows_any_agent_filter() {
-        // Dev / trusted-network mode carries no scope binding: cross-agent
-        // recall knobs are honored as-is.
-        let caller = permissive();
-        assert!(enforce_agent_filter(&caller, &recall_with(vec![agent_bytes(9)], true)).is_ok());
     }
 
     #[test]

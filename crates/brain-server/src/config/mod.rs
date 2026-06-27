@@ -43,8 +43,11 @@ pub struct Config {
     pub index: IndexConfig,
     #[serde(default)]
     pub monitoring: MonitoringConfig,
+    /// Operator admin-plane config. The admin HTTP listener (key mint /
+    /// revoke / stats) is gated on `token`; without it the listener refuses
+    /// to start (fail-closed).
     #[serde(default)]
-    pub auth: AuthConfig,
+    pub admin: AdminConfig,
     /// Defaulted so existing `dev.toml` files keep
     /// working (consolidation remains disabled until an LLM backend
     /// is wired).
@@ -1020,35 +1023,19 @@ fn default_service_name() -> String {
     "brain-server".to_string()
 }
 
-#[derive(Clone, Debug, Deserialize, Serialize, PartialEq)]
+/// `[admin]` TOML section. Gates the operator admin HTTP plane (key
+/// mint / revoke / stats). Data-plane auth is always mandatory and is not
+/// configurable here — identity is the API key. Override the token with
+/// `BRAIN__ADMIN__TOKEN`; prefer the environment for production secrets.
+#[derive(Clone, Debug, Default, Deserialize, Serialize, PartialEq)]
 #[serde(deny_unknown_fields)]
-pub struct AuthConfig {
-    pub mode: AuthMode,
-    /// Namespace that permissive (`mode = "none"`) connections are scoped
-    /// to. Interned into every shard at spawn so the dispatch lookup
-    /// resolves it to a real `NamespaceId` — permissive writes/reads then
-    /// land in this operator-named tenant instead of the reserved `brain`
-    /// system namespace. `None` keeps the legacy behavior (permissive
-    /// callers resolve to the system namespace). Ignored under
-    /// `mode = "apikey"`, where each key carries its own namespace.
+pub struct AdminConfig {
+    /// Operator admin secret. Every admin HTTP request must present it as
+    /// `Authorization: Bearer <token>`. When unset the admin listener
+    /// refuses to start (fail-closed) — there is no unauthenticated mint
+    /// channel.
     #[serde(default)]
-    pub default_namespace: Option<String>,
-}
-
-impl Default for AuthConfig {
-    fn default() -> Self {
-        Self {
-            mode: AuthMode::None,
-            default_namespace: None,
-        }
-    }
-}
-
-#[derive(Clone, Copy, Debug, Deserialize, Serialize, PartialEq, Eq)]
-#[serde(rename_all = "lowercase")]
-pub enum AuthMode {
-    None,
-    ApiKey,
+    pub token: Option<String>,
 }
 
 // ----------------------------------------------------------------------------
@@ -1364,7 +1351,11 @@ impl Config {
             workers: WorkersConfig::default(),
             index: IndexConfig::default(),
             monitoring: MonitoringConfig::default(),
-            auth: AuthConfig::default(),
+            admin: AdminConfig {
+                // Non-empty so the admin listener boots in tests; admin
+                // HTTP tests present this as `Authorization: Bearer …`.
+                token: Some("test-admin-token".to_string()),
+            },
             summarizer: SummarizerConfig::default(),
             llm: LlmConfig::default(),
         }

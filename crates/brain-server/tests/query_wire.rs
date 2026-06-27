@@ -95,7 +95,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "query-tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -120,9 +120,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -214,7 +213,7 @@ async fn query_smoke_round_trips_a_simple_request() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) =
         round_trip(&mut client, 1, RequestBody::Query(text_only_query("topic"))).await;
@@ -242,7 +241,7 @@ async fn query_explain_returns_plan_text_without_execution() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -280,7 +279,7 @@ async fn query_trace_returns_execution_block() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -314,7 +313,7 @@ async fn query_text_returns_memory_only_results() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, body) = round_trip(
         &mut client,
@@ -345,7 +344,7 @@ async fn query_no_signal_returns_error() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     // Empty text + no entity anchor → planner reports NoSignal →
     // handler maps to InvalidRequest → server returns ERROR frame.
@@ -378,7 +377,7 @@ async fn retrieval_surfaces_an_indexed_memory() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, _) = round_trip(&mut client, 1, upload_schema_request()).await;
     assert_eq!(opcode, Opcode::SchemaUploadResp.as_u16());
@@ -422,7 +421,7 @@ async fn query_explicit_retriever_list_overflow_is_rejected() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let mut req = text_only_query("topic");
     // Force a 4-entry explicit list (> MAX_EXPLICIT_RETRIEVERS = 3).

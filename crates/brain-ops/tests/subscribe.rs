@@ -142,7 +142,7 @@ fn sub_req(filter: SubscriptionFilter) -> SubscribeRequest {
 async fn do_encode(ctx: &OpsContext, req: EncodeRequest) -> u128 {
     let outcome = dispatch(
         RequestBody::Encode(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         ctx,
     )
     .await
@@ -162,7 +162,7 @@ async fn do_forget(ctx: &OpsContext, memory_id: u128, request_id: [u8; 16]) {
     };
     let outcome = dispatch(
         RequestBody::Forget(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         ctx,
     )
     .await
@@ -223,7 +223,7 @@ fn lifecycle_unsubscribe_unknown_stream_id_returns_not_found() {
             RequestBody::Unsubscribe(UnsubscribeRequest {
                 target_stream_id: 99,
             }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await;
@@ -302,7 +302,7 @@ fn publish_txn_commit_emits_all_buffered_events_in_order() {
                 txn_id,
                 timeout_seconds: 60,
             }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -318,7 +318,7 @@ fn publish_txn_commit_emits_all_buffered_events_in_order() {
                     txn_id: Some(txn_id),
                     occurred_at_unix_nanos: None,
                 }),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -336,7 +336,7 @@ fn publish_txn_commit_emits_all_buffered_events_in_order() {
                     txn_id: Some(txn_id),
                     occurred_at_unix_nanos: None,
                 }),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -355,7 +355,7 @@ fn publish_txn_commit_emits_all_buffered_events_in_order() {
         // COMMIT.
         dispatch(
             RequestBody::TxnCommit(TxnCommitRequest { txn_id }),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -464,7 +464,7 @@ fn dispatcher_times_out_when_no_event_matches() {
         let fix = build_fixture();
         let err = dispatch(
             RequestBody::Subscribe(sub_req(empty_filter())),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -482,7 +482,7 @@ fn dispatcher_with_from_lsn_returns_lsn_too_old() {
         req.from_lsn = Some(1);
         let err = dispatch(
             RequestBody::Subscribe(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await

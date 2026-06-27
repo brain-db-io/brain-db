@@ -88,7 +88,30 @@ struct Server {
     listener: tokio::task::JoinHandle<std::io::Result<SocketAddr>>,
     handles: Vec<ShardHandle>,
     joiners: Vec<Option<ShardJoiner>>,
+    auth_store: Arc<crate::auth::AuthStore>,
     _data_dir: TempDir,
+}
+
+impl Server {
+    /// Mint a FULL-permission key for `agent_id` (namespace "test") and
+    /// return the raw secret bytes to present in AUTH.
+    fn mint(&self, agent_id: [u8; 16]) -> Vec<u8> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        self.auth_store
+            .mint(
+                [0u8; 16],
+                [0u8; 16],
+                "test".to_string(),
+                agent_id,
+                brain_metadata::api_keys::bits::FULL,
+                now,
+            )
+            .expect("mint test key")
+            .secret_bytes
+    }
 }
 
 impl Server {
@@ -119,23 +142,19 @@ async fn start_with_shards(n_shards: usize, limits: ConnectionLimits) -> Server 
     let routing = Arc::new(arc_swap::ArcSwap::from_pointee(
         RoutingTable::new(n_shards as u16, std::collections::HashMap::new()).unwrap(),
     ));
-    let __auth_store = {
-        let tmp = tempfile::TempDir::new().expect("tmpdir");
-        let p = tmp.path().join("api_keys.redb");
-        let store =
-            std::sync::Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
-        std::mem::forget(tmp);
-        store
+    let auth_store = {
+        let p = data_dir.path().join("api_keys.redb");
+        std::sync::Arc::new(crate::auth::AuthStore::open(&p).expect("open auth store"))
     };
     let topology = Topology {
         shards: Arc::new(handles.clone()),
         routing,
         server_caps: Arc::new(ServerCapabilities::v1_default(
             "brain-server/test",
-            vec![AuthMethod::None],
+            vec![AuthMethod::Token],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
-        auth_store: __auth_store.clone(),
+        auth_store: auth_store.clone(),
     };
 
     let (trigger, signal) = ShutdownSignal::channel();
@@ -157,6 +176,7 @@ async fn start_with_shards(n_shards: usize, limits: ConnectionLimits) -> Server 
         listener: listener_handle,
         handles,
         joiners,
+        auth_store,
         _data_dir: data_dir,
     }
 }
@@ -200,7 +220,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
 
 async fn complete_handshake(
     client: &mut TcpStream,
-    agent_id: [u8; 16],
+    token: &[u8],
 ) -> (WelcomePayload, AuthOkPayload) {
     let hello = HelloPayload {
         client_id: "tester/0.1".to_owned(),
@@ -232,9 +252,8 @@ async fn complete_handshake(
     };
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id,
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -266,7 +285,7 @@ async fn handshake_binds_client_to_shard_and_echoes_agent_id() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    let (_welcome, auth_ok) = complete_handshake(&mut client, agent_id).await;
+    let (_welcome, auth_ok) = complete_handshake(&mut client, &server.mint(agent_id)).await;
     assert_eq!(auth_ok.agent_id, agent_id);
     assert_eq!(auth_ok.bound_shard_id, 0, "only 1 shard → bound shard 0");
     server.stop().await;
@@ -364,7 +383,7 @@ async fn ping_pong_with_timestamp() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let ts = 1_234_567_890u64;
     send_frame(
@@ -401,7 +420,7 @@ async fn bye_echoes_and_closes() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     send_frame(
         &mut client,
@@ -432,7 +451,7 @@ async fn bad_opcode_errors_stream_not_connection() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     // Send a *response* opcode (client→server is disallowed) on stream 1.
     let bogus = Frame::new(Opcode::EncodeResp.as_u16(), FLAG_EOS, 1, Vec::new());
@@ -465,7 +484,7 @@ async fn encode_round_trips_through_shard() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let encode = EncodeRequest {
         text: "hello world".into(),
@@ -519,7 +538,7 @@ async fn forget_routes_by_memory_id() {
     let server = start_with_shards(2, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let memory_id = brain_core::MemoryId::pack(1, 7, 1).raw();
     let forget = ForgetRequest {
@@ -564,7 +583,7 @@ async fn recall_returns_single_frame_eos_in_v1() {
     let server = start_with_shards(1, ConnectionLimits::default()).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let recall = RecallRequest {
         cue_text: "anything".into(),
@@ -620,7 +639,7 @@ async fn server_ping_fires_after_idle_timeout() {
     let server = start_with_shards(1, limits).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     // Stay idle past idle_timeout. Server should emit SERVER_PING.
     let resp = tokio::time::timeout(Duration::from_secs(3), read_one_frame(&mut client))

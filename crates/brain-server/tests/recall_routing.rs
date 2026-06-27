@@ -97,7 +97,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "recall-router".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -122,9 +122,8 @@ async fn complete_handshake(client: &mut TcpStream) {
     assert_eq!(welcome.header.opcode_u16(), Opcode::Welcome.as_u16());
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -268,7 +267,7 @@ async fn recall_without_schema_uses_retrieval_path() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     seed_fixture(&mut client).await;
 
@@ -286,7 +285,7 @@ async fn recall_after_schema_upload_uses_retrieval_path() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, _body) = round_trip(
         &mut client,
@@ -316,7 +315,7 @@ async fn recall_inside_txn_returns_committed_pipeline_hits() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let (opcode, _body) = round_trip(
         &mut client,
@@ -368,7 +367,7 @@ async fn recall_against_zero_memories_returns_empty_response() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     // No seed_fixture: the shard has zero memories encoded.
 
     let (opcode, body) =
@@ -403,7 +402,7 @@ async fn unicode_cue_text_roundtrips_through_retrieval_recall() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
 
     let phrases = [
         "Niraj met Александра in 北京",
@@ -453,7 +452,7 @@ async fn txn_recall_invariants_hold_across_request_shapes() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client).await;
+    complete_handshake(&mut client, &server.token).await;
     seed_fixture(&mut client).await;
 
     // 16 cases — heavy fixture (server + handshake reused via

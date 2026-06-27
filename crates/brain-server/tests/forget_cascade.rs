@@ -118,7 +118,7 @@ fn rid() -> [u8; 16] {
     *uuid::Uuid::now_v7().as_bytes()
 }
 
-async fn handshake(client: &mut TcpStream) {
+async fn handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "forget-cascade".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -145,9 +145,8 @@ async fn handshake(client: &mut TcpStream) {
     );
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id: *uuid::Uuid::now_v7().as_bytes(),
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -279,7 +278,7 @@ async fn forget_cascades_tombstone_to_orphaned_statement() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    handshake(&mut client).await;
+    handshake(&mut client, &server.token).await;
 
     // The memory that will back the statement's only evidence.
     let memory_id = encode(&mut client, 1, "Priya works with the platform team").await;

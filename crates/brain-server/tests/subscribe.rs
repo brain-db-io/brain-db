@@ -78,10 +78,30 @@ struct Server {
     listener: tokio::task::JoinHandle<std::io::Result<SocketAddr>>,
     handles: Vec<ShardHandle>,
     joiners: Vec<Option<ShardJoiner>>,
+    auth_store: Arc<crate::auth::AuthStore>,
     _data_dir: TempDir,
 }
 
 impl Server {
+    /// Mint a FULL-permission key for `agent_id` (namespace "test").
+    fn mint(&self, agent_id: [u8; 16]) -> Vec<u8> {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos() as u64)
+            .unwrap_or(0);
+        self.auth_store
+            .mint(
+                [0u8; 16],
+                [0u8; 16],
+                "test".to_string(),
+                agent_id,
+                brain_metadata::api_keys::bits::FULL,
+                now,
+            )
+            .expect("mint test key")
+            .secret_bytes
+    }
+
     async fn stop(mut self) {
         self.trigger.signal();
         let _ = tokio::time::timeout(Duration::from_secs(2), &mut self.listener).await;
@@ -111,23 +131,19 @@ async fn start_with_shards_and_limits(n_shards: usize, limits: ConnectionLimits)
     let routing = Arc::new(arc_swap::ArcSwap::from_pointee(
         RoutingTable::new(n_shards as u16, std::collections::HashMap::new()).unwrap(),
     ));
-    let __auth_store = {
-        let tmp = tempfile::TempDir::new().expect("tmpdir");
-        let p = tmp.path().join("api_keys.redb");
-        let store =
-            std::sync::Arc::new(crate::auth::AuthStore::open(&p, false).expect("open auth store"));
-        std::mem::forget(tmp);
-        store
+    let auth_store = {
+        let p = data_dir.path().join("api_keys.redb");
+        std::sync::Arc::new(crate::auth::AuthStore::open(&p).expect("open auth store"))
     };
     let topology = Topology {
         shards: Arc::new(handles.clone()),
         routing,
         server_caps: Arc::new(ServerCapabilities::v1_default(
             "brain-server/test",
-            vec![AuthMethod::None],
+            vec![AuthMethod::Token],
         )),
         request_metrics: Arc::new(metrics::request::RequestMetrics::new()),
-        auth_store: __auth_store.clone(),
+        auth_store: auth_store.clone(),
     };
 
     let (trigger, signal) = ShutdownSignal::channel();
@@ -149,6 +165,7 @@ async fn start_with_shards_and_limits(n_shards: usize, limits: ConnectionLimits)
         listener: listener_handle,
         handles,
         joiners,
+        auth_store,
         _data_dir: data_dir,
     }
 }
@@ -189,7 +206,7 @@ async fn send_frame(client: &mut TcpStream, frame: Frame) {
     client.flush().await.expect("flush");
 }
 
-async fn complete_handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
+async fn complete_handshake(client: &mut TcpStream, token: &[u8]) {
     let hello = HelloPayload {
         client_id: "tester".into(),
         supported_versions: vec![brain_protocol::VERSION],
@@ -213,9 +230,8 @@ async fn complete_handshake(client: &mut TcpStream, agent_id: [u8; 16]) {
     let _ = read_one_frame(client).await.expect("WELCOME");
 
     let auth = AuthPayload {
-        method: AuthMethod::None,
-        agent_id,
-        credentials: AuthCredentials::None,
+        method: AuthMethod::Token,
+        credentials: AuthCredentials::Token(token.to_vec()),
     };
     send_frame(
         client,
@@ -283,12 +299,12 @@ async fn subscribe_receives_encode_events() {
     // the same shard.
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
     let mut sub_client = TcpStream::connect(server.addr).await.expect("connect sub");
-    complete_handshake(&mut sub_client, agent_id).await;
+    complete_handshake(&mut sub_client, &server.mint(agent_id)).await;
 
     let mut writer_client = TcpStream::connect(server.addr)
         .await
         .expect("connect writer");
-    complete_handshake(&mut writer_client, agent_id).await;
+    complete_handshake(&mut writer_client, &server.mint(agent_id)).await;
 
     // SUBSCRIBE.
     let sub_stream = 5u32;
@@ -348,7 +364,7 @@ async fn unsubscribe_emits_final_eos_and_response() {
     let server = start_with_shards(1).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let sub_stream = 7u32;
     send_frame(
@@ -409,7 +425,7 @@ async fn cancel_stream_terminates_subscription() {
     let server = start_with_shards(1).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let sub_stream = 3u32;
     send_frame(
@@ -471,7 +487,7 @@ async fn subscribe_from_lsn_past_tail_is_accepted() {
     let server = start_with_shards(1).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let req = SubscribeRequest {
         filter: open_filter(),
@@ -513,7 +529,7 @@ async fn double_subscribe_with_same_stream_id_errors() {
     let server = start_with_shards(1).await;
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     let sub_stream = 15u32;
     let req = RequestBody::Subscribe(subscribe_request(open_filter())).encode();
@@ -570,7 +586,7 @@ async fn subscribe_from_lsn_replays_historical_encodes() {
     //    these events are only durable in the WAL — making this a
     //    real replay test, not a live-tail test in disguise.
     let mut writer = TcpStream::connect(server.addr).await.expect("writer");
-    complete_handshake(&mut writer, agent_id).await;
+    complete_handshake(&mut writer, &server.mint(agent_id)).await;
     for (i, text) in ["alpha", "beta"].iter().enumerate() {
         let stream_id = ((i * 2) + 1) as u32; // 1, 3 — odd
         send_frame(
@@ -598,7 +614,7 @@ async fn subscribe_from_lsn_replays_historical_encodes() {
 
     // 2. Now open a fresh subscriber and request --start-lsn=1.
     let mut sub = TcpStream::connect(server.addr).await.expect("sub");
-    complete_handshake(&mut sub, agent_id).await;
+    complete_handshake(&mut sub, &server.mint(agent_id)).await;
     let sub_stream = 11u32;
     send_frame(
         &mut sub,
@@ -670,7 +686,7 @@ async fn subscribe_agents_filter_isolates_per_agent() {
 
     // SUBSCRIBE with agents=[A] on a connection authed as A.
     let mut sub_a = TcpStream::connect(server.addr).await.expect("sub_a");
-    complete_handshake(&mut sub_a, agent_a).await;
+    complete_handshake(&mut sub_a, &server.mint(agent_a)).await;
     let sub_stream = 21u32;
     let filter = SubscriptionFilter {
         contexts: None,
@@ -694,7 +710,7 @@ async fn subscribe_agents_filter_isolates_per_agent() {
     // (single-shard test). Without the agents filter, sub_a would
     // observe both.
     let mut writer_b = TcpStream::connect(server.addr).await.expect("writer_b");
-    complete_handshake(&mut writer_b, agent_b).await;
+    complete_handshake(&mut writer_b, &server.mint(agent_b)).await;
     send_frame(
         &mut writer_b,
         Frame::new(
@@ -708,7 +724,7 @@ async fn subscribe_agents_filter_isolates_per_agent() {
     let _ = read_one_frame(&mut writer_b).await.expect("enc B resp");
 
     let mut writer_a = TcpStream::connect(server.addr).await.expect("writer_a");
-    complete_handshake(&mut writer_a, agent_a).await;
+    complete_handshake(&mut writer_a, &server.mint(agent_a)).await;
     send_frame(
         &mut writer_a,
         Frame::new(
@@ -751,7 +767,7 @@ async fn subscribe_from_lsn_zero_replays_everything_in_wal() {
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
 
     let mut writer = TcpStream::connect(server.addr).await.expect("writer");
-    complete_handshake(&mut writer, agent_id).await;
+    complete_handshake(&mut writer, &server.mint(agent_id)).await;
     send_frame(
         &mut writer,
         Frame::new(
@@ -766,7 +782,7 @@ async fn subscribe_from_lsn_zero_replays_everything_in_wal() {
     tokio::time::sleep(Duration::from_millis(100)).await;
 
     let mut sub = TcpStream::connect(server.addr).await.expect("sub");
-    complete_handshake(&mut sub, agent_id).await;
+    complete_handshake(&mut sub, &server.mint(agent_id)).await;
     let sub_stream = 17u32;
     send_frame(
         &mut sub,
@@ -820,7 +836,7 @@ async fn subscribe_over_stream_cap_returns_stream_limit_exceeded() {
 
     let agent_id = *uuid::Uuid::now_v7().as_bytes();
     let mut client = TcpStream::connect(server.addr).await.expect("connect");
-    complete_handshake(&mut client, agent_id).await;
+    complete_handshake(&mut client, &server.mint(agent_id)).await;
 
     // The receiver loop awaits each SUBSCRIBE's registration inline
     // before reading the next frame, so by the time stream 5 is handled

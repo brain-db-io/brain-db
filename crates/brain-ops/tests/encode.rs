@@ -103,7 +103,7 @@ fn encode_full_pipeline_returns_memory_id() {
         let req = encode_req([1; 16], "hello world");
         let resp = dispatch(
             RequestBody::Encode(req),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -136,7 +136,7 @@ fn encode_replay_returns_same_response_transparently() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req.clone()),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -150,7 +150,7 @@ fn encode_replay_returns_same_response_transparently() {
         let second = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -182,14 +182,14 @@ fn encode_conflict_returns_conflict_error_code() {
 
         let _ok = dispatch(
             RequestBody::Encode(first),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
         .unwrap();
         let err = dispatch(
             RequestBody::Encode(conflicting),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -238,7 +238,7 @@ fn same_text_distinct_request_ids_create_two_memories() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([3; 16], "dedup me", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -250,7 +250,7 @@ fn same_text_distinct_request_ids_create_two_memories() {
         let second = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([4; 16], "dedup me", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -271,7 +271,7 @@ fn dedup_different_context_no_hit() {
         let ctx_a = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([5; 16], "same text", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -280,7 +280,7 @@ fn dedup_different_context_no_hit() {
         let ctx_b = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([6; 16], "same text", 2)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -305,7 +305,7 @@ fn dedup_after_forget_evicts_and_misses() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([9; 16], "evict me", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -322,7 +322,7 @@ fn dedup_after_forget_evicts_and_misses() {
         };
         dispatch(
             RequestBody::Forget(forget),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -333,7 +333,7 @@ fn dedup_after_forget_evicts_and_misses() {
         let after = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([10; 16], "evict me", 1)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -360,7 +360,7 @@ fn encode_persists_text_to_texts_table_atomically() {
         let resp = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req([0x60; 16], text)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -401,7 +401,7 @@ fn encode_empty_text_is_rejected_at_planner() {
         let fix = build_fixture();
         let err = dispatch(
             RequestBody::Encode(encode_req([0x61; 16], "")),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
@@ -425,7 +425,7 @@ fn encode_unicode_text_round_trips_byte_for_byte() {
         let resp = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req([0x62; 16], text)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -447,7 +447,7 @@ fn encode_large_text_round_trips() {
         let resp = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req([0x63; 16], &text)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -469,7 +469,7 @@ fn encode_idempotent_retry_keeps_single_text_row_unchanged() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req.clone()),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -478,7 +478,7 @@ fn encode_idempotent_retry_keeps_single_text_row_unchanged() {
         let second = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -504,7 +504,7 @@ fn same_text_second_encode_leaves_first_text_row_intact() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([0x70; 16], original_text, 9)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -522,7 +522,7 @@ fn same_text_second_encode_leaves_first_text_row_intact() {
         let second = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(encode_req_with_dedup([0x71; 16], original_text, 9)),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -552,7 +552,7 @@ fn encode_fresh_then_replay_returns_was_deduplicated_false() {
         let first = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req.clone()),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -563,7 +563,7 @@ fn encode_fresh_then_replay_returns_was_deduplicated_false() {
         let second = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -599,7 +599,7 @@ fn encode_with_real_embedder_end_to_end() {
         let resp = unwrap_encode_resp(
             dispatch(
                 RequestBody::Encode(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await

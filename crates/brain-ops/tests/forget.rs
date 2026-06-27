@@ -92,7 +92,7 @@ async fn encode(fix: &Fixture, request_id: [u8; 16], text: &str) -> u128 {
     let req = encode_req(request_id, text);
     let outcome = dispatch(
         RequestBody::Encode(req),
-        brain_ops::RequestCaller::anonymous(),
+        brain_ops::RequestCaller::for_tests(),
         &fix.ctx,
     )
     .await
@@ -123,7 +123,7 @@ fn forget_full_pipeline_tombstones_memory() {
         let resp = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(forget_req(memory_id, [2; 16])),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -148,7 +148,7 @@ fn forget_already_tombstoned_returns_flag() {
         let first = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(forget_req(memory_id, [11; 16])),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -160,7 +160,7 @@ fn forget_already_tombstoned_returns_flag() {
         let second = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(forget_req(memory_id, [12; 16])),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -184,7 +184,7 @@ fn forget_memory_not_found_returns_flag_not_error() {
         let resp = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(forget_req(phantom, [20; 16])),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -210,7 +210,7 @@ fn forget_idempotent_replay_returns_cached_response() {
         let first = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -219,7 +219,7 @@ fn forget_idempotent_replay_returns_cached_response() {
         let second = unwrap_forget_resp(
             dispatch(
                 RequestBody::Forget(req),
-                brain_ops::RequestCaller::anonymous(),
+                brain_ops::RequestCaller::for_tests(),
                 &fix.ctx,
             )
             .await
@@ -247,14 +247,14 @@ fn forget_idempotency_conflict_returns_error() {
 
         let _ok = dispatch(
             RequestBody::Forget(forget_req(a, [42; 16])),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
         .unwrap();
         let err = dispatch(
             RequestBody::Forget(forget_req(b, [42; 16])),
-            brain_ops::RequestCaller::anonymous(),
+            brain_ops::RequestCaller::for_tests(),
             &fix.ctx,
         )
         .await
