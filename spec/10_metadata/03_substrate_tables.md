@@ -10,9 +10,10 @@ The `memories` table is the central index of Brain. Every memory has exactly one
 
 ```rust
 struct MemoryMetadata {
-    // Identity
+    // Identity (owner scope)
     memory_id: MemoryId,                  // 16 bytes (also the key)
-    agent_id: AgentId,                    // 16 bytes
+    namespace_id: NamespaceId,            // 4 bytes; owning tenant. 0 = reserved `brain` system namespace
+    agent_id: AgentId,                    // 16 bytes; owning agent
     context_id: ContextId,                // 8 bytes
     slot_id: u64,                         // 8 bytes (effective 48-bit)
     slot_version: u32,                    // 4 bytes
@@ -54,8 +55,11 @@ For 1M memories: ~150 MB.
 #### 2.1 Identity
 
 - `memory_id` — primary key. Repeated as a row field for convenience (rkyv decoders can return the row including the key).
-- `agent_id` — owner. Searches typically filter by agent.
+- `namespace_id` — owning tenant (the outer half of the `(namespace, agent)` owner scope). `0` is the reserved `brain` system namespace, which owns only seeded rows. Stamped by the writer from the authenticated connection's scope (fail-closed by construction). Distinct from the qname namespace of any *type* the memory's downstream typed-graph rows reference.
+- `agent_id` — owning agent (the inner half of the owner scope). Searches typically filter by agent.
 - `context_id` — bucket the memory belongs to (one of an agent's contexts).
+
+The `memories` primary table is `MemoryId`-keyed; the `(namespace_id, agent_id)` owner scope lives on the row value and is the leading prefix of the per-tenant `memories_by_agent_timeline` index ([`02_table_layout.md`](02_table_layout.md) §4), so a timeline scan for one `(namespace, agent)` can never traverse another tenant's rows.
 - `slot_id` and `slot_version` — locate the vector in the arena. Version disambiguates reused slots.
 
 #### 2.2 Kind
