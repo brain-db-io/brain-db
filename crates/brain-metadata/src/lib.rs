@@ -21,6 +21,7 @@ pub mod extraction;
 pub mod extractor;
 pub mod hype;
 pub mod llm_cache;
+pub mod namespace;
 pub mod recovery;
 pub mod relation;
 pub mod schema;
@@ -121,3 +122,4 @@ pub use tables::extractor_audit::{
 pub use tables::schema_version::{
     SchemaVersionRow, SCHEMA_ACTIVE_VERSIONS_TABLE, SCHEMA_VERSIONS_TABLE, VALIDATOR_VERSION,
 };
+pub use tables::scope::RowScope;

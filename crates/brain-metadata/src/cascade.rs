@@ -42,6 +42,7 @@ use crate::statement::tombstone::statement_tombstone;
 use crate::statement::{rekey_predicate_index, StatementOpError};
 use crate::tables::edge::{self, EdgeKey, EDGES_REVERSE_TABLE, EDGES_TABLE};
 use crate::tables::relation::{RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE};
+use crate::tables::scope::RowScope;
 use crate::tables::statement::{
     EvidenceEntryRow, EvidenceOverflow, StatementMetadata, EVIDENCE_OVERFLOW_TABLE,
     STATEMENTS_TABLE,
@@ -187,8 +188,8 @@ pub fn cascade_forget_to_statements(
     // after the STATEMENTS handle drops (and before the tombstone pass,
     // so a subsequently-tombstoned row's index entry sits under its new
     // bucket where `statement_tombstone` will find and remove it).
-    // Tuple: (predicate_id, kind, old_confidence, new_confidence, id).
-    let mut rekey_moves: Vec<(u32, u8, f32, f32, [u8; 16])> = Vec::new();
+    // Tuple: (scope, predicate_id, kind, old_confidence, new_confidence, id).
+    let mut rekey_moves: Vec<(RowScope, u32, u8, f32, f32, [u8; 16])> = Vec::new();
     {
         let mut table = wtxn.open_table(STATEMENTS_TABLE)?;
         let mut overflow_table = wtxn.open_table(EVIDENCE_OVERFLOW_TABLE)?;
@@ -212,6 +213,7 @@ pub fn cascade_forget_to_statements(
                 row.evidence_overflow_id_bytes = None;
                 row.confidence = 0.0;
                 rekey_moves.push((
+                    row.scope(),
                     row.predicate_id,
                     row.kind,
                     old_conf,
@@ -236,6 +238,7 @@ pub fn cascade_forget_to_statements(
             let old_conf = row.confidence;
             row.confidence = new_conf;
             rekey_moves.push((
+                row.scope(),
                 row.predicate_id,
                 row.kind,
                 old_conf,
@@ -273,8 +276,8 @@ pub fn cascade_forget_to_statements(
     // Runs before the tombstone pass so a row about to be tombstoned has
     // its index entry under the new (zeroed) bucket, where
     // `statement_tombstone` will then remove it.
-    for (pred, kind, old_conf, new_conf, id) in rekey_moves {
-        rekey_predicate_index(wtxn, pred, kind, old_conf, new_conf, &id)?;
+    for (scope, pred, kind, old_conf, new_conf, id) in rekey_moves {
+        rekey_predicate_index(wtxn, scope, pred, kind, old_conf, new_conf, &id)?;
     }
 
     // Reclaim orphaned overflow rows. Safe to do regardless of
@@ -381,6 +384,7 @@ pub struct EdgeCascadeSummary {
 ///    - Otherwise persist the shrunken sidecar.
 pub fn cascade_forget_to_edges(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     memory_id: MemoryId,
     now_unix_nanos: u64,
 ) -> Result<EdgeCascadeSummary, EdgeCascadeError> {
@@ -466,12 +470,22 @@ pub fn cascade_forget_to_edges(
     {
         let by_ev = wtxn.open_table(RELATION_BY_EVIDENCE_TABLE)?;
         let mem_bytes = memory_id.to_be_bytes();
-        let lo = (mem_bytes, [0u8; 16]);
-        let hi = (mem_bytes, [0xFFu8; 16]);
+        let lo = (
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            mem_bytes,
+            [0u8; 16],
+        );
+        let hi = (
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            mem_bytes,
+            [0xFFu8; 16],
+        );
         for entry in by_ev.range(lo..=hi)? {
             let (k, _) = entry?;
-            let (k_mem, k_rel) = k.value();
-            if k_mem != mem_bytes {
+            let (k_ns, k_agent, k_mem, k_rel) = k.value();
+            if k_ns != scope.namespace_id || k_agent != scope.agent_id_bytes || k_mem != mem_bytes {
                 continue;
             }
             relation_ids.push(RelationId::from(k_rel));
@@ -485,7 +499,12 @@ pub fn cascade_forget_to_edges(
         let mem_bytes = memory_id.to_be_bytes();
         for rel_id in &relation_ids {
             let rel_bytes = rel_id.to_bytes();
-            by_ev.remove(&(mem_bytes, rel_bytes))?;
+            by_ev.remove(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                mem_bytes,
+                rel_bytes,
+            ))?;
             let Some(mut meta) = sidecar.get(&rel_bytes)?.map(|g| g.value()) else {
                 // Sidecar already gone; skip — the BY_EVIDENCE row
                 // was stale.
@@ -553,6 +572,9 @@ mod edge_cascade_tests {
     use brain_core::{Entity, EntityType, Relation};
 
     const NOW: u64 = 1_700_000_000_000_000_000;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -570,7 +592,7 @@ mod edge_cascade_tests {
             NOW,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -625,7 +647,7 @@ mod edge_cascade_tests {
         seed_substrate_edge(&mut db, m_other, m);
 
         let wtxn = db.write_txn().unwrap();
-        let summary = cascade_forget_to_edges(&wtxn, m, NOW).unwrap();
+        let summary = cascade_forget_to_edges(&wtxn, test_scope(), m, NOW).unwrap();
         wtxn.commit().unwrap();
 
         assert_eq!(summary.substrate_unlinked, 2);
@@ -665,11 +687,11 @@ mod edge_cascade_tests {
         let rid = r.id;
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, NOW).unwrap();
+        relation_create(&wtxn, test_scope(), &r, NOW).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();
-        let summary = cascade_forget_to_edges(&wtxn, mem, NOW + 1).unwrap();
+        let summary = cascade_forget_to_edges(&wtxn, test_scope(), mem, NOW + 1).unwrap();
         wtxn.commit().unwrap();
 
         assert_eq!(summary.relations_tombstoned, 1);
@@ -706,12 +728,12 @@ mod edge_cascade_tests {
         let rid = r.id;
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, NOW).unwrap();
+        relation_create(&wtxn, test_scope(), &r, NOW).unwrap();
         wtxn.commit().unwrap();
 
         // Forget m1 only.
         let wtxn = db.write_txn().unwrap();
-        let summary = cascade_forget_to_edges(&wtxn, m1, NOW + 1).unwrap();
+        let summary = cascade_forget_to_edges(&wtxn, test_scope(), m1, NOW + 1).unwrap();
         wtxn.commit().unwrap();
 
         assert_eq!(summary.relations_tombstoned, 0);
@@ -727,13 +749,24 @@ mod edge_cascade_tests {
         assert_eq!(meta.evidence_inline[0], m2.to_be_bytes());
 
         let by_ev = rtxn.open_table(RELATION_BY_EVIDENCE_TABLE).unwrap();
+        let sc = test_scope();
         // m1 row dropped; m2 row stays.
         assert!(by_ev
-            .get(&(m1.to_be_bytes(), rid.to_bytes()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                m1.to_be_bytes(),
+                rid.to_bytes()
+            ))
             .unwrap()
             .is_none());
         assert!(by_ev
-            .get(&(m2.to_be_bytes(), rid.to_bytes()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                m2.to_be_bytes(),
+                rid.to_bytes()
+            ))
             .unwrap()
             .is_some());
     }
@@ -760,7 +793,7 @@ mod edge_cascade_tests {
         r.is_symmetric = false;
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, NOW).unwrap();
+        relation_create(&wtxn, test_scope(), &r, NOW).unwrap();
         wtxn.commit().unwrap();
 
         let edges_before = {
@@ -773,7 +806,7 @@ mod edge_cascade_tests {
         };
 
         let wtxn = db.write_txn().unwrap();
-        cascade_forget_to_edges(&wtxn, mem, NOW + 1).unwrap();
+        cascade_forget_to_edges(&wtxn, test_scope(), mem, NOW + 1).unwrap();
         wtxn.commit().unwrap();
 
         let edges_after = {
@@ -807,6 +840,10 @@ mod statement_cascade_overflow_tests {
 
     const NOW: u64 = 1_700_000_000_000_000_000;
 
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
+
     fn open_db() -> (tempfile::TempDir, MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
         let db = MetadataDb::open(dir.path().join("md.redb")).unwrap();
@@ -823,7 +860,7 @@ mod statement_cascade_overflow_tests {
             NOW,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -873,7 +910,7 @@ mod statement_cascade_overflow_tests {
             1,
         );
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, NOW).unwrap();
+        statement_create(&wtxn, test_scope(), &s, NOW).unwrap();
         wtxn.commit().unwrap();
         id
     }

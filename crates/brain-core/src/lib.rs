@@ -27,8 +27,8 @@ pub use edges::{
 pub use error::{Error, Result};
 pub use ids::{
     AgentId, AuditId, ContextId, EntityId, EntityTypeId, EvidenceOverflowId, ExtractorId, MemoryId,
-    MergeId, PredicateId, RelationId, RelationTypeId, RequestId, ShardId, SlotIndex, SlotVersion,
-    StatementId, TxnId, MAX_SLOT_INDEX,
+    MergeId, NamespaceId, PredicateId, RelationId, RelationTypeId, RequestId, ShardId, SlotIndex,
+    SlotVersion, StatementId, TxnId, MAX_SLOT_INDEX,
 };
 pub use migration::{
     MigrationByReason, MigrationId, MigrationItem, MigrationPlan, MigrationReason, MigrationSummary,

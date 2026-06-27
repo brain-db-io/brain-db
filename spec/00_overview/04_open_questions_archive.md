@@ -25,12 +25,26 @@ Question IDs (`OQ-V2-N`, `OQ-23-X`, etc.) are stable; once assigned, they don't 
 **Why deferred:** doubles per-statement storage cost; most users don't need it.
 **Path:** future versions if users request; storage cost is the gate.
 
-## OQ-V2-4: Multi-tenant schema isolation
+## OQ-V2-4: Multi-tenant schema isolation — RESOLVED
 
-**Current:** one schema per deployment; entities are global within the deployment.
-**Open:** per-tenant schemas with isolated entity spaces.
-**Why deferred:** affects sharding, query routing, ID spaces; substantial change.
-**Path:** future major-version design discussion.
+**Resolution (2026-06):** committed as **tenant = namespace**. A namespace
+is the company-level data + schema + entity boundary; the effective
+isolation scope of every record is `(namespace, agent)` (company outer
+wall, application inner wall). Per-tenant schemas and **isolated entity
+spaces** are realized: entity resolution is per-`(namespace, agent)`, so
+the same name resolves to distinct entities across tenants. Storage is
+namespace-partitioned (owner `namespace_id` on every record; namespace
+folded into secondary-index key prefixes). Cross-namespace access is
+forbidden; namespace is server-derived from the API key (never
+client-sent) and fail-closed (a write with no resolvable namespace is
+rejected — no implicit/default namespace). See
+[`../03_schema/04_namespaces.md`](../03_schema/04_namespaces.md) (the
+operational contract) and
+[`../04_wire_protocol/04_handshake.md`](../04_wire_protocol/04_handshake.md)
+§10 (the `(namespace, agent, permissions)` scope; `user` survives as a
+non-authoritative audit tag; `org` removed). This supersedes the
+"tenant = agent by convention" framing (DM-OQ-6 / OQ-1.6) for the
+namespace-as-tenant case.
 
 ## OQ-V2-5: Statement derivation chains (meta-statements)
 

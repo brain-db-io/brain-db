@@ -959,7 +959,7 @@ async fn run_hype_pass(worker: &ExtractorWorker, ctx: &WorkerContext, items: &[E
         // span more than this one memory (read-side multi-hop then resolves to
         // a single cheap ANN probe — no read LLM). Empty for the first memory
         // about a subject; fills in as the graph grows (and on re-ingest).
-        let neighborhood = build_neighborhood(ctx, text.as_ref());
+        let neighborhood = build_neighborhood(ctx, memory_scope(ctx, *memory_id), text.as_ref());
         let outcome = hype
             .generate_for(*memory_id, text.as_ref(), &neighborhood)
             .await;
@@ -1084,7 +1084,7 @@ async fn run_hype_refresh_sweep(worker: &ExtractorWorker, ctx: &WorkerContext) {
         if cycle_budget > 0 && *worker.llm_spend.lock() >= cycle_budget {
             break;
         }
-        let neighborhood = build_neighborhood(ctx, text.as_str());
+        let neighborhood = build_neighborhood(ctx, memory_scope(ctx, *memory_id), text.as_str());
         if neighborhood.is_empty() {
             last_examined = memory_id.to_be_bytes();
             continue;
@@ -1125,7 +1125,33 @@ async fn run_hype_refresh_sweep(worker: &ExtractorWorker, ctx: &WorkerContext) {
 /// Best-effort and strictly bounded: any error yields an empty string (the
 /// pre-graph-aware behavior), and the entity / line / character caps keep the
 /// HyPE prompt from ballooning on a densely-connected hub.
-fn build_neighborhood(ctx: &WorkerContext, text: &str) -> String {
+/// Read a memory's `(namespace, agent)` scope from `MEMORIES_TABLE`.
+/// Falls back to the system scope when the row is absent — the
+/// neighborhood enrichment it feeds is best-effort prompt context, so a
+/// miss simply yields an empty (system-scoped) neighborhood rather than
+/// crossing tenants.
+fn memory_scope(ctx: &WorkerContext, memory_id: MemoryId) -> brain_metadata::RowScope {
+    use brain_metadata::tables::memory::MEMORIES_TABLE;
+    ctx.ops
+        .executor
+        .metadata
+        .as_ref()
+        .read_txn()
+        .ok()
+        .and_then(|rtxn| {
+            rtxn.open_table(MEMORIES_TABLE).ok().and_then(|t| {
+                t.get(&memory_id.to_be_bytes()).ok().flatten().map(|g| {
+                    let m = g.value();
+                    brain_metadata::RowScope::from_bytes(m.namespace_id, m.agent_id_bytes)
+                })
+            })
+        })
+        .unwrap_or_else(|| {
+            brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0u8; 16])
+        })
+}
+
+fn build_neighborhood(ctx: &WorkerContext, scope: brain_metadata::RowScope, text: &str) -> String {
     use brain_metadata::{
         entity_get, entity_resolve_canonical_all_types, predicate_get, relation_list_from,
         relation_list_to, relation_type_get, statement_list, RelationListFilter,
@@ -1157,7 +1183,7 @@ fn build_neighborhood(ctx: &WorkerContext, text: &str) -> String {
         if entities.len() >= MAX_ENTITIES {
             break;
         }
-        let Ok(ids) = entity_resolve_canonical_all_types(&rtxn, &s) else {
+        let Ok(ids) = entity_resolve_canonical_all_types(&rtxn, scope, &s) else {
             continue;
         };
         for id in ids {
@@ -1187,6 +1213,7 @@ fn build_neighborhood(ctx: &WorkerContext, text: &str) -> String {
         // Predicate-keyed statements (value or entity objects).
         if let Ok(stmts) = statement_list(
             &rtxn,
+            scope,
             &StatementListFilter {
                 subject: Some(eid),
                 predicate: None,
@@ -1221,7 +1248,7 @@ fn build_neighborhood(ctx: &WorkerContext, text: &str) -> String {
             current_only: true,
             limit: 0,
         };
-        if let Ok(out) = relation_list_from(&rtxn, eid, &rfilter) {
+        if let Ok(out) = relation_list_from(&rtxn, scope, eid, &rfilter) {
             for r in out {
                 if lines.len() >= MAX_LINES {
                     break 'entities;
@@ -1242,7 +1269,7 @@ fn build_neighborhood(ctx: &WorkerContext, text: &str) -> String {
                 lines.push(format!("{subj} {rt} {other}"));
             }
         }
-        if let Ok(inc) = relation_list_to(&rtxn, eid, &rfilter) {
+        if let Ok(inc) = relation_list_to(&rtxn, scope, eid, &rfilter) {
             for r in inc {
                 if lines.len() >= MAX_LINES {
                     break 'entities;
@@ -1860,6 +1887,30 @@ async fn apply_outcome(
             .map(EntityId::from)
     };
 
+    // The source memory's `(namespace, agent)` scope. Every typed-graph
+    // row this extraction writes — entities, statements, relations — is
+    // stamped with the SAME scope as the memory it was extracted from,
+    // so an extracted fact can never escape its source tenant. A missing
+    // memory row (shouldn't happen for a queued memory) falls back to the
+    // system scope, which the apply path treats as the `brain` namespace.
+    let source_scope: brain_metadata::RowScope = {
+        use brain_metadata::tables::memory::MEMORIES_TABLE;
+        wtxn.open_table(MEMORIES_TABLE)
+            .ok()
+            .and_then(|t| {
+                t.get(&memory_id.to_be_bytes()).ok().flatten().map(|g| {
+                    let m = g.value();
+                    brain_metadata::RowScope::from_bytes(m.namespace_id, m.agent_id_bytes)
+                })
+            })
+            .unwrap_or_else(|| {
+                brain_metadata::RowScope::from_bytes(
+                    brain_core::NamespaceId::SYSTEM.raw(),
+                    [0u8; 16],
+                )
+            })
+    };
+
     // Pass 1 — entity mentions, in source order. Resolving early gives
     // statements + relations a populated `entity_map` to look up
     // surface forms against.
@@ -1902,8 +1953,14 @@ async fn apply_outcome(
     }
     for key in &surface_order {
         let em = best_by_surface[key];
-        let (entity_id, tier) =
-            resolve_entity_mention(&wtxn, em, now, embed_deps, entity_disambiguator)?;
+        let (entity_id, tier) = resolve_entity_mention(
+            &wtxn,
+            source_scope,
+            em,
+            now,
+            embed_deps,
+            entity_disambiguator,
+        )?;
         worker
             .metrics
             .inc_resolver_outcome(resolution_tier_to_metric(tier));
@@ -2004,7 +2061,7 @@ async fn apply_outcome(
                 // entity-subject statements (it needs a canonical subject
                 // name), so dispatching a Memory subject would read it back
                 // only to skip it.
-                match statement_create_internal(&wtxn, &payload) {
+                match statement_create_internal(&wtxn, source_scope, &payload) {
                     Ok(_) => {
                         counts.statements = counts.statements.saturating_add(1);
                         worker
@@ -2030,6 +2087,7 @@ async fn apply_outcome(
                 // junk subjects are rejected to keep the entity graph clean.
                 if let Some(subject) = resolve_statement_subject(
                     &wtxn,
+                    source_scope,
                     sm,
                     &mut entity_map,
                     self_entity_id,
@@ -2077,6 +2135,7 @@ async fn apply_outcome(
                     // minted best-effort (cross-type reuse); a literal stays text.
                     let object = resolve_statement_object(
                         &wtxn,
+                        source_scope,
                         sm,
                         pid,
                         &mut entity_map,
@@ -2099,6 +2158,7 @@ async fn apply_outcome(
                         if let Ok(snap) = db_guard.read_txn() {
                             if let Ok(rows) = brain_metadata::statement_list(
                                 &snap,
+                                source_scope,
                                 &brain_metadata::StatementListFilter {
                                     subject: Some(subject),
                                     predicate: Some(pid),
@@ -2131,6 +2191,7 @@ async fn apply_outcome(
                                 {
                                     if let Ok(rels) = brain_metadata::relation_list_from(
                                         &snap,
+                                        source_scope,
                                         subject,
                                         &brain_metadata::RelationListFilter {
                                             relation_type: Some(rt),
@@ -2234,7 +2295,7 @@ async fn apply_outcome(
                             is_symmetric: false,
                             extracted_at_unix_nanos: now,
                         };
-                        match relation_create_internal(&wtxn, &payload) {
+                        match relation_create_internal(&wtxn, source_scope, &payload) {
                             Ok(_) => {
                                 counts.relations = counts.relations.saturating_add(1);
                                 worker
@@ -2280,7 +2341,7 @@ async fn apply_outcome(
                         is_stateful,
                         event_at_unix_nanos: event_at,
                     };
-                    match statement_create_internal(&wtxn, &payload) {
+                    match statement_create_internal(&wtxn, source_scope, &payload) {
                         Ok(sid) => {
                             counts.statements = counts.statements.saturating_add(1);
                             created_statement_ids.push(sid);
@@ -2335,6 +2396,7 @@ async fn apply_outcome(
                 // tagged). Non-referential endpoints are still rejected.
                 let from = resolve_relation_endpoint(
                     &wtxn,
+                    source_scope,
                     &rm.subject_text,
                     rm.confidence,
                     &mut entity_map,
@@ -2344,6 +2406,7 @@ async fn apply_outcome(
                 )?;
                 let to = resolve_relation_endpoint(
                     &wtxn,
+                    source_scope,
                     &rm.object_text,
                     rm.confidence,
                     &mut entity_map,
@@ -2397,7 +2460,7 @@ async fn apply_outcome(
                     is_symmetric: false,
                     extracted_at_unix_nanos: now,
                 };
-                match relation_create_internal(&wtxn, &payload) {
+                match relation_create_internal(&wtxn, source_scope, &payload) {
                     Ok(_) => {
                         counts.relations = counts.relations.saturating_add(1);
                         worker
@@ -2629,6 +2692,7 @@ fn decide_status(outcome: &PipelineOutcome, counts: ExtractorItemCounts) -> (u8,
 
 fn resolve_entity_mention(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     em: &EntityMention,
     now: u64,
     embed_deps: Option<&EmbeddingDeps>,
@@ -2636,6 +2700,7 @@ fn resolve_entity_mention(
 ) -> Result<(EntityId, ResolutionTier), ApplyError> {
     let res = resolve_or_create_with_deps(
         wtxn,
+        scope,
         &em.text,
         &em.entity_type_qname,
         em.confidence,
@@ -2808,8 +2873,10 @@ fn predicate_declared_object_constraint_in_write_txn(
 /// best-effort (reusing the relation-endpoint path: cross-type reuse +
 /// mintability guard); a literal — or a non-mintable surface — stays text, so
 /// values like "blue"/"200" never become junk entities.
+#[allow(clippy::too_many_arguments)]
 fn resolve_statement_object(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     sm: &StatementMention,
     pid: brain_core::PredicateId,
     entity_map: &mut HashMap<String, EntityId>,
@@ -2837,6 +2904,7 @@ fn resolve_statement_object(
     if want_entity {
         if let Some(id) = resolve_relation_endpoint(
             wtxn,
+            scope,
             text,
             sm.confidence,
             entity_map,
@@ -2862,8 +2930,10 @@ const COINED_SUBJECT_ENTITY_TYPE: &str = "brain:Concept";
 /// extracted from this memory (`entity_map`); otherwise mints/resolves a
 /// coined subject so the fact isn't dropped at persist. Returns `None` for
 /// an absent or non-referential subject (those statements are skipped).
+#[allow(clippy::too_many_arguments)]
 fn resolve_statement_subject(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     sm: &StatementMention,
     entity_map: &mut HashMap<String, EntityId>,
     self_entity_id: Option<EntityId>,
@@ -2888,7 +2958,7 @@ fn resolve_statement_subject(
         if sm.subject_is_self {
             // statement_create requires the subject entity to exist, so
             // materialize the agent's self-entity row on first use (idempotent).
-            ensure_agent_self_entity(wtxn, self_id, now)?;
+            ensure_agent_self_entity(wtxn, scope, self_id, now)?;
             entity_map.insert(text.to_string(), self_id);
             return Ok(Some(self_id));
         }
@@ -2901,12 +2971,13 @@ fn resolve_statement_subject(
     // almost certainly the same referent — reuse it so a coined Concept doesn't
     // permanently split from a correctly-typed entity ("aspirin" the Drug).
     // 0 or >1 matches fall through to the normal type-scoped mint.
-    if let Some(id) = reuse_cross_type_exact(wtxn, text)? {
+    if let Some(id) = reuse_cross_type_exact(wtxn, scope, text)? {
         entity_map.insert(text.to_string(), id);
         return Ok(Some(id));
     }
     let res = resolve_or_create_with_deps(
         wtxn,
+        scope,
         text,
         COINED_SUBJECT_ENTITY_TYPE,
         sm.confidence,
@@ -2928,6 +2999,7 @@ fn resolve_statement_subject(
 /// person-like referent. A no-op when the row already exists.
 fn ensure_agent_self_entity(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     self_id: EntityId,
     now: u64,
 ) -> Result<(), ApplyError> {
@@ -2954,7 +3026,7 @@ fn ensure_agent_self_entity(
         brain_metadata::entity::ops::normalize_name(&canonical),
         now,
     );
-    brain_metadata::entity::ops::entity_put(wtxn, &entity)
+    brain_metadata::entity::ops::entity_put(wtxn, scope, &entity)
         .map_err(|e| ApplyError::Storage(format!("entity_put(self): {e}")))?;
     Ok(())
 }
@@ -2965,9 +3037,10 @@ fn ensure_agent_self_entity(
 /// under the generic coined type rather than risk a wrong merge.
 fn reuse_cross_type_exact(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     text: &str,
 ) -> Result<Option<EntityId>, ApplyError> {
-    let hits = brain_metadata::entity_resolve_canonical_all_types_wtxn(wtxn, text)
+    let hits = brain_metadata::entity_resolve_canonical_all_types_wtxn(wtxn, scope, text)
         .map_err(|e| ApplyError::Storage(format!("cross-type resolve: {e}")))?;
     Ok(if hits.len() == 1 { Some(hits[0]) } else { None })
 }
@@ -2979,8 +3052,10 @@ fn reuse_cross_type_exact(
 /// tagged. Returns `None` for an empty or non-referential surface (those
 /// endpoints can't anchor a relation). A genuine resolver error propagates so
 /// the cycle can retry rather than permanently abandon the memory.
+#[allow(clippy::too_many_arguments)]
 fn resolve_relation_endpoint(
     wtxn: &redb::WriteTransaction,
+    scope: brain_metadata::RowScope,
     text: &str,
     confidence: f32,
     entity_map: &mut HashMap<String, EntityId>,
@@ -2994,12 +3069,13 @@ fn resolve_relation_endpoint(
     if !statement_subject_mintable(text) {
         return Ok(None);
     }
-    if let Some(id) = reuse_cross_type_exact(wtxn, text)? {
+    if let Some(id) = reuse_cross_type_exact(wtxn, scope, text)? {
         entity_map.insert(text.to_string(), id);
         return Ok(Some(id));
     }
     let res = resolve_or_create_with_deps(
         wtxn,
+        scope,
         text,
         COINED_SUBJECT_ENTITY_TYPE,
         confidence,
@@ -3064,6 +3140,43 @@ enum ApplyError {
 
 #[cfg(test)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
+    /// Seed a `MEMORIES_TABLE` row for `memory_id` owned by `scope`, so the
+    /// apply pass derives the same `(namespace, agent)` it was extracted under
+    /// (real ENCODE always has the row; a synthetic id needs it planted, else
+    /// apply hits the degenerate missing-row fallback and stamps a different
+    /// agent than the test reads back with).
+    fn __seed_memory_row(
+        metadata: &brain_metadata::MetadataDb,
+        memory_id: brain_core::MemoryId,
+        scope: brain_metadata::RowScope,
+    ) {
+        use brain_core::{ContextId, MemoryKind};
+        use brain_metadata::tables::memory::{MemoryMetadata, MEMORIES_TABLE};
+        let row = MemoryMetadata::new_active(
+            memory_id,
+            scope.namespace(),
+            scope.agent(),
+            ContextId(0),
+            0,
+            0,
+            MemoryKind::Episodic,
+            [0u8; 16],
+            1.0,
+            0,
+            0,
+        );
+        let wtxn = metadata.write_txn().unwrap();
+        {
+            let mut t = wtxn.open_table(MEMORIES_TABLE).unwrap();
+            t.insert(&memory_id.to_be_bytes(), &row).unwrap();
+        }
+        wtxn.commit().unwrap();
+    }
+
     use super::*;
 
     #[test]
@@ -3658,6 +3771,7 @@ mod tests {
         };
 
         let memory_id = MemoryId::pack(0, 1, 1);
+        __seed_memory_row(&metadata, memory_id, __ts());
         let _ = futures_lite::future::block_on(apply_outcome(&worker, &ctx, memory_id, &outcome))
             .expect("apply_outcome");
 
@@ -3674,7 +3788,7 @@ mod tests {
         };
 
         let rtxn = metadata.read_txn().unwrap();
-        let priya = entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya")
+        let priya = entity_lookup_by_canonical_name(&rtxn, __ts(), EntityType::PERSON_ID, "Priya")
             .unwrap()
             .expect("Priya created during apply pass 1");
 
@@ -3682,6 +3796,7 @@ mod tests {
         // coined reports_to predicate — axis-faithful, not flipped to a relation.
         let stmts = statement_list(
             &rtxn,
+            __ts(),
             &StatementListFilter {
                 subject: Some(priya),
                 predicate: Some(reports_to_pred),
@@ -3701,6 +3816,7 @@ mod tests {
         // statement and not dropped.
         let rels = relation_list_from(
             &rtxn,
+            __ts(),
             priya,
             &RelationListFilter {
                 relation_type: Some(member_of_rt),
@@ -3727,6 +3843,7 @@ mod tests {
         };
         let partner_rels = relation_list_from(
             &rtxn,
+            __ts(),
             priya,
             &RelationListFilter {
                 relation_type: Some(partner_rt),
@@ -3742,6 +3859,7 @@ mod tests {
         assert_eq!(partner_rels[0].relation_type, partner_rt);
         let partner_stmts = statement_list(
             &rtxn,
+            __ts(),
             &StatementListFilter {
                 subject: Some(priya),
                 predicate: Some(partner_pred),
@@ -3764,7 +3882,8 @@ mod tests {
             p
         };
         let kids =
-            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "Melanie's kids").unwrap();
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "Melanie's kids")
+                .unwrap();
         assert_eq!(
             kids.len(),
             1,
@@ -3772,6 +3891,7 @@ mod tests {
         );
         let kids_stmts = statement_list(
             &rtxn,
+            __ts(),
             &StatementListFilter {
                 subject: Some(kids[0]),
                 predicate: Some(likes_id),
@@ -3781,7 +3901,7 @@ mod tests {
         .unwrap();
         assert_eq!(kids_stmts.len(), 1, "the coined-subject fact must persist");
         assert!(
-            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "they")
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "they")
                 .unwrap()
                 .is_empty(),
             "pronoun subject 'they' must not be minted"
@@ -3917,6 +4037,7 @@ mod tests {
         };
 
         let memory_id = MemoryId::pack(0, 1, 1);
+        __seed_memory_row(&metadata, memory_id, __ts());
         let applied =
             futures_lite::future::block_on(apply_outcome(&worker, &ctx, memory_id, &outcome))
                 .expect("apply_outcome must not error on per-item problems");
@@ -3938,13 +4059,14 @@ mod tests {
         };
 
         let rtxn = metadata.read_txn().unwrap();
-        let liming = entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "李明")
+        let liming = entity_lookup_by_canonical_name(&rtxn, __ts(), EntityType::PERSON_ID, "李明")
             .unwrap()
             .expect("李明 minted in pass 1");
 
         // Non-ASCII predicate statement persisted.
         let zuo = statement_list(
             &rtxn,
+            __ts(),
             &StatementListFilter {
                 subject: Some(liming),
                 predicate: Some(zuoyongyu),
@@ -3957,6 +4079,7 @@ mod tests {
         // Event-with-no-timestamp downgraded to Fact and persisted.
         let trav = statement_list(
             &rtxn,
+            __ts(),
             &StatementListFilter {
                 subject: Some(liming),
                 predicate: Some(traveled_to),
@@ -3977,13 +4100,14 @@ mod tests {
 
         // Object-only relation endpoint minted; relation persisted.
         assert!(
-            !brain_metadata::entity_resolve_canonical_all_types(&rtxn, "Sam")
+            !brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "Sam")
                 .unwrap()
                 .is_empty(),
             "object-only relation endpoint 'Sam' must be minted"
         );
         let rels = relation_list_from(
             &rtxn,
+            __ts(),
             liming,
             &RelationListFilter {
                 relation_type: Some(collaborates),
@@ -3995,7 +4119,7 @@ mod tests {
 
         // The pronoun subject was skipped + counted as signal loss, not minted.
         assert!(
-            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "they")
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "they")
                 .unwrap()
                 .is_empty(),
             "pronoun subject must not be minted"
@@ -4132,6 +4256,7 @@ mod tests {
         };
 
         let memory_id = MemoryId::pack(0, 1, 1);
+        __seed_memory_row(&metadata, memory_id, __ts());
         futures_lite::future::block_on(apply_outcome(&worker, &ctx, memory_id, &outcome))
             .expect("apply_outcome");
 
@@ -4144,12 +4269,13 @@ mod tests {
             (a, b, c)
         };
         let rtxn = metadata.read_txn().unwrap();
-        let alice = entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Alice")
+        let alice = entity_lookup_by_canonical_name(&rtxn, __ts(), EntityType::PERSON_ID, "Alice")
             .unwrap()
             .expect("Alice minted");
         let one = |pred| {
             let v = statement_list(
                 &rtxn,
+                __ts(),
                 &StatementListFilter {
                     subject: Some(alice),
                     predicate: Some(pred),
@@ -4180,7 +4306,7 @@ mod tests {
             trav.object
         );
         assert!(
-            !brain_metadata::entity_resolve_canonical_all_types(&rtxn, "Tokyo")
+            !brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "Tokyo")
                 .unwrap()
                 .is_empty(),
             "object entity 'Tokyo' must be minted"
@@ -4194,7 +4320,7 @@ mod tests {
             fav.object
         );
         assert!(
-            brain_metadata::entity_resolve_canonical_all_types(&rtxn, "blue")
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, __ts(), "blue")
                 .unwrap()
                 .is_empty(),
             "literal 'blue' must NOT be minted as an entity"

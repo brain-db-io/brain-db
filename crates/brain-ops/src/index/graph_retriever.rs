@@ -149,6 +149,13 @@ fn walk(
     // variant so the router can tell entity vs memory misses apart.
     check_anchor_exists(rtxn, anchor)?;
 
+    // Caller's tenant scope, rebuilt from the config's raw fields. Every
+    // scoped read below (statement pivot, sidecar currency check) is
+    // constrained to it so the walk cannot surface another tenant's
+    // typed-graph rows.
+    let scope =
+        brain_metadata::RowScope::from_bytes(config.caller_namespace, config.caller_agent_bytes);
+
     let mut visited: HashSet<NodeRef> = HashSet::new();
     // `(node, hop, edge_weight_into_node)`. Anchor enters with
     // weight 1.0 (unused — it's never emitted).
@@ -183,6 +190,7 @@ fn walk(
             if let NodeRef::Entity(e) = node {
                 push_statements(
                     rtxn,
+                    scope,
                     e,
                     d,
                     max_branching,
@@ -229,7 +237,7 @@ fn walk(
             // relations and to emit the relation id as a separate hit.
             if let EdgeKindRef::Typed(_) = kind {
                 let rel_id = RelationId::from(disamb);
-                if !typed_edge_is_current(rtxn, rel_id)? {
+                if !typed_edge_is_current(rtxn, scope, rel_id)? {
                     continue;
                 }
                 if emitted_relations.insert(rel_id) {
@@ -300,14 +308,29 @@ fn kind_matches_filter(kind: EdgeKindRef, filter: Option<&[RelationTypeId]>) -> 
     }
 }
 
-fn typed_edge_is_current(rtxn: &ReadTransaction, rel_id: RelationId) -> Result<bool, GraphError> {
+fn typed_edge_is_current(
+    rtxn: &ReadTransaction,
+    scope: brain_metadata::RowScope,
+    rel_id: RelationId,
+) -> Result<bool, GraphError> {
     let sidecar = rtxn
         .open_table(RELATION_METADATA_TABLE)
         .map_err(|e| GraphError::IndexUnavailable(format!("sidecar open: {e}")))?;
     let row = sidecar
         .get(&rel_id.to_bytes())
         .map_err(|e| GraphError::IndexUnavailable(format!("sidecar get: {e}")))?;
-    Ok(row.map(|g| g.value().is_current()).unwrap_or(false))
+    // Tenant wall (defense in depth): a relation whose sidecar belongs
+    // to a different `(namespace, agent)` is treated as absent, so the
+    // unified edge table — which is not scope-keyed — can never leak a
+    // foreign tenant's typed relation into the walk.
+    Ok(row
+        .map(|g| {
+            let m = g.value();
+            m.namespace_id == scope.namespace_id
+                && m.agent_id_bytes == scope.agent_id_bytes
+                && m.is_current()
+        })
+        .unwrap_or(false))
 }
 
 fn check_anchor_exists(rtxn: &ReadTransaction, anchor: NodeRef) -> Result<(), GraphError> {
@@ -367,6 +390,9 @@ fn run_path(
     check_entity_anchor(rtxn, from)?;
     check_entity_anchor(rtxn, to)?;
 
+    let scope =
+        brain_metadata::RowScope::from_bytes(config.caller_namespace, config.caller_agent_bytes);
+
     // Single-source BFS from `from`. Tracks parent for each
     // discovered entity so we can reconstruct the path once `to`
     // is dequeued.
@@ -399,7 +425,7 @@ fn run_path(
                 continue;
             };
             let rel_id = RelationId::from(disamb);
-            if !typed_edge_is_current(rtxn, rel_id)? {
+            if !typed_edge_is_current(rtxn, scope, rel_id)? {
                 continue;
             }
             let NodeRef::Entity(neighbour) = neighbour else {
@@ -463,6 +489,7 @@ fn run_path(
 
 fn push_statements(
     rtxn: &ReadTransaction,
+    scope: brain_metadata::RowScope,
     subject: EntityId,
     hop: u8,
     cap: usize,
@@ -477,7 +504,7 @@ fn push_statements(
         min_confidence: None,
         limit: cap,
     };
-    let rows = statement_list(rtxn, &filter).map_err(map_statement_err)?;
+    let rows = statement_list(rtxn, scope, &filter).map_err(map_statement_err)?;
     for s in rows {
         if !matches!(s.subject, SubjectRef::Entity(_)) {
             continue;

@@ -53,12 +53,14 @@ pub(crate) fn entity_from_upsert_phase(phase: &Phase) -> Option<Entity> {
 pub fn apply_upsert_entity(
     wtxn: &WriteTransaction,
     phase: &Phase,
-    _write: &Write,
+    write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     let e = entity_from_upsert_phase(phase)
         .ok_or(ApplyError::PhaseMisShape("expected UpsertEntity"))?;
     let id = e.id;
-    entity_put(wtxn, &e).map_err(|err| ApplyError::Metadata(format!("entity_put: {err}")))?;
+    entity_put(wtxn, scope, &e)
+        .map_err(|err| ApplyError::Metadata(format!("entity_put: {err}")))?;
     // Write-path trace: which entity (canonical name) was minted/updated.
     // Subject resolution at read time keys on this canonical name, so a read
     // miss often traces back to a name that was never written this way.
@@ -369,6 +371,10 @@ pub fn apply_unmerge_entities(
 
 #[cfg(test)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{EntityAttributes, EntityId, EntityType};
     use brain_metadata::MetadataDb;
@@ -431,7 +437,7 @@ mod tests {
                 brain_metadata::entity::ops::normalize_name("Alice"),
                 1_700_000_000_000,
             );
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, __ts(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         // Tombstone via apply.

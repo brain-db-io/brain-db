@@ -66,6 +66,7 @@ use brain_metadata::tables::entity::{
     ENTITY_TRIGRAMS_TABLE,
 };
 use brain_metadata::tables::merge_review_queue::proposal_tier;
+use brain_metadata::RowScope;
 use parking_lot::RwLock;
 use redb::{ReadableTable, WriteTransaction};
 
@@ -201,28 +202,53 @@ fn trigram_set_for_entity(
 /// write txn so the resolve + downstream writes commit atomically.
 fn lookup_canonical_wtxn(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
     normalized: &str,
 ) -> Result<Option<EntityId>, ResolverError> {
     let t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
-    let bytes: Option<[u8; 16]> = t.get(&(type_id.raw(), normalized))?.map(|g| g.value());
+    let bytes: Option<[u8; 16]> = t
+        .get(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            type_id.raw(),
+            normalized,
+        ))?
+        .map(|g| g.value());
     Ok(bytes.map(EntityId::from))
 }
 
 /// Wtxn-friendly mirror of `entity_lookup_by_alias`.
 fn lookup_alias_wtxn(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
     normalized: &str,
 ) -> Result<Vec<EntityId>, ResolverError> {
     let t = wtxn.open_table(ENTITY_ALIASES_TABLE)?;
-    let lo = (type_id.raw(), normalized, [0u8; 16]);
-    let hi = (type_id.raw(), normalized, [0xFFu8; 16]);
+    let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        type_id.raw(),
+        normalized,
+        [0u8; 16],
+    );
+    let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        type_id.raw(),
+        normalized,
+        [0xFFu8; 16],
+    );
     let mut out = Vec::new();
     for entry in t.range(lo..=hi)? {
         let (k, _) = entry?;
-        let (k_type, k_alias, k_id) = k.value();
-        if k_type == type_id.raw() && k_alias == normalized {
+        let (k_ns, k_agent, k_type, k_alias, k_id) = k.value();
+        if k_ns == scope.namespace_id
+            && k_agent == scope.agent_id_bytes
+            && k_type == type_id.raw()
+            && k_alias == normalized
+        {
             out.push(EntityId::from(k_id));
         }
     }
@@ -232,6 +258,7 @@ fn lookup_alias_wtxn(
 /// Wtxn-friendly mirror of `candidates_for_query`.
 fn trigram_candidates_wtxn(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
     normalized: &str,
 ) -> Result<HashSet<EntityId>, ResolverError> {
@@ -242,12 +269,28 @@ fn trigram_candidates_wtxn(
     }
     let t = wtxn.open_table(ENTITY_TRIGRAMS_TABLE)?;
     for tg in qg {
-        let lo = (type_id.raw(), tg, [0u8; 16]);
-        let hi = (type_id.raw(), tg, [0xFFu8; 16]);
+        let lo = (
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            type_id.raw(),
+            tg,
+            [0u8; 16],
+        );
+        let hi = (
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            type_id.raw(),
+            tg,
+            [0xFFu8; 16],
+        );
         for entry in t.range(lo..=hi)? {
             let (k, _) = entry?;
-            let (k_type, k_tg, k_id) = k.value();
-            if k_type == type_id.raw() && k_tg == tg {
+            let (k_ns, k_agent, k_type, k_tg, k_id) = k.value();
+            if k_ns == scope.namespace_id
+                && k_agent == scope.agent_id_bytes
+                && k_type == type_id.raw()
+                && k_tg == tg
+            {
                 out.insert(EntityId::from(k_id));
             }
         }
@@ -377,6 +420,7 @@ pub enum MatchVerdict {
 /// [`resolve_or_create_with_deps`] called with both dep slots `None`.
 pub fn resolve_or_create(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     surface_form: &str,
     entity_type_qname: &str,
     confidence: f32,
@@ -384,6 +428,7 @@ pub fn resolve_or_create(
 ) -> Result<Resolution, ResolverError> {
     resolve_or_create_with_deps(
         wtxn,
+        scope,
         surface_form,
         entity_type_qname,
         confidence,
@@ -399,6 +444,7 @@ pub fn resolve_or_create(
 /// New code should call [`resolve_or_create_with_deps`] directly.
 pub fn resolve_or_create_with_hnsw(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     surface_form: &str,
     entity_type_qname: &str,
     confidence: f32,
@@ -407,6 +453,7 @@ pub fn resolve_or_create_with_hnsw(
 ) -> Result<Resolution, ResolverError> {
     resolve_or_create_with_deps(
         wtxn,
+        scope,
         surface_form,
         entity_type_qname,
         confidence,
@@ -436,8 +483,13 @@ pub fn resolve_or_create_with_hnsw(
 /// [`MatchVerdict::Rejected`] mints a fresh entity with no merge
 /// proposal (the two are confirmed distinct); the other verdicts fall
 /// through to the existing Create + enqueue-merge-proposal flow.
+// Each argument is a distinct, non-bundleable concern (txn, tenant scope,
+// surface form, type, confidence, clock, and two optional capability deps);
+// folding them into a params struct would obscure the call sites, not clarify.
+#[allow(clippy::too_many_arguments)]
 pub fn resolve_or_create_with_deps(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     surface_form: &str,
     entity_type_qname: &str,
     _confidence: f32,
@@ -452,7 +504,7 @@ pub fn resolve_or_create_with_deps(
     let type_id = resolve_entity_type(wtxn, entity_type_qname, now_unix_nanos)?;
 
     // Tier 1 — exact canonical-name lookup.
-    if let Some(id) = lookup_canonical_wtxn(wtxn, type_id, &normalized)? {
+    if let Some(id) = lookup_canonical_wtxn(wtxn, scope, type_id, &normalized)? {
         return Ok(Resolution {
             entity_id: id,
             tier: ResolutionTier::Exact,
@@ -465,7 +517,7 @@ pub fn resolve_or_create_with_deps(
     // stays stable across re-runs. A future ambiguity-aware resolver
     // could surface the conflict; the worker drops mentions with
     // ambiguous aliases at the cost of one extra resolve.
-    let alias_hits = lookup_alias_wtxn(wtxn, type_id, &normalized)?;
+    let alias_hits = lookup_alias_wtxn(wtxn, scope, type_id, &normalized)?;
     if let Some(id) = alias_hits.into_iter().min() {
         return Ok(Resolution {
             entity_id: id,
@@ -485,7 +537,7 @@ pub fn resolve_or_create_with_deps(
     // shared by two different-typed entities is a genuine homograph ("Apple" the
     // company vs the fruit), so fall through to mint rather than conflate them.
     {
-        let cross = entity_resolve_canonical_all_types_wtxn(wtxn, surface_form)?;
+        let cross = entity_resolve_canonical_all_types_wtxn(wtxn, scope, surface_form)?;
         if cross.len() == 1 {
             let id = cross[0];
             entity_add_alias(wtxn, id, surface_form.to_string(), now_unix_nanos)?;
@@ -499,7 +551,7 @@ pub fn resolve_or_create_with_deps(
     // Tier 3a — trigram fuzzy lookup. Candidates whose Jaccard against
     // the query is above `DEFAULT_FUZZY_THRESHOLD` get the surface
     // form added as an alias and are returned as the match.
-    let candidate_ids = trigram_candidates_wtxn(wtxn, type_id, &normalized)?;
+    let candidate_ids = trigram_candidates_wtxn(wtxn, scope, type_id, &normalized)?;
     if !candidate_ids.is_empty() {
         let query_tgs = trigrams::extract_trigrams(&normalized);
         if !query_tgs.is_empty() {
@@ -589,7 +641,7 @@ pub fn resolve_or_create_with_deps(
     // worker, which re-checks them as the HNSW grows.
     let mut partial_match: Option<(EntityId, f32)> = None;
     if let Some(deps) = embed_deps {
-        match tier_embedding(deps, type_id, surface_form, wtxn) {
+        match tier_embedding(deps, scope, type_id, surface_form, wtxn) {
             Ok(EmbeddingProbe::AutoAlias { entity_id, .. }) => {
                 // A high cosine alone is not proof of identity: two
                 // distinct same-type entities ("Japan" vs "Tokyo", both
@@ -737,7 +789,7 @@ pub fn resolve_or_create_with_deps(
         now_unix_nanos,
     );
     entity.mention_count = 1;
-    entity_put(wtxn, &entity)?;
+    entity_put(wtxn, scope, &entity)?;
 
     // Minting a new node is normal much of the time, but it is also the
     // exact event that grows entity cardinality. Record it at debug so a
@@ -816,6 +868,7 @@ enum EmbeddingProbe {
 /// - `Err(reason)` for transient backend failures (embedder, HNSW lock).
 fn tier_embedding(
     deps: &EmbeddingDeps,
+    scope: RowScope,
     type_id: EntityTypeId,
     surface_form: &str,
     wtxn: &WriteTransaction,
@@ -836,14 +889,19 @@ fn tier_embedding(
     if hits.is_empty() {
         return Ok(EmbeddingProbe::None);
     }
-    // Filter by entity_type. The HNSW shares one global index for all
-    // entity types per shard, so a Person lookup might surface an
-    // Organization neighbour at the top; pre-filtering before
-    // threshold-checking keeps us honest.
+    // Filter by (scope, entity_type). The entity HNSW is a single
+    // per-shard index shared across every tenant + agent + type, so a
+    // probe can surface a neighbour belonging to a foreign
+    // `(namespace, agent)` or a different type. The tenant wall is
+    // unconditional: a candidate from another scope is dropped before
+    // the threshold check so `acme/chatbot`'s "John" can never resolve
+    // onto `globex`'s or `acme/research`'s "John". The type filter is
+    // the same honesty guard as before (a Person lookup must not alias
+    // onto an Organization neighbour).
     let typed_hits: Vec<(EntityId, f32)> = hits
         .into_iter()
-        .filter_map(|(eid, score)| match read_entity_type(wtxn, eid) {
-            Ok(Some(t)) if t == type_id => Some((eid, score)),
+        .filter_map(|(eid, score)| match read_entity_type_and_scope(wtxn, eid) {
+            Ok(Some((t, s))) if t == type_id && s == scope => Some((eid, score)),
             _ => None,
         })
         .collect();
@@ -866,16 +924,22 @@ fn tier_embedding(
     Ok(EmbeddingProbe::None)
 }
 
-/// Read just the `entity_type_id` field for `id` inside an existing
-/// write txn. Lighter than `entity_get_inside_wtxn` (no aliases, no
-/// blob decoding) — tier-3b only needs the type filter.
-fn read_entity_type(
+/// Read the `entity_type_id` + `(namespace, agent)` scope for `id`
+/// inside an existing write txn. Lighter than `entity_get_inside_wtxn`
+/// (no aliases, no blob decoding) — tier-3b only needs the type +
+/// scope filter to drop foreign-type and foreign-tenant HNSW hits.
+fn read_entity_type_and_scope(
     wtxn: &WriteTransaction,
     id: EntityId,
-) -> Result<Option<EntityTypeId>, ResolverError> {
+) -> Result<Option<(EntityTypeId, RowScope)>, ResolverError> {
     let t = wtxn.open_table(ENTITIES_TABLE)?;
     let row: Option<EntityMetadata> = t.get(&id.to_bytes())?.map(|g| g.value());
-    Ok(row.map(|m| EntityTypeId::from(m.entity_type_id)))
+    Ok(row.map(|m| {
+        (
+            EntityTypeId::from(m.entity_type_id),
+            RowScope::from_bytes(m.namespace_id, m.agent_id_bytes),
+        )
+    }))
 }
 
 /// Read just the `canonical_name` for `id` inside an existing write txn.
@@ -1100,6 +1164,14 @@ mod tests {
 
     const NOW: u64 = 1_700_000_000_000_000_000;
 
+    /// Fixed `(namespace, agent)` scope for resolver unit tests. The
+    /// system namespace + a stable agent are enough to exercise the
+    /// scoped gauntlet; cross-scope distinctness is proven at the
+    /// brain-ops handler layer (`typed_graph_namespace_isolation.rs`).
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     fn db(dir: &TempDir) -> MetadataDb {
         MetadataDb::open(dir.path().join("metadata.redb")).expect("open")
     }
@@ -1118,11 +1190,12 @@ mod tests {
         let existing_id = existing.id;
         {
             let wtxn = d.write_txn().unwrap();
-            entity_put(&wtxn, &existing).unwrap();
+            entity_put(&wtxn, test_scope(), &existing).unwrap();
             wtxn.commit().unwrap();
         }
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Priya Patel", "brain:Person", 0.9, NOW).unwrap();
+        let res = resolve_or_create(&wtxn, test_scope(), "Priya Patel", "brain:Person", 0.9, NOW)
+            .unwrap();
         assert_eq!(res.entity_id, existing_id);
         assert_eq!(res.tier, ResolutionTier::Exact);
         wtxn.commit().unwrap();
@@ -1143,11 +1216,12 @@ mod tests {
         let id = existing.id;
         {
             let wtxn = d.write_txn().unwrap();
-            entity_put(&wtxn, &existing).unwrap();
+            entity_put(&wtxn, test_scope(), &existing).unwrap();
             wtxn.commit().unwrap();
         }
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "priya", "brain:Person", 0.7, NOW).unwrap();
+        let res =
+            resolve_or_create(&wtxn, test_scope(), "priya", "brain:Person", 0.7, NOW).unwrap();
         assert_eq!(res.entity_id, id);
         assert_eq!(res.tier, ResolutionTier::Alias);
         wtxn.commit().unwrap();
@@ -1167,13 +1241,14 @@ mod tests {
         let full_id = full.id;
         {
             let wtxn = d.write_txn().unwrap();
-            entity_put(&wtxn, &full).unwrap();
+            entity_put(&wtxn, test_scope(), &full).unwrap();
             wtxn.commit().unwrap();
         }
         // A bare first-name reference must coref onto the full-name entity
         // (token subset) instead of minting a duplicate person node.
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Niraj", "brain:Person", 0.8, NOW + 1).unwrap();
+        let res =
+            resolve_or_create(&wtxn, test_scope(), "Niraj", "brain:Person", 0.8, NOW + 1).unwrap();
         assert_eq!(
             res.entity_id, full_id,
             "Niraj should coref to Niraj Georgian"
@@ -1195,13 +1270,14 @@ mod tests {
                 NOW,
             );
             let wtxn = d.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         // "Niraj" is a subset of TWO distinct people → ambiguous → must not
         // guess; mint a fresh entity instead of mis-merging.
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Niraj", "brain:Person", 0.8, NOW + 1).unwrap();
+        let res =
+            resolve_or_create(&wtxn, test_scope(), "Niraj", "brain:Person", 0.8, NOW + 1).unwrap();
         assert_eq!(
             res.tier,
             ResolutionTier::Created,
@@ -1232,13 +1308,21 @@ mod tests {
         let target_id = target.id;
         {
             let wtxn = d.write_txn().unwrap();
-            entity_put(&wtxn, &target).unwrap();
-            entity_put(&wtxn, &other).unwrap();
+            entity_put(&wtxn, test_scope(), &target).unwrap();
+            entity_put(&wtxn, test_scope(), &other).unwrap();
             wtxn.commit().unwrap();
         }
         // Tier-3 fuzzy: typo'd surface form should resolve to target.
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Priya  Patel", "brain:Person", 0.8, NOW + 1).unwrap();
+        let res = resolve_or_create(
+            &wtxn,
+            test_scope(),
+            "Priya  Patel",
+            "brain:Person",
+            0.8,
+            NOW + 1,
+        )
+        .unwrap();
         // "priya  patel" normalises to "priya patel" → tier-1 hit.
         assert_eq!(res.entity_id, target_id);
         assert_eq!(res.tier, ResolutionTier::Exact);
@@ -1246,7 +1330,15 @@ mod tests {
 
         // Now a true fuzzy match — a partial name share.
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Priya Patell", "brain:Person", 0.8, NOW + 2).unwrap();
+        let res = resolve_or_create(
+            &wtxn,
+            test_scope(),
+            "Priya Patell",
+            "brain:Person",
+            0.8,
+            NOW + 2,
+        )
+        .unwrap();
         assert_eq!(res.entity_id, target_id);
         // First fuzzy hit promotes via alias index. Re-resolve picks
         // tier-2 next time.
@@ -1268,7 +1360,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Brand New Name", "brain:Person", 0.5, NOW).unwrap();
+        let res = resolve_or_create(
+            &wtxn,
+            test_scope(),
+            "Brand New Name",
+            "brain:Person",
+            0.5,
+            NOW,
+        )
+        .unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
         let rtxn = d.read_txn().unwrap();
@@ -1278,8 +1378,15 @@ mod tests {
         // A second resolve on the same surface form should hit tier 1
         // (deterministic re-resolve).
         let wtxn = d.write_txn().unwrap();
-        let res2 =
-            resolve_or_create(&wtxn, "Brand New Name", "brain:Person", 0.5, NOW + 1).unwrap();
+        let res2 = resolve_or_create(
+            &wtxn,
+            test_scope(),
+            "Brand New Name",
+            "brain:Person",
+            0.5,
+            NOW + 1,
+        )
+        .unwrap();
         assert_eq!(res2.entity_id, res.entity_id);
         assert_eq!(res2.tier, ResolutionTier::Exact);
         wtxn.commit().unwrap();
@@ -1296,12 +1403,14 @@ mod tests {
         let d = db(&dir);
         // First mention mints under Concept; determiner-strip → key "atlas".
         let wtxn = d.write_txn().unwrap();
-        let first = resolve_or_create(&wtxn, "The Atlas", "brain:Concept", 0.9, NOW).unwrap();
+        let first =
+            resolve_or_create(&wtxn, test_scope(), "The Atlas", "brain:Concept", 0.9, NOW).unwrap();
         assert_eq!(first.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
         // Second mention, DIFFERENT type hint, bare form → must reuse, not mint.
         let wtxn = d.write_txn().unwrap();
-        let second = resolve_or_create(&wtxn, "Atlas", "brain:Person", 0.9, NOW + 1).unwrap();
+        let second =
+            resolve_or_create(&wtxn, test_scope(), "Atlas", "brain:Person", 0.9, NOW + 1).unwrap();
         assert_eq!(
             second.entity_id, first.entity_id,
             "cross-type exact name match must reuse the existing node, not fragment"
@@ -1320,7 +1429,8 @@ mod tests {
         let d = db(&dir);
         // Mint "Apple" as an Organization (registers the Organization type).
         let wtxn = d.write_txn().unwrap();
-        let org = resolve_or_create(&wtxn, "Apple", "brain:Organization", 0.9, NOW).unwrap();
+        let org = resolve_or_create(&wtxn, test_scope(), "Apple", "brain:Organization", 0.9, NOW)
+            .unwrap();
         wtxn.commit().unwrap();
         // Seed a second "apple" under the (already-registered) Person type.
         let person_apple = Entity::new_active(
@@ -1332,12 +1442,13 @@ mod tests {
         );
         let person_id = person_apple.id;
         let wtxn = d.write_txn().unwrap();
-        entity_put(&wtxn, &person_apple).unwrap();
+        entity_put(&wtxn, test_scope(), &person_apple).unwrap();
         wtxn.commit().unwrap();
         // Now resolve "Apple" under a THIRD type: two cross-type matches exist
         // → ambiguous → mint a fresh entity rather than conflate them.
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Apple", "brain:Event", 0.9, NOW + 1).unwrap();
+        let res =
+            resolve_or_create(&wtxn, test_scope(), "Apple", "brain:Event", 0.9, NOW + 1).unwrap();
         assert!(
             res.entity_id != org.entity_id && res.entity_id != person_id,
             "ambiguous cross-type homograph must not be reused"
@@ -1351,7 +1462,8 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
-        let err = resolve_or_create(&wtxn, "   ", "brain:Person", 0.5, NOW).expect_err("empty");
+        let err = resolve_or_create(&wtxn, test_scope(), "   ", "brain:Person", 0.5, NOW)
+            .expect_err("empty");
         assert!(matches!(err, ResolverError::EmptyNormalizedName));
     }
 
@@ -1360,7 +1472,15 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
-        let res = resolve_or_create(&wtxn, "Acme Corp", "brain:Organization", 0.7, NOW).unwrap();
+        let res = resolve_or_create(
+            &wtxn,
+            test_scope(),
+            "Acme Corp",
+            "brain:Organization",
+            0.7,
+            NOW,
+        )
+        .unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
         // The new type lives in the registry now.
@@ -1476,7 +1596,7 @@ mod tests {
             NOW,
         );
         let wtxn = d.write_txn().unwrap();
-        entity_put(&wtxn, &ent).unwrap();
+        entity_put(&wtxn, test_scope(), &ent).unwrap();
         wtxn.commit().unwrap();
         hnsw.write().insert(id, &vector).unwrap();
         id
@@ -1508,6 +1628,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Stripe Payments",
             "brain:Person",
             0.9,
@@ -1556,6 +1677,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Bitcoin",
             "brain:Person",
             0.9,
@@ -1621,6 +1743,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Wong Group",
             "brain:Person",
             0.9,
@@ -1654,6 +1777,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let r1 = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Brand New Co",
             "brain:Person",
             0.9,
@@ -1669,6 +1793,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let r2 = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Brand New Company",
             "brain:Person",
             0.9,
@@ -1716,6 +1841,7 @@ mod tests {
         let wtxn = d.write_txn().unwrap();
         let res = resolve_or_create_with_hnsw(
             &wtxn,
+            test_scope(),
             "Acme Holdings",
             "brain:Person",
             0.9,
@@ -1763,8 +1889,16 @@ mod tests {
         let dir = TempDir::new().unwrap();
         let d = db(&dir);
         let wtxn = d.write_txn().unwrap();
-        let res =
-            resolve_or_create_with_hnsw(&wtxn, "Solo", "brain:Person", 0.9, NOW, None).unwrap();
+        let res = resolve_or_create_with_hnsw(
+            &wtxn,
+            test_scope(),
+            "Solo",
+            "brain:Person",
+            0.9,
+            NOW,
+            None,
+        )
+        .unwrap();
         assert_eq!(res.tier, ResolutionTier::Created);
         wtxn.commit().unwrap();
     }

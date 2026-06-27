@@ -52,6 +52,9 @@ impl MetadataDb {
     ) -> Result<(), MetadataSinkError> {
         let meta = decode_entity_create(body)
             .map_err(|e| MetadataSinkError::Corruption(format!("entity_create decode: {e}")))?;
+        // The WAL body is the full `EntityMetadata`, so it already carries
+        // the owning scope — recovery re-stamps the exact same one.
+        let scope = meta.scope();
         let entity = Entity::from(&meta);
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
@@ -65,7 +68,7 @@ impl MetadataDb {
                 .map_err(|e| MetadataSinkError::Corruption(format!("entity_create lookup: {e}")))?
                 .is_none()
             {
-                entity_put(&wtxn, &entity)
+                entity_put(&wtxn, scope, &entity)
                     .map_err(|e| MetadataSinkError::Corruption(format!("entity_put: {e}")))?;
             }
             self.bump_next_lsn_in_txn(&wtxn, lsn)?;
@@ -310,6 +313,9 @@ impl MetadataDb {
                 "statement_create: statement_from_metadata returned None".into(),
             )
         })?;
+        // The WAL body's `meta` is the full StatementMetadata, so it
+        // carries the owning scope verbatim.
+        let scope = b.meta.scope();
         let wtxn = self.db.begin_write().map_err(transient)?;
         {
             // Idempotent re-replay: skip if the row is already present.
@@ -332,7 +338,7 @@ impl MetadataDb {
                     })?;
                     s.predicate = pid;
                 }
-                statement_create(&wtxn, &s, s.extracted_at_unix_nanos)
+                statement_create(&wtxn, scope, &s, s.extracted_at_unix_nanos)
                     .map_err(|e| MetadataSinkError::Corruption(format!("statement_create: {e}")))?;
                 if b.predicate_intern_hint.is_some() {
                     stamp_implicit_predicate(&wtxn, s.id)?;
@@ -371,9 +377,10 @@ impl MetadataDb {
                 g.is_some()
             };
             if !already {
-                statement_supersede(&wtxn, old_id, &new_s, b.at_unix_nanos).map_err(|e| {
-                    MetadataSinkError::Corruption(format!("statement_supersede: {e}"))
-                })?;
+                statement_supersede(&wtxn, b.new.scope(), old_id, &new_s, b.at_unix_nanos)
+                    .map_err(|e| {
+                        MetadataSinkError::Corruption(format!("statement_supersede: {e}"))
+                    })?;
             }
             self.bump_next_lsn_in_txn(&wtxn, lsn)?;
         }
@@ -442,6 +449,11 @@ mod tests {
     /// Open a fresh `MetadataDb`, which seeds the Person type at id=1 via
     /// the system-schema bootstrap — so `entity_put`'s
     /// `require_entity_type_exists` check passes without manual seeding.
+    use crate::tables::scope::RowScope;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
+
     fn fresh_db(dir: &TempDir) -> MetadataDb {
         MetadataDb::open(dir.path().join("metadata.redb")).expect("open")
     }
@@ -465,7 +477,7 @@ mod tests {
         let e = person_entity("Priya Patel");
         let id = e.id;
 
-        let body = encode_entity_create(&EntityMetadata::from(&e));
+        let body = encode_entity_create(&EntityMetadata::from_entity(&e, test_scope()));
         db.apply_entity_create(10, &body).unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -481,7 +493,7 @@ mod tests {
         let db = fresh_db(&dir);
         let e = person_entity("Priya Patel");
         let id = e.id;
-        let body = encode_entity_create(&EntityMetadata::from(&e));
+        let body = encode_entity_create(&EntityMetadata::from_entity(&e, test_scope()));
 
         db.apply_entity_create(10, &body).unwrap();
         // Second apply (re-replay) must not error on the duplicate
@@ -501,7 +513,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -527,7 +539,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -558,7 +570,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -589,8 +601,8 @@ mod tests {
         let merged_id = merged.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &survivor).unwrap();
-            entity_put(&wtxn, &merged).unwrap();
+            entity_put(&wtxn, test_scope(), &survivor).unwrap();
+            entity_put(&wtxn, test_scope(), &merged).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -630,8 +642,8 @@ mod tests {
         let merged_id = merged.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &survivor).unwrap();
-            entity_put(&wtxn, &merged).unwrap();
+            entity_put(&wtxn, test_scope(), &survivor).unwrap();
+            entity_put(&wtxn, test_scope(), &merged).unwrap();
             wtxn.commit().unwrap();
         }
         db.apply_entity_merge(
@@ -720,7 +732,7 @@ mod tests {
         let e = person_entity("Subject Person");
         let id = e.id;
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -740,7 +752,7 @@ mod tests {
         let sid = s.id;
 
         let body = encode_statement_create(&StatementCreateBody {
-            meta: metadata_from_statement(&s),
+            meta: metadata_from_statement(&s, test_scope()),
             predicate_intern_hint: Some(("app".into(), "knows".into())),
         });
         db.apply_statement_create(20, &body).unwrap();
@@ -775,7 +787,7 @@ mod tests {
         let s = schemaless_statement(subject);
         let sid = s.id;
         let create = encode_statement_create(&StatementCreateBody {
-            meta: metadata_from_statement(&s),
+            meta: metadata_from_statement(&s, test_scope()),
             predicate_intern_hint: Some(("app".into(), "knows".into())),
         });
         db.apply_statement_create(20, &create).unwrap();

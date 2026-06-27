@@ -519,6 +519,10 @@ fn now_unix_nanos() -> u64 {
 #[cfg(all(test, not(miri)))]
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{Entity, EntityType};
     use brain_embed::EmbedError;
@@ -666,7 +670,7 @@ mod tests {
             NOW,
         );
         let wtxn = d.write_txn().unwrap();
-        entity_put(&wtxn, &ent).unwrap();
+        entity_put(&wtxn, __ts(), &ent).unwrap();
         wtxn.commit().unwrap();
         hnsw.write().insert(id, &vector).unwrap();
         id

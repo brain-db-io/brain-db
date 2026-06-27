@@ -164,7 +164,7 @@ fn seed_causal_statement(
         "outage".into(),
         now,
     );
-    entity_put(&wtxn, &entity).expect("entity_put");
+    entity_put(&wtxn, __ts(), &entity).expect("entity_put");
     // 3. Predicate `brain:caused_by` — matches the default whitelist.
     let predicate =
         predicate_intern_or_get(&wtxn, "brain", "caused_by", 1, now).expect("predicate_intern");
@@ -191,7 +191,7 @@ fn seed_causal_statement(
         now,
         1,
     );
-    statement_create(&wtxn, &statement, now).expect("statement_create");
+    statement_create(&wtxn, __ts(), &statement, now).expect("statement_create");
     drop(statement);
     wtxn.commit().unwrap();
     sid
@@ -286,4 +286,8 @@ fn cycle_writes_caused_link_through_unified_path() {
         // Drop unused vars (test ergonomics).
         let _ = (cause_mem, effect_mem, sid, Uuid::nil());
     });
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

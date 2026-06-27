@@ -385,6 +385,8 @@ fn build_executor_context(ctx: &OpsContext) -> Result<RetrievalExecutorContext, 
         lexical: ctx.lexical_retriever.clone(),
         graph: ctx.graph_retriever.clone(),
         metadata: ctx.executor.metadata.clone(),
+        caller_namespace: ctx.executor.caller_namespace.raw(),
+        caller_agent: ctx.executor.caller_agent,
         // Rerank is always-on for QUERY just as for RECALL: the
         // executor reranks whenever the cross-encoder is loaded. When
         // the operator disabled the load this is `None` and the query

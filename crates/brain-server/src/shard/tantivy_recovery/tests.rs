@@ -113,7 +113,7 @@ fn recover_rebuilds_statements_with_join() {
     {
         let entity = Entity::new_active(alice, type_id, "Alice".into(), "alice".into(), 0);
         let wtxn = metadata.write_txn().expect("wtxn");
-        entity_put(&wtxn, &entity).expect("entity_put");
+        entity_put(&wtxn, __ts(), &entity).expect("entity_put");
         wtxn.commit().expect("commit");
     }
     let pred: PredicateId = {
@@ -136,7 +136,7 @@ fn recover_rebuilds_statements_with_join() {
             1,
         );
         let wtxn = metadata.write_txn().expect("wtxn");
-        let id = statement_create(&wtxn, &stmt, 0).expect("create");
+        let id = statement_create(&wtxn, __ts(), &stmt, 0).expect("create");
         wtxn.commit().expect("commit");
         id
     };
@@ -177,4 +177,8 @@ fn recover_rebuilds_statements_with_join() {
         1,
         "post-recovery statements must contain the row"
     );
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

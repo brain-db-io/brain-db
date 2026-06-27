@@ -127,6 +127,7 @@ fn seed_active_slots(metadata: &mut MetadataDb, slots: impl IntoIterator<Item = 
             let id = MemoryId::pack(0, slot, 0);
             let row = MemoryMetadata::new_active(
                 id,
+                brain_core::NamespaceId::SYSTEM,
                 AgentId::new(),
                 ContextId::from(0),
                 id.slot(),
@@ -155,6 +156,7 @@ fn seed_active_memories(metadata: &mut MetadataDb, slots: std::ops::Range<u64>) 
             let id = MemoryId::pack(0, slot, 0);
             let row = MemoryMetadata::new_active(
                 id,
+                brain_core::NamespaceId::SYSTEM,
                 AgentId::new(),
                 ContextId::from(0),
                 id.slot(),
@@ -208,6 +210,8 @@ fn make_ctx(
         lexical: lex_arc,
         graph: graph_arc,
         metadata: Arc::new(metadata),
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     };
     (dir, ctx)
@@ -577,6 +581,8 @@ fn dynamic_k_deepens_when_filters_thin_the_pool() {
             response: Arc::new(StdMutex::new(Ok(Vec::new()))),
         }),
         metadata: Arc::new(metadata),
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     };
 
@@ -684,6 +690,8 @@ fn cue_ctx(metadata: MetadataDb) -> RetrievalExecutorContext {
             response: Arc::new(StdMutex::new(Ok(Vec::new()))),
         }),
         metadata: Arc::new(metadata),
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     }
 }
@@ -710,7 +718,7 @@ fn cue_anchor_upgrades_blind_graph_to_resolved_entity() {
     let sarah_id = sarah.id;
     {
         let wtxn = metadata.write_txn().expect("wtxn");
-        brain_metadata::entity_put(&wtxn, &sarah).expect("put");
+        brain_metadata::entity_put(&wtxn, __ts(), &sarah).expect("put");
         wtxn.commit().expect("commit");
     }
     let ctx = cue_ctx(metadata);
@@ -756,7 +764,7 @@ fn cue_anchor_falls_back_on_two_distinct_entities() {
             0,
         );
         let wtxn = metadata.write_txn().expect("wtxn");
-        brain_metadata::entity_put(&wtxn, &e).expect("put");
+        brain_metadata::entity_put(&wtxn, __ts(), &e).expect("put");
         wtxn.commit().expect("commit");
     }
     let ctx = cue_ctx(metadata);
@@ -925,6 +933,8 @@ fn prf_reprobes_lexical_with_expansion_on_low_specificity_query() {
             response: Arc::new(StdMutex::new(Ok(Vec::new()))),
         }),
         metadata: Arc::new(metadata),
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     };
 
@@ -971,6 +981,8 @@ fn prf_skips_high_specificity_query() {
             response: Arc::new(StdMutex::new(Ok(Vec::new()))),
         }),
         metadata: Arc::new(metadata),
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     };
 
@@ -984,4 +996,12 @@ fn prf_skips_high_specificity_query() {
         1,
         "high-specificity query must not trigger a PRF re-probe",
     );
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    // Match the executor context's default caller scope (system
+    // namespace + default/zero agent) so seeded entities + statements
+    // are reachable by the cue-anchor / graph-expansion read paths,
+    // which read under `ctx.caller_scope()`.
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0u8; 16])
 }

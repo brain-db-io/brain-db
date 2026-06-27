@@ -20,8 +20,9 @@ use crate::write::{
 pub fn apply_upsert_statement(
     wtxn: &WriteTransaction,
     phase: &Phase,
-    _write: &Write,
+    write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     // Only the fields the apply path needs directly: the predicate
     // resolution + idempotency stamp. The rest of the row is built by
     // `statement_from_upsert_phase` (shared with the WAL-mapping path).
@@ -54,7 +55,7 @@ pub fn apply_upsert_statement(
 
     let s = statement_from_upsert_phase(phase, resolved_predicate)
         .ok_or(ApplyError::PhaseMisShape("expected UpsertStatement"))?;
-    statement_create(wtxn, &s, *extracted_at_unix_nanos)
+    statement_create(wtxn, scope, &s, *extracted_at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("statement_create: {e}")))?;
 
     // Write-path trace: the structured fact this ENCODE produced. The
@@ -124,8 +125,9 @@ fn stamp_implicit_predicate_flag(
 pub fn apply_supersede_statement(
     wtxn: &WriteTransaction,
     phase: &Phase,
-    _write: &Write,
+    write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     let Phase::Supersede {
         target,
         replacement,
@@ -142,7 +144,7 @@ pub fn apply_supersede_statement(
             "expected Supersede with Statement replacement",
         ));
     };
-    statement_supersede(wtxn, *old_id, new_statement.as_ref(), *at_unix_nanos)
+    statement_supersede(wtxn, scope, *old_id, new_statement.as_ref(), *at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("statement_supersede: {e}")))?;
     Ok(PhaseAck::Superseded(*target, replacement.id()))
 }

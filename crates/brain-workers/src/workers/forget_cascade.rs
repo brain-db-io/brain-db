@@ -165,7 +165,30 @@ impl ForgetCascadeWorker {
             // evidence was that memory. Splitting these would leave a
             // dangling edge / orphan relation past the FORGET visibility
             // boundary if the second txn failed.
-            let edge_summary = cascade_forget_to_edges(&wtxn, job.memory_id, now_ns)
+            // The forgotten memory's `(namespace, agent)` scope, read from
+            // its row so the edge cascade tombstones only this tenant's
+            // typed relations. Falls back to system scope if the row is
+            // already gone (the statement cascade above is the primary
+            // path; a missing memory simply leaves nothing to cascade).
+            let cascade_scope = {
+                use brain_metadata::tables::memory::MEMORIES_TABLE;
+                use redb::ReadableTable;
+                wtxn.open_table(MEMORIES_TABLE)
+                    .ok()
+                    .and_then(|t| {
+                        t.get(&job.memory_id.to_be_bytes()).ok().flatten().map(|g| {
+                            let m = g.value();
+                            brain_metadata::RowScope::from_bytes(m.namespace_id, m.agent_id_bytes)
+                        })
+                    })
+                    .unwrap_or_else(|| {
+                        brain_metadata::RowScope::from_bytes(
+                            brain_core::NamespaceId::SYSTEM.raw(),
+                            [0u8; 16],
+                        )
+                    })
+            };
+            let edge_summary = cascade_forget_to_edges(&wtxn, cascade_scope, job.memory_id, now_ns)
                 .map_err(|e| WorkerError::Internal(format!("cascade edges: {e}")))?;
             wtxn.commit()
                 .map_err(|e| WorkerError::Internal(format!("cascade commit: {e}")))?;
@@ -224,6 +247,10 @@ impl Worker for ForgetCascadeWorker {
 
 #[cfg(test)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{
         AgentId, ContextId, EntityId, ExtractorId as CoreExtractorId, MemoryId, MemoryKind,
@@ -253,6 +280,7 @@ mod tests {
     fn seed_memory(db: &mut MetadataDb, memory_id: MemoryId) {
         let row = MemoryMetadata::new_active(
             memory_id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId::default(),
             ContextId::DEFAULT,
             /* arena_slot */ memory_id.slot(),
@@ -283,7 +311,7 @@ mod tests {
             NOW,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, __ts(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -340,7 +368,7 @@ mod tests {
         );
         s.confidence = stmt_conf;
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, NOW).unwrap();
+        statement_create(&wtxn, __ts(), &s, NOW).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -391,7 +419,8 @@ mod tests {
         )
         .unwrap();
         let _edge_summary =
-            cascade_forget_to_edges(&wtxn, job.memory_id, job.forgot_at_unix_nanos).unwrap();
+            cascade_forget_to_edges(&wtxn, __ts(), job.memory_id, job.forgot_at_unix_nanos)
+                .unwrap();
         wtxn.commit().unwrap();
         stmt_summary
     }

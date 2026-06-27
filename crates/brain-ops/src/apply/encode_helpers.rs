@@ -143,7 +143,13 @@ pub async fn fetch_extractor_context(
         // recall at this scale.
         ..SemanticRetrieverConfig::default()
     };
-    let filters = SemanticFilters::default();
+    // Scope the neighbor fetch to the caller's tenant: the enrichment
+    // context handed to the extractor must never surface another
+    // namespace's memories.
+    let filters = SemanticFilters {
+        namespace_id: ctx.executor.caller_namespace.raw(),
+        ..SemanticFilters::default()
+    };
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(filters),
         ..cfg
@@ -324,6 +330,7 @@ mod tests {
             let mut memories = wtxn.open_table(MEMORIES_TABLE).unwrap();
             let row = MemoryMetadata::new_active(
                 id,
+                brain_core::NamespaceId::SYSTEM,
                 AgentId::new(),
                 context_id,
                 0,

@@ -128,6 +128,7 @@ mod tests {
 
         let mem_a = MemoryMetadata::new_active(
             MemoryId::pack(0, 100, 1),
+            brain_core::NamespaceId::SYSTEM,
             agent_a,
             ctx,
             100,
@@ -141,6 +142,7 @@ mod tests {
         .with_content_hash(hash);
         let mem_b = MemoryMetadata::new_active(
             MemoryId::pack(0, 200, 1),
+            brain_core::NamespaceId::SYSTEM,
             agent_b,
             ctx,
             200,

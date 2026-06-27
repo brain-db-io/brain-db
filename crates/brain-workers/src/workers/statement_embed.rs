@@ -580,6 +580,10 @@ fn uuid_hex(bytes: &[u8; 16]) -> String {
 #[cfg(all(test, not(miri)))]
 #[allow(clippy::arc_with_non_send_sync)] // OpsContext is !Send
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementKind};
     use brain_core::{Entity, EntityType, EvidenceEntry, EvidenceRef};
@@ -710,6 +714,7 @@ mod tests {
         let obj_id = EntityId::new();
         entity_put(
             &wtxn,
+            __ts(),
             &Entity::new_active(
                 subj_id,
                 EntityType::PERSON_ID,
@@ -721,6 +726,7 @@ mod tests {
         .unwrap();
         entity_put(
             &wtxn,
+            __ts(),
             &Entity::new_active(
                 obj_id,
                 EntityType::PERSON_ID,
@@ -757,7 +763,7 @@ mod tests {
             1,
         );
 
-        let id = statement_create(&wtxn, &s, now()).unwrap();
+        let id = statement_create(&wtxn, __ts(), &s, now()).unwrap();
         wtxn.commit().unwrap();
         id
     }

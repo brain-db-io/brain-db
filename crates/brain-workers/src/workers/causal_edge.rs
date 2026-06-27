@@ -435,8 +435,28 @@ fn collect_pairs_for_statement(
         }
     };
 
+    // The processed statement's `(namespace, agent)` scope, read from
+    // its row, so the related-statement walk stays within this tenant.
+    let stmt_scope = {
+        use brain_metadata::tables::statement::{StatementMetadata, STATEMENTS_TABLE};
+        rtxn.open_table(STATEMENTS_TABLE)
+            .ok()
+            .and_then(|t| {
+                t.get(&sid.to_bytes()).ok().flatten().map(|g| {
+                    let m: StatementMetadata = g.value();
+                    brain_metadata::RowScope::from_bytes(m.namespace_id, m.agent_id_bytes)
+                })
+            })
+            .unwrap_or_else(|| {
+                brain_metadata::RowScope::from_bytes(
+                    brain_core::NamespaceId::SYSTEM.raw(),
+                    [0u8; 16],
+                )
+            })
+    };
     let related = related_statements_for_entity(
         &rtxn,
+        stmt_scope,
         cause_entity,
         knobs.max_related_statements_per_entity,
     )?;
@@ -531,6 +551,7 @@ fn top_evidence_memory_ids(
 /// fan-out predictable.
 fn related_statements_for_entity(
     rtxn: &redb::ReadTransaction,
+    scope: brain_metadata::RowScope,
     entity: EntityId,
     cap: usize,
 ) -> Result<Vec<Statement>, WorkerError> {
@@ -545,7 +566,7 @@ fn related_statements_for_entity(
         min_confidence: None,
         limit: cap,
     };
-    statement_list(rtxn, &filter).map_err(|e| match e {
+    statement_list(rtxn, scope, &filter).map_err(|e| match e {
         StatementOpError::DecodeFailed => WorkerError::Ops("statement decode failed".to_string()),
         other => WorkerError::Ops(format!("statement_list: {other}")),
     })

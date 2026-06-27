@@ -270,12 +270,14 @@ Used to mark a memory as a "summary of others" for organizational purposes. Does
 
 ## 16. Auth model
 
-Admin operations require admin credentials, distinct from agent credentials:
+Every credential (API key) binds a `(namespace, agent, permissions)` scope plus a non-authoritative `user` audit tag (see [`../04_wire_protocol/04_handshake.md`](../04_wire_protocol/04_handshake.md) §10). Namespace is the tenant boundary; agent is the application within it.
 
-- Agent credentials: scoped to an agent_id; can only act within that agent.
-- Admin credentials: cross-agent; can do operational work.
+- Agent credentials: scoped to one `(namespace, agent)`; can only act within that namespace and agent.
+- Admin credentials: may act cross-**agent** *within their own namespace* (operational work). **No credential — admin or otherwise — can act across namespaces**; cross-namespace access is rejected at the boundary. Cross-tenant operations require separate provisioning, not a wider key.
 
-The wire protocol carries the credential type in the connection's session state. Admin requests on a non-admin session return `Unauthorized`.
+**Namespace-scoped operations.** Key-mint provisions a tenant: minting a key for a namespace interns that namespace (creating the tenant). `SCHEMA_UPLOAD` / `SCHEMA_REPLACE` may target only the caller's own namespace; the reserved `brain` namespace is immutable (read-only system vocabulary). `GET_CAPABILITIES.schema_namespaces` returns only the caller's namespace (plus `brain`).
+
+The wire protocol carries the scope + credential type in the connection's session state, derived from the key at AUTH (never client-supplied). Admin requests on a non-admin session return `Unauthorized`; a write that resolves to no provisioned namespace is rejected fail-closed (`NamespaceRequired` / `NamespaceUnknown`).
 
 ## 17. Audit logging
 

@@ -20,6 +20,11 @@ use brain_metadata::MetadataDb;
 use parking_lot::RwLock;
 use tempfile::TempDir;
 
+/// Fixed (namespace, agent) scope for resolver tests.
+fn test_scope() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+}
+
 const NOW: u64 = 1_700_000_000_000_000_000;
 
 // ---------------------------------------------------------------------------
@@ -120,7 +125,7 @@ fn seed_entity(
         NOW,
     );
     let wtxn = db.write_txn().unwrap();
-    entity_put(&wtxn, &ent).unwrap();
+    entity_put(&wtxn, test_scope(), &ent).unwrap();
     wtxn.commit().unwrap();
     hnsw.write().insert(id, &vector).unwrap();
     id
@@ -154,6 +159,7 @@ fn tier_embedding_resolves_near_paraphrase_and_writes_alias() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_hnsw(
         &wtxn,
+        test_scope(),
         "Stripe Payments",
         "brain:Person",
         0.9,
@@ -195,9 +201,16 @@ fn tier_embedding_below_threshold_creates_new_entity() {
 
     let deps = deps_for(embedder, hnsw.clone());
     let wtxn = db.write_txn().unwrap();
-    let res =
-        resolve_or_create_with_hnsw(&wtxn, "Bitcoin", "brain:Person", 0.9, NOW + 1, Some(&deps))
-            .unwrap();
+    let res = resolve_or_create_with_hnsw(
+        &wtxn,
+        test_scope(),
+        "Bitcoin",
+        "brain:Person",
+        0.9,
+        NOW + 1,
+        Some(&deps),
+    )
+    .unwrap();
     wtxn.commit().unwrap();
 
     assert_eq!(res.tier, ResolutionTier::Created);
@@ -257,6 +270,7 @@ fn tier_embedding_respects_entity_type() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_hnsw(
         &wtxn,
+        test_scope(),
         "Wong Group",
         "brain:Person",
         0.9,
@@ -288,9 +302,16 @@ fn tier_create_populates_hnsw_for_next_paraphrase() {
     let deps = deps_for(embedder, hnsw.clone());
 
     let wtxn = db.write_txn().unwrap();
-    let r1 =
-        resolve_or_create_with_hnsw(&wtxn, "Brand New Co", "brain:Person", 0.9, NOW, Some(&deps))
-            .unwrap();
+    let r1 = resolve_or_create_with_hnsw(
+        &wtxn,
+        test_scope(),
+        "Brand New Co",
+        "brain:Person",
+        0.9,
+        NOW,
+        Some(&deps),
+    )
+    .unwrap();
     wtxn.commit().unwrap();
     assert_eq!(r1.tier, ResolutionTier::Created);
     assert!(hnsw.read().contains(r1.entity_id));
@@ -298,6 +319,7 @@ fn tier_create_populates_hnsw_for_next_paraphrase() {
     let wtxn = db.write_txn().unwrap();
     let r2 = resolve_or_create_with_hnsw(
         &wtxn,
+        test_scope(),
         "Brand New Company",
         "brain:Person",
         0.9,

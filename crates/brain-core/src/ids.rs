@@ -455,6 +455,30 @@ u32_id! {
     ExtractorId
 }
 
+u32_id! {
+    /// Interned namespace (tenant) identifier — the company-level data
+    /// boundary. Every memory, entity, statement, and relation is owned
+    /// by exactly one namespace; combined with the owning `AgentId` it
+    /// forms the `(namespace, agent)` scope key under which all data is
+    /// isolated. Distinct from the *schema* namespace prefix on a type
+    /// name (`acme:Person`): a row owned by namespace `acme` may still
+    /// reference a shared `brain:`-namespace type. The reserved system
+    /// namespace `brain` is [`NamespaceId::SYSTEM`].
+    NamespaceId
+}
+
+impl NamespaceId {
+    /// The always-present `brain` system namespace. Reserved at id `0`;
+    /// user namespaces are interned starting at `1`.
+    pub const SYSTEM: NamespaceId = NamespaceId(0);
+
+    /// Whether this is the reserved system namespace.
+    #[must_use]
+    pub const fn is_system(self) -> bool {
+        self.0 == Self::SYSTEM.0
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

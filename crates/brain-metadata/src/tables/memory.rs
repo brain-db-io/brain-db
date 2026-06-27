@@ -19,7 +19,7 @@
 //! page. We defer that until profiling identifies a hot read path;
 //! owned reads are simpler to reason about and test.
 
-use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
+use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, NamespaceId};
 use redb::TableDefinition;
 
 // ---------------------------------------------------------------------------
@@ -53,46 +53,57 @@ pub const MEMORIES_TABLE: TableDefinition<'static, [u8; 16], MemoryMetadata> =
 pub const MEMORIES_BY_AGENT_TIMELINE_TABLE: TableDefinition<'static, &[u8], ()> =
     TableDefinition::new("memories_by_agent_timeline");
 
-/// Encoded length: `agent(16) + created_at(8) + context(8) + memory_id(16)`.
-pub const AGENT_TIMELINE_KEY_LEN: usize = 16 + 8 + 8 + 16;
+/// Encoded length:
+/// `namespace(4) + agent(16) + created_at(8) + context(8) + memory_id(16)`.
+/// The leading `namespace_id` makes each tenant's timeline a contiguous
+/// keyspace, so a scan for one `(namespace, agent)` never traverses
+/// another tenant's rows.
+pub const AGENT_TIMELINE_KEY_LEN: usize = 4 + 16 + 8 + 8 + 16;
 
-/// Pack the four discriminators into the canonical key bytes.
+/// Pack the discriminators into the canonical key bytes.
 /// `created_at_unix_nanos` is encoded big-endian so a redb range
 /// scan in lexicographic order yields chronological order.
 #[must_use]
 pub fn agent_timeline_key(
+    namespace_id: u32,
     agent_id_bytes: [u8; 16],
     created_at_unix_nanos: u64,
     context_id: u64,
     memory_id_bytes: [u8; 16],
 ) -> [u8; AGENT_TIMELINE_KEY_LEN] {
     let mut k = [0u8; AGENT_TIMELINE_KEY_LEN];
-    k[0..16].copy_from_slice(&agent_id_bytes);
-    k[16..24].copy_from_slice(&created_at_unix_nanos.to_be_bytes());
-    k[24..32].copy_from_slice(&context_id.to_be_bytes());
-    k[32..48].copy_from_slice(&memory_id_bytes);
+    k[0..4].copy_from_slice(&namespace_id.to_be_bytes());
+    k[4..20].copy_from_slice(&agent_id_bytes);
+    k[20..28].copy_from_slice(&created_at_unix_nanos.to_be_bytes());
+    k[28..36].copy_from_slice(&context_id.to_be_bytes());
+    k[36..52].copy_from_slice(&memory_id_bytes);
     k
 }
 
-/// Prefix matching every row for an agent — useful for cleanup and
-/// for the in-context worker scan that further narrows by
+/// Prefix matching every row for a `(namespace, agent)` — useful for
+/// cleanup and for the in-context worker scan that further narrows by
 /// `created_at`.
 #[must_use]
-pub fn agent_timeline_prefix_agent(agent_id_bytes: [u8; 16]) -> [u8; 16] {
-    agent_id_bytes
+pub fn agent_timeline_prefix_agent(namespace_id: u32, agent_id_bytes: [u8; 16]) -> [u8; 20] {
+    let mut p = [0u8; 20];
+    p[0..4].copy_from_slice(&namespace_id.to_be_bytes());
+    p[4..20].copy_from_slice(&agent_id_bytes);
+    p
 }
 
-/// Prefix matching every row for (agent, time, ctx) — useful for the
-/// worker's "what was the predecessor" probe (a backward range scan
+/// Prefix matching every row for (namespace, agent, time) — useful for
+/// the worker's "what was the predecessor" probe (a backward range scan
 /// stops at the first key strictly less than the prefix).
 #[must_use]
 pub fn agent_timeline_prefix_agent_time(
+    namespace_id: u32,
     agent_id_bytes: [u8; 16],
     created_at_unix_nanos: u64,
-) -> [u8; 24] {
-    let mut p = [0u8; 24];
-    p[0..16].copy_from_slice(&agent_id_bytes);
-    p[16..24].copy_from_slice(&created_at_unix_nanos.to_be_bytes());
+) -> [u8; 28] {
+    let mut p = [0u8; 28];
+    p[0..4].copy_from_slice(&namespace_id.to_be_bytes());
+    p[4..20].copy_from_slice(&agent_id_bytes);
+    p[20..28].copy_from_slice(&created_at_unix_nanos.to_be_bytes());
     p
 }
 
@@ -159,6 +170,11 @@ pub enum BadMemoryKind {
 pub struct MemoryMetadata {
     // -- Identity --
     pub memory_id_bytes: [u8; 16],
+    /// Owning namespace (tenant) — the outer half of the
+    /// `(namespace, agent)` scope key. `0` is the reserved `brain`
+    /// system namespace; stamped by the writer via
+    /// [`Self::with_namespace`].
+    pub namespace_id: u32,
     pub agent_id_bytes: [u8; 16],
     pub context_id: u64,
     pub slot_id: u64,
@@ -227,6 +243,7 @@ impl MemoryMetadata {
     #[allow(clippy::too_many_arguments)]
     pub fn new_active(
         memory_id: MemoryId,
+        namespace_id: NamespaceId,
         agent_id: AgentId,
         context_id: ContextId,
         slot_id: u64,
@@ -239,6 +256,11 @@ impl MemoryMetadata {
     ) -> Self {
         Self {
             memory_id_bytes: memory_id.to_be_bytes(),
+            // The owning tenant — required, never defaulted. The server
+            // derives it from the authenticated connection's `(namespace,
+            // agent)` scope and threads it here; a row can never be built
+            // without naming its namespace (fail-closed by construction).
+            namespace_id: namespace_id.raw(),
             agent_id_bytes: agent_id.into(),
             context_id: context_id.raw(),
             slot_id,
@@ -305,6 +327,11 @@ impl MemoryMetadata {
     #[must_use]
     pub fn agent_id(&self) -> AgentId {
         AgentId::from(self.agent_id_bytes)
+    }
+
+    #[must_use]
+    pub fn namespace(&self) -> brain_core::NamespaceId {
+        brain_core::NamespaceId::from(self.namespace_id)
     }
 
     #[must_use]
@@ -402,7 +429,7 @@ impl redb::Value for MemoryMetadata {
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
-    use brain_core::{AgentId, ContextId, MemoryId, MemoryKind};
+    use brain_core::{AgentId, ContextId, MemoryId, MemoryKind, NamespaceId};
     use redb::{Database, ReadableDatabase};
 
     fn aid(byte: u8) -> AgentId {
@@ -414,6 +441,7 @@ mod tests {
     fn sample(slot: u64) -> MemoryMetadata {
         MemoryMetadata::new_active(
             MemoryId::pack(1, slot, 1),
+            NamespaceId::SYSTEM,
             aid(slot as u8),
             ContextId(0xCAFE),
             slot,
@@ -479,6 +507,7 @@ mod tests {
 
         let m = MemoryMetadata::new_active(
             memory_id,
+            NamespaceId::SYSTEM,
             agent_id,
             context,
             0x1234_5678,

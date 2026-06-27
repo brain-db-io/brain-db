@@ -15,7 +15,7 @@ use brain_metadata::tables::entity_type::ENTITY_TYPES_TABLE;
 use brain_metadata::tables::memory::MEMORIES_TABLE;
 use brain_metadata::tables::relation::RELATION_METADATA_TABLE;
 use brain_metadata::tables::statement::STATEMENTS_TABLE;
-use brain_metadata::{entity_list_by_type, predicate_get, predicate_list};
+use brain_metadata::{entity_list_by_type, predicate_get, predicate_list, RowScope};
 use redb::{
     Database, MultimapTableHandle, ReadableDatabase, ReadableTable, ReadableTableMetadata,
     TableHandle,
@@ -102,7 +102,12 @@ fn main() {
             .collect()
     };
     for (tid, tname) in &type_rows {
-        let ents = entity_list_by_type(&rtxn, EntityTypeId::from(*tid)).unwrap_or_default();
+        let ents = entity_list_by_type(
+            &rtxn,
+            RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0u8; 16]),
+            EntityTypeId::from(*tid),
+        )
+        .unwrap_or_default();
         for e in ents {
             println!("  [{tname}] {}", e.canonical_name);
         }
@@ -110,7 +115,9 @@ fn main() {
 
     // ---- statements -----------------------------------------------------
     println!("\n== statements (subject — predicate — object [kind] @event) ==");
-    let stmts = statement_list(&rtxn, &StatementListFilter::default()).expect("statement_list");
+    let dump_scope = RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0u8; 16]);
+    let stmts =
+        statement_list(&rtxn, dump_scope, &StatementListFilter::default()).expect("statement_list");
     let name_of = |id: brain_core::EntityId| -> String {
         let t = rtxn.open_table(ENTITIES_TABLE).ok();
         t.and_then(|t| t.get(&id.to_bytes()).ok().flatten().map(|g| g.value().canonical_name))
@@ -160,9 +167,11 @@ fn main() {
     };
     let mut seen_rel = std::collections::HashSet::new();
     for (tid, _) in &type_rows {
-        for e in entity_list_by_type(&rtxn, EntityTypeId::from(*tid)).unwrap_or_default() {
-            for r in
-                relation_list_from(&rtxn, e.id, &RelationListFilter::default()).unwrap_or_default()
+        for e in
+            entity_list_by_type(&rtxn, dump_scope, EntityTypeId::from(*tid)).unwrap_or_default()
+        {
+            for r in relation_list_from(&rtxn, dump_scope, e.id, &RelationListFilter::default())
+                .unwrap_or_default()
             {
                 if seen_rel.insert(r.id) {
                     println!(

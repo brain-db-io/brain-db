@@ -865,6 +865,7 @@ fn scenario_i_entity_create_phase_body_replays() {
     let entity_id = ent(7);
     let mut meta_row = EntityMetadata::new_active(
         entity_id,
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16]),
         brain_core::EntityTypeId::from(1),
         "Priya Patel".into(),
         "priya patel".into(),

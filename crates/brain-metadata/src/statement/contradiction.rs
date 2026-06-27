@@ -134,6 +134,7 @@ mod tests {
     use crate::schema::predicate::predicate_intern;
     use crate::statement::crud::statement_create;
     use crate::statement::tombstone::statement_tombstone;
+    use crate::tables::scope::RowScope;
     use brain_core::{
         Entity, EntityType, EvidenceRef, Statement, StatementKind, StatementValue, SubjectRef,
         TombstoneReason,
@@ -141,6 +142,9 @@ mod tests {
     use brain_core::{ExtractorId, PredicateId};
 
     const T0: u64 = 1_700_000_000_000_000_000;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -158,7 +162,7 @@ mod tests {
             T0,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -207,8 +211,8 @@ mod tests {
         let b = fact(subj, pred, "green"); // disagrees with a
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &a, T0).unwrap();
-        statement_create(&wtxn, &b, T0).unwrap(); // detects + records contradiction
+        statement_create(&wtxn, test_scope(), &a, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &b, T0).unwrap(); // detects + records contradiction
         wtxn.commit().unwrap();
 
         // Listed as one pending contradiction over both ids.
@@ -245,8 +249,8 @@ mod tests {
         let a = fact(subj, pred, "paris");
         let b = fact(subj, pred, "paris"); // same object — not a contradiction
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &a, T0).unwrap();
-        statement_create(&wtxn, &b, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &a, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &b, T0).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();

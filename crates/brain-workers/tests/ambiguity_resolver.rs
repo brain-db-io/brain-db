@@ -139,7 +139,7 @@ fn seed_entity(fx: &Fixture, canonical: &str, vec_: [f32; VECTOR_DIM]) -> Entity
     );
     {
         let wtxn = fx.metadata.write_txn().unwrap();
-        entity_put(&wtxn, &ent).unwrap();
+        entity_put(&wtxn, __ts(), &ent).unwrap();
         wtxn.commit().unwrap();
     }
     fx.hnsw.write().insert(id, &vec_).unwrap();
@@ -259,4 +259,8 @@ fn end_to_end_expire_path() {
     let p = proposal_get(&rtxn, pid).unwrap().unwrap();
     assert_eq!(p.status, proposal_status::EXPIRED);
     assert_eq!(metrics.snapshot().proposals_expired_total, 1);
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

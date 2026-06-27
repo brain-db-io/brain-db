@@ -15,6 +15,7 @@ use crate::tables::statement::{
 
 use super::crud::statement_get;
 use super::StatementOpError;
+use crate::tables::scope::RowScope;
 
 /// Scan threshold above which `statements_citing_memory` logs a
 /// `tracing::warn`. A full-scan of more than ~50K statements is the
@@ -50,13 +51,16 @@ pub const DEFAULT_LIST_LIMIT: usize = 1_000;
 /// be the chain root id or any member of the chain.
 pub fn statement_history(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     anchor: StatementId,
 ) -> Result<Vec<Statement>, StatementOpError> {
     // Probe: is anchor itself a chain_root? If yes the prefix scan
-    // at (anchor, *) hits version=1.
+    // at (scope, anchor, *) hits version=1.
     let chain_table = rtxn.open_table(STATEMENT_CHAIN_TABLE)?;
     let anchor_bytes = anchor.to_bytes();
-    let is_chain_root = chain_table.get(&(anchor_bytes, 1u32))?.is_some();
+    let is_chain_root = chain_table
+        .get(&(scope.namespace_id, scope.agent_id_bytes, anchor_bytes, 1u32))?
+        .is_some();
 
     let chain_root_bytes = if is_chain_root {
         anchor_bytes
@@ -70,8 +74,18 @@ pub fn statement_history(
         m.chain_root_bytes
     };
 
-    let lo = (chain_root_bytes, 0u32);
-    let hi = (chain_root_bytes, u32::MAX);
+    let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        chain_root_bytes,
+        0u32,
+    );
+    let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        chain_root_bytes,
+        u32::MAX,
+    );
     let s_table = rtxn.open_table(STATEMENTS_TABLE)?;
     let mut out = Vec::new();
     for entry in chain_table.range(lo..=hi)? {
@@ -92,10 +106,11 @@ pub fn statement_history(
 /// object value).
 pub fn statements_contradicting(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     predicate: PredicateId,
 ) -> Result<Vec<Statement>, StatementOpError> {
-    let candidates = load_active_facts_for_subject_predicate(rtxn, subject, predicate)?;
+    let candidates = load_active_facts_for_subject_predicate(rtxn, scope, subject, predicate)?;
     if candidates.len() < 2 {
         return Ok(Vec::new());
     }
@@ -113,6 +128,7 @@ pub fn statements_contradicting(
 /// applicable index.
 pub fn statement_list(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     filter: &StatementListFilter,
 ) -> Result<Vec<Statement>, StatementOpError> {
     let cap = if filter.limit == 0 {
@@ -120,11 +136,15 @@ pub fn statement_list(
     } else {
         filter.limit.min(DEFAULT_LIST_LIMIT)
     };
+    let ns = scope.namespace_id;
+    let ag = scope.agent_id_bytes;
 
     let ids: Vec<[u8; 16]> = match (filter.subject, filter.predicate, filter.kind) {
         (Some(subject), Some(predicate), Some(kind)) => {
             let by_subject = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
             let lo = (
+                ns,
+                ag,
                 subject.to_bytes(),
                 kind.as_u8(),
                 predicate.raw(),
@@ -132,6 +152,8 @@ pub fn statement_list(
                 [0u8; 16],
             );
             let hi = (
+                ns,
+                ag,
                 subject.to_bytes(),
                 kind.as_u8(),
                 predicate.raw(),
@@ -141,7 +163,7 @@ pub fn statement_list(
             let mut ids = Vec::new();
             for entry in by_subject.range(lo..=hi)? {
                 let (k, v) = entry?;
-                let (_, _, _, is_current_bit, _) = k.value();
+                let (_, _, _, _, _, is_current_bit, _) = k.value();
                 if filter.current_only && is_current_bit == 0 {
                     continue;
                 }
@@ -154,12 +176,20 @@ pub fn statement_list(
         }
         (Some(subject), _, _) => {
             let by_subject = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
-            let lo = (subject.to_bytes(), 0u8, 0u32, 0u8, [0u8; 16]);
-            let hi = (subject.to_bytes(), u8::MAX, u32::MAX, 1u8, [0xffu8; 16]);
+            let lo = (ns, ag, subject.to_bytes(), 0u8, 0u32, 0u8, [0u8; 16]);
+            let hi = (
+                ns,
+                ag,
+                subject.to_bytes(),
+                u8::MAX,
+                u32::MAX,
+                1u8,
+                [0xffu8; 16],
+            );
             let mut ids = Vec::new();
             for entry in by_subject.range(lo..=hi)? {
                 let (k, v) = entry?;
-                let (_, k_kind, _, is_current_bit, _) = k.value();
+                let (_, _, _, k_kind, k_pred, is_current_bit, _) = k.value();
                 if filter.current_only && is_current_bit == 0 {
                     continue;
                 }
@@ -169,7 +199,6 @@ pub fn statement_list(
                     }
                 }
                 if let Some(want_pred) = filter.predicate {
-                    let (_, _, k_pred, _, _) = k.value();
                     if k_pred != want_pred.raw() {
                         continue;
                     }
@@ -183,12 +212,12 @@ pub fn statement_list(
         }
         (None, Some(predicate), _) => {
             let by_predicate = rtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE)?;
-            let lo = (predicate.raw(), 0u8, 0u8);
-            let hi = (predicate.raw(), u8::MAX, u8::MAX);
+            let lo = (ns, ag, predicate.raw(), 0u8, 0u8, [0u8; 16]);
+            let hi = (ns, ag, predicate.raw(), u8::MAX, u8::MAX, [0xffu8; 16]);
             let mut ids = Vec::new();
             for entry in by_predicate.range(lo..=hi)? {
                 let (k, v) = entry?;
-                let (_, k_kind, _) = k.value();
+                let (_, _, _, k_kind, _, _) = k.value();
                 if let Some(want_kind) = filter.kind {
                     if k_kind != want_kind.as_u8() {
                         continue;
@@ -202,10 +231,17 @@ pub fn statement_list(
             ids
         }
         (None, None, _) => {
+            // No anchoring index — full scan of the primary table,
+            // filtered to the caller's scope on the row itself (the
+            // primary key is scope-agnostic).
             let t = rtxn.open_table(STATEMENTS_TABLE)?;
             let mut ids = Vec::new();
             for entry in t.iter()? {
-                let (k, _) = entry?;
+                let (k, v) = entry?;
+                let m: StatementMetadata = v.value();
+                if m.namespace_id != ns || m.agent_id_bytes != ag {
+                    continue;
+                }
                 ids.push(k.value());
                 if ids.len() >= cap {
                     break;
@@ -220,6 +256,11 @@ pub fn statement_list(
     for sid in ids {
         let row: Option<StatementMetadata> = s_table.get(&sid)?.map(|g| g.value());
         if let Some(m) = row {
+            // Unconditional scope wall — a row whose scope differs from
+            // the caller's is never returned, on any index path.
+            if m.namespace_id != ns || m.agent_id_bytes != ag {
+                continue;
+            }
             if filter.current_only && (m.is_current == 0 || m.is_tombstoned()) {
                 continue;
             }
@@ -298,6 +339,7 @@ pub fn statements_citing_memory(
 /// Load the active Facts for (subject, predicate) via a read txn.
 fn load_active_facts_for_subject_predicate(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     predicate: PredicateId,
 ) -> Result<Vec<Statement>, StatementOpError> {
@@ -306,6 +348,8 @@ fn load_active_facts_for_subject_predicate(
     // range scan over the is_current=1 prefix (the trailing statement id
     // is part of the key now, so an exact get can't address one row).
     let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         StatementKind::Fact.as_u8(),
         predicate.raw(),
@@ -313,6 +357,8 @@ fn load_active_facts_for_subject_predicate(
         [0u8; 16],
     );
     let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         StatementKind::Fact.as_u8(),
         predicate.raw(),

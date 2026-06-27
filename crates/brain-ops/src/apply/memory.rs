@@ -40,6 +40,7 @@ pub fn apply_upsert_memory(
 
     let mut row = MemoryMetadata::new_active(
         *id,
+        write.namespace,
         write.agent_id,
         *context,
         *arena_slot,
@@ -56,6 +57,9 @@ pub fn apply_upsert_memory(
             row = row.with_content_hash(*ch);
         }
     }
+    // Capture the owning namespace before `row` is moved into the table;
+    // the timeline key is namespace-prefixed and must match the row.
+    let namespace_id = row.namespace_id;
 
     // Memory row.
     {
@@ -74,6 +78,7 @@ pub fn apply_upsert_memory(
             .open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE)
             .map_err(|e| ApplyError::Storage(format!("open TIMELINE: {e:?}")))?;
         let key = agent_timeline_key(
+            namespace_id,
             agent_id_bytes(write.agent_id),
             *created_at_unix_nanos,
             context.raw(),
@@ -168,6 +173,7 @@ pub fn apply_tombstone_memory(
     row.flags &= !brain_metadata::tables::memory::flags::ACTIVE;
 
     let created_at = row.created_at_unix_nanos;
+    let namespace_id = row.namespace_id;
     let agent_bytes = row.agent_id_bytes;
     let ctx_raw = row.context_id;
     let mid_bytes = row.memory_id_bytes;
@@ -189,7 +195,7 @@ pub fn apply_tombstone_memory(
         let mut timeline_t = wtxn
             .open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE)
             .map_err(|e| ApplyError::Storage(format!("open TIMELINE: {e:?}")))?;
-        let key = agent_timeline_key(agent_bytes, created_at, ctx_raw, mid_bytes);
+        let key = agent_timeline_key(namespace_id, agent_bytes, created_at, ctx_raw, mid_bytes);
         let _ = timeline_t
             .remove(key.as_slice())
             .map_err(|e| ApplyError::Storage(format!("TIMELINE remove: {e:?}")))?;
@@ -289,6 +295,7 @@ pub fn apply_update_context(
             .open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE)
             .map_err(|e| ApplyError::Storage(format!("open TIMELINE: {e:?}")))?;
         let old_key = agent_timeline_key(
+            row.namespace_id,
             row.agent_id_bytes,
             old_created,
             old_context.raw(),
@@ -298,6 +305,7 @@ pub fn apply_update_context(
             .remove(old_key.as_slice())
             .map_err(|e| ApplyError::Storage(format!("TIMELINE remove (context change): {e:?}")))?;
         let new_key = agent_timeline_key(
+            row.namespace_id,
             row.agent_id_bytes,
             old_created,
             new_context.raw(),
@@ -414,6 +422,7 @@ mod tests {
         Write {
             write_id: WriteId::new(),
             agent_id: agent,
+            namespace: brain_core::NamespaceId::SYSTEM,
             started_at_unix_nanos: 0,
             phases: Vec::new(),
             request_hash: None,
@@ -448,6 +457,7 @@ mod tests {
         // Timeline index has the entry.
         let timeline_t = rtxn.open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE).unwrap();
         let key = agent_timeline_key(
+            brain_core::NamespaceId::SYSTEM.raw(),
             agent_id_bytes(agent),
             1_700_000_000_000,
             7,
@@ -496,6 +506,7 @@ mod tests {
         // Timeline entry gone.
         let timeline_t = rtxn.open_table(MEMORIES_BY_AGENT_TIMELINE_TABLE).unwrap();
         let key = agent_timeline_key(
+            brain_core::NamespaceId::SYSTEM.raw(),
             agent_id_bytes(agent),
             1_700_000_000_000,
             7,

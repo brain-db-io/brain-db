@@ -228,6 +228,9 @@ fn is_reclaimable(row: &StatementMetadata, cutoff_ns: u64) -> bool {
 /// dense-chain invariant for mid-chain rows.
 fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), StatementOpError> {
     let id_bytes = row.statement_id_bytes;
+    // Strip the SAME scoped index keys the row was written under.
+    let ns = row.namespace_id;
+    let ag = row.agent_id_bytes;
 
     // 1. Primary row.
     {
@@ -244,6 +247,8 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     if row.subject_kind != 1 {
         let mut t = wtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
         t.remove(&(
+            ns,
+            ag,
             row.subject_entity_bytes,
             row.kind,
             row.predicate_id,
@@ -251,6 +256,8 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
             id_bytes,
         ))?;
         t.remove(&(
+            ns,
+            ag,
             row.subject_entity_bytes,
             row.kind,
             row.predicate_id,
@@ -263,9 +270,12 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     {
         let mut t = wtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE)?;
         t.remove(&(
+            ns,
+            ag,
             row.predicate_id,
             row.kind,
             confidence_bucket(row.confidence),
+            id_bytes,
         ))?;
     }
 
@@ -276,7 +286,7 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     if let Some(stmt) = statement_from_metadata(row) {
         if let StatementObject::Entity(eid) = &stmt.object {
             let mut t = wtxn.open_table(STATEMENTS_BY_OBJECT_ENTITY_TABLE)?;
-            t.remove(&(eid.to_bytes(), row.kind))?;
+            t.remove(&(ns, ag, eid.to_bytes(), row.kind, id_bytes))?;
         }
 
         // Collect every evidence memory id (inline entries directly,
@@ -291,7 +301,7 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
         {
             let mut t = wtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE)?;
             for mid in evidence_memory_ids {
-                t.remove(&(mid, id_bytes))?;
+                t.remove(&(ns, ag, mid, id_bytes))?;
             }
         }
 
@@ -302,7 +312,7 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     if row.kind == StatementKind::Event.as_u8() {
         if let Some(event_at) = row.event_at_unix_nanos {
             let mut t = wtxn.open_table(STATEMENTS_BY_EVENT_TIME_TABLE)?;
-            t.remove(&(event_at, row.subject_entity_bytes))?;
+            t.remove(&(ns, ag, event_at, row.subject_entity_bytes, id_bytes))?;
         }
     }
 
@@ -313,7 +323,7 @@ fn reclaim_one(wtxn: &WriteTransaction, row: &StatementMetadata) -> Result<(), S
     let is_mid_chain = row.superseded_by_bytes.is_some();
     if !is_mid_chain {
         let mut t = wtxn.open_table(STATEMENT_CHAIN_TABLE)?;
-        t.remove(&(row.chain_root_bytes, row.version))?;
+        t.remove(&(ns, ag, row.chain_root_bytes, row.version))?;
     }
 
     Ok(())
@@ -444,6 +454,10 @@ mod reclaim_tests {
 
     const T0: u64 = 1_700_000_000_000_000_000;
     const GRACE: u64 = 30 * 24 * 60 * 60 * 1_000_000_000;
+    use crate::tables::scope::RowScope;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -461,7 +475,7 @@ mod reclaim_tests {
             T0,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -506,7 +520,7 @@ mod reclaim_tests {
         let p = intern_fact(db, pred, false);
         let s = fresh_fact(subj, p, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, T0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         statement_retract(&wtxn, s.id, TombstoneReason::Retract, T0).unwrap();
@@ -549,7 +563,7 @@ mod reclaim_tests {
         let p = intern_fact(&mut db, "p_tomb", false);
         let s = fresh_fact(subj, p, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, T0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         statement_tombstone(&wtxn, s.id, TombstoneReason::UserRequest, T0).unwrap();
@@ -574,11 +588,11 @@ mod reclaim_tests {
         let f1 = fresh_fact(subj, p, o1);
         let f2 = fresh_fact(subj, p, o2);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, T0).unwrap();
         wtxn.commit().unwrap();
         // f2 auto-supersedes f1 (stateful predicate).
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f2, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &f2, T0).unwrap();
         wtxn.commit().unwrap();
 
         let now = T0 + GRACE * 10;
@@ -640,7 +654,7 @@ mod reclaim_tests {
         s.evidence = EvidenceRef::Inline(Box::new(sv));
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, T0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         statement_retract(&wtxn, s.id, TombstoneReason::Retract, T0).unwrap();
@@ -652,6 +666,7 @@ mod reclaim_tests {
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
+        let sc = test_scope();
         // Primary gone.
         let prim = rtxn.open_table(STATEMENTS_TABLE).unwrap();
         assert!(prim.get(&s.id.to_bytes()).unwrap().is_none());
@@ -659,6 +674,8 @@ mod reclaim_tests {
         let bys = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE).unwrap();
         for bit in [0u8, 1u8] {
             let lo = (
+                sc.namespace_id,
+                sc.agent_id_bytes,
                 subj.to_bytes(),
                 StatementKind::Fact.as_u8(),
                 p.raw(),
@@ -666,6 +683,8 @@ mod reclaim_tests {
                 [0u8; 16],
             );
             let hi = (
+                sc.namespace_id,
+                sc.agent_id_bytes,
                 subj.to_bytes(),
                 StatementKind::Fact.as_u8(),
                 p.raw(),
@@ -677,19 +696,35 @@ mod reclaim_tests {
         // by_object_entity gone.
         let byo = rtxn.open_table(STATEMENTS_BY_OBJECT_ENTITY_TABLE).unwrap();
         assert!(byo
-            .get(&(obj.to_bytes(), StatementKind::Fact.as_u8()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                obj.to_bytes(),
+                StatementKind::Fact.as_u8(),
+                s.id.to_bytes(),
+            ))
             .unwrap()
             .is_none());
         // by_evidence gone.
         let bye = rtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE).unwrap();
         assert!(bye
-            .get(&(mem.to_be_bytes(), s.id.to_bytes()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                mem.to_be_bytes(),
+                s.id.to_bytes(),
+            ))
             .unwrap()
             .is_none());
         // chain gone (standalone → tail).
         let chain = rtxn.open_table(STATEMENT_CHAIN_TABLE).unwrap();
         assert!(chain
-            .get(&(s.chain_root.to_bytes(), 1u32))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                s.chain_root.to_bytes(),
+                1u32,
+            ))
             .unwrap()
             .is_none());
     }
@@ -708,11 +743,11 @@ mod reclaim_tests {
         let f1 = fresh_fact(subj, p, o1);
         let f2 = fresh_fact(subj, p, o2);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, T0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         // f2 auto-supersedes f1 → f1 mid-chain, f2 tail.
-        statement_create(&wtxn, &f2, T0).unwrap();
+        statement_create(&wtxn, test_scope(), &f2, T0).unwrap();
         wtxn.commit().unwrap();
 
         // Confirm chain shape before retract.
@@ -738,14 +773,31 @@ mod reclaim_tests {
         assert!(statement_get(&rtxn, f1.id).unwrap().is_none());
         assert!(statement_get(&rtxn, f2.id).unwrap().is_none());
         let chain = rtxn.open_table(STATEMENT_CHAIN_TABLE).unwrap();
+        let sc = test_scope();
         // Mid-chain version 1 entry KEPT (tombstone) to preserve dense
         // 1..=N; tail version 2 entry REMOVED.
         assert!(
-            chain.get(&(chain_root.to_bytes(), 1u32)).unwrap().is_some(),
+            chain
+                .get(&(
+                    sc.namespace_id,
+                    sc.agent_id_bytes,
+                    chain_root.to_bytes(),
+                    1u32
+                ))
+                .unwrap()
+                .is_some(),
             "mid-chain entry must survive as a tombstone"
         );
         assert!(
-            chain.get(&(chain_root.to_bytes(), 2u32)).unwrap().is_none(),
+            chain
+                .get(&(
+                    sc.namespace_id,
+                    sc.agent_id_bytes,
+                    chain_root.to_bytes(),
+                    2u32
+                ))
+                .unwrap()
+                .is_none(),
             "chain-tail entry must be removed"
         );
     }

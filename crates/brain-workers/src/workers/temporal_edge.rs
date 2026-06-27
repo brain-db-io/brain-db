@@ -46,8 +46,8 @@ use std::time::{Instant, SystemTime, UNIX_EPOCH};
 use brain_core::{AgentId, ContextId, EdgeKind, EdgeKindRef, MemoryId, MemoryKind, NodeRef};
 use brain_metadata::tables::edge::{derived_by, origin, zero_disambiguator, EdgeKey};
 use brain_metadata::tables::memory::{
-    agent_timeline_prefix_agent_time, AGENT_TIMELINE_KEY_LEN, MEMORIES_BY_AGENT_TIMELINE_TABLE,
-    MEMORIES_TABLE,
+    agent_timeline_prefix_agent, agent_timeline_prefix_agent_time, AGENT_TIMELINE_KEY_LEN,
+    MEMORIES_BY_AGENT_TIMELINE_TABLE, MEMORIES_TABLE,
 };
 use brain_ops::{
     EventEnvelope, Phase, RealWriterHandle, TemporalEdgeEnqueue, TemporalEdgeMetrics,
@@ -515,14 +515,30 @@ fn lookup_predecessor(
         Err(_) => return PredecessorOutcome::Skip(TemporalSkipReason::NoPrev),
     };
 
-    // Range scan: from the start of this agent's rows up to (but not
-    // including) the new memory's key. The last entry in that range is
-    // the most recent predecessor. The timeline key is:
-    //   [agent(16)] [created_at_be(8)] [context(8)] [memory_id(16)]
-    // so a prefix `[agent(16)] [new_ts_be(8)]` and a `..` exclusive
-    // upper bound is exactly what we want.
-    let lower: [u8; 16] = agent_id.0.into_bytes();
-    let upper_24 = agent_timeline_prefix_agent_time(agent_id.0.into_bytes(), new_ts);
+    // The new memory's owning namespace is the outer half of the
+    // timeline scope key; read it from the memory's own row so the scan
+    // stays inside this tenant's keyspace. A missing row (shouldn't
+    // happen — we're processing its enqueue) falls back to the system
+    // namespace.
+    let namespace_id = {
+        let memories_t = match rtxn.open_table(MEMORIES_TABLE) {
+            Ok(t) => t,
+            Err(_) => return PredecessorOutcome::Skip(TemporalSkipReason::NoPrev),
+        };
+        match memories_t.get(&new_memory_id.to_be_bytes()) {
+            Ok(Some(g)) => g.value().namespace_id,
+            _ => brain_core::NamespaceId::SYSTEM.raw(),
+        }
+    };
+
+    // Range scan: from the start of this (namespace, agent)'s rows up to
+    // (but not including) the new memory's key. The last entry in that
+    // range is the most recent predecessor. The timeline key is:
+    //   [namespace(4)] [agent(16)] [created_at_be(8)] [context(8)] [memory_id(16)]
+    // so a prefix `[namespace(4)] [agent(16)] [new_ts_be(8)]` and a `..`
+    // exclusive upper bound is exactly what we want.
+    let lower = agent_timeline_prefix_agent(namespace_id, agent_id.0.into_bytes());
+    let upper_24 = agent_timeline_prefix_agent_time(namespace_id, agent_id.0.into_bytes(), new_ts);
 
     let lower_slice = lower.as_slice();
     let upper_slice = upper_24.as_slice();
@@ -550,11 +566,12 @@ fn lookup_predecessor(
         return PredecessorOutcome::Skip(TemporalSkipReason::NoPrev);
     }
 
-    // Decode the key.
-    let prev_ts = u64::from_be_bytes(last_key_bytes[16..24].try_into().unwrap_or([0; 8]));
-    let prev_context = u64::from_be_bytes(last_key_bytes[24..32].try_into().unwrap_or([0; 8]));
+    // Decode the key (namespace-prefixed layout: ns(4) agent(16)
+    // ts(8) context(8) memory_id(16)).
+    let prev_ts = u64::from_be_bytes(last_key_bytes[20..28].try_into().unwrap_or([0; 8]));
+    let prev_context = u64::from_be_bytes(last_key_bytes[28..36].try_into().unwrap_or([0; 8]));
     let mut prev_mem_bytes = [0u8; 16];
-    prev_mem_bytes.copy_from_slice(&last_key_bytes[32..48]);
+    prev_mem_bytes.copy_from_slice(&last_key_bytes[36..52]);
     let prev_id = MemoryId::from_be_bytes(prev_mem_bytes);
 
     // Order check — the range scan is upper-exclusive on the

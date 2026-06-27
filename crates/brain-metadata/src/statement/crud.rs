@@ -17,6 +17,7 @@ use crate::tables::statement::{
 
 use super::supersede::statement_supersede;
 use super::StatementOpError;
+use crate::tables::scope::RowScope;
 
 // ---------------------------------------------------------------------------
 // Read paths.
@@ -81,6 +82,7 @@ pub fn allocate_evidence_overflow(
 /// proceeds to insert.
 pub fn statement_create(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     s: &Statement,
     now_unix_nanos: u64,
 ) -> Result<StatementId, StatementOpError> {
@@ -131,8 +133,8 @@ pub fn statement_create(
     let kind_single = crate::schema::kind::kind_supersedes_w(wtxn, s.kind)?;
     if (kind_single || pred.is_stateful) && s.kind != StatementKind::Event {
         if let Some(e) = subject_entity {
-            if let Some(prior) = find_current_statement(wtxn, e, s.predicate, s.kind)? {
-                return statement_supersede(wtxn, prior, s, now_unix_nanos);
+            if let Some(prior) = find_current_statement(wtxn, scope, e, s.predicate, s.kind)? {
+                return statement_supersede(wtxn, scope, prior, s, now_unix_nanos);
             }
         }
     }
@@ -143,7 +145,7 @@ pub fn statement_create(
     // not Facts).
     if let (StatementKind::Fact, Some(subject_entity)) = (s.kind, subject_entity) {
         let active =
-            load_active_facts_for_subject_predicate_wtxn(wtxn, subject_entity, s.predicate)?;
+            load_active_facts_for_subject_predicate_wtxn(wtxn, scope, subject_entity, s.predicate)?;
         let disagrees = active.iter().any(|existing| existing.object != s.object);
         if disagrees {
             tracing::warn!(
@@ -183,7 +185,7 @@ pub fn statement_create(
     let mut to_insert = s.clone();
     recompute_confidence_from_evidence(wtxn, &mut to_insert, now_unix_nanos)?;
 
-    insert_new_statement(wtxn, &to_insert)?;
+    insert_new_statement(wtxn, scope, &to_insert)?;
     Ok(to_insert.id)
 }
 
@@ -253,9 +255,12 @@ fn validate_against_predicate(s: &Statement, p: &Predicate) -> Result<(), Statem
 /// (new-statement path).
 pub(super) fn insert_new_statement(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     s: &Statement,
 ) -> Result<(), StatementOpError> {
-    let m = metadata_from_statement(s);
+    let m = metadata_from_statement(s, scope);
+    let ns = scope.namespace_id;
+    let ag = scope.agent_id_bytes;
 
     // 1. Primary row.
     {
@@ -271,6 +276,8 @@ pub(super) fn insert_new_statement(
         let mut t = wtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
         t.insert(
             &(
+                ns,
+                ag,
                 m.subject_entity_bytes,
                 m.kind,
                 m.predicate_id,
@@ -285,7 +292,14 @@ pub(super) fn insert_new_statement(
     {
         let mut t = wtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE)?;
         t.insert(
-            &(m.predicate_id, m.kind, confidence_bucket(m.confidence)),
+            &(
+                ns,
+                ag,
+                m.predicate_id,
+                m.kind,
+                confidence_bucket(m.confidence),
+                m.statement_id_bytes,
+            ),
             &m.statement_id_bytes,
         )?;
     }
@@ -293,14 +307,26 @@ pub(super) fn insert_new_statement(
     // 4. by_object_entity — only if object is Entity.
     if let StatementObject::Entity(eid) = &s.object {
         let mut t = wtxn.open_table(STATEMENTS_BY_OBJECT_ENTITY_TABLE)?;
-        t.insert(&(eid.to_bytes(), m.kind), &m.statement_id_bytes)?;
+        t.insert(
+            &(ns, ag, eid.to_bytes(), m.kind, m.statement_id_bytes),
+            &m.statement_id_bytes,
+        )?;
     }
 
     // 5. by_event_time — only for Events.
     if s.kind == StatementKind::Event {
         if let Some(event_at) = s.event_at_unix_nanos {
             let mut t = wtxn.open_table(STATEMENTS_BY_EVENT_TIME_TABLE)?;
-            t.insert(&(event_at, m.subject_entity_bytes), &m.statement_id_bytes)?;
+            t.insert(
+                &(
+                    ns,
+                    ag,
+                    event_at,
+                    m.subject_entity_bytes,
+                    m.statement_id_bytes,
+                ),
+                &m.statement_id_bytes,
+            )?;
         }
     }
 
@@ -310,7 +336,10 @@ pub(super) fn insert_new_statement(
         match &s.evidence {
             EvidenceRef::Inline(entries) => {
                 for e in entries.iter() {
-                    t.insert(&(e.memory_id.to_be_bytes(), m.statement_id_bytes), &())?;
+                    t.insert(
+                        &(ns, ag, e.memory_id.to_be_bytes(), m.statement_id_bytes),
+                        &(),
+                    )?;
                 }
             }
             EvidenceRef::Overflow(id) => {
@@ -323,7 +352,7 @@ pub(super) fn insert_new_statement(
                     ));
                 };
                 for mid in &over.memory_ids {
-                    t.insert(&(*mid, m.statement_id_bytes), &())?;
+                    t.insert(&(ns, ag, *mid, m.statement_id_bytes), &())?;
                 }
             }
         }
@@ -332,7 +361,10 @@ pub(super) fn insert_new_statement(
     // 7. chain.
     {
         let mut t = wtxn.open_table(STATEMENT_CHAIN_TABLE)?;
-        t.insert(&(m.chain_root_bytes, m.version), &m.statement_id_bytes)?;
+        t.insert(
+            &(ns, ag, m.chain_root_bytes, m.version),
+            &m.statement_id_bytes,
+        )?;
     }
 
     // 8. embed queue. The per-shard StatementEmbedWorker drains this
@@ -387,13 +419,21 @@ pub(super) fn insert_new_statement(
 /// statement, so a bucket-sharing sibling is never evicted.
 pub fn remove_from_predicate_index(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     predicate_id: u32,
     kind: u8,
     confidence: f32,
     statement_id_bytes: &[u8; 16],
 ) -> Result<(), StatementOpError> {
     let mut t = wtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE)?;
-    let key = (predicate_id, kind, confidence_bucket(confidence));
+    let key = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        predicate_id,
+        kind,
+        confidence_bucket(confidence),
+        *statement_id_bytes,
+    );
     if t.get(&key)?.map(|g| g.value()).as_ref() == Some(statement_id_bytes) {
         t.remove(&key)?;
     }
@@ -408,6 +448,7 @@ pub fn remove_from_predicate_index(
 /// old key like [`remove_from_predicate_index`].
 pub fn rekey_predicate_index(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     predicate_id: u32,
     kind: u8,
     old_confidence: f32,
@@ -420,11 +461,28 @@ pub fn rekey_predicate_index(
         return Ok(());
     }
     let mut t = wtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE)?;
-    let old_key = (predicate_id, kind, old_bucket);
+    let old_key = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        predicate_id,
+        kind,
+        old_bucket,
+        *statement_id_bytes,
+    );
     if t.get(&old_key)?.map(|g| g.value()).as_ref() == Some(statement_id_bytes) {
         t.remove(&old_key)?;
     }
-    t.insert(&(predicate_id, kind, new_bucket), statement_id_bytes)?;
+    t.insert(
+        &(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            predicate_id,
+            kind,
+            new_bucket,
+            *statement_id_bytes,
+        ),
+        statement_id_bytes,
+    )?;
     Ok(())
 }
 
@@ -458,6 +516,7 @@ pub(super) fn recompute_confidence_from_evidence(
 /// same in both.
 pub(super) fn flip_by_subject_to_noncurrent(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     subject_entity_bytes: [u8; 16],
     kind: u8,
     predicate_id: u32,
@@ -465,6 +524,8 @@ pub(super) fn flip_by_subject_to_noncurrent(
 ) -> Result<(), StatementOpError> {
     let mut bys = wtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
     bys.remove(&(
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject_entity_bytes,
         kind,
         predicate_id,
@@ -473,6 +534,8 @@ pub(super) fn flip_by_subject_to_noncurrent(
     ))?;
     bys.insert(
         &(
+            scope.namespace_id,
+            scope.agent_id_bytes,
             subject_entity_bytes,
             kind,
             predicate_id,
@@ -488,6 +551,7 @@ pub(super) fn flip_by_subject_to_noncurrent(
 /// kind). Used by Preference auto-supersession.
 fn find_current_statement(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     subject: EntityId,
     predicate: PredicateId,
     kind: StatementKind,
@@ -496,9 +560,11 @@ fn find_current_statement(
     // The trailing statement id is part of the key now, so an exact get
     // can't address the single current row directly. Single-valued kinds
     // still have exactly one current row, so a range scan over the
-    // (subject, kind, predicate, is_current=1) prefix yields it as the
-    // first (and only) value.
+    // (scope, subject, kind, predicate, is_current=1) prefix yields it as
+    // the first (and only) value.
     let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         kind.as_u8(),
         predicate.raw(),
@@ -506,6 +572,8 @@ fn find_current_statement(
         [0u8; 16],
     );
     let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         kind.as_u8(),
         predicate.raw(),
@@ -525,6 +593,7 @@ fn find_current_statement(
 /// reads uncommitted state inside the same transaction.
 fn load_active_facts_for_subject_predicate_wtxn(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     subject: EntityId,
     predicate: PredicateId,
 ) -> Result<Vec<Statement>, StatementOpError> {
@@ -533,6 +602,8 @@ fn load_active_facts_for_subject_predicate_wtxn(
     // (subject, predicate); collect every one via a range scan over the
     // is_current=1 prefix.
     let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         StatementKind::Fact.as_u8(),
         predicate.raw(),
@@ -540,6 +611,8 @@ fn load_active_facts_for_subject_predicate_wtxn(
         [0u8; 16],
     );
     let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         StatementKind::Fact.as_u8(),
         predicate.raw(),
@@ -653,6 +726,9 @@ mod tests {
     use brain_core::{ContextId, MemoryId};
     use brain_core::{Entity, EntityType, StatementValue, TombstoneReason, INLINE_EVIDENCE_CAP};
     use smallvec::SmallVec;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -672,7 +748,7 @@ mod tests {
             1_700_000_000_000_000_000,
         );
         let wtxn = db.write_txn().unwrap();
-        crate::entity::ops::entity_put(&wtxn, &e).unwrap();
+        crate::entity::ops::entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -798,7 +874,7 @@ mod tests {
         let s = fresh_fact(subj, pred, obj);
 
         let wtxn = db.write_txn().unwrap();
-        let id = statement_create(&wtxn, &s, 1_700_000_000_000_000_001).unwrap();
+        let id = statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_001).unwrap();
         wtxn.commit().unwrap();
         assert_eq!(id, s.id);
 
@@ -816,14 +892,17 @@ mod tests {
 
         let s = fresh_fact(subj, pred, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
+        let sc = test_scope();
         // by_subject — range over the is_current=1 prefix; the trailing
         // statement id is now part of the key.
         let bys = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE).unwrap();
         let lo = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -831,6 +910,8 @@ mod tests {
             [0u8; 16],
         );
         let hi = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -842,21 +923,33 @@ mod tests {
         let byp = rtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE).unwrap();
         assert!(byp
             .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
                 pred.raw(),
                 StatementKind::Fact.as_u8(),
-                confidence_bucket(0.9)
+                confidence_bucket(0.9),
+                s.id.to_bytes(),
             ))
             .unwrap()
             .is_some());
         // by_object_entity
         let byo = rtxn.open_table(STATEMENTS_BY_OBJECT_ENTITY_TABLE).unwrap();
         assert!(byo
-            .get(&(obj.to_bytes(), StatementKind::Fact.as_u8()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                obj.to_bytes(),
+                StatementKind::Fact.as_u8(),
+                s.id.to_bytes(),
+            ))
             .unwrap()
             .is_some());
         // chain
         let cht = rtxn.open_table(STATEMENT_CHAIN_TABLE).unwrap();
-        assert!(cht.get(&(s.id.to_bytes(), 1u32)).unwrap().is_some());
+        assert!(cht
+            .get(&(sc.namespace_id, sc.agent_id_bytes, s.id.to_bytes(), 1u32))
+            .unwrap()
+            .is_some());
     }
 
     #[test]
@@ -868,13 +961,13 @@ mod tests {
         // First Preference.
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         // Second Preference — should auto-supersede.
         let p2 = fresh_pref(subj, pred, "written-agendas");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -899,12 +992,12 @@ mod tests {
 
         let f1 = fresh_fact(subj, pred, employer1);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let f2 = fresh_fact(subj, pred, employer2);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -930,8 +1023,8 @@ mod tests {
         let f1 = fresh_fact(subj, pred, target1);
         let f2 = fresh_fact(subj, pred, target2);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
-        statement_create(&wtxn, &f2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -952,7 +1045,7 @@ mod tests {
         let mut s = fresh_event(subj, pred, 1_700_000_000);
         s.event_at_unix_nanos = None;
         let wtxn = db.write_txn().unwrap();
-        let err = statement_create(&wtxn, &s, 0).unwrap_err();
+        let err = statement_create(&wtxn, test_scope(), &s, 0).unwrap_err();
         matches!(err, StatementOpError::InvalidArgument(_))
             .then_some(())
             .expect("expected InvalidArgument");
@@ -968,7 +1061,7 @@ mod tests {
         let mut s = fresh_fact(subj, pred, obj);
         s.event_at_unix_nanos = Some(123);
         let wtxn = db.write_txn().unwrap();
-        let err = statement_create(&wtxn, &s, 0).unwrap_err();
+        let err = statement_create(&wtxn, test_scope(), &s, 0).unwrap_err();
         matches!(err, StatementOpError::InvalidArgument(_))
             .then_some(())
             .expect("expected InvalidArgument");
@@ -981,7 +1074,7 @@ mod tests {
         let obj = make_entity(&mut db, "x");
         let s = fresh_fact(subj, PredicateId::from(9999), obj);
         let wtxn = db.write_txn().unwrap();
-        let err = statement_create(&wtxn, &s, 0).unwrap_err();
+        let err = statement_create(&wtxn, test_scope(), &s, 0).unwrap_err();
         matches!(err, StatementOpError::UnknownPredicate(9999))
             .then_some(())
             .expect("expected UnknownPredicate");
@@ -995,7 +1088,7 @@ mod tests {
         let phantom_obj = EntityId::new();
         let s = fresh_fact(phantom_subj, pred, phantom_obj);
         let wtxn = db.write_txn().unwrap();
-        let err = statement_create(&wtxn, &s, 0).unwrap_err();
+        let err = statement_create(&wtxn, test_scope(), &s, 0).unwrap_err();
         matches!(err, StatementOpError::UnknownSubject(_))
             .then_some(())
             .expect("expected UnknownSubject");
@@ -1009,7 +1102,7 @@ mod tests {
         let mut s = fresh_fact(EntityId::new(), pred, obj);
         s.subject = SubjectRef::Pending(brain_core::AuditId::new());
         let wtxn = db.write_txn().unwrap();
-        let err = statement_create(&wtxn, &s, 0).unwrap_err();
+        let err = statement_create(&wtxn, test_scope(), &s, 0).unwrap_err();
         matches!(err, StatementOpError::InvalidArgument(_))
             .then_some(())
             .expect("expected InvalidArgument for Pending subject");
@@ -1027,9 +1120,9 @@ mod tests {
         let f2 = fresh_fact(subj, pred, obj_b);
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
         // f2 contradicts f1 on object; both must store.
-        statement_create(&wtxn, &f2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1038,7 +1131,8 @@ mod tests {
         assert!(!g1.tombstoned);
         assert!(!g2.tombstoned);
 
-        let conflicts = super::super::list::statements_contradicting(&rtxn, subj, pred).unwrap();
+        let conflicts =
+            super::super::list::statements_contradicting(&rtxn, test_scope(), subj, pred).unwrap();
         // The by_subject Fact index is multi-value now: appending the
         // statement id to the key means both contradicting Facts are
         // distinct rows, so the runtime probe enumerates both and
@@ -1058,17 +1152,17 @@ mod tests {
 
         let f1 = fresh_fact(subj, pred, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let f2 = fresh_fact(subj, pred, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_supersede(&wtxn, f1.id, &f2, 1).unwrap();
+        statement_supersede(&wtxn, test_scope(), f1.id, &f2, 1).unwrap();
         wtxn.commit().unwrap();
 
         let f3 = fresh_fact(subj, pred, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_supersede(&wtxn, f2.id, &f3, 2).unwrap();
+        statement_supersede(&wtxn, test_scope(), f2.id, &f3, 2).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1088,12 +1182,12 @@ mod tests {
         let mut f1 = fresh_fact(subj, pred, obj);
         f1.valid_to_unix_nanos = Some(123_000_000);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let f2 = fresh_fact(subj, pred, obj);
         let wtxn = db.write_txn().unwrap();
-        statement_supersede(&wtxn, f1.id, &f2, 999_999_999_999).unwrap();
+        statement_supersede(&wtxn, test_scope(), f1.id, &f2, 999_999_999_999).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1110,12 +1204,12 @@ mod tests {
 
         let e1 = fresh_event(subj, pred, 1);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &e1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &e1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let e2 = fresh_event(subj, pred, 2);
         let wtxn = db.write_txn().unwrap();
-        let err = statement_supersede(&wtxn, e1.id, &e2, 0).unwrap_err();
+        let err = statement_supersede(&wtxn, test_scope(), e1.id, &e2, 0).unwrap_err();
         matches!(err, StatementOpError::EventCannotSupersede)
             .then_some(())
             .expect("expected EventCannotSupersede");
@@ -1130,7 +1224,7 @@ mod tests {
         let f = fresh_fact(subj, pred, obj);
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f, 0).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();
@@ -1138,8 +1232,11 @@ mod tests {
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
+        let sc = test_scope();
         let bys = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE).unwrap();
         let cur_lo = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -1147,6 +1244,8 @@ mod tests {
             [0u8; 16],
         );
         let cur_hi = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -1158,6 +1257,8 @@ mod tests {
             "is_current=1 entry must be gone"
         );
         let stale_lo = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -1165,6 +1266,8 @@ mod tests {
             [0u8; 16],
         );
         let stale_hi = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
             subj.to_bytes(),
             StatementKind::Fact.as_u8(),
             pred.raw(),
@@ -1198,7 +1301,7 @@ mod tests {
         }));
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f, 0).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();
@@ -1206,9 +1309,15 @@ mod tests {
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
+        let sc = test_scope();
         let evi = rtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE).unwrap();
         assert!(evi
-            .get(&(mem.to_be_bytes(), f.id.to_bytes()))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                mem.to_be_bytes(),
+                f.id.to_bytes()
+            ))
             .unwrap()
             .is_some());
     }
@@ -1221,28 +1330,28 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "v1");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let p2 = fresh_pref(subj, pred, "v2");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let p3 = fresh_pref(subj, pred, "v3");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p3, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p3, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let chain = statement_history(&rtxn, p1.id).unwrap();
+        let chain = statement_history(&rtxn, test_scope(), p1.id).unwrap();
         assert_eq!(chain.len(), 3);
         assert_eq!(chain[0].id, p1.id);
         assert_eq!(chain[1].id, p2.id);
         assert_eq!(chain[2].id, p3.id);
 
         // Anchor from any member works.
-        let chain2 = statement_history(&rtxn, p3.id).unwrap();
+        let chain2 = statement_history(&rtxn, test_scope(), p3.id).unwrap();
         assert_eq!(chain2.len(), 3);
     }
 
@@ -1255,8 +1364,8 @@ mod tests {
         let p2 = fresh_pref(subj, pred, "v2");
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
-        statement_create(&wtxn, &p2, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p2, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1267,7 +1376,7 @@ mod tests {
             current_only: true,
             ..Default::default()
         };
-        let out = statement_list(&rtxn, &filter).unwrap();
+        let out = statement_list(&rtxn, test_scope(), &filter).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].id, p2.id);
     }
@@ -1282,7 +1391,7 @@ mod tests {
         s.confidence = 0.3;
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1291,7 +1400,7 @@ mod tests {
             min_confidence: Some(0.5),
             ..Default::default()
         };
-        let out = statement_list(&rtxn, &filter).unwrap();
+        let out = statement_list(&rtxn, test_scope(), &filter).unwrap();
         assert!(out.is_empty());
 
         let filter2 = StatementListFilter {
@@ -1299,7 +1408,7 @@ mod tests {
             min_confidence: Some(0.2),
             ..Default::default()
         };
-        let out2 = statement_list(&rtxn, &filter2).unwrap();
+        let out2 = statement_list(&rtxn, test_scope(), &filter2).unwrap();
         assert_eq!(out2.len(), 1);
     }
 
@@ -1325,7 +1434,7 @@ mod tests {
         let overflow_id = allocate_evidence_overflow(&wtxn, &entries, 1).unwrap();
         let mut s = fresh_fact(subj, pred, obj);
         s.evidence = EvidenceRef::Overflow(overflow_id);
-        statement_create(&wtxn, &s, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1338,10 +1447,16 @@ mod tests {
         assert_eq!(resolved.len(), 10);
 
         // Reverse-evidence index: each memory points to the statement.
+        let sc = test_scope();
         let evi = rtxn.open_table(STATEMENTS_BY_EVIDENCE_TABLE).unwrap();
         for e in &entries {
             assert!(evi
-                .get(&(e.memory_id.to_be_bytes(), s.id.to_bytes()))
+                .get(&(
+                    sc.namespace_id,
+                    sc.agent_id_bytes,
+                    e.memory_id.to_be_bytes(),
+                    s.id.to_bytes(),
+                ))
                 .unwrap()
                 .is_some());
         }
@@ -1375,7 +1490,7 @@ mod tests {
         s.evidence = EvidenceRef::Inline(Box::new(sv));
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1411,7 +1526,7 @@ mod tests {
         s.evidence = EvidenceRef::Inline(Box::new(sv));
 
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1436,8 +1551,8 @@ mod tests {
 
         let (id1, id2) = {
             let wtxn = db.write_txn().unwrap();
-            let a = statement_create(&wtxn, &f1, 0).unwrap();
-            let b = statement_create(&wtxn, &f2, 0).unwrap();
+            let a = statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
+            let b = statement_create(&wtxn, test_scope(), &f2, 0).unwrap();
             wtxn.commit().unwrap();
             (a, b)
         };

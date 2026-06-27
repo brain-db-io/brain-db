@@ -85,6 +85,7 @@ fn seed_memory(metadata: &SharedMetadataDb, slot: u64, created_at: u64) -> Memor
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let meta = MemoryMetadata::new_active(
             id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId(Uuid::nil()),
             ContextId(1),
             slot,

@@ -72,6 +72,7 @@ impl MetadataDb {
             // recovery-time fill.
             let mem = MemoryMetadata {
                 memory_id_bytes: memory_id.to_be_bytes(),
+                namespace_id: brain_core::NamespaceId::SYSTEM.raw(),
                 agent_id_bytes: <[u8; 16]>::from(AgentId::default()),
                 context_id: ContextId::default().raw(),
                 slot_id,

@@ -45,7 +45,7 @@ fn put_entity(metadata: &Arc<MetadataDb>, name: &str, type_id: EntityTypeId) -> 
     let id = EntityId::new();
     let entity = Entity::new_active(id, type_id, name.into(), name.to_lowercase(), 0);
     let wtxn = metadata.write_txn().expect("wtxn");
-    entity_put(&wtxn, &entity).expect("entity_put");
+    entity_put(&wtxn, __ts(), &entity).expect("entity_put");
     wtxn.commit().expect("commit");
     id
 }
@@ -88,7 +88,7 @@ fn create_relation(
         false,
     );
     let wtxn = metadata.write_txn().expect("wtxn");
-    let created = relation_create(&wtxn, &r, 0).expect("relation_create");
+    let created = relation_create(&wtxn, __ts(), &r, 0).expect("relation_create");
     wtxn.commit().expect("commit");
     created
 }
@@ -489,6 +489,7 @@ mod memory_anchor {
     fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId::from([0u8; 16]),
             ContextId(0),
             id.slot(),
@@ -731,6 +732,7 @@ mod unified_walk {
     fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId::from([0u8; 16]),
             ContextId(0),
             id.slot(),
@@ -1218,7 +1220,8 @@ mod unified_walk {
         );
         {
             let wtxn = metadata.write_txn().expect("wtxn");
-            statement_create(&wtxn, &stmt, 1_700_000_000_000_000_000).expect("statement_create");
+            statement_create(&wtxn, __ts(), &stmt, 1_700_000_000_000_000_000)
+                .expect("statement_create");
             wtxn.commit().expect("commit");
         }
 
@@ -1274,6 +1277,7 @@ mod property {
     fn put_memory(metadata: &Arc<MetadataDb>, id: MemoryId) {
         let row = MemoryMetadata::new_active(
             id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId::from([0u8; 16]),
             ContextId(0),
             id.slot(),
@@ -1472,4 +1476,11 @@ mod property {
             );
         }
     }
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    // Match `GraphRetrieverConfig::default()` (system namespace + zero
+    // agent) so seeded typed-graph rows fall under the scope the walk
+    // reads with; these tests exercise graph topology, not isolation.
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0u8; 16])
 }

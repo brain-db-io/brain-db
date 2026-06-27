@@ -38,6 +38,10 @@ use brain_metadata::MetadataDb;
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use tempfile::TempDir;
 
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+}
+
 const N_ENTITIES: usize = 1000;
 const N_TYPED_RELATIONS: usize = 5000;
 const N_MEMORIES: usize = 1000;
@@ -101,7 +105,7 @@ fn build_entity_fixture() -> EntityFixture {
                 normalize_name(&name),
                 T0,
             );
-            entity_put(&wtxn, &e).expect("entity_put");
+            entity_put(&wtxn, __ts(), &e).expect("entity_put");
             entities.push(id);
         }
         wtxn.commit().expect("commit");
@@ -140,7 +144,7 @@ fn build_entity_fixture() -> EntityFixture {
             // Cardinality conflicts silently auto-supersede or error;
             // both are fine for the bench fixture (we just want
             // realistic row counts).
-            let _ = relation_create(&wtxn, &r, T0);
+            let _ = relation_create(&wtxn, __ts(), &r, T0);
         }
         wtxn.commit().expect("commit");
     }
@@ -272,6 +276,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,
@@ -288,6 +293,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,
@@ -304,6 +310,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,
@@ -359,6 +366,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx_c, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,
@@ -374,6 +382,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx_c, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,
@@ -389,6 +398,7 @@ fn bench_relation_traverse_depths(c: &mut Criterion) {
             let s = next_start(&mut idx_c, &fx.entities);
             let _ = traverse(
                 &rtxn,
+                __ts(),
                 s,
                 &fx.relation_types,
                 TraversalDirection::Outgoing,

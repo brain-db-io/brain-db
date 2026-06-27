@@ -54,6 +54,29 @@ const REASON_MESSAGE_MAX: usize = 4096;
 const PREDICATE_QNAME_MAX: usize = 96;
 const LIST_LIMIT_MAX: u32 = 1000;
 
+/// Whether statement `id`'s row belongs to the caller's `(namespace,
+/// agent)` scope. `statement_get` returns a brain-core `Statement` with
+/// the scope dropped, so the tenant wall is enforced here by re-reading
+/// the row's `namespace_id` / `agent_id_bytes` from `STATEMENTS_TABLE`.
+/// Fail-closed: a missing row or read error denies.
+fn statement_id_in_caller_scope(ctx: &OpsContext, id: StatementId) -> bool {
+    use brain_metadata::tables::statement::{StatementMetadata, STATEMENTS_TABLE};
+    let Ok(rtxn) = ctx.executor.metadata.read_txn() else {
+        return false;
+    };
+    let Ok(t) = rtxn.open_table(STATEMENTS_TABLE) else {
+        return false;
+    };
+    let row: Option<StatementMetadata> = t.get(&id.to_bytes()).ok().flatten().map(|g| g.value());
+    match row {
+        Some(m) => {
+            m.namespace_id == ctx.executor.caller_namespace.raw()
+                && m.agent_id_bytes == <[u8; 16]>::from(ctx.executor.caller_agent)
+        }
+        None => false,
+    }
+}
+
 // ---------------------------------------------------------------------------
 // STATEMENT_CREATE
 // ---------------------------------------------------------------------------
@@ -150,8 +173,9 @@ pub async fn handle_statement_create(
 
     let statement_value = build_statement_from_create(&req, predicate_id, now, kind)?;
     let phase = build_upsert_statement_phase(&statement_value, intern_hint);
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // On a replay-hit the cached `WriteAck` is returned; the id we
     // recover from it is the one the *original* call wrote (which may
@@ -261,6 +285,16 @@ pub async fn handle_statement_get(
             what: "statement",
             detail: format!("{id:?}"),
         })?;
+
+    // Tenant wall (unconditional): a statement named by a foreign
+    // `(namespace, agent)`'s id reads as NotFound, indistinguishable
+    // from a genuinely absent row.
+    if !statement_id_in_caller_scope(ctx, id) {
+        return Err(OpError::NotFound {
+            what: "statement",
+            detail: format!("{id:?}"),
+        });
+    }
 
     let mut returned_via_supersession = false;
     if req.follow_supersession {
@@ -373,8 +407,9 @@ pub async fn handle_statement_supersede(
         replacement: SupersedeReplacement::Statement(Box::new(new_statement)),
         at_unix_nanos: now,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Recover the new statement id from the ack — handles replays
     // (cached ack's id is the original, may differ from the freshly-
@@ -455,8 +490,9 @@ pub async fn handle_statement_tombstone(
         reason: reason.as_u8(),
         at_unix_nanos: now,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Pull the tombstone timestamp from the ack so an idempotency replay
     // returns the originally-stored value rather than today's `now`.
@@ -528,8 +564,9 @@ pub async fn handle_statement_retract(
         reason: TombstoneReason::Retract.as_u8(),
         at_unix_nanos: now,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Retract reuses the tombstone apply path; pull the stamped timestamp
     // from the ack so idempotency replays don't drift to today's clock.
@@ -587,8 +624,21 @@ pub async fn handle_statement_history(
             .metadata
             .read_txn()
             .map_err(|e| OpError::Internal(format!("read_txn: {e}")))?;
-        let chain = statement_history(&rtxn, anchor).map_err(OpError::from)?;
+        let chain = statement_history(
+            &rtxn,
+            brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent),
+            anchor,
+        )
+        .map_err(OpError::from)?;
         if chain.is_empty() {
+            return Err(OpError::NotFound {
+                what: "statement",
+                detail: format!("{anchor:?}"),
+            });
+        }
+        // Tenant wall (unconditional): never surface another tenant's
+        // supersession chain via a foreign anchor id.
+        if !statement_id_in_caller_scope(ctx, anchor) {
             return Err(OpError::NotFound {
                 what: "statement",
                 detail: format!("{anchor:?}"),
@@ -695,7 +745,9 @@ pub async fn handle_statement_list(
             },
             limit: req.limit as usize,
         };
-        let mut rows = statement_list(&rtxn, &filter).map_err(OpError::from)?;
+        let scope =
+            brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
+        let mut rows = statement_list(&rtxn, scope, &filter).map_err(OpError::from)?;
 
         // Wire-level filters not pushed into statement_list.
         if !req.include_tombstoned {

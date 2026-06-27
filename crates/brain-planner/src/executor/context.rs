@@ -78,6 +78,13 @@ pub struct ExecutorContext {
     /// memory row + WAL payload + EventEnvelope so the subscribe
     /// `agents` filter can isolate per-tenant.
     pub caller_agent: brain_core::AgentId,
+    /// Authenticated caller's namespace (tenant) for **this request
+    /// only**, the outer half of the `(namespace, agent)` scope key.
+    /// Stamped per-request by `brain-ops::dispatch` alongside
+    /// `caller_agent`; the encode executor passes it to the writer so
+    /// every row is owned by the caller's tenant, and the read path
+    /// scopes results to it. Defaults to [`NamespaceId::SYSTEM`].
+    pub caller_namespace: brain_core::NamespaceId,
 }
 
 impl ExecutorContext {
@@ -95,6 +102,7 @@ impl ExecutorContext {
             writer,
             txn: None,
             caller_agent: brain_core::AgentId::default(),
+            caller_namespace: brain_core::NamespaceId::SYSTEM,
         }
     }
 
@@ -110,6 +118,14 @@ impl ExecutorContext {
     #[must_use]
     pub fn with_caller_agent(mut self, agent: brain_core::AgentId) -> Self {
         self.caller_agent = agent;
+        self
+    }
+
+    /// Stamp the per-request authenticated namespace (tenant). Called by
+    /// `brain-ops::dispatch` alongside [`Self::with_caller_agent`].
+    #[must_use]
+    pub fn with_caller_namespace(mut self, namespace: brain_core::NamespaceId) -> Self {
+        self.caller_namespace = namespace;
         self
     }
 }

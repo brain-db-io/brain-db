@@ -125,6 +125,20 @@ pub struct GraphRetrieverConfig {
     pub max_depth: u8,
     pub max_branching: u32,
     pub timeout_ms: u32,
+    /// The caller's owning namespace (tenant) — the outer half of the
+    /// `(namespace, agent)` scope. The graph walk reads scoped secondary
+    /// indexes (statement-by-subject, relation directional), so the
+    /// scope is threaded into every such read; a walk anchored in one
+    /// tenant can never traverse into another's typed-graph rows.
+    ///
+    /// Carried as raw bytes (not `brain_metadata::RowScope`) so
+    /// `brain-index` keeps its lean dependency set — `brain-metadata`
+    /// is not a dependency here, and the consumer (`brain-ops`) rebuilds
+    /// the `RowScope` from these fields at the read boundary. The
+    /// `Default` is the system namespace + zero agent (tests / fallback).
+    pub caller_namespace: u32,
+    /// The caller's owning agent (app) — the inner half of the scope.
+    pub caller_agent_bytes: [u8; 16],
 }
 
 impl Default for GraphRetrieverConfig {
@@ -134,6 +148,8 @@ impl Default for GraphRetrieverConfig {
             max_depth: DEFAULT_DEPTH,
             max_branching: DEFAULT_MAX_BRANCHING,
             timeout_ms: DEFAULT_TIMEOUT_MS,
+            caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+            caller_agent_bytes: [0u8; 16],
         }
     }
 }

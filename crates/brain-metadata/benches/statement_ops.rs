@@ -26,6 +26,11 @@ use brain_metadata::statement::{
 };
 use brain_metadata::tables::predicate::PREDICATES_TABLE;
 use brain_metadata::MetadataDb;
+use brain_metadata::RowScope;
+
+fn bench_scope() -> RowScope {
+    RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+}
 use criterion::{black_box, criterion_group, Criterion};
 use tempfile::TempDir;
 
@@ -82,7 +87,7 @@ fn build_fixture(n: usize) -> Fixture {
                 normalize_name(&subj_name),
                 now,
             );
-            entity_put(&wtxn, &subj).expect("subj entity_put");
+            entity_put(&wtxn, bench_scope(), &subj).expect("subj entity_put");
 
             let obj_id = EntityId::new();
             let obj_name = format!("obj_{i}");
@@ -93,7 +98,7 @@ fn build_fixture(n: usize) -> Fixture {
                 normalize_name(&obj_name),
                 now,
             );
-            entity_put(&wtxn, &obj).expect("obj entity_put");
+            entity_put(&wtxn, bench_scope(), &obj).expect("obj entity_put");
 
             let stmt_id = StatementId::new();
             let s = brain_core::Statement::new_root(
@@ -108,7 +113,7 @@ fn build_fixture(n: usize) -> Fixture {
                 now,
                 1,
             );
-            statement_create(&wtxn, &s, now).expect("statement_create");
+            statement_create(&wtxn, bench_scope(), &s, now).expect("statement_create");
             seeded.push((subj_id, related_to, stmt_id));
         }
         wtxn.commit().expect("commit");
@@ -141,7 +146,7 @@ fn bench_statement_create_fact(c: &mut Criterion) {
         {
             let name = format!("xfix_{i}");
             let e = Entity::new_active(*id, PERSON, name.clone(), normalize_name(&name), now);
-            entity_put(&wtxn, &e).expect("entity_put");
+            entity_put(&wtxn, bench_scope(), &e).expect("entity_put");
         }
         wtxn.commit().expect("commit");
     }
@@ -165,7 +170,7 @@ fn bench_statement_create_fact(c: &mut Criterion) {
                 1,
             );
             let wtxn = fixture.db.write_txn().expect("write_txn");
-            statement_create(&wtxn, black_box(&s), now).expect("create");
+            statement_create(&wtxn, bench_scope(), black_box(&s), now).expect("create");
             wtxn.commit().expect("commit");
         });
     });
@@ -211,7 +216,7 @@ fn bench_statement_list_subject_predicate(c: &mut Criterion) {
                 min_confidence: None,
                 limit: 10,
             };
-            let rows = statement_list(&rtxn, black_box(&filter)).expect("list");
+            let rows = statement_list(&rtxn, bench_scope(), black_box(&filter)).expect("list");
             black_box(rows);
         });
     });
@@ -256,7 +261,8 @@ fn bench_statement_supersede(c: &mut Criterion) {
             );
             let wtxn = fixture.db.write_txn().expect("write_txn");
             let written =
-                statement_supersede(&wtxn, old_id, black_box(&new_stmt), now).expect("supersede");
+                statement_supersede(&wtxn, bench_scope(), old_id, black_box(&new_stmt), now)
+                    .expect("supersede");
             wtxn.commit().expect("commit");
             heads[i].2 = written;
         });

@@ -171,6 +171,16 @@ pub fn merge_entity(
         });
     }
 
+    // A merge is intra-tenant: both rows share the owning scope, which
+    // bounds every secondary-index key touched here.
+    if survivor_row.scope() != merged_row.scope() {
+        return Err(EntityMergeOpError::TypeMismatch {
+            survivor: EntityTypeId(survivor_row.entity_type_id),
+            merged: EntityTypeId(merged_row.entity_type_id),
+        });
+    }
+    let scope = survivor_row.scope();
+
     // Merge mechanics — statement / relation re-routing is skipped;
     // the lists / counts stay at zero.
 
@@ -230,13 +240,20 @@ pub fn merge_entity(
     // 1. Tear down merged's secondary indexes (canonical_name + aliases).
     {
         let mut t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
-        t.remove(&(merged_row.entity_type_id, merged_canonical_norm.as_str()))?;
+        t.remove(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            merged_row.entity_type_id,
+            merged_canonical_norm.as_str(),
+        ))?;
     }
     {
         let mut t = wtxn.open_table(ENTITY_ALIASES_TABLE)?;
         for a in &merged_row.aliases {
             let n = normalize_name(a);
             t.remove(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
                 merged_row.entity_type_id,
                 n.as_str(),
                 merged_row.entity_id_bytes,
@@ -245,7 +262,7 @@ pub fn merge_entity(
     }
 
     // 2. Tear down merged's trigrams.
-    remove_entity_trigrams(wtxn, type_id, merged, &merged_full_trigrams)?;
+    remove_entity_trigrams(wtxn, scope, type_id, merged, &merged_full_trigrams)?;
 
     // 3. Update survivor's secondary indexes for the new aliases.
     if !aliases_added.is_empty() {
@@ -254,6 +271,8 @@ pub fn merge_entity(
             let n = normalize_name(a);
             t.insert(
                 &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
                     survivor_row.entity_type_id,
                     n.as_str(),
                     survivor_row.entity_id_bytes,
@@ -264,7 +283,7 @@ pub fn merge_entity(
     }
 
     // 4. Update survivor's trigrams for the additions.
-    index_entity_trigrams(wtxn, type_id, survivor, &trigrams_added_set)?;
+    index_entity_trigrams(wtxn, scope, type_id, survivor, &trigrams_added_set)?;
 
     // 5. Mutate survivor row in memory: extend aliases, fold mention_count.
     //    Attributes are opaque blobs; survivor keeps its blob.
@@ -355,6 +374,8 @@ pub fn unmerge_entity(
     }
 
     let type_id = EntityTypeId(merged_row.entity_type_id);
+    // Both rows share the owning scope (a merge never crosses tenants).
+    let scope = merged_row.scope();
 
     // Unmerge mechanics.
 
@@ -380,6 +401,8 @@ pub fn unmerge_entity(
         for a in &audit.aliases_added {
             let n = normalize_name(a);
             t.remove(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
                 survivor_row.entity_type_id,
                 n.as_str(),
                 survivor_row.entity_id_bytes,
@@ -387,7 +410,7 @@ pub fn unmerge_entity(
         }
     }
     let trigrams_added_set: HashSet<[u8; 3]> = audit.trigrams_added.iter().copied().collect();
-    remove_entity_trigrams(wtxn, type_id, survivor, &trigrams_added_set)?;
+    remove_entity_trigrams(wtxn, scope, type_id, survivor, &trigrams_added_set)?;
 
     // 3. Restore merged entity.
     let mut merged_next = merged_row.clone();
@@ -400,6 +423,8 @@ pub fn unmerge_entity(
         let mut t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
         t.insert(
             &(
+                scope.namespace_id,
+                scope.agent_id_bytes,
                 merged_row.entity_type_id,
                 normalize_name(&merged_row.canonical_name).as_str(),
             ),
@@ -412,6 +437,8 @@ pub fn unmerge_entity(
             let n = normalize_name(a);
             t.insert(
                 &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
                     merged_row.entity_type_id,
                     n.as_str(),
                     merged_row.entity_id_bytes,
@@ -424,7 +451,7 @@ pub fn unmerge_entity(
     // 5. Re-add merged's trigrams.
     let merged_full_trigrams =
         trigrams_of_components(&merged_row.canonical_name, &merged_row.aliases);
-    index_entity_trigrams(wtxn, type_id, merged, &merged_full_trigrams)?;
+    index_entity_trigrams(wtxn, scope, type_id, merged, &merged_full_trigrams)?;
 
     // 6. Write both rows back.
     {
@@ -502,6 +529,10 @@ mod tests {
     fn db_path(dir: &TempDir) -> PathBuf {
         dir.path().join("metadata.redb")
     }
+    use crate::tables::scope::RowScope;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn fresh_db(dir: &TempDir) -> MetadataDb {
         MetadataDb::open(db_path(dir)).expect("open")
@@ -519,7 +550,7 @@ mod tests {
 
     fn put(db: &mut MetadataDb, e: &Entity) {
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, e).unwrap();
+        entity_put(&wtxn, test_scope(), e).unwrap();
         wtxn.commit().unwrap();
     }
 
@@ -539,11 +570,23 @@ mod tests {
         {
             let rtxn = db.read_txn().unwrap();
             assert_eq!(
-                entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Alice").unwrap(),
+                entity_lookup_by_canonical_name(
+                    &rtxn,
+                    test_scope(),
+                    EntityType::PERSON_ID,
+                    "Alice"
+                )
+                .unwrap(),
                 Some(alice.id)
             );
             assert_eq!(
-                entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Alyss").unwrap(),
+                entity_lookup_by_canonical_name(
+                    &rtxn,
+                    test_scope(),
+                    EntityType::PERSON_ID,
+                    "Alyss"
+                )
+                .unwrap(),
                 Some(alyss.id)
             );
         }
@@ -570,10 +613,12 @@ mod tests {
         // via the alias index.
         let rtxn = db.read_txn().unwrap();
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Alyss").unwrap(),
+            entity_lookup_by_canonical_name(&rtxn, test_scope(), EntityType::PERSON_ID, "Alyss")
+                .unwrap(),
             None
         );
-        let by_alias = entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "Alyss").unwrap();
+        let by_alias =
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "Alyss").unwrap();
         assert_eq!(by_alias, vec![alice.id]);
 
         let alice_after = entity_get(&rtxn, alice.id).unwrap().unwrap();
@@ -736,7 +781,8 @@ mod tests {
 
         // Alyss is reachable by canonical_name again.
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Alyss").unwrap(),
+            entity_lookup_by_canonical_name(&rtxn, test_scope(), EntityType::PERSON_ID, "Alyss")
+                .unwrap(),
             Some(alyss.id)
         );
     }

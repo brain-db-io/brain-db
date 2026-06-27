@@ -80,6 +80,11 @@ pub enum SemanticScope {
 /// or post-search.
 #[derive(Debug, Clone, Default)]
 pub struct SemanticFilters {
+    /// Tenant data boundary. The caller's namespace; the vector lane admits
+    /// only rows whose `namespace_id` equals this value. Unlike agent scoping
+    /// (a soft, optionally-empty filter), the namespace wall is unconditional:
+    /// there is no escape that widens recall across tenants.
+    pub namespace_id: u32,
     pub agent_ids: Vec<AgentId>,
     pub memory_kind: Option<MemoryKind>,
     pub statement_kind: Option<StatementKind>,

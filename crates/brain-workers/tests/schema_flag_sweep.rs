@@ -98,6 +98,7 @@ fn put_subject(metadata: &SharedMetadataDb) -> EntityId {
     let wtxn = metadata.write_txn().unwrap();
     entity_put(
         &wtxn,
+        __ts(),
         &Entity::new_active(
             id,
             EntityType::PERSON_ID,
@@ -138,7 +139,7 @@ fn write_statement(
         1,
     );
     let sid = stmt.id;
-    statement_create(&wtxn, &stmt, NOW).unwrap();
+    statement_create(&wtxn, __ts(), &stmt, NOW).unwrap();
     wtxn.commit().unwrap();
     sid
 }
@@ -229,4 +230,8 @@ define predicate prefers {
     assert_eq!(s.rows_flagged_total, 1);
     assert_eq!(s.rows_cleared_total, 0);
     assert_eq!(s.errors_total, 0);
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

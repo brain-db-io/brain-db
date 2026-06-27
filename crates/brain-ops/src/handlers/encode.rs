@@ -153,6 +153,7 @@ pub async fn handle_encode(
 
     // 6. Submit.
     let write = Write::from_phases(write_id, ctx.executor.caller_agent, phases)
+        .with_namespace(ctx.executor.caller_namespace)
         .with_request_hash(request_hash);
     let ack = real_writer
         .submit(write)
@@ -422,6 +423,7 @@ async fn handle_encode_in_txn(
     //    bumped version, not a hardcoded 1.
     let metadata = MemoryMetadata::new_active(
         memory_id,
+        ctx.executor.caller_namespace,
         brain_core::AgentId(uuid::Uuid::nil()),
         ContextId::from(req.context_id),
         memory_id.slot(),

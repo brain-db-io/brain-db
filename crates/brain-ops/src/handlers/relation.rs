@@ -56,6 +56,29 @@ const REASON_MAX: usize = 4096;
 const QNAME_MAX: usize = 96;
 const LIST_LIMIT_MAX: u32 = 1000;
 const TRAVERSE_MAX_NODES: u32 = 1000;
+
+/// Whether relation `id`'s sidecar row belongs to the caller's
+/// `(namespace, agent)` scope. `relation_get` returns a brain-core
+/// `Relation` with the scope dropped, so the tenant wall is enforced
+/// here by re-reading the sidecar's `namespace_id` / `agent_id_bytes`.
+/// Fail-closed: a missing row or read error denies.
+fn relation_id_in_caller_scope(ctx: &OpsContext, id: RelationId) -> bool {
+    use brain_metadata::tables::relation::{RelationMetadata, RELATION_METADATA_TABLE};
+    let Ok(rtxn) = ctx.executor.metadata.read_txn() else {
+        return false;
+    };
+    let Ok(t) = rtxn.open_table(RELATION_METADATA_TABLE) else {
+        return false;
+    };
+    let row: Option<RelationMetadata> = t.get(&id.to_bytes()).ok().flatten().map(|g| g.value());
+    match row {
+        Some(m) => {
+            m.namespace_id == ctx.executor.caller_namespace.raw()
+                && m.agent_id_bytes == <[u8; 16]>::from(ctx.executor.caller_agent)
+        }
+        None => false,
+    }
+}
 // Upper bound on the `relation_types` filter of a traverse request. Each
 // entry costs a per-qname schema-registry lookup, so cap the count to
 // bound per-request I/O against a crafted payload. Mirrors RECALL's
@@ -176,8 +199,9 @@ pub async fn handle_relation_create(
         valid_to_unix_nanos: valid_to_phase,
         relation_type_intern_hint: intern_hint,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Pull the id from the ack — on an idempotency replay the writer
     // returns the cached ack whose id is the *original* (potentially
@@ -233,6 +257,15 @@ pub async fn handle_relation_get(
             what: "relation",
             detail: format!("{id:?}"),
         })?;
+
+    // Tenant wall (unconditional): a relation named by a foreign
+    // `(namespace, agent)`'s id reads as NotFound.
+    if !relation_id_in_caller_scope(ctx, id) {
+        return Err(OpError::NotFound {
+            what: "relation",
+            detail: format!("{id:?}"),
+        });
+    }
 
     let mut returned_via_supersession = false;
     if req.follow_supersession {
@@ -333,8 +366,9 @@ pub async fn handle_relation_supersede(
         replacement: SupersedeReplacement::Relation(Box::new(new_relation)),
         at_unix_nanos: now,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Pull the replacement id from the ack — on idempotency replay the
     // cached ack carries the originally-stored id, which won't match
@@ -411,8 +445,9 @@ pub async fn handle_relation_tombstone(
         reason: 0,
         at_unix_nanos: now,
     };
-    let write =
-        Write::single(write_id, ctx.executor.caller_agent, phase).with_request_hash(request_hash);
+    let write = Write::single(write_id, ctx.executor.caller_agent, phase)
+        .with_namespace(ctx.executor.caller_namespace)
+        .with_request_hash(request_hash);
     let ack = real_writer.submit(write).await.map_err(map_writer_err)?;
     // Pull the tombstone timestamp from the ack so idempotency replays
     // return the originally-stored value rather than today's clock.
@@ -548,10 +583,12 @@ fn run_list(
         current_only: !include_superseded && !include_tombstoned,
         limit: limit as usize,
     };
+    let scope =
+        brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
     let mut rows = if from_side {
-        relation_list_from(&rtxn, entity, &filter).map_err(map_relation_op_error)?
+        relation_list_from(&rtxn, scope, entity, &filter).map_err(map_relation_op_error)?
     } else {
-        relation_list_to(&rtxn, entity, &filter).map_err(map_relation_op_error)?
+        relation_list_to(&rtxn, scope, entity, &filter).map_err(map_relation_op_error)?
     };
 
     // Wire-level filters not pushed into list_*.
@@ -638,6 +675,7 @@ pub async fn handle_relation_traverse(
     };
     let paths = traverse(
         &rtxn,
+        brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent),
         EntityId::from(req.start_entity),
         &type_ids,
         direction,

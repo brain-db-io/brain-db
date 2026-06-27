@@ -59,8 +59,30 @@ fn write_memory_row(
     kind: MemoryKind,
     created_at_unix_ms: u64,
 ) {
+    write_memory_row_ns(
+        metadata,
+        id,
+        brain_core::NamespaceId::SYSTEM,
+        agent,
+        kind,
+        created_at_unix_ms,
+    );
+}
+
+/// Like `write_memory_row` but lets the test choose the namespace, so the
+/// tenant-wall cases can seed a row that must be excluded for a caller
+/// scoped to a different namespace.
+fn write_memory_row_ns(
+    metadata: &mut MetadataDb,
+    id: MemoryId,
+    namespace: brain_core::NamespaceId,
+    agent: AgentId,
+    kind: MemoryKind,
+    created_at_unix_ms: u64,
+) {
     let mem = MemoryMetadata::new_active(
         id,
+        namespace,
         agent,
         ContextId::from(0),
         id.slot(),
@@ -133,6 +155,7 @@ fn wrong_scope_filter_errors() {
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
+            namespace_id: brain_core::NamespaceId::SYSTEM.raw(),
             predicate_id: Some(brain_core::PredicateId::from(7)),
             ..Default::default()
         }),
@@ -227,6 +250,7 @@ fn agent_id_filter_narrows() {
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
+            namespace_id: brain_core::NamespaceId::SYSTEM.raw(),
             agent_ids: vec![agent_a],
             ..Default::default()
         }),
@@ -248,6 +272,76 @@ fn agent_id_filter_narrows() {
     } else {
         panic!("expected Memory id");
     }
+}
+
+#[test]
+fn namespace_filter_excludes_foreign_namespace() {
+    // The tenant wall: two memories sit in the HNSW with identical (top-hit)
+    // vectors, one in the caller's namespace and one in a foreign namespace.
+    // A recall scoped to the caller's namespace must return ONLY the
+    // same-namespace memory — the foreign-namespace row is never visible,
+    // regardless of how strong its vector match is.
+    let (_dir, mut metadata) = fresh_metadata();
+    let (reader, mut writer) = SharedHnsw::new(IndexParams::default_v1()).expect("SharedHnsw");
+    let agent = AgentId::new();
+    let own_ns = brain_core::NamespaceId::from(7u32);
+    let foreign_ns = brain_core::NamespaceId::from(9u32);
+    let mine = MemoryId::pack(0, 1, 0);
+    let theirs = MemoryId::pack(0, 2, 0);
+
+    // Both index at the exact query vector so vector match cannot explain
+    // the exclusion — only the namespace wall can.
+    writer.insert(mine, &one_hot(0)).expect("insert mine");
+    writer.insert(theirs, &one_hot(0)).expect("insert theirs");
+
+    write_memory_row_ns(&mut metadata, mine, own_ns, agent, MemoryKind::Episodic, 0);
+    write_memory_row_ns(
+        &mut metadata,
+        theirs,
+        foreign_ns,
+        agent,
+        MemoryKind::Episodic,
+        0,
+    );
+
+    let embedder: Arc<dyn Dispatcher> = Arc::new(FixedDispatcher {
+        vector: one_hot(0),
+        fingerprint: [0u8; 16],
+    });
+    let retriever = BrainSemanticRetriever::new(embedder, reader, None, Arc::new(metadata));
+
+    let cfg = SemanticRetrieverConfig {
+        filters: SemanticFiltersConfigSlot(SemanticFilters {
+            namespace_id: own_ns.raw(),
+            ..Default::default()
+        }),
+        top_k: 10,
+        ..Default::default()
+    };
+
+    let result = retriever
+        .retrieve(
+            &SemanticQuery::Vector(Box::new(one_hot(0))),
+            SemanticScope::Memory,
+            &cfg,
+        )
+        .expect("retrieve");
+
+    let ids: Vec<MemoryId> = result
+        .iter()
+        .filter_map(|r| match r.id {
+            RankedItemId::Memory(id) => Some(id),
+            _ => None,
+        })
+        .collect();
+    assert!(
+        ids.contains(&mine),
+        "own-namespace memory must be returned, got {ids:?}"
+    );
+    assert!(
+        !ids.contains(&theirs),
+        "foreign-namespace memory must be excluded by the tenant wall, got {ids:?}"
+    );
 }
 
 #[test]
@@ -275,6 +369,7 @@ fn created_at_range_filter_narrows() {
 
     let cfg = SemanticRetrieverConfig {
         filters: SemanticFiltersConfigSlot(SemanticFilters {
+            namespace_id: brain_core::NamespaceId::SYSTEM.raw(),
             created_at_ms: Some(200..=800),
             ..Default::default()
         }),

@@ -23,11 +23,13 @@ pub mod memory;
 pub mod merge;
 pub mod merge_review_queue;
 pub mod model_fingerprint;
+pub mod namespace;
 pub mod next_lsn;
 pub mod predicate;
 pub mod relation;
 pub mod relation_type;
 pub mod schema_version;
+pub mod scope;
 pub mod slot_version;
 pub mod statement;
 pub mod statement_question;
@@ -117,6 +119,7 @@ pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::r
     use merge::{ENTITY_MERGE_AUDIT_OVERFLOW, MERGE_LOG_TABLE};
     use merge_review_queue::{MERGE_REVIEW_BY_STATUS_TABLE, MERGE_REVIEW_QUEUE_TABLE};
     use model_fingerprint::MODEL_FINGERPRINTS_TABLE;
+    use namespace::{NAMESPACES_TABLE, NAMESPACE_BY_NAME_TABLE};
     use next_lsn::NEXT_LSN_TABLE;
     use predicate::{PREDICATES_BY_QNAME_TABLE, PREDICATES_TABLE, PREDICATE_EMBEDDINGS_TABLE};
     use relation::{
@@ -170,6 +173,8 @@ pub fn materialize_all_tables(wtxn: &::redb::WriteTransaction) -> Result<(), ::r
     let _ = wtxn.open_table(MERGE_REVIEW_QUEUE_TABLE)?;
     let _ = wtxn.open_table(MERGE_REVIEW_BY_STATUS_TABLE)?;
     let _ = wtxn.open_table(MODEL_FINGERPRINTS_TABLE)?;
+    let _ = wtxn.open_table(NAMESPACES_TABLE)?;
+    let _ = wtxn.open_table(NAMESPACE_BY_NAME_TABLE)?;
     let _ = wtxn.open_table(NEXT_LSN_TABLE)?;
     let _ = wtxn.open_table(PREDICATES_TABLE)?;
     let _ = wtxn.open_table(PREDICATES_BY_QNAME_TABLE)?;

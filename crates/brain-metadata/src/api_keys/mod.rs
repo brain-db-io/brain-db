@@ -41,6 +41,9 @@ pub enum ApiKeyError {
 
     #[error("duplicate key hash on insert")]
     Duplicate,
+
+    #[error("namespace registry: {0}")]
+    Namespace(#[from] crate::namespace::NamespaceOpError),
 }
 
 /// Hash a raw secret into the lookup key (BLAKE3-256).
@@ -123,6 +126,16 @@ pub fn api_key_create(
         permissions,
         now_unix_nanos,
     );
+
+    // Provision the tenant: interning the key's namespace makes it a
+    // real, resolvable owner so the dispatch path resolves it to a
+    // NamespaceId (rather than falling back to the system namespace).
+    // Idempotent — re-minting a key for an existing namespace is a no-op.
+    // An empty namespace ("no lock") is left un-interned. `brain` always
+    // resolves to NamespaceId::SYSTEM and is never created here.
+    if !row.namespace.is_empty() {
+        crate::namespace::namespace_intern_or_get(wtxn, &row.namespace, now_unix_nanos)?;
+    }
 
     let mut primary = wtxn.open_table(API_KEYS_TABLE)?;
     if primary.get(&key_hash)?.is_some() {

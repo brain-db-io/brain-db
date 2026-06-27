@@ -192,7 +192,15 @@ pub async fn handle_materialize_procedural(
                 // sort + cap across the union below.
                 limit: TOP_K_MAX as usize,
             };
-            let rows = statement_list(&rtxn, &filter).map_err(OpError::from)?;
+            let rows = statement_list(
+                &rtxn,
+                brain_metadata::RowScope::new(
+                    ctx.executor.caller_namespace,
+                    ctx.executor.caller_agent,
+                ),
+                &filter,
+            )
+            .map_err(OpError::from)?;
             for row in rows {
                 if row.tombstoned {
                     continue;

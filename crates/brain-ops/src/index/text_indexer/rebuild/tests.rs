@@ -44,7 +44,7 @@ fn put_entity(metadata: &mut MetadataDb, name: &str, type_id: EntityTypeId) -> E
     let id = EntityId::new();
     let entity = Entity::new_active(id, type_id, name.into(), name.to_lowercase(), 0);
     let wtxn = metadata.write_txn().expect("wtxn");
-    entity_put(&wtxn, &entity).expect("entity_put");
+    entity_put(&wtxn, __ts(), &entity).expect("entity_put");
     wtxn.commit().expect("commit");
     id
 }
@@ -55,6 +55,7 @@ fn put_memory(metadata: &mut MetadataDb, slot: u64, text: &str, kind: MemoryKind
     let id = MemoryId::pack(0, slot, 1);
     let meta = MemoryMetadata::new_active(
         id,
+        brain_core::NamespaceId::SYSTEM,
         AgentId::from([7u8; 16]),
         ContextId::from(42),
         slot,
@@ -109,7 +110,7 @@ fn create_statement(
         1,
     );
     let wtxn = metadata.write_txn().expect("wtxn");
-    let created = statement_create(&wtxn, &stmt, 0).expect("create");
+    let created = statement_create(&wtxn, __ts(), &stmt, 0).expect("create");
     wtxn.commit().expect("commit");
     created
 }
@@ -320,4 +321,8 @@ fn rebuild_creates_payload_for_reopen() {
     let startup = TantivyShard::open(dir.path()).expect("open");
     assert!(matches!(startup.memory_status, IndexStatus::Ready));
     assert!(matches!(startup.statements_status, IndexStatus::Ready));
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

@@ -297,6 +297,10 @@ impl Worker for SchemaMigrationWorker {
 #[cfg(test)]
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{
         AgentId, ContextId, EntityId, ExtractorId, MemoryId, PredicateId, StatementId,
@@ -400,6 +404,7 @@ mod tests {
         let wtxn = metadata.write_txn().unwrap();
         entity_put(
             &wtxn,
+            __ts(),
             &Entity::new_active(
                 id,
                 EntityType::PERSON_ID,
@@ -439,7 +444,7 @@ mod tests {
             NOW,
             1,
         );
-        let sid = statement_create(&wtxn, &stmt, NOW).unwrap();
+        let sid = statement_create(&wtxn, __ts(), &stmt, NOW).unwrap();
         wtxn.commit().unwrap();
         (sid, pid)
     }

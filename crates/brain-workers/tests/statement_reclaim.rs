@@ -113,7 +113,7 @@ fn make_entity(metadata: &SharedMetadataDb, name: &str, created: u64) -> EntityI
         created,
     );
     let wtxn = metadata.write_txn().unwrap();
-    entity_put(&wtxn, &e).unwrap();
+    entity_put(&wtxn, __ts(), &e).unwrap();
     wtxn.commit().unwrap();
     id
 }
@@ -164,7 +164,7 @@ fn seed_statement(
     );
     s.confidence = conf;
     let wtxn = metadata.write_txn().unwrap();
-    statement_create(&wtxn, &s, created).unwrap();
+    statement_create(&wtxn, __ts(), &s, created).unwrap();
     wtxn.commit().unwrap();
     id
 }
@@ -284,4 +284,8 @@ fn second_run_is_idempotent() {
         // not error — the row is gone and stays gone.
         assert_eq!(run_one(&worker, fix.ops.clone()).await.unwrap(), 0);
     });
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

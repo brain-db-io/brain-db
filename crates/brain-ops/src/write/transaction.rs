@@ -9,7 +9,7 @@
 //! The writer doesn't distinguish among these origins. One queue,
 //! one apply path, one WAL envelope, one event burst.
 
-use brain_core::{AgentId, MemoryId};
+use brain_core::{AgentId, MemoryId, NamespaceId};
 use brain_storage::wal::record::Lsn;
 
 use super::id::WriteId;
@@ -35,6 +35,12 @@ pub struct Write {
     /// Authenticated caller. Stamped onto audit rows and event
     /// envelopes; `AgentId::default()` for anonymous / test paths.
     pub agent_id: AgentId,
+    /// Owning namespace (tenant) — the outer half of the
+    /// `(namespace, agent)` scope key stamped onto every row this write
+    /// produces. Defaults to [`NamespaceId::SYSTEM`]; the wire handler
+    /// sets it from the authenticated connection via
+    /// [`Self::with_namespace`].
+    pub namespace: NamespaceId,
     /// When the handler (or worker) began building this write. Used
     /// by the writer for tracing + by audit rows that need a
     /// "submitted_at" timestamp distinct from "committed_at".
@@ -60,6 +66,7 @@ impl Write {
         Self {
             write_id,
             agent_id,
+            namespace: NamespaceId::SYSTEM,
             started_at_unix_nanos: 0,
             phases: vec![phase],
             request_hash: None,
@@ -73,10 +80,20 @@ impl Write {
         Self {
             write_id,
             agent_id,
+            namespace: NamespaceId::SYSTEM,
             started_at_unix_nanos: 0,
             phases,
             request_hash: None,
         }
+    }
+
+    /// Stamp the owning namespace; chainable from the builder. The wire
+    /// handler sets this from the authenticated connection's namespace so
+    /// every row the write produces is scoped to the caller's tenant.
+    #[must_use]
+    pub fn with_namespace(mut self, namespace: NamespaceId) -> Self {
+        self.namespace = namespace;
+        self
     }
 
     /// Stamp the started-at timestamp; chainable from the builder.

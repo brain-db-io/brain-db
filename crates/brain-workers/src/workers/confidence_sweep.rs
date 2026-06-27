@@ -365,8 +365,12 @@ impl ConfidenceSweepWorker {
         // Bucket re-keys deferred until the STATEMENTS handle drops — the
         // shared `rekey_predicate_index` opens STATEMENTS_BY_PREDICATE
         // itself, and redb forbids holding two handles to one table.
-        // Tuple: (predicate_id, kind, old_confidence, new_confidence, id).
-        let mut rekey_moves: Vec<(u32, u8, f32, f32, [u8; 16])> = Vec::new();
+        // Tuple: (scope, predicate_id, kind, old_confidence, new_confidence, id).
+        // The scope is captured from each row so the predicate-index
+        // re-key targets the same `(namespace, agent)` keyspace the row
+        // lives in — the index is scope-prefixed.
+        let mut rekey_moves: Vec<(brain_metadata::RowScope, u32, u8, f32, f32, [u8; 16])> =
+            Vec::new();
         {
             let mut s_table = wtxn
                 .open_table(STATEMENTS_TABLE)
@@ -388,19 +392,28 @@ impl ConfidenceSweepWorker {
                     continue;
                 }
                 let old_conf = meta.confidence;
+                let row_scope =
+                    brain_metadata::RowScope::from_bytes(meta.namespace_id, meta.agent_id_bytes);
                 meta.confidence = u.new_confidence;
                 s_table
                     .insert(key, meta)
                     .map_err(|e| WorkerError::Internal(format!("insert STATEMENTS: {e}")))?;
-                rekey_moves.push((u.predicate_id, u.kind_byte, old_conf, u.new_confidence, key));
+                rekey_moves.push((
+                    row_scope,
+                    u.predicate_id,
+                    u.kind_byte,
+                    old_conf,
+                    u.new_confidence,
+                    key,
+                ));
             }
         }
         // Re-key the predicate-bucket index for every row whose confidence
         // moved. The helper is a no-op when the coarse bucket is
         // unchanged and is ownership-guarded against evicting a
         // bucket-sharing sibling.
-        for (pred, kind, old_conf, new_conf, id) in rekey_moves {
-            rekey_predicate_index(&wtxn, pred, kind, old_conf, new_conf, &id)
+        for (scope, pred, kind, old_conf, new_conf, id) in rekey_moves {
+            rekey_predicate_index(&wtxn, scope, pred, kind, old_conf, new_conf, &id)
                 .map_err(|e| WorkerError::Internal(format!("rekey by_predicate: {e}")))?;
         }
         wtxn.commit()
@@ -524,6 +537,10 @@ struct PendingUpdate {
 #[cfg(all(test, not(miri)))]
 #[allow(clippy::arc_with_non_send_sync)]
 mod tests {
+    fn __ts() -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     use super::*;
     use brain_core::{
         ContextId, EntityId, EvidenceOverflowId, ExtractorId, MemoryId, PredicateId, StatementId,
@@ -604,6 +621,8 @@ mod tests {
         let cutoff = now - NS_PER_DAY;
         let mut meta = StatementMetadata {
             statement_id_bytes: [0u8; 16],
+            namespace_id: brain_core::NamespaceId::SYSTEM.raw(),
+            agent_id_bytes: [0xA1; 16],
             chain_root_bytes: [0u8; 16],
             version: 1,
             kind: StatementKind::Fact.as_u8(),
@@ -705,6 +724,7 @@ mod tests {
         let obj = EntityId::new();
         entity_put(
             &wtxn,
+            __ts(),
             &Entity::new_active(
                 subj,
                 EntityType::PERSON_ID,
@@ -716,6 +736,7 @@ mod tests {
         .unwrap();
         entity_put(
             &wtxn,
+            __ts(),
             &Entity::new_active(
                 obj,
                 EntityType::PERSON_ID,
@@ -755,7 +776,7 @@ mod tests {
         if matches!(kind, StatementKind::Event) {
             s.event_at_unix_nanos = Some(extracted_at);
         }
-        let id = statement_create(&wtxn, &s, extracted_at).unwrap();
+        let id = statement_create(&wtxn, __ts(), &s, extracted_at).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -944,6 +965,7 @@ mod tests {
             let obj = EntityId::new();
             entity_put(
                 &wtxn,
+                __ts(),
                 &Entity::new_active(
                     subj,
                     EntityType::PERSON_ID,
@@ -955,6 +977,7 @@ mod tests {
             .unwrap();
             entity_put(
                 &wtxn,
+                __ts(),
                 &Entity::new_active(
                     obj,
                     EntityType::PERSON_ID,
@@ -994,7 +1017,7 @@ mod tests {
                 extracted_at,
                 1,
             );
-            let id = statement_create(&wtxn, &s, extracted_at).unwrap();
+            let id = statement_create(&wtxn, __ts(), &s, extracted_at).unwrap();
             wtxn.commit().unwrap();
             id
         };

@@ -23,6 +23,7 @@ use crate::tables::edge::{self, derived_by, origin, EdgeData, EDGES_REVERSE_TABL
 use crate::tables::relation::{
     RelationMetadata, RELATION_BY_EVIDENCE_TABLE, RELATION_METADATA_TABLE,
 };
+use crate::tables::scope::RowScope;
 
 use super::transient;
 
@@ -212,7 +213,17 @@ fn write_relation_link(
         Some(_) => 2,
         None => 1,
     };
+    // The WAL payload carries the owning `agent_id`; the namespace is not
+    // yet on the relation payload (the write-layer phase adds it alongside
+    // the producers). Until then recovery stamps the system namespace +
+    // the recorded agent. See the deviation note in the slice report.
+    let scope = RowScope::from_bytes(
+        brain_core::NamespaceId::SYSTEM.raw(),
+        <[u8; 16]>::from(p.agent_id),
+    );
     let meta = RelationMetadata {
+        namespace_id: scope.namespace_id,
+        agent_id_bytes: scope.agent_id_bytes,
         from_tag: p.from.tag(),
         from_bytes: p.from.id_bytes(),
         to_tag: p.to.tag(),
@@ -249,8 +260,16 @@ fn write_relation_link(
             .open_table(RELATION_BY_EVIDENCE_TABLE)
             .map_err(transient)?;
         for mem in &p.evidence {
-            t.insert(&(mem.to_be_bytes(), p.relation_id.to_bytes()), &())
-                .map_err(transient)?;
+            t.insert(
+                &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
+                    mem.to_be_bytes(),
+                    p.relation_id.to_bytes(),
+                ),
+                &(),
+            )
+            .map_err(transient)?;
         }
     }
 

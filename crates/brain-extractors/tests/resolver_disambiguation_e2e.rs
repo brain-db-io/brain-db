@@ -33,6 +33,12 @@ use brain_llm::types::{LlmRequest, LlmResponse};
 use brain_llm::LlmClient;
 use brain_metadata::entity::ops::{entity_get, entity_put, normalize_name};
 use brain_metadata::MetadataDb;
+use brain_metadata::RowScope;
+
+/// Fixed (namespace, agent) scope for these resolver e2e tests.
+fn test_scope() -> RowScope {
+    RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+}
 use parking_lot::RwLock;
 use tempfile::TempDir;
 
@@ -201,7 +207,7 @@ fn seed_entity(
         NOW,
     );
     let wtxn = db.write_txn().unwrap();
-    entity_put(&wtxn, &ent).unwrap();
+    entity_put(&wtxn, test_scope(), &ent).unwrap();
     wtxn.commit().unwrap();
     hnsw.write().insert(id, &vector).unwrap();
     id
@@ -273,6 +279,7 @@ fn auto_alias_rejected_by_disambiguator_creates_distinct_entity() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Japan",
         "brain:Person",
         0.9,
@@ -338,6 +345,7 @@ fn auto_alias_confirmed_by_disambiguator_still_merges() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Japan",
         "brain:Person",
         0.9,
@@ -375,6 +383,7 @@ fn auto_alias_with_no_disambiguator_merges_on_threshold_alone() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Japan",
         "brain:Person",
         0.9,
@@ -403,6 +412,7 @@ fn confirmed_verdict_aliases_onto_existing_entity() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Acme Holdings",
         "brain:Person",
         0.9,
@@ -454,6 +464,7 @@ fn rejected_verdict_creates_fresh_entity_without_merge_proposal() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Acme Holdings",
         "brain:Person",
         0.9,
@@ -502,6 +513,7 @@ fn uncertain_verdict_falls_through_to_create_plus_merge_proposal() {
     let wtxn = db.write_txn().unwrap();
     let res = resolve_or_create_with_deps(
         &wtxn,
+        test_scope(),
         "Acme Holdings",
         "brain:Person",
         0.9,

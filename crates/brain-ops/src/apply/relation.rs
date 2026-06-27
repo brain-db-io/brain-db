@@ -17,8 +17,9 @@ use crate::write::{
 pub fn apply_upsert_relation(
     wtxn: &WriteTransaction,
     phase: &Phase,
-    _write: &Write,
+    write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     let Phase::UpsertRelation {
         id,
         ty,
@@ -86,7 +87,7 @@ pub fn apply_upsert_relation(
     r.properties_blob = properties_blob.clone();
     r.valid_from_unix_nanos = *valid_from_unix_nanos;
     r.valid_to_unix_nanos = *valid_to_unix_nanos;
-    relation_create(wtxn, &r, *extracted_at_unix_nanos)
+    relation_create(wtxn, scope, &r, *extracted_at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("relation_create: {e}")))?;
     Ok(PhaseAck::UpsertedRelation(*id, 1))
 }
@@ -113,8 +114,9 @@ fn lookup_is_symmetric_in_wtxn(
 pub fn apply_supersede_relation(
     wtxn: &WriteTransaction,
     phase: &Phase,
-    _write: &Write,
+    write: &Write,
 ) -> Result<PhaseAck, ApplyError> {
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     let Phase::Supersede {
         target,
         replacement,
@@ -131,7 +133,7 @@ pub fn apply_supersede_relation(
             "expected Supersede with Relation replacement",
         ));
     };
-    relation_supersede(wtxn, *old_id, new_relation.as_ref(), *at_unix_nanos)
+    relation_supersede(wtxn, scope, *old_id, new_relation.as_ref(), *at_unix_nanos)
         .map_err(|e| ApplyError::Metadata(format!("relation_supersede: {e}")))?;
     Ok(PhaseAck::Superseded(*target, replacement.id()))
 }

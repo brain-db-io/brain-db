@@ -139,6 +139,8 @@ fn build_fixture(
         lexical: lex,
         graph: gr,
         metadata,
+        caller_namespace: brain_core::NamespaceId::SYSTEM.raw(),
+        caller_agent: brain_core::AgentId::default(),
         cross_encoder: None,
     };
 

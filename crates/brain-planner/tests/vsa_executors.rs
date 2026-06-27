@@ -128,6 +128,7 @@ fn build_fixture(
             ids.push(id);
             let meta = MemoryMetadata::new_active(
                 id,
+                brain_core::NamespaceId::SYSTEM,
                 agent,
                 ContextId(7),
                 (i + 1) as u64,

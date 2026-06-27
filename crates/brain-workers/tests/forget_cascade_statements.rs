@@ -102,7 +102,7 @@ fn make_entity(metadata: &SharedMetadataDb, name: &str) -> EntityId {
         NOW,
     );
     let wtxn = metadata.write_txn().unwrap();
-    entity_put(&wtxn, &e).unwrap();
+    entity_put(&wtxn, __ts(), &e).unwrap();
     wtxn.commit().unwrap();
     id
 }
@@ -155,7 +155,7 @@ fn seed_statement(
     );
     s.confidence = stmt_conf;
     let wtxn = metadata.write_txn().unwrap();
-    statement_create(&wtxn, &s, NOW).unwrap();
+    statement_create(&wtxn, __ts(), &s, NOW).unwrap();
     wtxn.commit().unwrap();
     id
 }
@@ -339,4 +339,8 @@ fn cascade_drains_multiple_pending_jobs() {
     let db = fx.metadata.as_ref();
     assert!(statement_is_tombstoned(db, s1));
     assert!(statement_is_tombstoned(db, s2));
+}
+
+fn __ts() -> brain_metadata::RowScope {
+    brain_metadata::RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
 }

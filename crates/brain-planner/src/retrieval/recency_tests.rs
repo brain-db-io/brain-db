@@ -21,6 +21,7 @@ fn fresh() -> (TempDir, MetadataDb) {
 fn put_memory(metadata: &MetadataDb, id: MemoryId, occurred_at: Option<u64>, created_at: u64) {
     let row = MemoryMetadata::new_active(
         id,
+        brain_core::NamespaceId::SYSTEM,
         AgentId::new(),
         ContextId::from(0),
         id.slot(),

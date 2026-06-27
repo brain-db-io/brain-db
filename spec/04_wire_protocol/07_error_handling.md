@@ -65,9 +65,12 @@ A more specific error code accompanies each category. The complete table:
 
 | Code | Meaning |
 |---|---|
-| `PermissionDenied` | Agent lacks permission for this operation |
+| `PermissionDenied` | Agent lacks permission for this operation (incl. any attempt to read/write across the connection's namespace boundary — cross-namespace access is never permitted) |
 | `AdminPermissionRequired` | Operation requires `can_admin` |
 | `WrongShard` | Operation tried to address a different shard than the connection's |
+| `NamespaceRequired` | A write resolved to no owning namespace — fail-closed; namespace is required and there is no implicit/default namespace |
+| `NamespaceUnknown` | The connection's key (or a referenced namespace) names a namespace that has not been provisioned |
+| `WriteToSystemNamespace` | Attempt to own/modify data in the reserved read-only `brain` system namespace |
 
 #### 3.4 Validation (Category: `Validation`)
 

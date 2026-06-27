@@ -520,8 +520,11 @@ fn anchor_direct_memories(
     };
 
     // 1. The subject's own current statements → their first evidence memory.
+    let scope =
+        brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
     if let Ok(stmts) = statement_list(
         &rtxn,
+        scope,
         &StatementListFilter {
             subject: Some(anchor),
             current_only: true,
@@ -676,7 +679,9 @@ fn best_grounded_for_cue(
         // (nearest answer wins unless a deeper one out-scores the per-hop
         // discount). Reduces to the 1-hop answer when no edge embeds close to the
         // cue, so single-hop questions are unaffected — no read LLM.
-        let answer = grounded_answer_walk(&rtxn, subject, cue_vec)
+        let grounded_scope =
+            brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
+        let answer = grounded_answer_walk(&rtxn, grounded_scope, subject, cue_vec)
             .map_err(|e| OpError::Internal(format!("recall grounded walk: {e}")))?;
         if matches!(answer.kind, AnswerKind::None) {
             continue;
@@ -763,6 +768,12 @@ fn hydrate_memories_by_id(
             }
         };
         if row.is_tombstoned() {
+            continue;
+        }
+        // Namespace (tenant) wall — unconditional. A caller can never see
+        // another namespace's memories, regardless of agent_filter /
+        // include_other_agents (those only widen WITHIN the namespace).
+        if row.namespace_id != ctx.executor.caller_namespace.raw() {
             continue;
         }
         if let Some(ref scope) = agent_scope {
@@ -926,7 +937,9 @@ fn subject_candidates_from_cue(
         // the forms as separate nodes. Take exact + alias + partial-name matches
         // (score >= 0.9); trigram-fuzzy is too loose for a grounded anchor (a
         // wrong subject yields a wrong fact).
-        let ids = brain_metadata::entity_resolve_scored(rtxn, &surface, 5)
+        let scope =
+            brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
+        let ids = brain_metadata::entity_resolve_scored(rtxn, scope, &surface, 5)
             .map_err(OpError::from)?
             .into_iter()
             .filter(|(_, score)| *score >= 0.9)
@@ -996,6 +1009,8 @@ async fn retrieve_memories(
         lexical: ctx.lexical_retriever.clone(),
         graph: ctx.graph_retriever.clone(),
         metadata: ctx.executor.metadata.clone(),
+        caller_namespace: ctx.executor.caller_namespace.raw(),
+        caller_agent: ctx.executor.caller_agent,
         cross_encoder: ctx.cross_encoder.as_arc().cloned(),
     };
     // The statement corpus (statement HNSW + statements.tantivy) is ALWAYS
@@ -1325,6 +1340,7 @@ fn cosine(a: &[f32; brain_embed::VECTOR_DIM], b: &[f32; brain_embed::VECTOR_DIM]
 ///     entities
 fn fetch_enrichment_for(
     memory_ids: &[MemoryId],
+    scope: brain_metadata::RowScope,
     rtxn: &redb::ReadTransaction,
 ) -> Result<Vec<brain_protocol::envelope::response::GraphEnrichment>, OpError> {
     use brain_core::{EdgeKindRef, NodeRef};
@@ -1392,8 +1408,12 @@ fn fetch_enrichment_for(
         let mut enriched_statements: Vec<EnrichedStatement> = Vec::new();
         {
             let mid = memory_id.to_be_bytes();
-            let lo = (mid, [0u8; 16]);
-            let hi = (mid, [0xFFu8; 16]);
+            // STATEMENTS_BY_EVIDENCE is now scoped: the key is
+            // `(namespace_id, agent_id_bytes, MemoryId, StatementId)`.
+            // Restrict the range to the caller's scope so the evidence
+            // scan can never cross the tenant boundary.
+            let lo = (scope.namespace_id, scope.agent_id_bytes, mid, [0u8; 16]);
+            let hi = (scope.namespace_id, scope.agent_id_bytes, mid, [0xFFu8; 16]);
             let mut stmts: Vec<brain_core::Statement> = Vec::new();
             for entry in evidence_table
                 .range(lo..=hi)
@@ -1401,7 +1421,7 @@ fn fetch_enrichment_for(
             {
                 let (k, _v) = entry
                     .map_err(|e| OpError::Internal(format!("include_graph: evidence row: {e}")))?;
-                let (_mem_bytes, sid_bytes) = k.value();
+                let (_ns, _agent, _mem_bytes, sid_bytes) = k.value();
                 let sid = StatementId::from_bytes(sid_bytes);
                 if let Some(stmt) = statement_get(rtxn, sid)
                     .map_err(|e| OpError::Internal(format!("include_graph: statement_get: {e}")))?
@@ -1623,7 +1643,9 @@ fn project_memory_results(
                 _ => None,
             })
             .collect();
-        let enriched = fetch_enrichment_for(&ids, &rtxn)?;
+        let scope =
+            brain_metadata::RowScope::new(ctx.executor.caller_namespace, ctx.executor.caller_agent);
+        let enriched = fetch_enrichment_for(&ids, scope, &rtxn)?;
         Some(ids.into_iter().zip(enriched).collect())
     } else {
         None
@@ -1666,6 +1688,16 @@ fn project_memory_results(
         };
 
         if row.is_tombstoned() {
+            continue;
+        }
+
+        // Namespace (tenant) wall — unconditional, defense-in-depth at the
+        // projector. The semantic lane filters by namespace at the index, but
+        // the lexical and graph lanes do not push the namespace down, so a
+        // fused hit could otherwise carry a foreign-tenant memory into the
+        // answer. Drop any row outside the caller's namespace here so no lane
+        // can leak across the tenant boundary.
+        if row.namespace_id != ctx.executor.caller_namespace.raw() {
             continue;
         }
 

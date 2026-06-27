@@ -91,6 +91,7 @@ fn seed_memory_with_counts(
         let mut table = wtxn.open_table(MEMORIES_TABLE).unwrap();
         let mut meta = MemoryMetadata::new_active(
             id,
+            brain_core::NamespaceId::SYSTEM,
             AgentId(Uuid::nil()),
             ContextId(1),
             slot,

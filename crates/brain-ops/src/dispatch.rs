@@ -225,6 +225,20 @@ pub async fn dispatch(
     } else {
         let mut owned = ctx.clone();
         owned.executor = owned.executor.with_caller_agent(caller.agent_id);
+        // Resolve the caller's namespace (the company/tenant boundary)
+        // to its interned id. An empty namespace (permissive / dev) or
+        // one not yet interned stays the system namespace; the AUTH path
+        // interns a key's namespace so the lookup resolves in strict
+        // mode. Read-only: the dispatch path never mints.
+        if !caller.namespace.is_empty() {
+            if let Ok(rtxn) = owned.executor.metadata.read_txn() {
+                if let Ok(Some(ns)) =
+                    brain_metadata::namespace::namespace_lookup_by_name(&rtxn, &caller.namespace)
+                {
+                    owned.executor = owned.executor.with_caller_namespace(ns);
+                }
+            }
+        }
         Some(owned)
     };
     let ctx = per_request_ctx.as_ref().unwrap_or(ctx);

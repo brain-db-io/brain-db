@@ -22,20 +22,31 @@
 //! is the directional index.
 
 use crate::impl_redb_rkyv_value;
+use crate::tables::scope::RowScope;
 use brain_core::Relation;
-use brain_core::{EntityId, ExtractorId, MemoryId, NodeRef, RelationId, RelationTypeId};
+use brain_core::{
+    AgentId, EntityId, ExtractorId, MemoryId, NamespaceId, NodeRef, RelationId, RelationTypeId,
+};
 use redb::TableDefinition;
 
 // ---------------------------------------------------------------------------
 // Tables.
 // ---------------------------------------------------------------------------
 
+/// Scope-prefixed evidence key: `(namespace_id, agent_id_bytes, MemoryId,
+/// RelationId)`. Named so the `(namespace, agent)` prefix stays under
+/// clippy's type-complexity threshold.
+type EvidenceKey = (u32, [u8; 16], [u8; 16], [u8; 16]);
+
 pub const RELATION_METADATA_TABLE: TableDefinition<'static, [u8; 16], RelationMetadata> =
     TableDefinition::new("relation_metadata");
 
-/// `(MemoryId.to_be_bytes(), RelationId.to_bytes())` → `()`. FORGET
-/// cascade lookup index.
-pub const RELATION_BY_EVIDENCE_TABLE: TableDefinition<'static, ([u8; 16], [u8; 16]), ()> =
+/// `(namespace_id, agent_id_bytes, MemoryId.to_be_bytes(),
+/// RelationId.to_bytes())` → `()`. FORGET cascade lookup index. The
+/// leading scope prefix keeps each tenant's evidence rows in a private
+/// keyspace; the relation read path itself filters by the sidecar's
+/// scope (the shared `EDGES_TABLE` is not re-keyed).
+pub const RELATION_BY_EVIDENCE_TABLE: TableDefinition<'static, EvidenceKey, ()> =
     TableDefinition::new("relation_by_evidence");
 
 /// `relation_type_embeddings` — per-relation-type semantic vector, keyed
@@ -67,6 +78,12 @@ pub const RELATION_TYPE_EMBEDDINGS_TABLE: TableDefinition<'static, u32, &[u8]> =
 #[derive(rkyv::Archive, rkyv::Serialize, rkyv::Deserialize, Debug, Clone, PartialEq)]
 #[archive(check_bytes)]
 pub struct RelationMetadata {
+    /// Owning namespace (tenant) — the outer half of the
+    /// `(namespace, agent)` scope key. Required; stamped from the
+    /// caller's scope at create time (fail-closed by construction).
+    pub namespace_id: u32,
+    /// Owning agent (app) — the inner half of the scope key.
+    pub agent_id_bytes: [u8; 16],
     pub from_tag: u8,
     pub from_bytes: [u8; 16],
     pub to_tag: u8,
@@ -127,6 +144,24 @@ impl RelationMetadata {
         RelationId::from(self.chain_root_bytes)
     }
 
+    /// The owning namespace (tenant) of this relation.
+    #[must_use]
+    pub fn namespace(&self) -> NamespaceId {
+        NamespaceId::from(self.namespace_id)
+    }
+
+    /// The owning agent of this relation.
+    #[must_use]
+    pub fn agent_id(&self) -> AgentId {
+        AgentId::from(self.agent_id_bytes)
+    }
+
+    /// The `(namespace, agent)` scope this relation belongs to.
+    #[must_use]
+    pub fn scope(&self) -> RowScope {
+        RowScope::from_bytes(self.namespace_id, self.agent_id_bytes)
+    }
+
     /// Project the `(from, to)` pair as [`EntityId`]s. Returns `None`
     /// if either endpoint is not an `Entity` — typed-graph
     /// relations canonically have entity endpoints; a Memory endpoint
@@ -165,11 +200,13 @@ impl_redb_rkyv_value!(RelationMetadata, "brain_metadata::RelationMetadata");
 /// `superseded_by / tombstoned` only — validity-window timing is left
 /// to query-time.
 #[must_use]
-pub fn metadata_from_relation(r: &Relation) -> RelationMetadata {
+pub fn metadata_from_relation(r: &Relation, scope: RowScope) -> RelationMetadata {
     let is_current = u8::from(!r.tombstoned && r.superseded_by.is_none());
     let evidence_inline: Vec<[u8; 16]> = r.evidence.iter().map(|m| m.to_be_bytes()).collect();
 
     RelationMetadata {
+        namespace_id: scope.namespace_id,
+        agent_id_bytes: scope.agent_id_bytes,
         from_tag: NodeRef::Entity(r.from_entity).tag(),
         from_bytes: r.from_entity.to_bytes(),
         to_tag: NodeRef::Entity(r.to_entity).tag(),
@@ -240,6 +277,11 @@ mod tests {
     use brain_core::Relation;
     use redb::ReadableDatabase;
 
+    /// Fixed test scope: system namespace + a stable test agent.
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
+
     fn sample_relation() -> Relation {
         let id = RelationId::new();
         Relation::new_root(
@@ -260,7 +302,7 @@ mod tests {
         let dir = tempfile::tempdir().unwrap();
         let db = fresh_db(&dir);
         let r = sample_relation();
-        let row = metadata_from_relation(&r);
+        let row = metadata_from_relation(&r, test_scope());
         let key = r.id.to_bytes();
 
         let wtxn = db.begin_write().unwrap();
@@ -284,7 +326,7 @@ mod tests {
     #[test]
     fn endpoint_projection_recovers_entity_pair() {
         let r = sample_relation();
-        let row = metadata_from_relation(&r);
+        let row = metadata_from_relation(&r, test_scope());
         let (a, b) = row.entity_endpoints().unwrap();
         assert_eq!(a, r.from_entity);
         assert_eq!(b, r.to_entity);
@@ -296,7 +338,8 @@ mod tests {
         let db = fresh_db(&dir);
         let rel_id = RelationId::new();
         let mem = [7u8; 16];
-        let key = (mem, rel_id.to_bytes());
+        let s = test_scope();
+        let key = (s.namespace_id, s.agent_id_bytes, mem, rel_id.to_bytes());
 
         let wtxn = db.begin_write().unwrap();
         {

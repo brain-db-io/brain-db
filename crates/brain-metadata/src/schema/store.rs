@@ -199,8 +199,13 @@ pub fn schema_namespaces(rtxn: &ReadTransaction) -> Result<Vec<String>, SchemaSt
 #[cfg(all(test, not(miri)))]
 mod tests {
     use super::*;
+    use crate::tables::scope::RowScope;
     use brain_protocol::schema::{parse_schema, validate};
     use redb::{Database, ReadableDatabase};
+
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db(dir: &tempfile::TempDir) -> Database {
         let db = Database::create(dir.path().join("test.redb")).unwrap();
@@ -372,6 +377,7 @@ mod tests {
             let now = 0u64;
             entity_put(
                 &wtxn,
+                test_scope(),
                 &Entity::new_active(
                     subject,
                     brain_core::EntityTypeId(1),
@@ -407,8 +413,8 @@ mod tests {
             };
             let s_in = mk_stmt(p_in);
             let s_out = mk_stmt(p_out);
-            let sid_in = statement_create(&wtxn, &s_in, 0).unwrap();
-            let sid_out = statement_create(&wtxn, &s_out, 0).unwrap();
+            let sid_in = statement_create(&wtxn, test_scope(), &s_in, 0).unwrap();
+            let sid_out = statement_create(&wtxn, test_scope(), &s_out, 0).unwrap();
             wtxn.commit().unwrap();
             (sid_in, sid_out)
         };

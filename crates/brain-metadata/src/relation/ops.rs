@@ -37,6 +37,7 @@ use crate::tables::relation::{
     metadata_from_relation, relation_from_metadata, RelationMetadata, RELATION_BY_EVIDENCE_TABLE,
     RELATION_METADATA_TABLE,
 };
+use crate::tables::scope::RowScope;
 
 // ---------------------------------------------------------------------------
 // Errors.
@@ -141,6 +142,10 @@ pub fn relation_history(
         return Err(RelationOpError::NotFound(anchor));
     };
     let chain_root_bytes = anchor_row.chain_root_bytes;
+    // A supersession chain never crosses a tenant boundary, so the
+    // anchor's own scope bounds the whole chain — filter the scan to it.
+    let anchor_ns = anchor_row.namespace_id;
+    let anchor_agent = anchor_row.agent_id_bytes;
 
     // Linear scan: chains are short (1–3 entries typical). A
     // chain-root secondary index can be added if this becomes hot.
@@ -148,7 +153,10 @@ pub fn relation_history(
     for entry in t.iter()? {
         let (k, v) = entry?;
         let m = v.value();
-        if m.chain_root_bytes == chain_root_bytes {
+        if m.chain_root_bytes == chain_root_bytes
+            && m.namespace_id == anchor_ns
+            && m.agent_id_bytes == anchor_agent
+        {
             let id = RelationId::from(k.value());
             chain.push(relation_from_metadata(id, &m));
         }
@@ -161,23 +169,26 @@ pub fn relation_history(
 /// filtered by relation type and `current_only`.
 pub fn relation_list_from(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     entity: EntityId,
     filter: &RelationListFilter,
 ) -> Result<Vec<Relation>, RelationOpError> {
-    list_directional(rtxn, entity, filter, /* outgoing */ true)
+    list_directional(rtxn, scope, entity, filter, /* outgoing */ true)
 }
 
 /// List relations where `entity` is the `to` endpoint.
 pub fn relation_list_to(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     entity: EntityId,
     filter: &RelationListFilter,
 ) -> Result<Vec<Relation>, RelationOpError> {
-    list_directional(rtxn, entity, filter, /* outgoing */ false)
+    list_directional(rtxn, scope, entity, filter, /* outgoing */ false)
 }
 
 fn list_directional(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     entity: EntityId,
     filter: &RelationListFilter,
     outgoing: bool,
@@ -208,6 +219,13 @@ fn list_directional(
         let Some(meta) = sidecar.get(&disambiguator)?.map(|g| g.value()) else {
             continue;
         };
+        // Unconditional scope wall. The shared EDGES_TABLE is not
+        // re-keyed by scope, so the directional walk can surface an edge
+        // owned by another tenant; the sidecar carries the owning scope
+        // and is the authority that filters it out.
+        if meta.namespace_id != scope.namespace_id || meta.agent_id_bytes != scope.agent_id_bytes {
+            continue;
+        }
         if filter.current_only && !meta.is_current() {
             continue;
         }
@@ -227,17 +245,28 @@ fn list_directional(
 /// Returns ids of all relations that cite `memory_id` as evidence.
 pub fn relations_with_evidence(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     memory_id: MemoryId,
 ) -> Result<Vec<RelationId>, RelationOpError> {
     let t = rtxn.open_table(RELATION_BY_EVIDENCE_TABLE)?;
     let mem_bytes = memory_id.to_be_bytes();
-    let lo = (mem_bytes, [0u8; 16]);
-    let hi = (mem_bytes, [0xFFu8; 16]);
+    let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        mem_bytes,
+        [0u8; 16],
+    );
+    let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        mem_bytes,
+        [0xFFu8; 16],
+    );
     let mut out = Vec::new();
     for entry in t.range(lo..=hi)? {
         let (k, _) = entry?;
-        let (k_mem, k_rel) = k.value();
-        if k_mem != mem_bytes {
+        let (k_ns, k_agent, k_mem, k_rel) = k.value();
+        if k_ns != scope.namespace_id || k_agent != scope.agent_id_bytes || k_mem != mem_bytes {
             continue;
         }
         out.push(RelationId::from(k_rel));
@@ -252,6 +281,7 @@ pub fn relations_with_evidence(
 /// Create a new relation.
 pub fn relation_create(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     r: &Relation,
     now_unix_nanos: u64,
 ) -> Result<RelationId, RelationOpError> {
@@ -280,13 +310,13 @@ pub fn relation_create(
         to_insert.to_entity = b;
     }
 
-    let conflicting = find_cardinality_conflicts(wtxn, &to_insert, cardinality)?;
+    let conflicting = find_cardinality_conflicts(wtxn, scope, &to_insert, cardinality)?;
     match conflicting.len() {
         0 => {
-            insert_new_relation(wtxn, &to_insert, now_unix_nanos)?;
+            insert_new_relation(wtxn, scope, &to_insert, now_unix_nanos)?;
             Ok(to_insert.id)
         }
-        1 => relation_supersede(wtxn, conflicting[0], &to_insert, now_unix_nanos),
+        1 => relation_supersede(wtxn, scope, conflicting[0], &to_insert, now_unix_nanos),
         _ => Err(RelationOpError::CardinalityViolation {
             variant: cardinality,
             conflicting: conflicting.len(),
@@ -297,6 +327,7 @@ pub fn relation_create(
 /// Supersede `old_id` with `new_relation`.
 pub fn relation_supersede(
     wtxn: &WriteTransaction,
+    _scope: RowScope,
     old_id: RelationId,
     new_relation: &Relation,
     now_unix_nanos: u64,
@@ -312,6 +343,9 @@ pub fn relation_supersede(
         let row = t.get(&old_id.to_bytes())?.map(|g| g.value());
         row.ok_or(RelationOpError::NotFound(old_id))?
     };
+    // The old row's owning scope is authoritative; the new row + evidence
+    // rows inherit it (a supersede can never re-home a relation).
+    let scope = old.scope();
     if old.is_tombstoned() {
         return Err(RelationOpError::AlreadyTombstoned(old_id));
     }
@@ -359,7 +393,7 @@ pub fn relation_supersede(
         t.insert(&old_id.to_bytes(), &old)?;
     }
 
-    insert_new_relation(wtxn, &new_to_insert, now_unix_nanos)?;
+    insert_new_relation(wtxn, scope, &new_to_insert, now_unix_nanos)?;
     Ok(new_to_insert.id)
 }
 
@@ -424,6 +458,7 @@ fn lookup_type(
 /// → auto-supersede and multi-conflict → `CardinalityViolation`.
 fn find_cardinality_conflicts(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     r: &Relation,
     cardinality: Cardinality,
 ) -> Result<Vec<RelationId>, RelationOpError> {
@@ -435,6 +470,7 @@ fn find_cardinality_conflicts(
     if want_from {
         collect_typed_conflicts(
             wtxn,
+            scope,
             NodeRef::Entity(r.from_entity),
             r.relation_type,
             /* outgoing */ true,
@@ -445,6 +481,7 @@ fn find_cardinality_conflicts(
     if want_to {
         collect_typed_conflicts(
             wtxn,
+            scope,
             NodeRef::Entity(r.to_entity),
             r.relation_type,
             /* outgoing */ false,
@@ -455,8 +492,10 @@ fn find_cardinality_conflicts(
     Ok(found)
 }
 
+#[allow(clippy::too_many_arguments)]
 fn collect_typed_conflicts(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     anchor: NodeRef,
     rel_type: RelationTypeId,
     outgoing: bool,
@@ -494,6 +533,13 @@ fn collect_typed_conflicts(
         let Some(meta) = sidecar.get(&key.disambiguator)?.map(|g| g.value()) else {
             continue;
         };
+        // Cardinality conflicts are scoped: an `acme` relation must not
+        // be superseded by (or block) a `globex` one. The shared edge
+        // table can surface a foreign-tenant edge; the sidecar scope is
+        // the wall.
+        if meta.namespace_id != scope.namespace_id || meta.agent_id_bytes != scope.agent_id_bytes {
+            continue;
+        }
         if meta.is_current() && !out.contains(&candidate) {
             out.push(candidate);
         }
@@ -513,6 +559,7 @@ fn collect_typed_conflicts(
 /// 3. one row to `RELATION_BY_EVIDENCE_TABLE` per evidence MemoryId
 fn insert_new_relation(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     r: &Relation,
     now_unix_nanos: u64,
 ) -> Result<(), RelationOpError> {
@@ -552,8 +599,8 @@ fn insert_new_relation(
         }
     }
 
-    // Sidecar.
-    let m = metadata_from_relation(r);
+    // Sidecar — carries the owning scope.
+    let m = metadata_from_relation(r, scope);
     {
         let mut t = wtxn.open_table(RELATION_METADATA_TABLE)?;
         t.insert(&r.id.to_bytes(), &m)?;
@@ -563,7 +610,15 @@ fn insert_new_relation(
     {
         let mut t = wtxn.open_table(RELATION_BY_EVIDENCE_TABLE)?;
         for mem in &r.evidence {
-            t.insert(&(mem.to_be_bytes(), r.id.to_bytes()), &())?;
+            t.insert(
+                &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
+                    mem.to_be_bytes(),
+                    r.id.to_bytes(),
+                ),
+                &(),
+            )?;
         }
     }
 
@@ -581,6 +636,9 @@ mod tests {
     use crate::relation::types::relation_type_intern;
     use brain_core::ExtractorId;
     use brain_core::{Entity, EntityType};
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -599,7 +657,7 @@ mod tests {
             1_700_000_000_000_000_000,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -614,7 +672,7 @@ mod tests {
             1_700_000_000_000_000_000,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -671,7 +729,7 @@ mod tests {
         let r = fresh_rel(t, a, b, false);
 
         let wtxn = db.write_txn().unwrap();
-        let id = relation_create(&wtxn, &r, 0).unwrap();
+        let id = relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
         assert_eq!(id, r.id);
 
@@ -691,7 +749,7 @@ mod tests {
         let r = fresh_rel(t, a, b, true);
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -708,7 +766,7 @@ mod tests {
         let t = intern_type(&mut db, "knows_self", Cardinality::ManyToMany, false);
         let r = fresh_rel(t, a, a, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
     }
 
@@ -719,7 +777,7 @@ mod tests {
         let b = make_entity(&mut db, "b-ut");
         let r = fresh_rel(RelationTypeId::from(9999), a, b, false);
         let wtxn = db.write_txn().unwrap();
-        let err = relation_create(&wtxn, &r, 0).unwrap_err();
+        let err = relation_create(&wtxn, test_scope(), &r, 0).unwrap_err();
         assert!(matches!(err, RelationOpError::UnknownRelationType(_)));
     }
 
@@ -729,7 +787,7 @@ mod tests {
         let t = intern_type(&mut db, "knows_ue", Cardinality::ManyToMany, false);
         let r = fresh_rel(t, EntityId::new(), EntityId::new(), false);
         let wtxn = db.write_txn().unwrap();
-        let err = relation_create(&wtxn, &r, 0).unwrap_err();
+        let err = relation_create(&wtxn, test_scope(), &r, 0).unwrap_err();
         assert!(matches!(err, RelationOpError::UnknownEntity(_)));
     }
 
@@ -743,12 +801,12 @@ mod tests {
 
         let r1 = fresh_rel(t, priya, alice, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let r2 = fresh_rel(t, priya, bob, false);
         let wtxn = db.write_txn().unwrap();
-        let result_id = relation_create(&wtxn, &r2, 1).unwrap();
+        let result_id = relation_create(&wtxn, test_scope(), &r2, 1).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -769,13 +827,13 @@ mod tests {
 
         let r1 = fresh_rel(t, priya, acme, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let new_employee = make_entity(&mut db, "new-employee");
         let r2 = fresh_rel(t, new_employee, acme, false);
         let wtxn = db.write_txn().unwrap();
-        let result_id = relation_create(&wtxn, &r2, 1).unwrap();
+        let result_id = relation_create(&wtxn, test_scope(), &r2, 1).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -793,8 +851,8 @@ mod tests {
         let r1 = fresh_rel(t, a, b, false);
         let r2 = fresh_rel(t, a, b, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
-        relation_create(&wtxn, &r2, 1).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r2, 1).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -813,7 +871,7 @@ mod tests {
         let r = fresh_rel(t, a, b, false);
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();
@@ -825,11 +883,11 @@ mod tests {
             current_only: true,
             ..Default::default()
         };
-        let from_a = relation_list_from(&rtxn, a, &filter).unwrap();
+        let from_a = relation_list_from(&rtxn, test_scope(), a, &filter).unwrap();
         assert!(from_a.is_empty(), "current_only excludes tombstoned");
 
         let filter_all = RelationListFilter::default();
-        let from_a_all = relation_list_from(&rtxn, a, &filter_all).unwrap();
+        let from_a_all = relation_list_from(&rtxn, test_scope(), a, &filter_all).unwrap();
         assert_eq!(from_a_all.len(), 1, "without current_only, sees tombstoned");
         assert!(from_a_all[0].tombstoned);
     }
@@ -844,7 +902,7 @@ mod tests {
 
         let r1 = fresh_rel(t, priya, alice, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let wtxn = db.write_txn().unwrap();
@@ -853,7 +911,7 @@ mod tests {
 
         let r2 = fresh_rel(t, priya, bob, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r2, 2).unwrap();
+        relation_create(&wtxn, test_scope(), &r2, 2).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -877,13 +935,13 @@ mod tests {
         let r3 = fresh_rel(t, priya, c, false);
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r2, 1).unwrap();
+        relation_create(&wtxn, test_scope(), &r2, 1).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r3, 2).unwrap();
+        relation_create(&wtxn, test_scope(), &r3, 2).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -905,8 +963,8 @@ mod tests {
         let r1 = fresh_rel(t1, a, b, false);
         let r2 = fresh_rel(t2, a, b, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r1, 0).unwrap();
-        relation_create(&wtxn, &r2, 1).unwrap();
+        relation_create(&wtxn, test_scope(), &r1, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r2, 1).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -915,7 +973,7 @@ mod tests {
             current_only: true,
             ..Default::default()
         };
-        let out = relation_list_from(&rtxn, a, &filter).unwrap();
+        let out = relation_list_from(&rtxn, test_scope(), a, &filter).unwrap();
         assert_eq!(out.len(), 1);
         assert_eq!(out[0].relation_type, t1);
     }
@@ -931,11 +989,11 @@ mod tests {
         r.evidence = vec![mem];
 
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let deps = relations_with_evidence(&rtxn, mem).unwrap();
+        let deps = relations_with_evidence(&rtxn, test_scope(), mem).unwrap();
         assert_eq!(deps, vec![r.id]);
     }
 
@@ -948,12 +1006,12 @@ mod tests {
 
         let r = fresh_rel(t, a, b, false);
         let wtxn = db.write_txn().unwrap();
-        relation_create(&wtxn, &r, 0).unwrap();
+        relation_create(&wtxn, test_scope(), &r, 0).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
         let filter = RelationListFilter::default();
-        let to_b = relation_list_to(&rtxn, b, &filter).unwrap();
+        let to_b = relation_list_to(&rtxn, test_scope(), b, &filter).unwrap();
         assert_eq!(to_b.len(), 1);
         assert_eq!(to_b[0].id, r.id);
     }

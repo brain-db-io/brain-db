@@ -19,6 +19,7 @@ use brain_metadata::entity::ops::entity_put;
 use brain_metadata::schema::predicate::predicate_intern_or_get;
 use brain_metadata::statement::{statement_create, statement_get};
 use brain_metadata::MetadataDb;
+use brain_metadata::RowScope;
 use proptest::prelude::*;
 use redb::ReadableDatabase;
 
@@ -35,6 +36,7 @@ fn put_subject(db: &redb::Database) -> EntityId {
     let wtxn = db.begin_write().unwrap();
     entity_put(
         &wtxn,
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16]),
         &Entity::new_active(id, EntityTypeId(1), "anchor".into(), "anchor".into(), T0),
     )
     .unwrap();
@@ -153,7 +155,7 @@ proptest! {
         // Write inside a wtxn and commit.
         {
             let wtxn = db.begin_write().unwrap();
-            let written = statement_create(&wtxn, &stmt, T0).expect("create");
+            let written = statement_create(&wtxn, RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16]), &stmt, T0).expect("create");
             prop_assert_eq!(written, sid);
             wtxn.commit().unwrap();
         }
@@ -227,7 +229,13 @@ fn known_text_value_roundtrips() {
     );
     {
         let wtxn = db.begin_write().unwrap();
-        statement_create(&wtxn, &stmt, T0).unwrap();
+        statement_create(
+            &wtxn,
+            RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16]),
+            &stmt,
+            T0,
+        )
+        .unwrap();
         wtxn.commit().unwrap();
     }
     let rtxn = db.begin_read().unwrap();

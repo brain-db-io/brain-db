@@ -81,6 +81,7 @@ async fn build_fixture(n_memories: usize, edges: &[(usize, EdgeKind, usize)]) ->
             ids.push(id);
             let meta = MemoryMetadata::new_active(
                 id,
+                brain_core::NamespaceId::SYSTEM,
                 agent,
                 ContextId(42),
                 (i + 1) as u64,

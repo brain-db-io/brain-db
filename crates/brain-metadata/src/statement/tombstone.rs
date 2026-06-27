@@ -31,6 +31,8 @@ pub fn statement_tombstone(
     let subject_bytes = row.subject_entity_bytes;
     let kind_byte = row.kind;
     let pred = row.predicate_id;
+    // Tear down the SAME scoped index keys the row was written under.
+    let scope = row.scope();
 
     row.tombstoned = 1;
     row.tombstoned_at_unix_nanos = Some(now_unix_nanos);
@@ -50,6 +52,7 @@ pub fn statement_tombstone(
     if was_current {
         super::crud::flip_by_subject_to_noncurrent(
             wtxn,
+            scope,
             subject_bytes,
             kind_byte,
             pred,
@@ -61,6 +64,7 @@ pub fn statement_tombstone(
         // already gone; this is then a no-op).
         super::remove_from_predicate_index(
             wtxn,
+            scope,
             pred,
             kind_byte,
             row.confidence,
@@ -107,6 +111,13 @@ mod tests {
     };
     use brain_core::{EntityId, ExtractorId, PredicateId};
 
+    fn test_scope() -> crate::tables::scope::RowScope {
+        crate::tables::scope::RowScope::from_bytes(
+            brain_core::NamespaceId::SYSTEM.raw(),
+            [0xAB; 16],
+        )
+    }
+
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
         let db = crate::MetadataDb::open(dir.path().join("md.redb")).unwrap();
@@ -123,7 +134,7 @@ mod tests {
             1_700_000_000_000_000_000,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -168,7 +179,7 @@ mod tests {
         let pred = intern_fact(&mut db, "knows");
         let s = fresh_fact(subj, pred, "lovelace");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         let tomb_now: u64 = 1_700_000_000_000_000_750;
@@ -191,24 +202,36 @@ mod tests {
         let pred = intern_fact(&mut db, "byp");
         let s = fresh_fact(subj, pred, "v"); // confidence 0.9 -> bucket 9
         let bucket = confidence_bucket(0.9);
+        let stmt_id = s.id;
+        let sid_bytes = stmt_id.to_bytes();
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
+
+        let sc = test_scope();
+        // The predicate-bucket key now carries the scope prefix + the
+        // trailing statement id (multi-value). Build the exact key.
+        let pkey = (
+            sc.namespace_id,
+            sc.agent_id_bytes,
+            pred.raw(),
+            StatementKind::Fact.as_u8(),
+            bucket,
+            sid_bytes,
+        );
 
         // Live row has a predicate-bucket entry pointing at it.
         {
             let rtxn = db.read_txn().unwrap();
             let t = rtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE).unwrap();
-            let got = t
-                .get(&(pred.raw(), StatementKind::Fact.as_u8(), bucket))
-                .unwrap();
-            assert_eq!(got.map(|g| g.value()), Some(s.id.to_bytes()));
+            let got = t.get(&pkey).unwrap();
+            assert_eq!(got.map(|g| g.value()), Some(sid_bytes));
         }
 
         let wtxn = db.write_txn().unwrap();
         statement_tombstone(
             &wtxn,
-            s.id,
+            stmt_id,
             TombstoneReason::UserRequest,
             1_700_000_000_000_000_500,
         )
@@ -218,9 +241,7 @@ mod tests {
         // Tombstoned row is gone from the predicate-bucket index.
         let rtxn = db.read_txn().unwrap();
         let t = rtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE).unwrap();
-        let got = t
-            .get(&(pred.raw(), StatementKind::Fact.as_u8(), bucket))
-            .unwrap();
+        let got = t.get(&pkey).unwrap();
         assert!(
             got.is_none(),
             "tombstone must remove the predicate-bucket entry"
@@ -236,7 +257,7 @@ mod tests {
         let pred = intern_fact(&mut db, "knows_double");
         let s = fresh_fact(subj, pred, "lovelace");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &s, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &s, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         let first: u64 = 1_700_000_000_000_000_500;

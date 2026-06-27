@@ -45,6 +45,9 @@ pub enum SystemSchemaError {
     #[error("schema_store: {0}")]
     Schema(#[from] SchemaStoreError),
 
+    #[error("namespace registry: {0}")]
+    Namespace(#[from] crate::namespace::NamespaceOpError),
+
     /// A stored `brain:` definition diverges from the embedded
     /// schema during reconciliation. Surfaced so an operator-edited
     /// `schema.brain` that breaks a prior definition (entity type,
@@ -90,6 +93,10 @@ pub fn seed_system_schema(db: &Database) -> Result<(), SystemSchemaError> {
         .unwrap_or(0);
 
     let wtxn = db.begin_write()?;
+    // Seed the reserved `brain` system namespace at id 0 so every shard
+    // has the tenant boundary's system slot present from byte zero.
+    // Idempotent on reopen.
+    crate::namespace::seed_system_namespace(&wtxn, now)?;
     match active {
         None => {
             schema_upload(&wtxn, &validated, now)?;

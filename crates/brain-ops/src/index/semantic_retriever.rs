@@ -129,6 +129,7 @@ impl BrainSemanticRetriever {
             .open_table(MEMORIES_TABLE)
             .map_err(|e| SemanticError::Internal(format!("open MEMORIES_TABLE: {e}")))?;
 
+        let namespace_id = filters.namespace_id;
         let agent_filter: HashSet<[u8; 16]> =
             filters.agent_ids.iter().map(|a| (*a).into()).collect();
         let kind_filter = filters.memory_kind.map(memory_kind_to_u8);
@@ -142,6 +143,7 @@ impl BrainSemanticRetriever {
             };
             memory_row_passes(
                 &row_guard.value(),
+                namespace_id,
                 &agent_filter,
                 kind_filter,
                 created_range.as_ref(),
@@ -174,6 +176,7 @@ impl BrainSemanticRetriever {
                             .map(|g| {
                                 memory_row_passes(
                                     &g.value(),
+                                    namespace_id,
                                     &agent_filter,
                                     kind_filter,
                                     created_range.as_ref(),
@@ -310,14 +313,20 @@ impl SemanticRetriever for BrainSemanticRetriever {
 
 /// Whether a memory row clears the active semantic filters. Shared by the
 /// direct HNSW visit closure and the HyPE-hit post-filter so both lanes
-/// apply identical agent / kind / created-range / context scoping.
+/// apply identical namespace / agent / kind / created-range / context scoping.
 fn memory_row_passes(
     row: &MemoryMetadata,
+    namespace_id: u32,
     agent_filter: &HashSet<[u8; 16]>,
     kind_filter: Option<u8>,
     created_range: Option<&std::ops::RangeInclusive<u64>>,
     context_filter: &[u64],
 ) -> bool {
+    // Tenant wall: unconditional. A row from a different namespace never
+    // surfaces in the vector lane, regardless of any other filter.
+    if row.namespace_id != namespace_id {
+        return false;
+    }
     if !agent_filter.is_empty() && !agent_filter.contains(&row.agent_id_bytes) {
         return false;
     }

@@ -34,6 +34,7 @@ use crate::tables::entity::{
     ENTITY_VECTORS_TABLE, ENTITY_VECTOR_BYTES,
 };
 use crate::tables::entity_type::ENTITY_TYPES_TABLE;
+use crate::tables::scope::RowScope;
 
 // ---------------------------------------------------------------------------
 // Errors.
@@ -140,13 +141,19 @@ pub fn entity_get(rtxn: &ReadTransaction, id: EntityId) -> Result<Option<Entity>
 /// `None`. Performs normalization internally.
 pub fn entity_lookup_by_canonical_name(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
     candidate: &str,
 ) -> Result<Option<EntityId>, EntityOpError> {
     let normalized = normalize_name(candidate);
     let t = rtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
     let bytes: Option<[u8; 16]> = t
-        .get(&(type_id.raw(), normalized.as_str()))?
+        .get(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            type_id.raw(),
+            normalized.as_str(),
+        ))?
         .map(|g| g.value());
     Ok(bytes.map(EntityId::from))
 }
@@ -161,6 +168,7 @@ pub fn entity_lookup_by_canonical_name(
 /// so this stays a high-precision resolver.
 pub fn entity_resolve_canonical_all_types(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     candidate: &str,
 ) -> Result<Vec<EntityId>, EntityOpError> {
     let type_ids: Vec<u32> = {
@@ -174,7 +182,8 @@ pub fn entity_resolve_canonical_all_types(
     };
     let mut out: Vec<EntityId> = Vec::new();
     for tid in type_ids {
-        if let Some(id) = entity_lookup_by_canonical_name(rtxn, EntityTypeId::from(tid), candidate)?
+        if let Some(id) =
+            entity_lookup_by_canonical_name(rtxn, scope, EntityTypeId::from(tid), candidate)?
         {
             if !out.contains(&id) {
                 out.push(id);
@@ -210,6 +219,7 @@ pub const READ_RESOLVE_TRIGRAM_FLOOR: f32 = 0.5;
 /// Bounded by `max_candidates` to cap the per-call trigram scan.
 pub fn entity_resolve_scored(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     surface: &str,
     max_candidates: usize,
 ) -> Result<Vec<(EntityId, f32)>, EntityOpError> {
@@ -247,10 +257,10 @@ pub fn entity_resolve_scored(
     // Tier 1 + 2: exact canonical (1.0) and alias (0.95) across all types.
     for &tid in &type_ids {
         let type_id = EntityTypeId::from(tid);
-        if let Some(id) = entity_lookup_by_canonical_name(rtxn, type_id, surface)? {
+        if let Some(id) = entity_lookup_by_canonical_name(rtxn, scope, type_id, surface)? {
             raise(id, 1.0, &mut best);
         }
-        for id in entity_lookup_by_alias(rtxn, type_id, surface)? {
+        for id in entity_lookup_by_alias(rtxn, scope, type_id, surface)? {
             raise(id, 0.95, &mut best);
         }
     }
@@ -281,7 +291,7 @@ pub fn entity_resolve_scored(
         let mut partial_supersets: Vec<EntityId> = Vec::new();
         for &tid in &type_ids {
             let type_id = EntityTypeId::from(tid);
-            for cand in candidates_for_query(rtxn, type_id, &normalized)? {
+            for cand in candidates_for_query(rtxn, scope, type_id, &normalized)? {
                 if !scanned.insert(cand) {
                     continue;
                 }
@@ -325,6 +335,7 @@ pub fn entity_resolve_scored(
 /// leaves 0-or-many to the normal type-scoped mint.
 pub fn entity_resolve_canonical_all_types_wtxn(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     candidate: &str,
 ) -> Result<Vec<EntityId>, EntityOpError> {
     let normalized = normalize_name(candidate);
@@ -343,7 +354,12 @@ pub fn entity_resolve_canonical_all_types_wtxn(
     let canon_t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
     let mut out: Vec<EntityId> = Vec::new();
     for tid in type_ids {
-        if let Some(g) = canon_t.get(&(tid, normalized.as_str()))? {
+        if let Some(g) = canon_t.get(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            tid,
+            normalized.as_str(),
+        ))? {
             let id = EntityId::from(g.value());
             if !out.contains(&id) {
                 out.push(id);
@@ -359,21 +375,38 @@ pub fn entity_resolve_canonical_all_types_wtxn(
 /// types" plus within-type duplicates).
 pub fn entity_lookup_by_alias(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
     candidate: &str,
 ) -> Result<Vec<EntityId>, EntityOpError> {
     let normalized = normalize_name(candidate);
     let t = rtxn.open_table(ENTITY_ALIASES_TABLE)?;
-    let lo = (type_id.raw(), normalized.as_str(), [0u8; 16]);
-    let hi = (type_id.raw(), normalized.as_str(), [0xFFu8; 16]);
+    let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        type_id.raw(),
+        normalized.as_str(),
+        [0u8; 16],
+    );
+    let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
+        type_id.raw(),
+        normalized.as_str(),
+        [0xFFu8; 16],
+    );
     let mut out = Vec::new();
     for entry in t.range(lo..=hi)? {
         let (k, _) = entry?;
-        let (k_type, k_alias, k_id) = k.value();
-        // Defensive guard: range bounds carry the same type+alias, so
-        // any entry inside the range must match both. Skip otherwise
-        // to be robust against future key-shape changes.
-        if k_type == type_id.raw() && k_alias == normalized {
+        let (k_ns, k_agent, k_type, k_alias, k_id) = k.value();
+        // Defensive guard: range bounds carry the same scope+type+alias,
+        // so any entry inside the range must match all. Skip otherwise to
+        // be robust against future key-shape changes.
+        if k_ns == scope.namespace_id
+            && k_agent == scope.agent_id_bytes
+            && k_type == type_id.raw()
+            && k_alias == normalized
+        {
             out.push(EntityId::from(k_id));
         }
     }
@@ -386,6 +419,7 @@ pub fn entity_lookup_by_alias(
 /// form.
 pub fn entity_list_by_type(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     type_id: EntityTypeId,
 ) -> Result<Vec<Entity>, EntityOpError> {
     let t = rtxn.open_table(ENTITIES_TABLE)?;
@@ -393,7 +427,13 @@ pub fn entity_list_by_type(
     for entry in t.iter()? {
         let (_, v) = entry?;
         let m = v.value();
-        if m.entity_type_id == type_id.raw() {
+        // Tenant wall (unconditional): a list never crosses the caller's
+        // `(namespace, agent)`. The primary table is a flat keyspace
+        // shared across tenants, so the scope check is what isolates it.
+        if m.namespace_id == scope.namespace_id
+            && m.agent_id_bytes == scope.agent_id_bytes
+            && m.entity_type_id == type_id.raw()
+        {
             out.push((&m).into());
         }
     }
@@ -526,16 +566,27 @@ pub fn entity_iter_all_live_with_vectors(
 ///   EntityId.
 ///
 /// Does NOT write trigrams or HNSW embedding.
-pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), EntityOpError> {
+pub fn entity_put(
+    wtxn: &WriteTransaction,
+    scope: RowScope,
+    entity: &Entity,
+) -> Result<(), EntityOpError> {
     require_entity_type_exists(wtxn, entity.entity_type)?;
 
     let normalized = normalize_name(&entity.canonical_name);
-    // Reject duplicate canonical_name within the same type. This index
-    // is keyed single-value; collisions are almost-always caller bugs.
+    // Reject duplicate canonical_name within the same (scope, type). The
+    // index is keyed single-value PER SCOPE; the same name under a
+    // different `(namespace, agent)` is a distinct entity, not a
+    // collision.
     {
         let t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
         let existing: Option<[u8; 16]> = t
-            .get(&(entity.entity_type.raw(), normalized.as_str()))?
+            .get(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                entity.entity_type.raw(),
+                normalized.as_str(),
+            ))?
             .map(|g| g.value());
         if let Some(bytes) = existing {
             return Err(EntityOpError::DuplicateCanonicalName {
@@ -546,8 +597,8 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
         }
     }
 
-    // Primary row.
-    let mut m: EntityMetadata = entity.into();
+    // Primary row — carries the owning scope.
+    let mut m = EntityMetadata::from_entity(entity, scope);
     // Make sure the on-disk normalized_name matches what we just
     // computed (the caller may have passed a different form;
     // normalize is canonical).
@@ -561,7 +612,12 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
     {
         let mut t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
         t.insert(
-            &(entity.entity_type.raw(), normalized.as_str()),
+            &(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                entity.entity_type.raw(),
+                normalized.as_str(),
+            ),
             &m.entity_id_bytes,
         )?;
     }
@@ -572,7 +628,13 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
         for alias in &entity.aliases {
             let na = normalize_name(alias);
             t.insert(
-                &(entity.entity_type.raw(), na.as_str(), m.entity_id_bytes),
+                &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
+                    entity.entity_type.raw(),
+                    na.as_str(),
+                    m.entity_id_bytes,
+                ),
                 &(),
             )?;
         }
@@ -582,7 +644,13 @@ pub fn entity_put(wtxn: &WriteTransaction, entity: &Entity) -> Result<(), Entity
     // to the entity's trigram set.
     let trigrams =
         crate::entity::trigram::trigrams_of_components(&entity.canonical_name, &entity.aliases);
-    crate::entity::trigram::index_entity_trigrams(wtxn, entity.entity_type, entity.id, &trigrams)?;
+    crate::entity::trigram::index_entity_trigrams(
+        wtxn,
+        scope,
+        entity.entity_type,
+        entity.id,
+        &trigrams,
+    )?;
 
     Ok(())
 }
@@ -612,6 +680,11 @@ pub fn entity_update(
 
     require_entity_type_exists(wtxn, new_state.entity_type)?;
 
+    // The entity's owning scope is immutable; reuse the one stamped on
+    // the existing row so the rewritten secondary-index keys stay in the
+    // same tenant keyspace (an update can never re-home a row).
+    let scope = current.scope();
+
     let mut next = new_state.clone();
     next.updated_at_unix_nanos = now_unix_nanos;
 
@@ -631,9 +704,19 @@ pub fn entity_update(
 
         // Update canonical-name index.
         let mut t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
-        t.remove(&(current.entity_type_id, normalized_old.as_str()))?;
+        t.remove(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            current.entity_type_id,
+            normalized_old.as_str(),
+        ))?;
         let existing: Option<[u8; 16]> = t
-            .get(&(next.entity_type.raw(), normalized_new.as_str()))?
+            .get(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                next.entity_type.raw(),
+                normalized_new.as_str(),
+            ))?
             .map(|g| g.value());
         if let Some(bytes) = existing {
             return Err(EntityOpError::DuplicateCanonicalName {
@@ -643,7 +726,12 @@ pub fn entity_update(
             });
         }
         t.insert(
-            &(next.entity_type.raw(), normalized_new.as_str()),
+            &(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                next.entity_type.raw(),
+                normalized_new.as_str(),
+            ),
             &next.id.to_bytes(),
         )?;
     }
@@ -656,6 +744,8 @@ pub fn entity_update(
         let mut t = wtxn.open_table(ENTITY_ALIASES_TABLE)?;
         for removed in old_norms.difference(&new_norms) {
             t.remove(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
                 current.entity_type_id,
                 removed.as_str(),
                 current.entity_id_bytes,
@@ -663,7 +753,13 @@ pub fn entity_update(
         }
         for added in new_norms.difference(&old_norms) {
             t.insert(
-                &(next.entity_type.raw(), added.as_str(), next.id.to_bytes()),
+                &(
+                    scope.namespace_id,
+                    scope.agent_id_bytes,
+                    next.entity_type.raw(),
+                    added.as_str(),
+                    next.id.to_bytes(),
+                ),
                 &(),
             )?;
         }
@@ -683,14 +779,15 @@ pub fn entity_update(
         new_trigrams.difference(&old_trigrams).copied().collect();
     crate::entity::trigram::remove_entity_trigrams(
         wtxn,
+        scope,
         current.entity_type(),
         current.entity_id(),
         &to_remove,
     )?;
-    crate::entity::trigram::index_entity_trigrams(wtxn, next.entity_type, next.id, &to_add)?;
+    crate::entity::trigram::index_entity_trigrams(wtxn, scope, next.entity_type, next.id, &to_add)?;
 
-    // Write back primary row.
-    let mut m: EntityMetadata = (&next).into();
+    // Write back primary row — re-stamp the immutable owning scope.
+    let mut m = EntityMetadata::from_entity(&next, scope);
     m.normalized_name = normalized_new;
     {
         let mut t = wtxn.open_table(ENTITIES_TABLE)?;
@@ -761,19 +858,33 @@ pub fn entity_tombstone(
     now_unix_nanos: u64,
 ) -> Result<(), EntityOpError> {
     let current = read_entity_inside_wtxn(wtxn, id)?.ok_or(EntityOpError::NotFound(id))?;
+    // Tear down the SAME scoped keys that `entity_put` / `entity_update`
+    // wrote — the owning scope is on the row.
+    let scope = current.scope();
 
     // Tear down exact-name index.
     let normalized = normalize_name(&current.canonical_name);
     {
         let mut t = wtxn.open_table(ENTITY_BY_CANONICAL_NAME_TABLE)?;
-        t.remove(&(current.entity_type_id, normalized.as_str()))?;
+        t.remove(&(
+            scope.namespace_id,
+            scope.agent_id_bytes,
+            current.entity_type_id,
+            normalized.as_str(),
+        ))?;
     }
     // Tear down alias index (one row per alias).
     {
         let mut t = wtxn.open_table(ENTITY_ALIASES_TABLE)?;
         for alias in &current.aliases {
             let na = normalize_name(alias);
-            t.remove(&(current.entity_type_id, na.as_str(), current.entity_id_bytes))?;
+            t.remove(&(
+                scope.namespace_id,
+                scope.agent_id_bytes,
+                current.entity_type_id,
+                na.as_str(),
+                current.entity_id_bytes,
+            ))?;
         }
     }
     // Tear down trigram index (one row per trigram in the entity's
@@ -785,6 +896,7 @@ pub fn entity_tombstone(
         );
         crate::entity::trigram::remove_entity_trigrams(
             wtxn,
+            scope,
             current.entity_type(),
             current.entity_id(),
             &trigrams,
@@ -857,6 +969,10 @@ mod tests {
     const NOW: u64 = 1_700_000_000_000_000_000;
     const LATER: u64 = NOW + 60_000_000_000; // +1 minute
 
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
+
     fn db_path(dir: &TempDir) -> PathBuf {
         dir.path().join("metadata.redb")
     }
@@ -924,13 +1040,14 @@ mod tests {
         let id = aspirin.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &aspirin).unwrap();
+            entity_put(&wtxn, test_scope(), &aspirin).unwrap();
             wtxn.commit().unwrap();
         }
         let wtxn = db.write_txn().unwrap();
-        let hits = entity_resolve_canonical_all_types_wtxn(&wtxn, "Aspirin").unwrap();
+        let hits = entity_resolve_canonical_all_types_wtxn(&wtxn, test_scope(), "Aspirin").unwrap();
         assert_eq!(hits, vec![id], "single cross-type match is reused");
-        let none = entity_resolve_canonical_all_types_wtxn(&wtxn, "ibuprofen").unwrap();
+        let none =
+            entity_resolve_canonical_all_types_wtxn(&wtxn, test_scope(), "ibuprofen").unwrap();
         assert!(none.is_empty(), "no match → caller mints fresh");
     }
 
@@ -953,7 +1070,7 @@ mod tests {
         let id = e.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -968,16 +1085,16 @@ mod tests {
         let e = person_entity("Priya Patel");
         let id = e.id;
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
         // Resolves by canonical name across all types — no type hint, and
         // normalization folds the casing.
-        let ids = entity_resolve_canonical_all_types(&rtxn, "priya patel").unwrap();
+        let ids = entity_resolve_canonical_all_types(&rtxn, test_scope(), "priya patel").unwrap();
         assert_eq!(ids, vec![id]);
         // A name no entity carries resolves to nothing.
-        let none = entity_resolve_canonical_all_types(&rtxn, "Nobody Here").unwrap();
+        let none = entity_resolve_canonical_all_types(&rtxn, test_scope(), "Nobody Here").unwrap();
         assert!(none.is_empty());
     }
 
@@ -992,12 +1109,13 @@ mod tests {
         let id = e.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
         for alias in ["priya", "p. patel", "priya p."] {
-            let ids = entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, alias).unwrap();
+            let ids =
+                entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, alias).unwrap();
             assert!(ids.contains(&id), "alias {alias:?} missing from index");
         }
     }
@@ -1010,7 +1128,7 @@ mod tests {
         e.entity_type = EntityTypeId(99);
 
         let wtxn = db.write_txn().unwrap();
-        let err = entity_put(&wtxn, &e).expect_err("should reject");
+        let err = entity_put(&wtxn, test_scope(), &e).expect_err("should reject");
         assert!(matches!(
             err,
             EntityOpError::UnknownEntityType(t) if t == EntityTypeId(99)
@@ -1028,8 +1146,8 @@ mod tests {
         b.id = b_id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &a).unwrap();
-        let err = entity_put(&wtxn, &b).expect_err("dup");
+        entity_put(&wtxn, test_scope(), &a).unwrap();
+        let err = entity_put(&wtxn, test_scope(), &b).expect_err("dup");
         match err {
             EntityOpError::DuplicateCanonicalName {
                 type_id,
@@ -1055,17 +1173,24 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         let rtxn = db.read_txn().unwrap();
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "PRIYA  PATEL").unwrap(),
+            entity_lookup_by_canonical_name(
+                &rtxn,
+                test_scope(),
+                EntityType::PERSON_ID,
+                "PRIYA  PATEL"
+            )
+            .unwrap(),
             Some(id),
             "lookup must normalize the candidate"
         );
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "nope").unwrap(),
+            entity_lookup_by_canonical_name(&rtxn, test_scope(), EntityType::PERSON_ID, "nope")
+                .unwrap(),
             None
         );
     }
@@ -1082,12 +1207,13 @@ mod tests {
         let (a_id, b_id) = (a.id, b.id);
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &a).unwrap();
-        entity_put(&wtxn, &b).unwrap();
+        entity_put(&wtxn, test_scope(), &a).unwrap();
+        entity_put(&wtxn, test_scope(), &b).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
-        let mut ids = entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "priya").unwrap();
+        let mut ids =
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "priya").unwrap();
         ids.sort();
         let mut expected = vec![a_id, b_id];
         expected.sort();
@@ -1109,14 +1235,14 @@ mod tests {
         let fuzzy_id = fuzzy.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &exact).unwrap();
-        entity_put(&wtxn, &fuzzy).unwrap();
+        entity_put(&wtxn, test_scope(), &exact).unwrap();
+        entity_put(&wtxn, test_scope(), &fuzzy).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
 
         // Exact canonical → 1.0, ranked first.
-        let scored = entity_resolve_scored(&rtxn, "Priya Patel", 8).unwrap();
+        let scored = entity_resolve_scored(&rtxn, test_scope(), "Priya Patel", 8).unwrap();
         assert_eq!(scored.first().map(|(id, _)| *id), Some(exact_id));
         assert!((scored[0].1 - 1.0).abs() < f32::EPSILON);
         // The near-miss also surfaces via the trigram tier, below the exact.
@@ -1126,7 +1252,7 @@ mod tests {
         );
 
         // Alias resolves to 0.95.
-        let by_alias = entity_resolve_scored(&rtxn, "PP", 8).unwrap();
+        let by_alias = entity_resolve_scored(&rtxn, test_scope(), "PP", 8).unwrap();
         assert!(
             by_alias
                 .iter()
@@ -1135,7 +1261,7 @@ mod tests {
         );
 
         // A surface with no canonical/alias/trigram overlap resolves to nothing.
-        assert!(entity_resolve_scored(&rtxn, "Zzxqwv", 8)
+        assert!(entity_resolve_scored(&rtxn, test_scope(), "Zzxqwv", 8)
             .unwrap()
             .is_empty());
     }
@@ -1152,12 +1278,12 @@ mod tests {
         let full_id = full.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &full).unwrap();
+            entity_put(&wtxn, test_scope(), &full).unwrap();
             wtxn.commit().unwrap();
         }
 
         let rtxn = db.read_txn().unwrap();
-        let scored = entity_resolve_scored(&rtxn, "Niraj", 8).unwrap();
+        let scored = entity_resolve_scored(&rtxn, test_scope(), "Niraj", 8).unwrap();
         let hit = scored.iter().find(|(id, _)| *id == full_id);
         assert!(
             hit.is_some(),
@@ -1181,13 +1307,13 @@ mod tests {
         let (smith_id, doe_id) = (smith.id, doe.id);
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &smith).unwrap();
-            entity_put(&wtxn, &doe).unwrap();
+            entity_put(&wtxn, test_scope(), &smith).unwrap();
+            entity_put(&wtxn, test_scope(), &doe).unwrap();
             wtxn.commit().unwrap();
         }
 
         let rtxn = db.read_txn().unwrap();
-        let scored = entity_resolve_scored(&rtxn, "John", 8).unwrap();
+        let scored = entity_resolve_scored(&rtxn, test_scope(), "John", 8).unwrap();
         assert!(
             !scored.iter().any(
                 |(id, s)| (*id == smith_id || *id == doe_id) && (*s - 0.9).abs() < f32::EPSILON
@@ -1207,7 +1333,7 @@ mod tests {
         let original_embedding_version = e.embedding_version;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -1230,11 +1356,23 @@ mod tests {
 
         // Old name no longer in canonical-name index; new name is.
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya Patel").unwrap(),
+            entity_lookup_by_canonical_name(
+                &rtxn,
+                test_scope(),
+                EntityType::PERSON_ID,
+                "Priya Patel"
+            )
+            .unwrap(),
             None
         );
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya Singh").unwrap(),
+            entity_lookup_by_canonical_name(
+                &rtxn,
+                test_scope(),
+                EntityType::PERSON_ID,
+                "Priya Singh"
+            )
+            .unwrap(),
             Some(id)
         );
     }
@@ -1248,7 +1386,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
 
@@ -1263,15 +1401,17 @@ mod tests {
         }
 
         let rtxn = db.read_txn().unwrap();
-        assert!(entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "a")
-            .unwrap()
-            .is_empty());
+        assert!(
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "a")
+                .unwrap()
+                .is_empty()
+        );
         assert_eq!(
-            entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "b").unwrap(),
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "b").unwrap(),
             vec![id]
         );
         assert_eq!(
-            entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "c").unwrap(),
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "c").unwrap(),
             vec![id]
         );
     }
@@ -1285,7 +1425,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1308,7 +1448,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1319,9 +1459,11 @@ mod tests {
         let rtxn = db.read_txn().unwrap();
         let got = entity_get(&rtxn, id).unwrap().unwrap();
         assert_eq!(got.aliases, vec!["Y".to_string()]);
-        assert!(entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "x")
-            .unwrap()
-            .is_empty());
+        assert!(
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "x")
+                .unwrap()
+                .is_empty()
+        );
     }
 
     // ----- tombstone -----------------------------------------------------
@@ -1335,7 +1477,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1346,11 +1488,17 @@ mod tests {
         let rtxn = db.read_txn().unwrap();
         // Indexes empty.
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya Patel").unwrap(),
+            entity_lookup_by_canonical_name(
+                &rtxn,
+                test_scope(),
+                EntityType::PERSON_ID,
+                "Priya Patel"
+            )
+            .unwrap(),
             None
         );
         assert!(
-            entity_lookup_by_alias(&rtxn, EntityType::PERSON_ID, "priya")
+            entity_lookup_by_alias(&rtxn, test_scope(), EntityType::PERSON_ID, "priya")
                 .unwrap()
                 .is_empty()
         );
@@ -1369,7 +1517,7 @@ mod tests {
         let id1 = e1.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e1).unwrap();
+            entity_put(&wtxn, test_scope(), &e1).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1382,13 +1530,19 @@ mod tests {
         let id2 = e2.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e2).unwrap();
+            entity_put(&wtxn, test_scope(), &e2).unwrap();
             wtxn.commit().unwrap();
         }
         assert_ne!(id1, id2);
         let rtxn = db.read_txn().unwrap();
         assert_eq!(
-            entity_lookup_by_canonical_name(&rtxn, EntityType::PERSON_ID, "Priya Patel").unwrap(),
+            entity_lookup_by_canonical_name(
+                &rtxn,
+                test_scope(),
+                EntityType::PERSON_ID,
+                "Priya Patel"
+            )
+            .unwrap(),
             Some(id2)
         );
     }
@@ -1420,16 +1574,16 @@ mod tests {
 
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &p1).unwrap();
-            entity_put(&wtxn, &p2).unwrap();
-            entity_put(&wtxn, &proj).unwrap();
+            entity_put(&wtxn, test_scope(), &p1).unwrap();
+            entity_put(&wtxn, test_scope(), &p2).unwrap();
+            entity_put(&wtxn, test_scope(), &proj).unwrap();
             wtxn.commit().unwrap();
         }
 
         let rtxn = db.read_txn().unwrap();
-        let persons = entity_list_by_type(&rtxn, EntityType::PERSON_ID).unwrap();
+        let persons = entity_list_by_type(&rtxn, test_scope(), EntityType::PERSON_ID).unwrap();
         assert_eq!(persons.len(), 2);
-        let projects = entity_list_by_type(&rtxn, EntityTypeId(7)).unwrap();
+        let projects = entity_list_by_type(&rtxn, test_scope(), EntityTypeId(7)).unwrap();
         assert_eq!(projects.len(), 1);
         assert_eq!(projects[0].canonical_name, "ProjectOne");
     }
@@ -1444,8 +1598,8 @@ mod tests {
         let bob_id = bob.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &alice).unwrap();
-            entity_put(&wtxn, &bob).unwrap();
+            entity_put(&wtxn, test_scope(), &alice).unwrap();
+            entity_put(&wtxn, test_scope(), &bob).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1472,14 +1626,16 @@ mod tests {
         let id = e.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
         // Every trigram of the normalized canonical_name resolves back
         // to the inserted EntityId.
         for tg in extract_trigrams("priya patel") {
-            let cands = lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, tg).unwrap();
+            let cands =
+                lookup_candidates_by_trigram(&rtxn, test_scope(), EntityType::PERSON_ID, tg)
+                    .unwrap();
             assert!(
                 cands.contains(&id),
                 "trigram {tg:?} not in index for inserted entity"
@@ -1497,7 +1653,7 @@ mod tests {
         let id = e.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1510,7 +1666,9 @@ mod tests {
             .copied()
             .next()
             .expect("alias contributes trigrams the canonical lacks");
-        let cands = lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, alias_only).unwrap();
+        let cands =
+            lookup_candidates_by_trigram(&rtxn, test_scope(), EntityType::PERSON_ID, alias_only)
+                .unwrap();
         assert!(cands.contains(&id));
     }
 
@@ -1523,7 +1681,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1541,7 +1699,7 @@ mod tests {
             .next()
             .expect("bravo has trigrams");
         assert!(
-            lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, bravo_tg)
+            lookup_candidates_by_trigram(&rtxn, test_scope(), EntityType::PERSON_ID, bravo_tg)
                 .unwrap()
                 .contains(&id)
         );
@@ -1553,7 +1711,7 @@ mod tests {
             .next()
             .expect("alpha has trigrams");
         assert!(
-            lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, alpha_tg)
+            lookup_candidates_by_trigram(&rtxn, test_scope(), EntityType::PERSON_ID, alpha_tg)
                 .unwrap()
                 .contains(&id),
             "alpha trigrams should remain (moved to aliases on rename)"
@@ -1570,7 +1728,7 @@ mod tests {
         let id = e.id;
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
         }
         {
@@ -1581,7 +1739,9 @@ mod tests {
         let rtxn = db.read_txn().unwrap();
         // No trigram of the original entity surfaces it.
         for tg in [*b"pri", *b"riy", *b"pat", *b"tel"] {
-            let cands = lookup_candidates_by_trigram(&rtxn, EntityType::PERSON_ID, tg).unwrap();
+            let cands =
+                lookup_candidates_by_trigram(&rtxn, test_scope(), EntityType::PERSON_ID, tg)
+                    .unwrap();
             assert!(
                 !cands.contains(&id),
                 "tombstoned entity surfaced via trigram {tg:?}"
@@ -1608,7 +1768,7 @@ mod tests {
         let v = fixture_vector(0.5);
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         entity_vector_put(&wtxn, id, &v).unwrap();
         wtxn.commit().unwrap();
 
@@ -1630,7 +1790,7 @@ mod tests {
         let id = e.id;
 
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1651,9 +1811,9 @@ mod tests {
 
         {
             let wtxn = db.write_txn().unwrap();
-            entity_put(&wtxn, &with_vec).unwrap();
+            entity_put(&wtxn, test_scope(), &with_vec).unwrap();
             entity_vector_put(&wtxn, id_with, &v).unwrap();
-            entity_put(&wtxn, &without_vec).unwrap();
+            entity_put(&wtxn, test_scope(), &without_vec).unwrap();
             wtxn.commit().unwrap();
         }
 

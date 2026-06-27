@@ -24,6 +24,7 @@ use brain_core::{
 use brain_core::{Relation, Statement, StatementKind, StatementObject, SubjectRef};
 use brain_metadata::relation::ops::{relation_create, RelationOpError};
 use brain_metadata::statement::{pack_evidence_ids, statement_create, StatementOpError};
+use brain_metadata::RowScope;
 use redb::WriteTransaction;
 
 /// What the worker hands to [`statement_create_internal`]. Mirrors
@@ -77,6 +78,7 @@ pub struct RelationCreatePayload {
 /// [`statement_create`]. Returns the newly-allocated `StatementId`.
 pub fn statement_create_internal(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     payload: &StatementCreatePayload,
 ) -> Result<StatementId, StatementOpError> {
     let id = StatementId::new();
@@ -107,13 +109,14 @@ pub fn statement_create_internal(
     if payload.kind == StatementKind::Event {
         s.event_at_unix_nanos = payload.event_at_unix_nanos;
     }
-    statement_create(wtxn, &s, payload.extracted_at_unix_nanos)
+    statement_create(wtxn, scope, &s, payload.extracted_at_unix_nanos)
 }
 
 /// Build a `Relation` value from `payload` and call
 /// [`relation_create`]. Returns the newly-allocated `RelationId`.
 pub fn relation_create_internal(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     payload: &RelationCreatePayload,
 ) -> Result<RelationId, RelationOpError> {
     let id = RelationId::new();
@@ -128,7 +131,7 @@ pub fn relation_create_internal(
         payload.extracted_at_unix_nanos,
         payload.is_symmetric,
     );
-    relation_create(wtxn, &r, payload.extracted_at_unix_nanos)
+    relation_create(wtxn, scope, &r, payload.extracted_at_unix_nanos)
 }
 
 // ---------------------------------------------------------------------------
@@ -151,6 +154,10 @@ mod tests {
 
     const NOW: u64 = 1_700_000_000_000_000_000;
 
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xA1; 16])
+    }
+
     fn put_person(db: &mut MetadataDb, canonical: &str) -> EntityId {
         let e = brain_core::Entity::new_active(
             EntityId::new(),
@@ -161,7 +168,7 @@ mod tests {
         );
         let id = e.id;
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -190,7 +197,7 @@ mod tests {
                 is_stateful: false,
                 event_at_unix_nanos: None,
             };
-            let sid = statement_create_internal(&wtxn, &payload).unwrap();
+            let sid = statement_create_internal(&wtxn, test_scope(), &payload).unwrap();
             wtxn.commit().unwrap();
             (pid, sid)
         };
@@ -221,7 +228,7 @@ mod tests {
                 NOW,
             );
             let id = e.id;
-            entity_put(&wtxn, &e).unwrap();
+            entity_put(&wtxn, test_scope(), &e).unwrap();
             wtxn.commit().unwrap();
             id
         };
@@ -238,7 +245,7 @@ mod tests {
                 is_symmetric: false,
                 extracted_at_unix_nanos: NOW,
             };
-            let rid = relation_create_internal(&wtxn, &payload).unwrap();
+            let rid = relation_create_internal(&wtxn, test_scope(), &payload).unwrap();
             wtxn.commit().unwrap();
             rid
         };

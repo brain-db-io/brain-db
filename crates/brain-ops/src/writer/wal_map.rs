@@ -61,6 +61,11 @@ use crate::write::{Phase, SupersedeReplacement, SupersedeTarget, TombstoneTarget
 /// the WAL sink.
 #[must_use]
 pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> {
+    // The WAL body carries the fully-stamped metadata row so recovery
+    // re-persists it byte-identically; the row's `(namespace, agent)`
+    // scope therefore must be stamped here from the same `Write` the
+    // live apply path uses.
+    let scope = brain_metadata::RowScope::new(write.namespace, write.agent_id);
     match phase {
         // content_hash isn't an EncodePayload field — the WAL doesn't
         // ship it inline; recovery reconstructs the FINGERPRINTS_TABLE
@@ -230,7 +235,7 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
         // so the WAL row matches what apply persists.
         Phase::UpsertEntity { .. } => {
             let e = entity_from_upsert_phase(phase)?;
-            let meta = EntityMetadata::from(&e);
+            let meta = EntityMetadata::from_entity(&e, scope);
             let body = encode_entity_create(&meta);
             Some(WalPayload::PhaseBody(PhaseBodyRecord::new(
                 WalRecordKind::EntityCreate,
@@ -250,7 +255,7 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
         } => {
             let s = statement_from_upsert_phase(phase, *predicate)?;
             let body = encode_statement_create(&StatementCreateBody {
-                meta: metadata_from_statement(&s),
+                meta: metadata_from_statement(&s, scope),
                 predicate_intern_hint: predicate_intern_hint.clone(),
             });
             Some(WalPayload::PhaseBody(PhaseBodyRecord::new(
@@ -271,7 +276,7 @@ pub fn phase_to_wal_payload(phase: &Phase, write: &Write) -> Option<WalPayload> 
         } => {
             let body = encode_statement_supersede(&StatementSupersedeBody {
                 old_id: old_id.to_bytes(),
-                new: metadata_from_statement(new_statement.as_ref()),
+                new: metadata_from_statement(new_statement.as_ref(), scope),
                 at_unix_nanos: *at_unix_nanos,
             });
             Some(WalPayload::PhaseBody(PhaseBodyRecord::new(

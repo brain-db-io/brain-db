@@ -66,6 +66,18 @@ pub struct RetrievalExecutorContext {
     pub lexical: Arc<dyn LexicalRetriever>,
     pub graph: Arc<dyn GraphRetriever>,
     pub metadata: Arc<MetadataDb>,
+    /// The authenticated caller's namespace (tenant) for this request. The
+    /// semantic vector lane stamps it onto `SemanticFilters` so the HNSW
+    /// visit closure admits only rows belonging to this namespace — the
+    /// tenant wall is unconditional and has no widening escape.
+    pub caller_namespace: u32,
+    /// The authenticated caller's agent (app) — the inner wall. Paired
+    /// with `caller_namespace` it forms the `(namespace, agent)`
+    /// [`RowScope`] under which every typed-graph read (entity anchor
+    /// resolution, relation-graph expansion) is constrained: a query as
+    /// `acme/chatbot` can never anchor on or expand into `acme/research`'s
+    /// or `globex`'s typed-graph rows.
+    pub caller_agent: brain_core::AgentId,
     /// Off-core cross-encoder handle for the always-on rerank pass.
     /// When `Some`, the executor reranks the top fused candidates on
     /// every query — there is no per-request opt-in. The forward pass
@@ -74,6 +86,15 @@ pub struct RetrievalExecutorContext {
     /// `config.rerank.enabled = false`, or no model is on disk) the
     /// rerank stage is skipped and RRF order wins. No error either way.
     pub cross_encoder: Option<Arc<RerankService>>,
+}
+
+impl RetrievalExecutorContext {
+    /// The caller's `(namespace, agent)` [`RowScope`] — the unconditional
+    /// wall threaded into every typed-graph read on the retrieval path.
+    #[must_use]
+    pub fn caller_scope(&self) -> brain_metadata::RowScope {
+        brain_metadata::RowScope::from_bytes(self.caller_namespace, self.caller_agent.into())
+    }
 }
 
 /// Final retrieval-query result.
@@ -251,7 +272,9 @@ fn resolve_cue_anchor(
     let rtxn = ctx.metadata.read_txn().ok()?;
     let mut resolved: Option<EntityId> = None;
     for cue in &cues {
-        let ids = brain_metadata::entity_resolve_canonical_all_types(&rtxn, cue).ok()?;
+        let ids =
+            brain_metadata::entity_resolve_canonical_all_types(&rtxn, ctx.caller_scope(), cue)
+                .ok()?;
         for id in ids {
             match resolved {
                 None => resolved = Some(id),
@@ -808,7 +831,11 @@ fn invoke_semantic(
         ));
     };
 
-    let mut filters = SemanticFilters::default();
+    // Tenant wall: the vector lane admits only rows in the caller's namespace.
+    let mut filters = SemanticFilters {
+        namespace_id: ctx.caller_namespace,
+        ..SemanticFilters::default()
+    };
     apply_pre_filter_to_semantic(&planned.pre_filter, &mut filters);
     // Front-gate scope: when the caller specified a context filter,
     // restrict every HNSW visit to that context set. The semantic
@@ -1100,7 +1127,9 @@ fn maybe_apply_graph_expansion(
     let mut anchors: Vec<EntityId> = Vec::new();
     let mut visited: HashSet<EntityId> = HashSet::new();
     for cue in crate::retrieval::router::entity_cue_candidates(text) {
-        if let Ok(scored) = brain_metadata::entity_resolve_scored(&rtxn, &cue, 5) {
+        if let Ok(scored) =
+            brain_metadata::entity_resolve_scored(&rtxn, ctx.caller_scope(), &cue, 5)
+        {
             for (id, score) in scored {
                 if score >= ANCHOR_FLOOR && visited.insert(id) {
                     anchors.push(id);
@@ -1126,10 +1155,14 @@ fn maybe_apply_graph_expansion(
         let mut next: Vec<EntityId> = Vec::new();
         for &node in &frontier {
             let mut neighbors: Vec<EntityId> = Vec::new();
-            if let Ok(out) = brain_metadata::relation_list_from(&rtxn, node, &filter) {
+            if let Ok(out) =
+                brain_metadata::relation_list_from(&rtxn, ctx.caller_scope(), node, &filter)
+            {
                 neighbors.extend(out.iter().map(|r| r.to_entity));
             }
-            if let Ok(inc) = brain_metadata::relation_list_to(&rtxn, node, &filter) {
+            if let Ok(inc) =
+                brain_metadata::relation_list_to(&rtxn, ctx.caller_scope(), node, &filter)
+            {
                 neighbors.extend(inc.iter().map(|r| r.from_entity));
             }
             for other in neighbors.into_iter().take(GRAPH_EXPANSION_FANOUT) {
@@ -1481,6 +1514,10 @@ fn invoke_graph(
         max_depth: *max_depth,
         max_branching: *max_branching,
         timeout_ms: *timeout_ms,
+        // Tenant wall: the graph lane walks only the caller's
+        // `(namespace, agent)` typed-graph rows.
+        caller_namespace: ctx.caller_namespace,
+        caller_agent_bytes: ctx.caller_agent.into(),
     };
 
     match anchor_mode {

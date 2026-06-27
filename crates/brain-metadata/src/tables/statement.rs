@@ -14,8 +14,10 @@
 //! `StatementObject` encoding is done via a private rkyv shim.
 
 use crate::impl_redb_rkyv_value;
+use crate::tables::scope::RowScope;
 use brain_core::{
-    EntityId, EvidenceOverflowId, ExtractorId, MemoryId, PredicateId, StatementId, StatementKind,
+    AgentId, EntityId, EvidenceOverflowId, ExtractorId, MemoryId, NamespaceId, PredicateId,
+    StatementId, StatementKind,
 };
 use brain_core::{
     EvidenceEntry, EvidenceRef, Statement, StatementObject, StatementValue, SubjectRef,
@@ -27,12 +29,18 @@ use smallvec::SmallVec;
 // ---------------------------------------------------------------------------
 // Tables.
 // ---------------------------------------------------------------------------
+//
+// Every secondary index carries a LEADING `(namespace_id,
+// agent_id_bytes)` scope prefix so a range scan for one `(namespace,
+// agent)` can physically never traverse another tenant's rows. The
+// primary `STATEMENTS_TABLE` stays keyed by `StatementId`; the scope
+// lives on the row.
 
 pub const STATEMENTS_TABLE: TableDefinition<'static, [u8; 16], StatementMetadata> =
     TableDefinition::new("statements");
 
-/// `(EntityId, kind, predicate_id, is_current, statement_id)` →
-/// `StatementId.to_bytes()`.
+/// `(namespace_id, agent_id_bytes, EntityId, kind, predicate_id,
+/// is_current, statement_id)` → `StatementId.to_bytes()`.
 ///
 /// Multi-value index: the statement id is appended to the key so every
 /// statement is its own row. Two Set-valued statements sharing
@@ -44,34 +52,61 @@ pub const STATEMENTS_TABLE: TableDefinition<'static, [u8; 16], StatementMetadata
 #[allow(clippy::type_complexity)] // a redb composite-key tuple, not worth a type alias
 pub const STATEMENTS_BY_SUBJECT_TABLE: TableDefinition<
     'static,
-    ([u8; 16], u8, u32, u8, [u8; 16]),
+    (u32, [u8; 16], [u8; 16], u8, u32, u8, [u8; 16]),
     [u8; 16],
 > = TableDefinition::new("statements_by_subject");
 
-/// `(predicate_id, kind, confidence_bucket)` → `StatementId.to_bytes()`.
+/// `(namespace_id, agent_id_bytes, predicate_id, kind, confidence_bucket,
+/// statement_id)` → `StatementId.to_bytes()`.
 /// `confidence_bucket` is `floor(confidence * 10)` clamped to `0..=10`.
-pub const STATEMENTS_BY_PREDICATE_TABLE: TableDefinition<'static, (u32, u8, u8), [u8; 16]> =
-    TableDefinition::new("statements_by_predicate");
+/// The trailing statement_id keeps the index multi-value (two statements
+/// in the same `(scope, predicate, kind, bucket)` cell don't collide).
+#[allow(clippy::type_complexity)]
+pub const STATEMENTS_BY_PREDICATE_TABLE: TableDefinition<
+    'static,
+    (u32, [u8; 16], u32, u8, u8, [u8; 16]),
+    [u8; 16],
+> = TableDefinition::new("statements_by_predicate");
 
-/// `(EntityId, kind)` → `StatementId.to_bytes()`. Walk this when
-/// answering "what statements have X as object?".
-pub const STATEMENTS_BY_OBJECT_ENTITY_TABLE: TableDefinition<'static, ([u8; 16], u8), [u8; 16]> =
-    TableDefinition::new("statements_by_object_entity");
+/// `(namespace_id, agent_id_bytes, EntityId, kind, statement_id)` →
+/// `StatementId.to_bytes()`. Walk this when answering "what statements have
+/// X as object?". The trailing statement_id keeps the index multi-value.
+#[allow(clippy::type_complexity)]
+pub const STATEMENTS_BY_OBJECT_ENTITY_TABLE: TableDefinition<
+    'static,
+    (u32, [u8; 16], [u8; 16], u8, [u8; 16]),
+    [u8; 16],
+> = TableDefinition::new("statements_by_object_entity");
 
-/// `(event_at_unix_nanos, subject_entity_bytes)` → `StatementId.to_bytes()`.
-/// Time-range queries scan a prefix; the EntityId disambiguates same-time
-/// events for the same subject.
-pub const STATEMENTS_BY_EVENT_TIME_TABLE: TableDefinition<'static, (u64, [u8; 16]), [u8; 16]> =
-    TableDefinition::new("statements_by_event_time");
+/// `(namespace_id, agent_id_bytes, event_at_unix_nanos,
+/// subject_entity_bytes, statement_id)` → `StatementId.to_bytes()`.
+/// Time-range queries scan a prefix; the EntityId + statement_id
+/// disambiguate same-time events for the same subject.
+#[allow(clippy::type_complexity)]
+pub const STATEMENTS_BY_EVENT_TIME_TABLE: TableDefinition<
+    'static,
+    (u32, [u8; 16], u64, [u8; 16], [u8; 16]),
+    [u8; 16],
+> = TableDefinition::new("statements_by_event_time");
 
-/// `(MemoryId, StatementId)` → `()`. Reverse index for FORGET cascade.
-pub const STATEMENTS_BY_EVIDENCE_TABLE: TableDefinition<'static, ([u8; 16], [u8; 16]), ()> =
-    TableDefinition::new("statements_by_evidence");
+/// `(namespace_id, agent_id_bytes, MemoryId, StatementId)` → `()`. Reverse
+/// index for FORGET cascade.
+#[allow(clippy::type_complexity)]
+pub const STATEMENTS_BY_EVIDENCE_TABLE: TableDefinition<
+    'static,
+    (u32, [u8; 16], [u8; 16], [u8; 16]),
+    (),
+> = TableDefinition::new("statements_by_evidence");
 
-/// `(chain_root, version)` → `StatementId.to_bytes()`. Walk this to
-/// reconstruct the supersession chain of a statement.
-pub const STATEMENT_CHAIN_TABLE: TableDefinition<'static, ([u8; 16], u32), [u8; 16]> =
-    TableDefinition::new("statement_chain");
+/// `(namespace_id, agent_id_bytes, chain_root, version)` →
+/// `StatementId.to_bytes()`. Walk this to reconstruct the supersession
+/// chain of a statement.
+#[allow(clippy::type_complexity)]
+pub const STATEMENT_CHAIN_TABLE: TableDefinition<
+    'static,
+    (u32, [u8; 16], [u8; 16], u32),
+    [u8; 16],
+> = TableDefinition::new("statement_chain");
 
 pub const EVIDENCE_OVERFLOW_TABLE: TableDefinition<'static, [u8; 16], EvidenceOverflow> =
     TableDefinition::new("evidence_overflow");
@@ -329,6 +364,12 @@ pub fn confidence_bucket(c: f32) -> u8 {
 #[archive(check_bytes)]
 pub struct StatementMetadata {
     pub statement_id_bytes: [u8; 16],
+    /// Owning namespace (tenant) — the outer half of the
+    /// `(namespace, agent)` scope key. Required; stamped from the
+    /// caller's scope at create time (fail-closed by construction).
+    pub namespace_id: u32,
+    /// Owning agent (app) — the inner half of the scope key.
+    pub agent_id_bytes: [u8; 16],
     pub chain_root_bytes: [u8; 16],
     pub version: u32,
     /// Fact=0 / Preference=1 / Event=2 per `brain_core::StatementKind`.
@@ -406,6 +447,24 @@ impl StatementMetadata {
     #[must_use]
     pub fn statement_id(&self) -> StatementId {
         StatementId::from(self.statement_id_bytes)
+    }
+
+    /// The owning namespace (tenant) of this statement.
+    #[must_use]
+    pub fn namespace(&self) -> NamespaceId {
+        NamespaceId::from(self.namespace_id)
+    }
+
+    /// The owning agent of this statement.
+    #[must_use]
+    pub fn agent_id(&self) -> AgentId {
+        AgentId::from(self.agent_id_bytes)
+    }
+
+    /// The `(namespace, agent)` scope this statement belongs to.
+    #[must_use]
+    pub fn scope(&self) -> RowScope {
+        RowScope::from_bytes(self.namespace_id, self.agent_id_bytes)
     }
 
     #[must_use]
@@ -538,7 +597,7 @@ impl_redb_rkyv_value!(EvidenceOverflow, "brain_metadata::EvidenceOverflow");
 /// `superseded_by / tombstoned` only — validity-window timing is left
 /// to query-time.
 #[must_use]
-pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
+pub fn metadata_from_statement(s: &Statement, scope: RowScope) -> StatementMetadata {
     let (subject_entity_bytes, subject_kind) = match s.subject {
         SubjectRef::Entity(id) => (id.to_bytes(), 0u8),
         SubjectRef::Pending(audit) => (audit.to_bytes(), 1u8),
@@ -566,6 +625,8 @@ pub fn metadata_from_statement(s: &Statement) -> StatementMetadata {
 
     StatementMetadata {
         statement_id_bytes: s.id.to_bytes(),
+        namespace_id: scope.namespace_id,
+        agent_id_bytes: scope.agent_id_bytes,
         chain_root_bytes: s.chain_root.to_bytes(),
         version: s.version,
         kind: s.kind.as_u8(),

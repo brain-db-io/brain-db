@@ -306,9 +306,17 @@ mod tests {
     };
     use smallvec::SmallVec;
 
+    fn test_scope() -> crate::tables::scope::RowScope {
+        crate::tables::scope::RowScope::from_bytes(
+            brain_core::NamespaceId::SYSTEM.raw(),
+            [0xAB; 16],
+        )
+    }
+
     fn sample_entity_metadata() -> EntityMetadata {
         let mut m = EntityMetadata::new_active(
             EntityId::new(),
+            test_scope(),
             EntityTypeId::from(1),
             "Priya Patel".into(),
             "priya patel".into(),
@@ -334,7 +342,7 @@ mod tests {
             1_700_000_000_000_000_000,
             1,
         );
-        metadata_from_statement(&s)
+        metadata_from_statement(&s, test_scope())
     }
 
     #[test]

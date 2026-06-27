@@ -20,6 +20,7 @@ use brain_core::{EntityId, PredicateId, StatementId, StatementKind};
 use brain_core::{Statement, SubjectRef};
 use redb::{ReadTransaction, ReadableTable, WriteTransaction};
 
+use crate::tables::scope::RowScope;
 use crate::tables::statement::{StatementMetadata, STATEMENTS_BY_SUBJECT_TABLE, STATEMENTS_TABLE};
 
 use super::crud::{
@@ -39,6 +40,7 @@ use super::StatementOpError;
 /// the prior row.
 pub fn statement_supersede(
     wtxn: &WriteTransaction,
+    _scope: RowScope,
     old_id: StatementId,
     new_statement: &Statement,
     now_unix_nanos: u64,
@@ -51,6 +53,11 @@ pub fn statement_supersede(
         let row: Option<StatementMetadata> = t.get(&old_id.to_bytes())?.map(|g| g.value());
         row.ok_or(StatementOpError::NotFound(old_id))?
     };
+    // The old row's owning scope is authoritative — a supersede can never
+    // re-home a statement into a different tenant. The new row + every
+    // rewritten index key are stamped with this same scope. (The caller
+    // passes its scope for API symmetry; the row's own scope wins.)
+    let scope = old.scope();
 
     // Pre-conditions.
     if old.is_tombstoned() {
@@ -149,6 +156,7 @@ pub fn statement_supersede(
     if old_was_current {
         flip_by_subject_to_noncurrent(
             wtxn,
+            scope,
             old_subject_bytes,
             old_kind_byte,
             old_pred,
@@ -159,6 +167,7 @@ pub fn statement_supersede(
         // below. Ownership-guarded so it never evicts a sibling.
         crate::statement::remove_from_predicate_index(
             wtxn,
+            scope,
             old_pred,
             old_kind_byte,
             old.confidence,
@@ -167,7 +176,7 @@ pub fn statement_supersede(
     }
 
     // Insert new statement + all indexes.
-    insert_new_statement(wtxn, &new_to_insert)?;
+    insert_new_statement(wtxn, scope, &new_to_insert)?;
 
     Ok(new_to_insert.id)
 }
@@ -354,6 +363,7 @@ impl<'a> TieredSupersedeDecider<'a> {
     /// `Coexist` in that case (Tier 0 still fires).
     pub async fn decide(
         &self,
+        scope: RowScope,
         new_stmt: &Statement,
         new_vector: &[f32],
         rtxn: &ReadTransaction,
@@ -361,7 +371,7 @@ impl<'a> TieredSupersedeDecider<'a> {
         // Tier 0 — exact (subject, predicate) match on a current row.
         if let SubjectRef::Entity(subject) = new_stmt.subject {
             if let Some(existing_id) =
-                lookup_current_statement(rtxn, subject, new_stmt.predicate, new_stmt.kind)?
+                lookup_current_statement(rtxn, scope, subject, new_stmt.predicate, new_stmt.kind)?
             {
                 return Ok(if new_stmt.is_stateful {
                     SupersedeDecision::Supersede(existing_id)
@@ -463,6 +473,7 @@ impl<'a> TieredSupersedeDecider<'a> {
 /// so the lookup must work against a snapshot.
 fn lookup_current_statement(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     predicate: PredicateId,
     kind: StatementKind,
@@ -470,8 +481,10 @@ fn lookup_current_statement(
     let bys = rtxn.open_table(STATEMENTS_BY_SUBJECT_TABLE)?;
     // The trailing statement id is part of the key now; single-valued
     // kinds still have exactly one current row, so a range scan over the
-    // (subject, kind, predicate, is_current=1) prefix yields it.
+    // (scope, subject, kind, predicate, is_current=1) prefix yields it.
     let lo = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         kind.as_u8(),
         predicate.raw(),
@@ -479,6 +492,8 @@ fn lookup_current_statement(
         [0u8; 16],
     );
     let hi = (
+        scope.namespace_id,
+        scope.agent_id_bytes,
         subject.to_bytes(),
         kind.as_u8(),
         predicate.raw(),
@@ -517,13 +532,14 @@ fn lookup_current_statement(
 /// backwards-compatible call sites.
 pub fn statement_create_with_decision(
     wtxn: &WriteTransaction,
+    scope: RowScope,
     new_statement: &Statement,
     decision: SupersedeDecision,
     now_unix_nanos: u64,
 ) -> Result<StatementId, StatementOpError> {
     match decision {
         SupersedeDecision::Supersede(prior) => {
-            statement_supersede(wtxn, prior, new_statement, now_unix_nanos)
+            statement_supersede(wtxn, scope, prior, new_statement, now_unix_nanos)
         }
         SupersedeDecision::Contradicts(prior) => {
             // Structured trace so operators can hook it. A first-class
@@ -541,10 +557,10 @@ pub fn statement_create_with_decision(
                 "CONTRADICTION_DETECTED: tiered decider returned Contradicts"
             );
             // Fall through to plain create — both rows coexist.
-            super::crud::statement_create(wtxn, new_statement, now_unix_nanos)
+            super::crud::statement_create(wtxn, scope, new_statement, now_unix_nanos)
         }
         SupersedeDecision::Coexist => {
-            super::crud::statement_create(wtxn, new_statement, now_unix_nanos)
+            super::crud::statement_create(wtxn, scope, new_statement, now_unix_nanos)
         }
     }
 }
@@ -563,6 +579,9 @@ mod tests {
     use brain_core::{Entity, EntityType, EvidenceRef, StatementObject, StatementValue};
     use std::sync::atomic::{AtomicUsize, Ordering};
     use std::sync::Arc;
+    fn test_scope() -> RowScope {
+        RowScope::from_bytes(brain_core::NamespaceId::SYSTEM.raw(), [0xAB; 16])
+    }
 
     fn open_db() -> (tempfile::TempDir, crate::MetadataDb) {
         let dir = tempfile::tempdir().unwrap();
@@ -581,7 +600,7 @@ mod tests {
             1_700_000_000_000_000_000,
         );
         let wtxn = db.write_txn().unwrap();
-        entity_put(&wtxn, &e).unwrap();
+        entity_put(&wtxn, test_scope(), &e).unwrap();
         wtxn.commit().unwrap();
         id
     }
@@ -672,7 +691,7 @@ mod tests {
         let old = fresh_fact_value(subj, pred, "v1", true);
         let old_bucket = confidence_bucket(0.9);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &old, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &old, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         // New: confidence 0.3 -> bucket 3. Same subject+predicate, so the
@@ -682,14 +701,24 @@ mod tests {
         let new_bucket = confidence_bucket(0.3);
         assert_ne!(old_bucket, new_bucket);
         let wtxn = db.write_txn().unwrap();
-        let new_id = statement_create(&wtxn, &new, 1_700_000_000_000_000_500).unwrap();
+        let new_id =
+            statement_create(&wtxn, test_scope(), &new, 1_700_000_000_000_000_500).unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
+        let sc = test_scope();
         let t = rtxn.open_table(STATEMENTS_BY_PREDICATE_TABLE).unwrap();
-        // Old bucket no longer points at the superseded row.
+        // Old bucket no longer points at the superseded row (the key now
+        // carries the statement id, so address the exact entry).
         let at_old = t
-            .get(&(pred.raw(), StatementKind::Fact.as_u8(), old_bucket))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                pred.raw(),
+                StatementKind::Fact.as_u8(),
+                old_bucket,
+                old.id.to_bytes(),
+            ))
             .unwrap()
             .map(|g| g.value());
         assert_ne!(
@@ -699,7 +728,14 @@ mod tests {
         );
         // New bucket points at the current row.
         let at_new = t
-            .get(&(pred.raw(), StatementKind::Fact.as_u8(), new_bucket))
+            .get(&(
+                sc.namespace_id,
+                sc.agent_id_bytes,
+                pred.raw(),
+                StatementKind::Fact.as_u8(),
+                new_bucket,
+                new_id.to_bytes(),
+            ))
             .unwrap()
             .map(|g| g.value());
         assert_eq!(
@@ -762,14 +798,14 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let p2 = fresh_pref(subj, pred, "written");
         let source = FakeSource { candidates: vec![] };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Supersede(p1.id));
     }
 
@@ -786,7 +822,7 @@ mod tests {
         // Fact stays current.
         p1.is_stateful = false;
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let mut p2 = fresh_fact_value(subj, pred, "bob", false);
@@ -794,7 +830,7 @@ mod tests {
         let source = FakeSource { candidates: vec![] };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Contradicts(p1.id));
     }
 
@@ -817,7 +853,7 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         statement_tombstone(&wtxn, p1.id, TombstoneReason::UserRequest, 1).unwrap();
@@ -833,7 +869,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Supersede(p1.id));
     }
 
@@ -854,7 +890,7 @@ mod tests {
         let pred = intern_pref(db, pred_name, true);
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
         let wtxn = db.write_txn().unwrap();
         statement_tombstone(&wtxn, p1.id, TombstoneReason::UserRequest, 1).unwrap();
@@ -881,7 +917,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source).with_judge(&judge);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Supersede(p1.id));
         assert_eq!(calls.load(Ordering::SeqCst), 1);
     }
@@ -905,7 +941,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source).with_judge(&judge);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Contradicts(p1.id));
     }
 
@@ -928,7 +964,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source).with_judge(&judge);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Coexist);
     }
 
@@ -948,7 +984,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Coexist);
     }
 
@@ -968,7 +1004,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source); // no judge
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Coexist);
     }
 
@@ -982,7 +1018,7 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         // Same predicate → Tier 0 fires regardless of vector.
@@ -990,7 +1026,7 @@ mod tests {
         let source = FakeSource { candidates: vec![] };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Supersede(p1.id));
     }
 
@@ -1003,7 +1039,7 @@ mod tests {
 
         let f1 = fresh_fact_value(subj, fact_pred, "alice", true);
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &f1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &f1, 0).unwrap();
         wtxn.commit().unwrap();
 
         // New Preference is near a Fact in embedding space — must
@@ -1018,7 +1054,7 @@ mod tests {
         };
         let decider = TieredSupersedeDecider::new(&source);
         let rtxn = db.read_txn().unwrap();
-        let decision = block_on(decider.decide(&p2, &[1.0, 0.0], &rtxn)).unwrap();
+        let decision = block_on(decider.decide(test_scope(), &p2, &[1.0, 0.0], &rtxn)).unwrap();
         assert_eq!(decision, SupersedeDecision::Coexist);
     }
 
@@ -1037,13 +1073,14 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         let p2 = fresh_pref(subj, pred, "remote");
         let wtxn = db.write_txn().unwrap();
         statement_create_with_decision(
             &wtxn,
+            test_scope(),
             &p2,
             SupersedeDecision::Supersede(p1.id),
             1_700_000_000_000_000_001,
@@ -1074,7 +1111,7 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 1_700_000_000_000_000_000).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 1_700_000_000_000_000_000).unwrap();
         wtxn.commit().unwrap();
 
         let supersede_now: u64 = 1_700_000_000_000_000_500;
@@ -1082,6 +1119,7 @@ mod tests {
         let wtxn = db.write_txn().unwrap();
         statement_create_with_decision(
             &wtxn,
+            test_scope(),
             &p2,
             SupersedeDecision::Supersede(p1.id),
             supersede_now,
@@ -1108,7 +1146,7 @@ mod tests {
 
         let p1 = fresh_pref(subj, pred, "async");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &p1, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &p1, 0).unwrap();
         wtxn.commit().unwrap();
 
         // Use a different predicate to avoid Tier 0 in statement_create.
@@ -1116,7 +1154,8 @@ mod tests {
         let mut p2 = fresh_pref(subj, pred2, "remote");
         p2.is_stateful = false;
         let wtxn = db.write_txn().unwrap();
-        statement_create_with_decision(&wtxn, &p2, SupersedeDecision::Coexist, 0).unwrap();
+        statement_create_with_decision(&wtxn, test_scope(), &p2, SupersedeDecision::Coexist, 0)
+            .unwrap();
         wtxn.commit().unwrap();
 
         let rtxn = db.read_txn().unwrap();
@@ -1150,7 +1189,7 @@ mod tests {
         let mut seed_t0 = fresh_fact_value(subj_t0, pred_t0, "alice", false);
         seed_t0.is_stateful = false;
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &seed_t0, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &seed_t0, 0).unwrap();
         wtxn.commit().unwrap();
 
         let calls = Arc::new(AtomicUsize::new(0));
@@ -1167,7 +1206,7 @@ mod tests {
             probe.is_stateful = false;
             let src = FakeSource { candidates: vec![] };
             let decider = TieredSupersedeDecider::new(&src).with_judge(&judge);
-            let _ = block_on(decider.decide(&probe, &[1.0, 0.0], &rtxn)).unwrap();
+            let _ = block_on(decider.decide(test_scope(), &probe, &[1.0, 0.0], &rtxn)).unwrap();
         }
         // Tier 1 — 25.
         for _ in 0..25 {
@@ -1180,7 +1219,7 @@ mod tests {
                 }],
             };
             let decider = TieredSupersedeDecider::new(&src).with_judge(&judge);
-            let _ = block_on(decider.decide(&probe, &[1.0, 0.0], &rtxn)).unwrap();
+            let _ = block_on(decider.decide(test_scope(), &probe, &[1.0, 0.0], &rtxn)).unwrap();
         }
         // Tier 2 — 15.
         for _ in 0..15 {
@@ -1193,7 +1232,7 @@ mod tests {
                 }],
             };
             let decider = TieredSupersedeDecider::new(&src).with_judge(&judge);
-            let _ = block_on(decider.decide(&probe, &[1.0, 0.0], &rtxn)).unwrap();
+            let _ = block_on(decider.decide(test_scope(), &probe, &[1.0, 0.0], &rtxn)).unwrap();
         }
         // Tier 3 — 100.
         for _ in 0..100 {
@@ -1206,7 +1245,7 @@ mod tests {
                 }],
             };
             let decider = TieredSupersedeDecider::new(&src).with_judge(&judge);
-            let _ = block_on(decider.decide(&probe, &[1.0, 0.0], &rtxn)).unwrap();
+            let _ = block_on(decider.decide(test_scope(), &probe, &[1.0, 0.0], &rtxn)).unwrap();
         }
 
         let calls_observed = calls.load(Ordering::SeqCst);
@@ -1243,7 +1282,7 @@ mod tests {
         let pred_st = intern_pref(&mut db, "g_pred_st", true);
         let seed_st = fresh_pref(subj_st, pred_st, "v1");
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &seed_st, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &seed_st, 0).unwrap();
         wtxn.commit().unwrap();
 
         // Tier 0 idempotent — current cumulative Fact exists.
@@ -1252,7 +1291,7 @@ mod tests {
         let mut seed_id = fresh_fact_value(subj_id, pred_id, "alice", false);
         seed_id.is_stateful = false;
         let wtxn = db.write_txn().unwrap();
-        statement_create(&wtxn, &seed_id, 0).unwrap();
+        statement_create(&wtxn, test_scope(), &seed_id, 0).unwrap();
         wtxn.commit().unwrap();
 
         // Tier 1/2/3 — tombstone the prior so Tier 0 misses but the
@@ -1299,7 +1338,8 @@ mod tests {
             if let Some(j) = judge {
                 decider = decider.with_judge(j);
             }
-            let decision = block_on(decider.decide(&probe, &[1.0, 0.0], &rtxn)).unwrap();
+            let decision =
+                block_on(decider.decide(test_scope(), &probe, &[1.0, 0.0], &rtxn)).unwrap();
             total += 1;
             if label.matches(decision) {
                 agree += 1;

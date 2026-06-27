@@ -27,7 +27,7 @@ use brain_core::{
 };
 use brain_metadata::{
     entity_get, predicate_embedding_get, predicate_get, relation_list_from, relation_list_to,
-    relation_type_embedding_get, relation_type_get, statement_list, RelationListFilter,
+    relation_type_embedding_get, relation_type_get, statement_list, RelationListFilter, RowScope,
     StatementListFilter,
 };
 use redb::ReadTransaction;
@@ -224,6 +224,7 @@ fn is_meaningful_object(o: &StatementObject) -> bool {
 /// no string matching, no threshold-free exactness.
 pub fn grounded_answer(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     cue_vec: &[f32; brain_embed::VECTOR_DIM],
 ) -> Result<GroundedAnswer, GroundedError> {
@@ -236,8 +237,8 @@ pub fn grounded_answer(
     // ~0.85, which lives in the relations table because Niraj→Meera is an
     // entity link). Comparing by score lets the relation win. On a tie, prefer
     // the statement (an attribute is a more specific answer than a generic edge).
-    let stmt = best_statement_answer(rtxn, subject, cue_vec)?;
-    let rel = best_relation_answer(rtxn, subject, cue_vec)?;
+    let stmt = best_statement_answer(rtxn, scope, subject, cue_vec)?;
+    let rel = best_relation_answer(rtxn, scope, subject, cue_vec)?;
     let score = |a: &GroundedAnswer| a.values.first().map(|v| v.match_score).unwrap_or(0.0);
     let answer = match (stmt, rel) {
         (Some(s), Some(r)) => {
@@ -305,6 +306,7 @@ const GROUNDED_WALK_DEPTH_DISCOUNT: f32 = 0.9;
 /// floor — the boost is then a no-op and the episodic read stands alone.
 pub fn grounded_answer_walk(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     anchor: EntityId,
     cue_vec: &[f32; brain_embed::VECTOR_DIM],
 ) -> Result<GroundedAnswer, GroundedError> {
@@ -317,7 +319,7 @@ pub fn grounded_answer_walk(
     // at which we reached it. Depth drives the nearest-wins discount and the
     // path-vs-terminal test below.
     let mut answers: HashMap<EntityId, (GroundedAnswer, usize)> = HashMap::new();
-    let anchor_ans = grounded_answer(rtxn, anchor, cue_vec)?;
+    let anchor_ans = grounded_answer(rtxn, scope, anchor, cue_vec)?;
     if !matches!(anchor_ans.kind, AnswerKind::None) {
         answers.insert(anchor, (anchor_ans, 0));
     }
@@ -333,9 +335,9 @@ pub fn grounded_answer_walk(
                 limit: 0,
             };
             let mut scored: Vec<(EntityId, f32)> = Vec::new();
-            let outgoing = relation_list_from(rtxn, node, &filter)
+            let outgoing = relation_list_from(rtxn, scope, node, &filter)
                 .map_err(|e| GroundedError::Metadata(format!("{e}")))?;
-            let incoming = relation_list_to(rtxn, node, &filter)
+            let incoming = relation_list_to(rtxn, scope, node, &filter)
                 .map_err(|e| GroundedError::Metadata(format!("{e}")))?;
             for r in outgoing.iter().chain(incoming.iter()) {
                 let other = if r.from_entity == node {
@@ -360,7 +362,7 @@ pub fn grounded_answer_walk(
                     continue;
                 }
                 next.push(other);
-                let ans = grounded_answer(rtxn, other, cue_vec)?;
+                let ans = grounded_answer(rtxn, scope, other, cue_vec)?;
                 if !matches!(ans.kind, AnswerKind::None) {
                     answers.insert(other, (ans, hop + 1));
                 }
@@ -454,11 +456,13 @@ fn select_walk_winner(
 /// (or every match has a blank object).
 fn best_statement_answer(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     cue_vec: &[f32; brain_embed::VECTOR_DIM],
 ) -> Result<Option<GroundedAnswer>, GroundedError> {
     let stmts = statement_list(
         rtxn,
+        scope,
         &StatementListFilter {
             subject: Some(subject),
             predicate: None,
@@ -558,6 +562,7 @@ fn best_statement_answer(
 /// collapse to a single value, while distinct targets form the natural Set.
 fn best_relation_answer(
     rtxn: &ReadTransaction,
+    scope: RowScope,
     subject: EntityId,
     cue_vec: &[f32; brain_embed::VECTOR_DIM],
 ) -> Result<Option<GroundedAnswer>, GroundedError> {
@@ -574,9 +579,9 @@ fn best_relation_answer(
         current_only: true,
         limit: 0,
     };
-    let outgoing = relation_list_from(rtxn, subject, &filter)
+    let outgoing = relation_list_from(rtxn, scope, subject, &filter)
         .map_err(|e| GroundedError::Metadata(format!("{e}")))?;
-    let incoming = relation_list_to(rtxn, subject, &filter)
+    let incoming = relation_list_to(rtxn, scope, subject, &filter)
         .map_err(|e| GroundedError::Metadata(format!("{e}")))?;
     if outgoing.is_empty() && incoming.is_empty() {
         return Ok(None);

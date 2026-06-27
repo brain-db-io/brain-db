@@ -244,12 +244,12 @@ The user picks the action per migration (in the migration declaration) or accept
 
 ## Multiple schemas (namespaces)
 
-A deployment can have multiple schemas under different namespaces. They share storage (one entities table, one statements table) but don't conflict because:
-- Entity types are namespaced: `acme.Person` and `crm.Person` are different types.
-- Predicates are namespaced.
-- Relation types are namespaced.
+A namespace is the **tenant (company) boundary** — it isolates *both* the schema/type vocabulary *and* the data. A deployment hosts many namespaces:
+- Entity types are namespaced: `acme:Person` and `crm:Person` are different types (plus the shared `brain:` system vocabulary every namespace may reference).
+- Predicates and relation types are namespaced.
+- **Data is owned by a namespace too:** every entity / statement / relation / memory carries an owner `namespace_id` (and owning `agent_id`); rows are partitioned by `(namespace, agent)` and cross-namespace reads are forbidden. The owner namespace is distinct from the *type's* namespace — a row owned by `acme` may reference a `brain:` system type.
 
-This lets a single deployment serve multiple applications with isolated schemas.
+This lets a single deployment serve multiple tenants with **isolated data and isolated schemas**. See [`./04_namespaces.md`](./04_namespaces.md) for the operational contract (the data-boundary semantics, fail-closed rules, per-`(namespace, agent)` entity resolution).
 
 ## Progressive enhancement, single pipeline
 
