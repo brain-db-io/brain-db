@@ -107,6 +107,17 @@ docker *CMD:
     @devcontainer up --workspace-folder . >/dev/null
     @devcontainer exec --workspace-folder . {{CMD}}
 
+# brain-server tests, run in parallel. The VM has ~15 GB + 10 cores and links
+# with mold, so the old `--test-threads=1` (sized for a 7.75 GB VM that OOM-
+# killed under nextest's default 10-way parallelism) is wasteful — 4 threads
+# is ~4x faster and stays well under the memory cap. Pass a nextest filter to
+# scope it, e.g. `just docker-test-server --test schema_wire` or
+# `just docker-test-server -E 'test(namespace)'`. No arg runs the whole suite.
+# Drop THREADS if a smaller VM starts OOM-killing.
+docker-test-server FILTER='' THREADS='4':
+    @devcontainer up --workspace-folder . >/dev/null
+    @devcontainer exec --workspace-folder . cargo nextest run -p brain-server --no-fail-fast --test-threads {{THREADS}} {{FILTER}}
+
 # Linux verify suite (the gate for committing Linux-touching code).
 # Plain `cargo test` excludes benches by default — criterion benches
 # build a 100k-vector HNSW index and hang on ARM Linux emulation,

@@ -38,10 +38,11 @@
   "remoteEnv": {
     "RUST_BACKTRACE": "1",
     "CARGO_TERM_COLOR": "always",
-    // Cap parallel compile jobs to avoid the OOM-killer (signal 9) on the
-    // linker when many crates link concurrently in an 8–12 GB Docker
-    // Desktop VM. 2 is conservative; bump if your container has 16+ GB.
-    "CARGO_BUILD_JOBS": "2"
+    // Parallel compile jobs. Raised to 4: the VM has ~15 GB and links with
+    // mold (much lower link memory than bfd), so the linker-OOM that forced a
+    // conservative 2 on smaller VMs no longer applies. Lower again only if a
+    // shrunk VM starts OOM-killing (signal 9) during concurrent links.
+    "CARGO_BUILD_JOBS": "4"
 
     // target-cpu / fullfp16 handling lives in .cargo/config.toml as
     // per-target rustflags so it scopes to aarch64-unknown-linux-gnu only.
