@@ -246,7 +246,6 @@ impl MintedKey {
 
 /// Parse the canonical `brain_<base64url(secret)>` display form back to
 /// the raw 32-byte secret. Returns `None` on a malformed string.
-#[allow(dead_code)]
 #[must_use]
 pub fn parse_formatted_key(s: &str) -> Option<Vec<u8>> {
     use base64::engine::general_purpose::URL_SAFE_NO_PAD;
@@ -264,15 +263,23 @@ pub fn derive_scope_from_handshake(
     auth: &AuthPayload,
     store: &Arc<AuthStore>,
 ) -> Result<RequestScope, AuthError> {
-    let secret = match (&auth.method, &auth.credentials) {
+    let token = match (&auth.method, &auth.credentials) {
         (AuthMethod::Token, AuthCredentials::Token(bytes)) => bytes.as_slice(),
         (AuthMethod::Mtls, _) | (_, AuthCredentials::Mtls(_)) => {
             return Err(AuthError::UnsupportedMethod);
         }
     };
-    if secret.is_empty() {
+    if token.is_empty() {
         return Err(AuthError::Missing);
     }
+
+    // The credential clients present is the canonical `brain_<base64url>` form
+    // the admin mint hands out, sent verbatim. Decode it to the raw secret
+    // before hashing — the store keys on BLAKE3(secret_bytes), not the display
+    // string. Fall back to the raw bytes for a caller that presents the
+    // pre-decoded secret directly.
+    let decoded = std::str::from_utf8(token).ok().and_then(parse_formatted_key);
+    let secret: &[u8] = decoded.as_deref().unwrap_or(token);
 
     let row = store.lookup(secret)?.ok_or(AuthError::Unknown)?;
     if row.revoked {
@@ -372,6 +379,30 @@ mod tests {
         assert!(scope.permissions & bits::ADMIN == 0);
         // The caller inherits the key's namespace; identity is the credential.
         assert_eq!(scope.to_caller([0u8; 16]).namespace, "acme");
+    }
+
+    #[test]
+    fn accepts_formatted_api_key() {
+        // The canonical credential clients present is the `brain_<base64url>`
+        // display string the admin mint returns — verbatim, not pre-decoded.
+        // The wire path must decode it before hashing, or every minted key is
+        // rejected as unknown (the bug the docker e2e caught).
+        let (_dir, store) = store();
+        let minted = store
+            .mint(
+                agent(2),
+                [0u8; 16],
+                "acme".into(),
+                agent(7),
+                bits::STANDARD_AGENT,
+                1_700_000_000_000_000_000,
+            )
+            .unwrap();
+        let payload = auth_token(minted.formatted().into_bytes());
+        let scope = derive_scope_from_handshake(&payload, &store)
+            .expect("the formatted brain_ token must resolve");
+        assert_eq!(scope.namespace, "acme");
+        assert_eq!(scope.agent_id, AgentId(uuid::Uuid::from_bytes(agent(7))));
     }
 
     #[test]
