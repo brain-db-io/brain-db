@@ -181,7 +181,12 @@ async fn upload_get_list_smoke() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client, &server.token).await;
+    let acme = server.mint(
+        "acme",
+        *uuid::Uuid::now_v7().as_bytes(),
+        brain_metadata::api_keys::bits::FULL,
+    );
+    complete_handshake(&mut client, &acme).await;
 
     // UPLOAD v1.
     let (opcode, body) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
@@ -248,7 +253,12 @@ async fn upload_bumps_version_and_list_is_newest_first() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client, &server.token).await;
+    let acme = server.mint(
+        "acme",
+        *uuid::Uuid::now_v7().as_bytes(),
+        brain_metadata::api_keys::bits::FULL,
+    );
+    complete_handshake(&mut client, &acme).await;
 
     let (_, _) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
     let (_, body) = round_trip(&mut client, 3, upload_request(ACME_V2)).await;
@@ -287,7 +297,12 @@ async fn get_by_explicit_version_returns_that_version_not_active() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client, &server.token).await;
+    let acme = server.mint(
+        "acme",
+        *uuid::Uuid::now_v7().as_bytes(),
+        brain_metadata::api_keys::bits::FULL,
+    );
+    complete_handshake(&mut client, &acme).await;
 
     // Upload v1, then v2 (adds a predicate). Active becomes v2.
     let (_, _) = round_trip(&mut client, 1, upload_request(ACME_V1)).await;
@@ -338,7 +353,12 @@ async fn validate_dry_run_returns_would_be_version() {
     let mut client = TcpStream::connect(server.data_plane_addr)
         .await
         .expect("connect");
-    complete_handshake(&mut client, &server.token).await;
+    let acme = server.mint(
+        "acme",
+        *uuid::Uuid::now_v7().as_bytes(),
+        brain_metadata::api_keys::bits::FULL,
+    );
+    complete_handshake(&mut client, &acme).await;
 
     // Validate on empty active namespace → would_be = 1.
     let (_, body) = round_trip(
